@@ -12,6 +12,7 @@ import { claudeHookEvents, doctorClaudeHooks, openPetsHookMarker, removeOpenPets
 import { buildCursorRulesPreview, buildOpenPetsOnlyPreview, classifyCursorMcpStatus, classifyCursorRulesStatus, executeCursorMcpWrite, executeCursorRulesWrite, getCursorProjectMcpPath, getCursorProjectRulesPath, planCursorMcpInstall, planCursorMcpReplace, planCursorRulesInstall, planCursorRulesRemove, planCursorRulesReplace, readCursorMcpConfig, readCursorOpenPetsRules } from "@open-pets/cursor";
 import { prepareOpenCodeProjectSetup, writePreparedOpenCodeProjectSetup } from "@open-pets/opencode";
 import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
+import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, planZedMcpInstall, planZedMcpReplace, readZedSettings } from "@open-pets/zed";
 
 import { pluginTemplateNames, pluginTemplates, type PluginTemplateName } from "./plugin-templates.js";
 import { validatePluginFolder } from "./plugin-validate.js";
@@ -19,7 +20,7 @@ import { validatePluginFolder } from "./plugin-validate.js";
 export const cliPackageName = "@open-pets/cli";
 
 interface ConfigureOptions {
-  readonly agent: "claude" | "opencode" | "cursor" | "openclaw";
+  readonly agent: "claude" | "opencode" | "cursor" | "openclaw" | "zed";
   readonly petId?: string;
   readonly cwd: string;
   readonly yes: boolean;
@@ -286,6 +287,10 @@ export async function configureProject(options: ConfigureOptions): Promise<void>
     await configureOpenClawGlobal();
     return;
   }
+  if (options.agent === "zed") {
+    await configureZedGlobal(options);
+    return;
+  }
   const projectDir = resolveProjectDir(options.cwd);
   if (options.agent === "cursor") {
     await configureCursorProject(options, projectDir);
@@ -308,6 +313,45 @@ export async function configureProject(options: ConfigureOptions): Promise<void>
   runClaudeMcpAddJson(projectDir, mcpConfig, options.force);
   writePreparedHooks(preparedHooks);
   process.stdout.write(`OpenPets configured for Claude in ${projectDir}.\nPet: ${sanitizeTerminalText(selectedPet.displayName)} (${selectedPet.id})\n`);
+}
+
+async function configureZedGlobal(options: ConfigureOptions): Promise<void> {
+  const client = createOpenPetsClient();
+  const selectedPet = options.petId ? await resolveConfiguredPet(client, options.petId) : undefined;
+  const packageVersion = getPackageVersion();
+  const previewOptions = {
+    mcpVersion: packageVersion,
+    petId: selectedPet?.id,
+    commandMode: options.localDev ? "local" as const : "published" as const,
+    mcpEntryPath: options.localDev ? require.resolve("@open-pets/mcp") : undefined,
+  };
+  const settingsPath = getZedGlobalSettingsPath();
+  const readResult = readZedSettings(settingsPath);
+  const status = classifyZedMcpStatus(readResult, settingsPath, previewOptions);
+  const preview = status.previewEntry ?? buildZedMcpEntry(previewOptions);
+  process.stdout.write(`Zed settings: ${settingsPath}\nStatus: ${status.status} - ${status.message}\nOpenPets MCP preview:\n${JSON.stringify({ context_servers: { openpets: preview } }, null, 2)}\n`);
+
+  if (status.status === "installed") {
+    process.stdout.write(`OpenPets is already configured for Zed in ${settingsPath}.\nRestart or reload Zed if its settings are stale.\n`);
+    return;
+  }
+  if (status.status === "invalid" || status.status === "error") {
+    throw new CliError(`${status.message} Fix ${settingsPath}, then rerun setup.`);
+  }
+  const requiresReplacement = status.status === "conflict"
+    || status.status === "disabled"
+    || (status.status === "needs-update" && !status.canInstall);
+  if (requiresReplacement && !options.force) {
+    throw new CliError(`${status.message} Rerun with --force to replace the managed Zed entry.`);
+  }
+
+  const plan = requiresReplacement
+    ? planZedMcpReplace(settingsPath, previewOptions)
+    : planZedMcpInstall(settingsPath, previewOptions);
+  if ("ok" in plan) throw new CliError(plan.message);
+  executeZedMcpWrite(plan);
+  const petMessage = selectedPet ? `Pet: ${sanitizeTerminalText(selectedPet.displayName)} (${selectedPet.id})\n` : "";
+  process.stdout.write(`OpenPets configured for Zed.\n${petMessage}${plan.backupPath ? `Backup: ${plan.backupPath}\n` : ""}Restart or reload Zed to load OpenPets.\n`);
 }
 
 async function configureCursorProject(options: ConfigureOptions, projectDir: string): Promise<void> {
@@ -558,7 +602,7 @@ export function parseConfigureArgs(args: readonly string[]): ConfigureOptions {
     else if (arg.startsWith("--cwd=")) { cwd = arg.slice("--cwd=".length); cwdProvided = true; }
     else throw new CliError(`Unknown configure option: ${arg}`);
   }
-  if (agent !== "claude" && agent !== "opencode" && agent !== "cursor" && agent !== "openclaw") throw new CliError(`Unsupported agent: ${agent}. Supported agents: claude, opencode, cursor, openclaw.`);
+  if (agent !== "claude" && agent !== "opencode" && agent !== "cursor" && agent !== "openclaw" && agent !== "zed") throw new CliError(`Unsupported agent: ${agent}. Supported agents: claude, opencode, cursor, openclaw, zed.`);
   if (cursorRulesMode && agent !== "cursor") throw new CliError("Cursor rules flags require --agent cursor.");
   if (agent === "openclaw" && (petId !== undefined || cwdProvided || force || localDev || cursorRulesMode)) throw new CliError("OpenClaw setup is global and does not accept --cwd, --pet, --force, --local-dev, or Cursor rules flags.");
   return { agent, petId, cwd, yes, force, localDev, cursorRulesMode };
@@ -998,7 +1042,7 @@ function getWorkspacePackageVersion(packageName: string): string {
 }
 
 function printUsage(): void {
-  process.stdout.write("Usage:\n  openpets status\n  openpets doctor [--cwd <path>] [--json]\n  openpets pets\n  openpets react <reaction>\n  openpets say <message> [--reaction <reaction>]\n  openpets install <pet-id> | --from-zip <path> | --from-folder <path>\n  openpets configure [--agent claude|opencode|cursor|openclaw] [--pet <id>] [--cwd <path>] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n  openpets plugin new <name> [--id <id>] [--dir <path>] [--author <name>]\n  openpets mcp [--pet <id>]\n  openpets hook --openpets-managed [--pet <id>]\n\nRun `openpets <command> --help` for command options.\n");
+  process.stdout.write("Usage:\n  openpets status\n  openpets doctor [--cwd <path>] [--json]\n  openpets pets\n  openpets react <reaction>\n  openpets say <message> [--reaction <reaction>]\n  openpets install <pet-id> | --from-zip <path> | --from-folder <path>\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed] [--pet <id>] [--cwd <path>] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n  openpets plugin new <name> [--id <id>] [--dir <path>] [--author <name>]\n  openpets mcp [--pet <id>]\n  openpets hook --openpets-managed [--pet <id>]\n\nRun `openpets <command> --help` for command options.\n");
 }
 
 function printPluginUsage(): void {
@@ -1044,7 +1088,7 @@ function printSayUsage(): void {
 }
 
 function printConfigureUsage(): void {
-  process.stdout.write("Usage:\n  openpets configure [--agent claude|opencode|cursor|openclaw] [--pet <id>] [--cwd <path>] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n\nOptions:\n  --pet <id>           Pet id to use for this project. If omitted, prompts with installed pets. Cursor --rules-only/--remove-rules do not need a pet.\n  --agent <agent>      Agent to configure: claude, opencode, cursor, or global openclaw. Defaults to claude.\n  --cwd <path>         Project directory to configure. Defaults to current directory. Cursor uses <cwd>/.cursor/mcp.json and <cwd>/.cursor/rules/openpets.mdc; global Cursor setup is not enabled here.\n  --with-rules         For Cursor, install MCP config and project rules after preflighting both writes.\n  --rules-only         For Cursor, install/update only .cursor/rules/openpets.mdc.\n  --remove-rules       For Cursor, remove only managed .cursor/rules/openpets.mdc.\n  --yes, -y            Accepted for scripts; no confirmation prompt is shown.\n  --force              Replace supported managed entries where applicable. Required for conflicting Cursor rules.\n  --replace            Alias for --force.\n  --local-dev          Use local development command paths where supported.\n  -h, --help           Show this help.\n\nOpenClaw setup is global and accepts only --agent openclaw and optional --yes.\n");
+  process.stdout.write("Usage:\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed] [--pet <id>] [--cwd <path>] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n\nOptions:\n  --pet <id>           Pet id to use for this project. If omitted, prompts with installed pets. Cursor --rules-only/--remove-rules do not need a pet.\n  --agent <agent>      Agent to configure: claude, opencode, cursor, openclaw, or zed. Defaults to claude.\n  --cwd <path>         Project directory to configure. Defaults to current directory. Cursor uses <cwd>/.cursor/mcp.json and <cwd>/.cursor/rules/openpets.mdc; global Cursor setup is not enabled here. Zed uses the global Zed settings file.\n  --with-rules         For Cursor, install MCP config and project rules after preflighting both writes.\n  --rules-only         For Cursor, install/update only .cursor/rules/openpets.mdc.\n  --remove-rules       For Cursor, remove only managed .cursor/rules/openpets.mdc.\n  --yes, -y            Accepted for scripts; no confirmation prompt is shown.\n  --force              Replace supported managed entries where applicable. Required for conflicting or disabled Zed entries and conflicting Cursor rules.\n  --replace            Alias for --force.\n  --local-dev          Use local development command paths where supported.\n  -h, --help           Show this help.\n\nOpenClaw setup is global and accepts only --agent openclaw and optional --yes. Zed setup is global and ignores the project path.\n");
 }
 
 function printMcpUsage(): void {

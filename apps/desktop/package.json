@@ -58,6 +58,7 @@
     "@open-pets/mcp": "workspace:*",
     "@open-pets/openclaw": "workspace:*",
     "@open-pets/opencode": "workspace:*",
+    "@open-pets/zed": "workspace:*",
     "get-windows": "^9.3.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

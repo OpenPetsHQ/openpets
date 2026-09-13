@@ -1,14 +1,16 @@
 ---
-description: Connect Claude Code, OpenCode, Cursor, Pi, OpenClaw, and MCP-capable assistants to OpenPets through local companion events.
+description: Connect Claude Code, OpenCode, Cursor, Zed, Pi, OpenClaw, and MCP-capable assistants to OpenPets through local companion events.
 ---
 
 # Agent integrations
 
-OpenPets reacts to coding agents. Each supported agent has an integration
+OpenPets reacts to coding agents. Most supported agents have an integration
 package that does two jobs: **configure** the agent to talk to OpenPets, and at
 runtime **translate** the agent's activity into safe pet reactions sent over
-local IPC or an explicitly configured remote client. This doc covers Claude
-Code, MCP, OpenCode, Cursor, Pi, OpenClaw, and DSH, the shared speech-safety
+local IPC or an explicitly configured remote client. Zed is intentionally
+configuration-only: it runs the MCP server but provides no lifecycle hooks of
+its own. This doc covers Claude Code, MCP, OpenCode, Cursor, Zed, Pi, OpenClaw,
+and DSH, the shared speech-safety
 layer, and the CLI commands that orchestrate them.
 
 For the local and remote wire protocols, see [IPC and remote control](/ipc). Source maps live
@@ -18,10 +20,14 @@ in each `packages/*/codemap.md`.
 
 Every integration follows the same contract, which is worth internalizing once:
 
-- **Configuration is atomic and reversible.** Writes go through temp-file +
-  rename with a backup first; paths are validated against traversal/symlink
-  escape; managed entries are marked so they can be detected, updated, and
-  removed without clobbering the user's own config. Status is always classified
+- **Configuration is safe and reversible.** Each integration uses a transaction
+  suited to its config format. Most writes use temp-file + rename with a backup
+  first; Zed settings use a sibling lock, an fsynced temp file, an exclusive
+  backup, journaled claim and withdrawal artifacts, and no-clobber hard-link
+  publication.
+  Paths are validated against traversal/symlink escape; managed entries are
+  marked so they can be detected, updated, and removed without clobbering the
+  user's own config. Status is always classified
   (`missing`/`installed`/`needs-update`/`conflict`/`invalid`/…), so the UI and
   CLI can offer the right action.
 - **Runtime is fire-and-forget.** Agent events are classified into a reaction
@@ -189,6 +195,36 @@ unpinned versions (`@latest`). Rules ownership requires an exact
 `OPENPETS:CURSOR_RULES:START/END` marker pair. The desktop uses preview/copy;
 the CLI writes project rules.
 
+## Zed - `@open-pets/zed`
+
+Pure global settings management for Zed, with no runtime hooks of its own. It
+manages the `openpets` entry in Zed's global `settings.json` under
+`context_servers`, using JSONC-aware targeted edits so comments, trailing
+commas, unrelated settings, and other context servers survive. The settings
+path is `~/.config/zed/settings.json` on macOS, `$XDG_CONFIG_HOME/zed/settings.json`
+on Linux/FreeBSD (with `FLATPAK_XDG_CONFIG_HOME` taking precedence), and
+`%APPDATA%\Zed\settings.json` on Windows.
+
+The package supports pinned published MCP commands (`npx -y
+@open-pets/mcp@VERSION`), plus local and bundled Node entry paths (using the
+desktop's configured Node.js command when applicable). It reports
+`missing`, `installed`, `disabled`, `needs-update`, `conflict`, `invalid`, and
+`error` states, refuses unsafe or ambiguous mutations, strips unsupported
+`remote` execution during correction while preserving managed environment and
+timeout fields, and requires explicit replacement to re-enable a disabled entry.
+Configured Node.js paths are validated through their resolved executable but
+stored in their original safe form so version-manager symlinks continue to
+follow upgrades.
+Planned writes are rejected when the settings file changes before execution.
+The desktop Control Center manages the same status-aware lifecycle through
+`apps/desktop/src/agent-setup.ts`; the CLI
+manages the global file with `openpets configure --agent zed`. Both paths use
+the package's journaled, crash-recoverable write APIs rather than editing JSONC
+directly. Existing settings remain in place while their verified backup is
+prepared; publication uses a temporary claim and no-clobber hard link, and an
+interrupted claim is restored from the journal on the next attempt. Ambiguous
+recovery state is rejected rather than guessed.
+
 ## Pi - `@open-pets/pi`
 
 A Pi coding-agent extension (declared in `pi.extensions`). It maps Pi lifecycle
@@ -333,7 +369,7 @@ others. Commands:
 
 | Command | Does |
 |---------|------|
-| `configure` | Configure Claude / OpenCode / Cursor for a project, or ensure the global OpenClaw plugin is installed and enabled |
+| `configure` | Configure Claude / OpenCode / Cursor for a project, Zed globally, or ensure the global OpenClaw plugin is installed and enabled |
 | `install <pet-id>` | Install a pet via the client |
 | `status` | Print app/pet status JSON over IPC |
 | `pets` | List installed pets |
@@ -362,5 +398,6 @@ discovery-based behavior unchanged.
 | MCP (generic) | agent's MCP config | stdio MCP tools |
 | OpenCode | `.opencode/` or `~/.config/opencode/` | plugin event hooks |
 | Cursor | `.cursor/mcp.json` + rules | MCP tools |
+| Zed | `~/.config/zed/settings.json` (platform-specific) | MCP tools |
 | Pi | `pi.extensions` | extension events + `/openpets` |
 | OpenClaw | OpenClaw plugin registry | native plugin hooks; local-only default-pet reactions |

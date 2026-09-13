@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync, accessSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 import { createRequire } from "node:module";
 
 import { app } from "electron";
@@ -9,12 +9,13 @@ import { buildCursorRulesPreview, classifyCursorMcpStatus, executeCursorMcpWrite
 import { buildOpenPetsOnlyPreview, type RedactedPreview } from "@open-pets/cursor";
 import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
 import { doctorOpenCodeGlobalSetup, getGlobalOpenCodeConfigDir, parseOpenCodeConfig, prepareOpenCodeGlobalRemove, prepareOpenCodeGlobalSetup, writePreparedOpenCodeGlobalRemove, writePreparedOpenCodeGlobalSetup } from "@open-pets/opencode";
+import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, isValidZedNodeCommand, planZedMcpInstall, planZedMcpRemove, planZedMcpReplace, readZedSettings, type ZedMcpEntry, type ZedMcpPreviewOptions, type ZedMcpStatusResult } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaudeOpenPetsMemory, type ClaudeOpenPetsMemoryStatus } from "./claude-memory.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 
-export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove";
+export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove";
 export type JournalAction = "configure" | "update" | "replace" | "remove";
 
 export interface AgentSetupPetOption {
@@ -51,6 +52,8 @@ export interface AgentSetupSnapshot {
   readonly cursorPreview: CursorSetupPreview;
   readonly openclawStatus: OpenClawPluginStatus;
   readonly openclawPreview: OpenClawSetupPreview;
+  readonly zedStatus: ZedSetupStatus;
+  readonly zedPreview: ZedSetupPreview;
   readonly commandPaths: AgentSetupCommandPaths;
   readonly busy: boolean;
   readonly lastAction?: AgentSetupActionResult;
@@ -111,6 +114,23 @@ export interface OpenClawSetupPreview {
   readonly targetVersion: string;
 }
 
+export interface ZedSetupStatus {
+  readonly state: "configured" | "needs_setup" | "disabled" | "needs_update" | "conflict" | "error";
+  readonly label: string;
+  readonly details: string;
+  readonly settingsPath: string;
+  readonly canInstall: boolean;
+  readonly canReplace: boolean;
+  readonly canRemove: boolean;
+}
+
+export interface ZedSetupPreview {
+  readonly global: true;
+  readonly settingsPath: string;
+  readonly mcpEntry: ZedMcpEntry;
+  readonly commandMode: "published" | "local" | "bundled";
+}
+
 export interface AgentSetupActionResult {
   readonly ok: boolean;
   readonly action: AgentSetupAction;
@@ -162,6 +182,7 @@ export async function getAgentSetupSnapshot(selectedPetId?: unknown, commandMode
   const opencode = await getOpenCodeSetup(commandMode, petId);
   const cursor = await getCursorSetup(commandMode, petId);
   const openclaw = await getOpenClawSetup();
+  const zed = await getZedSetup(commandMode, petId);
 
   return {
     selectedPetId: petId,
@@ -178,6 +199,8 @@ export async function getAgentSetupSnapshot(selectedPetId?: unknown, commandMode
     cursorPreview: cursor.preview,
     openclawStatus: openclaw.status,
     openclawPreview: openclaw.preview,
+    zedStatus: zed.status,
+    zedPreview: zed.preview,
     commandPaths: getAgentSetupCommandPaths(),
     busy: operationRunning,
     lastAction,
@@ -201,7 +224,7 @@ export function updateAgentSetupCommandPaths(patch: unknown): AgentSetupCommandP
 type Writable<T> = { -readonly [K in keyof T]: T[K] };
 
 export async function runAgentSetupAction(action: AgentSetupAction, selectedPetId?: unknown, commandModeInput?: unknown): Promise<AgentSetupSnapshot> {
-  if (operationRunning) throw new Error("Another Claude setup operation is already running.");
+  if (operationRunning) throw new Error("Another integration setup operation is already running.");
   const petId = validateSelectedPetId(selectedPetId);
   const commandMode = validateCommandMode(commandModeInput);
   operationRunning = true;
@@ -282,6 +305,9 @@ async function runAction(action: AgentSetupAction, selectedPetId: string | undef
   if (action === "cursor-install") return installCursorGlobal(selectedPetId, commandMode);
   if (action === "cursor-replace") return replaceCursorGlobal(selectedPetId, commandMode);
   if (action === "cursor-remove") return removeCursorGlobal();
+  if (action === "zed-install") return installZedGlobal(selectedPetId, commandMode);
+  if (action === "zed-replace") return replaceZedGlobal(selectedPetId, commandMode);
+  if (action === "zed-remove") return removeZedGlobal(selectedPetId, commandMode);
   if (action === "doctor-hooks") {
     const doctor = safeDoctorClaudeHooks(commandMode, selectedPetId);
     writeActionJournal({ action: "update", selectedPetId, command: createHookJournalCommand("doctor-hooks", selectedPetId), previousStatus: doctor.status, success: doctor.status !== "error", message: doctor.message });
@@ -485,6 +511,80 @@ async function mutateOpenClaw(mutation: "configure" | "update" | "remove"): Prom
   return { ok: false, action, message: "OpenClaw management did not establish its target postcondition.", changed: false };
 }
 
+async function getZedSetup(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): Promise<{ readonly status: ZedSetupStatus; readonly preview: ZedSetupPreview }> {
+  const settingsPath = getZedGlobalSettingsPath(process.env, app.getPath("home"), process.platform);
+  const previewOptions = getZedPreviewOptions(selectedPetId, commandMode);
+  const statusResult = classifyZedMcpStatus(readZedSettings(settingsPath), settingsPath, previewOptions);
+  return {
+    status: {
+      state: mapZedStatusToState(statusResult.status),
+      label: mapZedStatusToLabel(statusResult.status),
+      details: statusResult.message,
+      settingsPath: formatUserPath(settingsPath) ?? settingsPath,
+      canInstall: statusResult.canInstall,
+      canReplace: statusResult.canReplace,
+      canRemove: statusResult.canRemove,
+    },
+    preview: {
+      global: true,
+      settingsPath: formatUserPath(settingsPath) ?? settingsPath,
+      mcpEntry: statusResult.previewEntry ?? buildZedMcpEntry(previewOptions),
+      commandMode,
+    },
+  };
+}
+
+function getZedPreviewOptions(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): ZedMcpPreviewOptions {
+  return {
+    mcpVersion: getMcpPackageVersion(),
+    petId: selectedPetId || undefined,
+    commandMode,
+    mcpEntryPath: commandMode === "published" ? undefined : getDesktopMcpEntryPath(commandMode),
+    nodeCommand: commandMode === "published" ? undefined : getPreferredNodeCommand(),
+  };
+}
+
+function mapZedStatusToState(status: ZedMcpStatusResult["status"]): ZedSetupStatus["state"] {
+  switch (status) {
+    case "installed":
+      return "configured";
+    case "missing":
+      return "needs_setup";
+    case "disabled":
+      return "disabled";
+    case "needs-update":
+      return "needs_update";
+    case "conflict":
+      return "conflict";
+    case "invalid":
+    case "error":
+      return "error";
+    default:
+      return "error";
+  }
+}
+
+function mapZedStatusToLabel(status: ZedMcpStatusResult["status"]): string {
+  switch (status) {
+    case "installed":
+      return "Configured";
+    case "missing":
+      return "Not configured";
+    case "disabled":
+      return "Disabled";
+    case "needs-update":
+      return "Needs update";
+    case "conflict":
+      return "Conflict";
+    case "invalid":
+      return "Config error";
+    case "error":
+      return "Read error";
+    default:
+      return "Checking";
+  }
+}
+
 function mapCursorStatusToState(status: CursorMcpStatusResult["status"]): CursorSetupStatus["state"] {
   switch (status) {
     case "installed":
@@ -555,14 +655,24 @@ function normalizeOptionalCommandPath(value: unknown, label: string): string | u
   if (trimmed.length > 4096 || /[\r\n\0]/.test(trimmed)) throw new Error(`${label} command path is invalid.`);
   if (!isAbsolute(trimmed)) throw new Error(`${label} command path must be a full absolute path.`);
   if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) throw new Error(`${label} command path contains unsupported shell characters.`);
+  let normalized = normalize(trimmed);
+  if (label === "Node.js") {
+    try {
+      normalized = realpathSync(trimmed);
+    } catch {
+      throw new Error(`${label} command path must point to an existing executable file.`);
+    }
+    if (!isValidZedNodeCommand(normalized)) throw new Error(`${label} command path is invalid.`);
+  }
+  if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) throw new Error(`${label} command path contains unsupported shell characters.`);
   try {
-    const stat = statSync(trimmed);
+    const stat = statSync(normalized);
     if (!stat.isFile()) throw new Error();
-    if (process.platform !== "win32") accessSync(trimmed, constants.X_OK);
+    if (process.platform !== "win32") accessSync(normalized, constants.X_OK);
   } catch {
     throw new Error(`${label} command path must point to an existing executable file.`);
   }
-  return trimmed;
+  return label === "Node.js" ? trimmed : normalized;
 }
 
 function quoteCommandForDisplay(command: string): string {
@@ -668,8 +778,97 @@ async function removeCursorGlobal(): Promise<AgentSetupActionResult> {
   }
 }
 
+async function installZedGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
+  const action = "zed-install" as const;
+  const settingsPath = getZedGlobalSettingsPath(process.env, app.getPath("home"), process.platform);
+  try {
+    const options = getZedPreviewOptions(selectedPetId, commandMode);
+    const current = classifyZedMcpStatus(readZedSettings(settingsPath), settingsPath, options);
+    const nodeError = await checkZedNodeCommand(commandMode);
+    if (nodeError) return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: nodeError, changed: false });
+    const plan = planZedMcpInstall(settingsPath, options);
+    if ("ok" in plan && !plan.ok) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: plan.message, changed: false });
+    }
+    if (!("targetPath" in plan)) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: "Failed to plan Zed MCP install.", changed: false });
+    }
+    executeZedMcpWrite(plan);
+    const backupMessage = plan.backupPath ? ` Backup: ${formatUserPath(plan.backupPath) ?? plan.backupPath}.` : "";
+    return finishZedAction(action, selectedPetId, current.status, { ok: true, action, message: `Installed OpenPets MCP in Zed at ${formatUserPath(settingsPath) ?? settingsPath}.${backupMessage} Restart or reload Zed to load OpenPets.`, changed: true });
+  } catch (error) {
+    return finishZedAction(action, selectedPetId, "unknown", { ok: false, action, message: error instanceof Error ? error.message : "Zed MCP install failed.", changed: false });
+  }
+}
+
+async function replaceZedGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
+  const action = "zed-replace" as const;
+  const settingsPath = getZedGlobalSettingsPath(process.env, app.getPath("home"), process.platform);
+  try {
+    const options = getZedPreviewOptions(selectedPetId, commandMode);
+    const current = classifyZedMcpStatus(readZedSettings(settingsPath), settingsPath, options);
+    const nodeError = await checkZedNodeCommand(commandMode);
+    if (nodeError) return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: nodeError, changed: false });
+    const plan = planZedMcpReplace(settingsPath, options);
+    if ("ok" in plan && !plan.ok) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: plan.message, changed: false });
+    }
+    if (!("targetPath" in plan)) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: "Failed to plan Zed MCP replace.", changed: false });
+    }
+    executeZedMcpWrite(plan);
+    const backupMessage = plan.backupPath ? ` Backup: ${formatUserPath(plan.backupPath) ?? plan.backupPath}.` : "";
+    return finishZedAction(action, selectedPetId, current.status, { ok: true, action, message: `Replaced OpenPets MCP in Zed at ${formatUserPath(settingsPath) ?? settingsPath}.${backupMessage} Restart or reload Zed to load OpenPets.`, changed: true });
+  } catch (error) {
+    return finishZedAction(action, selectedPetId, "unknown", { ok: false, action, message: error instanceof Error ? error.message : "Zed MCP replace failed.", changed: false });
+  }
+}
+
+async function removeZedGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
+  const action = "zed-remove" as const;
+  const settingsPath = getZedGlobalSettingsPath(process.env, app.getPath("home"), process.platform);
+  try {
+    const current = classifyZedMcpStatus(readZedSettings(settingsPath), settingsPath, getZedPreviewOptions(undefined, commandMode));
+    const plan = planZedMcpRemove(settingsPath, getZedPreviewOptions(undefined, commandMode));
+    if ("ok" in plan && !plan.ok) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: plan.message, changed: false });
+    }
+    if (!("targetPath" in plan)) {
+      return finishZedAction(action, selectedPetId, current.status, { ok: false, action, message: "Failed to plan Zed MCP remove.", changed: false });
+    }
+    executeZedMcpWrite(plan);
+    return finishZedAction(action, selectedPetId, current.status, { ok: true, action, message: `Removed OpenPets MCP from Zed at ${formatUserPath(settingsPath) ?? settingsPath}. Restart or reload Zed to apply the change.`, changed: true });
+  } catch (error) {
+    return finishZedAction(action, selectedPetId, "unknown", { ok: false, action, message: error instanceof Error ? error.message : "Zed MCP remove failed.", changed: false });
+  }
+}
+
+async function checkZedNodeCommand(commandMode: OpenPetsCommandMode): Promise<string | undefined> {
+  if (commandMode === "published") return undefined;
+  const node = await runCommand({ command: getPreferredNodeCommand(), args: ["--version"] });
+  if (node.ok) return undefined;
+  return `Node.js is required for local OpenPets commands. Open Zed configuration, set the Node.js command path, then try again. ${summarizeCommandResult(node)}`;
+}
+
+function finishZedAction(action: "zed-install" | "zed-replace" | "zed-remove", selectedPetId: string | undefined, previousStatus: string, result: AgentSetupActionResult): AgentSetupActionResult {
+  writeActionJournal({
+    action: journalActionFor(action),
+    selectedPetId,
+    command: ["zed", action.replace("zed-", ""), ...(selectedPetId ? ["--pet", selectedPetId] : [])],
+    previousStatus,
+    success: result.ok,
+    message: result.message,
+  });
+  return result;
+}
+
 function getDesktopCliEntryPath(commandMode: OpenPetsCommandMode): string {
   const path = require.resolve("@open-pets/cli");
+  return commandMode === "bundled" ? mapAsarPathToUnpacked(path) : path;
+}
+
+function getDesktopMcpEntryPath(commandMode: OpenPetsCommandMode): string {
+  const path = require.resolve("@open-pets/mcp");
   return commandMode === "bundled" ? mapAsarPathToUnpacked(path) : path;
 }
 
@@ -1045,8 +1244,8 @@ function isJournalEntry(value: unknown): value is AgentSetupJournalEntry {
 }
 
 function journalActionFor(action: AgentSetupAction): JournalAction {
-  if (action === "replace") return "replace";
-  if (action === "remove") return "remove";
+  if (action === "replace" || action === "cursor-replace" || action === "zed-replace") return "replace";
+  if (action === "remove" || action === "cursor-remove" || action === "zed-remove") return "remove";
   return "configure";
 }
 

@@ -25,6 +25,7 @@ const behaviorTests = [
   ".test-dist/tests/default-pet-external-show.test.js",
   ".test-dist/tests/onboarding-state.test.js",
   ".test-dist/tests/opencode-command.test.js",
+  ".test-dist/tests/node-command-path.test.js",
   ".test-dist/tests/update-version.test.js",
   ".test-dist/tests/reaction-animation-mapping.test.js",
   ".test-dist/tests/zip-safety.test.js",
@@ -110,6 +111,7 @@ const contractTests = [
 const distChecks = [
   "dist/check-opencode-desktop-setup.js",
   "dist/check-cursor-desktop.js",
+  "dist/check-zed-desktop.js",
   "dist/check-packaging-contract.js",
 ];
 

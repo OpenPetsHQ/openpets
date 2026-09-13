@@ -26,11 +26,13 @@ There are three runtime worlds. Keep them distinct in your head.
    This is the only long-lived process; remote control is disabled by default.
 2. **Agent-side integrations** (`packages/*`) - short-lived code that runs
    inside or alongside a coding agent (Claude Code hooks, the MCP server,
-   OpenCode plugin, Cursor config, Pi extension, the native OpenClaw plugin, the
-   DSH Cordis bundle, the CLI). They translate agent activity into pet commands
-   and send them over local IPC unless an explicit remote endpoint/token
-   configuration selects the separate remote protocol. OpenClaw is intentionally
-   local-only and never selects that remote path.
+    OpenCode plugin, Cursor config, Zed config, Pi extension, the native OpenClaw
+    plugin, the DSH Cordis bundle, the CLI). Runtime integrations translate agent
+    activity into pet commands and send them over local IPC unless an explicit
+    remote endpoint/token configuration selects the separate remote protocol.
+    OpenClaw is intentionally local-only and never selects that remote path. Zed
+    is configuration-only: the desktop app and CLI manage its global settings
+    file, while Zed itself runs the configured MCP server.
    `@open-pets/dsh` is the strict local-only v1 exception: it always uses local
    IPC and the default pet and ignores all remote configuration.
 3. **The public web origin** (`openpets.dev`, source in `web/`) - static
@@ -72,12 +74,13 @@ Whisper-compatible transcription retain their distinct wire contracts.
 
 | Package | Role | Doc |
 |---------|------|-----|
-| `@open-pets/client` | The IPC client every integration uses to talk to the app | [IPC and remote control](/ipc) |
+| `@open-pets/client` | The IPC client used by runtime integrations to talk to the app | [IPC and remote control](/ipc) |
 | `@open-pets/cli` | User-facing CLI: configure agents, manage pets, run MCP, scaffold/validate plugins | [Agent integrations](/agent-integrations), [Development](/development) |
 | `@open-pets/mcp` | Stdio MCP server exposing `openpets_status` / `react` / `say` to MCP agents | [Agent integrations](/agent-integrations) |
 | `@open-pets/claude` | Claude Code hooks + MCP/settings/memory management | [Agent integrations](/agent-integrations) |
 | `@open-pets/opencode` | OpenCode plugin runtime + config management | [Agent integrations](/agent-integrations) |
 | `@open-pets/cursor` | Cursor MCP config + project rules management | [Agent integrations](/agent-integrations) |
+| `@open-pets/zed` | Zed global MCP settings management | [Agent integrations](/agent-integrations) |
 | `@open-pets/pi` | Pi coding-agent extension + `/openpets` commands | [Agent integrations](/agent-integrations) |
 | `@open-pets/openclaw` | Native OpenClaw plugin and OpenClaw plugin lifecycle management | [Agent integrations](/agent-integrations) |
 | `@open-pets/agent-events` | Shared, validated speech pools for agent feedback | [Agent integrations](/agent-integrations) |
@@ -86,13 +89,15 @@ Whisper-compatible transcription retain their distinct wire contracts.
 | `install-pet` | Standalone pet installer (works with or without the running app) | [Pets](/pets) |
 | `pet-format` | Tiny marker/identity type for pet packages | - |
 
-The dependency spine: every integration, including `@open-pets/dsh` and
+The dependency spine: every runtime integration, including `@open-pets/dsh` and
 `@open-pets/openclaw`, depends on `@open-pets/client`; `openclaw` also uses
 `@open-pets/agent-events` and the OpenClaw plugin SDK as an optional peer
-dependency. The `cli` composes `claude`, `opencode`, `cursor`, `mcp`, and
+dependency. The `cli` composes `claude`, `opencode`, `cursor`, `zed`, `mcp`, and
 `openclaw` management. `claude`/`opencode`/`pi`/`dsh`/`openclaw` use curated
 speech for safe automatic feedback. OpenClaw management is a native OpenClaw
-plugin install, not an OpenPets SDK v3 catalog-plugin install.
+plugin install, not an OpenPets SDK v3 catalog-plugin install. The Zed package
+is configuration-only by design: the CLI and desktop Control Center manage its
+global settings file, while Zed itself runs the configured MCP server.
 `@open-pets/dsh` is strict local-only v1: it always uses local IPC and the
 default pet and ignores remote configuration.
 

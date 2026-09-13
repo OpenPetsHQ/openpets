@@ -92,7 +92,8 @@ windows.ts (IPC handlers)
     │   └── install-hooks/uninstall-hooks/doctor-hooks (@open-pets/claude)
     ├── OpenCode global config management (@open-pets/opencode)
     ├── Cursor global MCP config management (@open-pets/cursor)
-    └── OpenClaw version/list/inspect + install/update/enable/remove management (@open-pets/openclaw/management)
+    ├── OpenClaw version/list/inspect + install/update/enable/remove management (@open-pets/openclaw/management)
+    └── Zed global JSONC MCP settings management (@open-pets/zed)
 ```
 
 **Pet Installation Flow**:
@@ -181,11 +182,12 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `@open-pets/opencode`: `prepareOpenCodeGlobalSetup`, `doctorOpenCodeGlobalSetup`
   - `@open-pets/cursor`: `planCursorMcpInstall`, `executeCursorMcpWrite`, `buildCursorRulesPreview`, etc.
   - `@open-pets/openclaw`: `buildOpenClawCommand`, `classifyOpenClawStatus`, and `planOpenClawMutation` for native plugin management
+  - `@open-pets/zed`: `getZedSetup`, `planZedMcpInstall`, `planZedMcpReplace`, `planZedMcpRemove`, etc.
   - `@open-pets/cli`: Version lookup for bundled mode
   - `@open-pets/plugin-sdk`: Published SDK contract mirrored by the desktop bridge and conformance checks
 
 - **To System**:
-  - File system: `app.getPath("userData")`, `userData/plugins/`, `userData/plugins-dev/`, plugin storage JSON, `~/.codex/pets/`, `~/.claude/`, `~/.opencode/`
+  - File system: `app.getPath("userData")`, `userData/plugins/`, `userData/plugins-dev/`, plugin storage JSON, `~/.codex/pets/`, `~/.claude/`, `~/.opencode/`, platform-specific Zed settings
   - Network: `fetch()` to openpets.dev, GitHub API, plugin catalog at `https://openpets.dev/plugins/catalog.v1.json`, plugin ZIPs restricted to `https://zip.openpets.dev/plugins/`
   - Processes: `spawn()` for `claude`, `opencode`, `openclaw`, `node`
 

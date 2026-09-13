@@ -41,6 +41,9 @@ importers:
       '@open-pets/opencode':
         specifier: workspace:*
         version: link:../../packages/opencode
+      '@open-pets/zed':
+        specifier: workspace:*
+        version: link:../../packages/zed
       get-windows:
         specifier: ^9.3.0
         version: 9.3.0(encoding@0.1.13)
@@ -151,6 +154,9 @@ importers:
       '@open-pets/opencode':
         specifier: workspace:*
         version: link:../opencode
+      '@open-pets/zed':
+        specifier: workspace:*
+        version: link:../zed
     devDependencies:
       '@types/node':
         specifier: ^25.6.2
@@ -299,6 +305,19 @@ importers:
 
   packages/sdk:
     devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/zed:
+    dependencies:
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.2
+        version: 25.6.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

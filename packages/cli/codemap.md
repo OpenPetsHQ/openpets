@@ -2,14 +2,14 @@
 
 ## Responsibility
 
-Main developer CLI tool for OpenPets agent configuration and plugin/pet asset management. Provides commands to configure local projects for integrations (Claude, OpenCode, Cursor), ensure the global OpenClaw native plugin is installed and enabled, manage/install pets, execute Claude hooks, spawn the local MCP server wrapper, and validate or scaffold custom plugins.
+Main developer CLI tool for OpenPets agent configuration and plugin/pet asset management. Provides commands to configure local projects for integrations (Claude, OpenCode, Cursor), configure Zed's global MCP settings, ensure the global OpenClaw native plugin is installed and enabled, manage/install pets, execute Claude hooks, spawn the local MCP server wrapper, and validate or scaffold custom plugins.
 
 ## Design/Patterns
 
 **Command Route Processor** (`src/index.ts`):
 - Handles command dispatching from CLI inputs:
   - `install <pet-id>`: Downloads/installs a pet via client.
-  - `configure`: Configures code editors (Claude, OpenCode, Cursor) or ensures global OpenClaw setup.
+  - `configure`: Configures code editors (Claude, OpenCode, Cursor), Zed's global MCP settings, or global OpenClaw setup.
   - `status`: Connects to app IPC and prints JSON status.
   - `pets`: Lists installed pets.
   - `react <reaction>`: Sends reaction message to active pet.
@@ -31,6 +31,7 @@ Main developer CLI tool for OpenPets agent configuration and plugin/pet asset ma
 - **OpenCode**: Modifies local instruction entries and links client plugins via `@open-pets/opencode`.
 - **Cursor**: Generates MCP definitions in `.cursor/mcp.json` and updates MDC rule files (`.cursor/rules/openpets.mdc`).
 - **OpenClaw**: Runs the global native plugin ensure flow through `@open-pets/openclaw/management`; it has no project, pet, force, or local-dev mode.
+- **Zed**: Updates the global JSONC settings file's managed `context_servers.openpets` entry.
 
 **Safety Constraints**:
 - Enforces strict path checks preventing path traversals or symlink escapes on project folders.
@@ -87,7 +88,7 @@ Generated code targets @open-pets/plugin-sdk/testing for local verification
 
 ## Integration Points
 
-- **Dependencies**: Depends on `@open-pets/client` for IPC communications, `@open-pets/claude` for Claude hooks/MCP configuration, `@open-pets/mcp` for spawning the MCP transport server, `@open-pets/opencode` for OpenCode extensions, `@open-pets/cursor` for Cursor Rules/MCP config settings, and `@open-pets/openclaw` for OpenClaw command/status planning.
+- **Dependencies**: Depends on `@open-pets/client` for IPC communications, `@open-pets/claude` for Claude hooks/MCP configuration, `@open-pets/mcp` for spawning the MCP transport server, `@open-pets/opencode` for OpenCode extensions, `@open-pets/cursor` for Cursor Rules/MCP config settings, `@open-pets/openclaw` for OpenClaw command/status planning, and `@open-pets/zed` for Zed global settings.
 - **Plugin SDK**: Scaffolds plugin code that references `@open-pets/plugin-sdk` and tests with `@open-pets/plugin-sdk/testing`.
 - **External Dependencies**: Invokes editor/OpenClaw command lines: `claude` (Claude Code settings integration), `openclaw` (native plugin lifecycle), and `npx` (optional package runtime launcher).
 - **Detailed source map**: [src/codemap.md](src/codemap.md)

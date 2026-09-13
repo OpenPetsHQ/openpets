@@ -10,7 +10,7 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 
 **Commands:**
 - `install <pet-id>` - Install pet via running desktop app
-- `configure` - Interactive project setup for Claude, OpenCode, or Cursor
+- `configure` - Interactive project setup for Claude, OpenCode, or Cursor, plus global Zed MCP setup
 - `status` - Check OpenPets desktop app connectivity
 - `pets` - List installed pets
 - `react <reaction>` - Send reaction to desktop app
@@ -24,6 +24,7 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 - `configureProject()` - Main entry for project setup
 - `configureCursorProject()` - Cursor MCP + rules configuration
 - `configureOpenCodeProject()` - OpenCode config setup
+- `configureZedGlobal()` - Zed global JSONC settings setup
 - Claude: Hook settings + MCP via `claude mcp add-json`
 
 **Safety Checks:**
@@ -73,6 +74,7 @@ Contract validation and integration checks. Runtime assertions for CLI behavior.
 - Claude MCP integration (mocked)
 - OpenCode project configuration scenarios
 - Cursor project configuration (MCP + rules)
+- Zed global configuration (JSONC MCP settings)
 - Error handling and edge cases
 
 **Safety Tests:**

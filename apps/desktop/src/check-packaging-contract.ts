@@ -29,6 +29,7 @@ assert.equal(packageJson.dependencies?.["@open-pets/cli"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/cursor"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/mcp"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/opencode"], "workspace:*");
+assert.equal(packageJson.dependencies?.["@open-pets/zed"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/agent-events"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@img/sharp-win32-x64"], undefined, "sharp platform binaries must stay optional transitive deps, not direct host-breaking dependencies.");
 assert.match(workspaceConfig, /supportedArchitectures:[\s\S]*?os:[\s\S]*?- darwin[\s\S]*?- win32[\s\S]*?- linux/, "pnpm must install optional sharp binaries for desktop release OS targets.");
@@ -106,6 +107,11 @@ const leaseManagerSource = readFileSync(join(appDir, "src", "lease-manager.ts"),
 const defaultPetControllerSource = readFileSync(join(appDir, "src", "default-pet-controller.ts"), "utf8");
 const agentPetControllerSourceForLogging = readFileSync(join(appDir, "src", "agent-pet-controller.ts"), "utf8");
 const mappingDoc = readFileSync(join(repoRoot, "docs", "pets.md"), "utf8");
+assert.match(agentSetupSource, /@open-pets\/zed/);
+for (const action of ["zed-install", "zed-replace", "zed-remove"]) {
+  assert.match(agentSetupSource, new RegExp(action), `desktop agent setup must support ${action}`);
+  assert.match(windowsSource, new RegExp(action), `desktop IPC must allow ${action}`);
+}
 assert.match(loggerSource, /openpets\.log/, "desktop logger must write a user-sendable openpets.log file.");
 assert.match(loggerSource, /openpets\.previous\.log/, "desktop logger must retain a previous log file for bug reports.");
 assert.match(loggerSource, /OPENPETS_LOG_LEVEL/, "desktop logger must support verbose dev logging via environment.");
@@ -117,7 +123,7 @@ assert.doesNotMatch(mainSource + lifecycleSource + windowsSource + localIpcSourc
 assert.match(appStateSource, /activity:\s*{[\s\S]*messagesSent/, "local dashboard activity counters must remain in app state without analytics identity fields.");
 assert.doesNotMatch(appStateSource, /distinctId|OpenPetsAnalyticsState|DesktopAnalyticsConsentState|recordDesktopAppStarted|markFirstAgentReactionTracked/, "app state must not retain PostHog identity or consent fields.");
 assert.match(mainSource, /isLinux && !allowWayland[\s\S]*?appendSwitch\("ozone-platform", "x11"\)/, "Linux desktop pets must force X11/Xwayland because native Wayland blocks always-on-top and programmatic window positioning.");
-assert.match(mainSource, /if \(process\.platform === "linux"\) \{\n\s*const isKde = \(process\.env\.XDG_CURRENT_DESKTOP \?\? ""\)\.toLowerCase\(\)\.includes\("kde"\);\n\s*app\.commandLine\.appendSwitch\("password-store", isKde \? "kwallet6" : "gnome-libsecret"\);\n\s*\} else \{\n\s*app\.commandLine\.appendSwitch\("password-store", "basic"\);\n\s*\}/, "Linux desktop must gate password-store as kwallet6 on KDE sessions, gnome-libsecret elsewhere on Linux, with basic only in the non-Linux else branch; an unconditional switch would disable Electron safeStorage and break plugin secret saves with 'Secret storage encryption is unavailable on this system'.");
+assert.match(mainSource, /if \(process\.platform === "linux"\) \{\r?\n\s*const isKde = \(process\.env\.XDG_CURRENT_DESKTOP \?\? ""\)\.toLowerCase\(\)\.includes\("kde"\);\r?\n\s*app\.commandLine\.appendSwitch\("password-store", isKde \? "kwallet6" : "gnome-libsecret"\);\r?\n\s*\} else \{\r?\n\s*app\.commandLine\.appendSwitch\("password-store", "basic"\);\r?\n\s*\}/, "Linux desktop must gate password-store as kwallet6 on KDE sessions, gnome-libsecret elsewhere on Linux, with basic only in the non-Linux else branch; an unconditional switch would disable Electron safeStorage and break plugin secret saves with 'Secret storage encryption is unavailable on this system'.");
 const passwordStoreValues = [...mainSource.matchAll(/"(kwallet6|gnome-libsecret|basic)"/g)].map((match) => match[1]);
 assert.deepStrictEqual(passwordStoreValues, ["kwallet6", "gnome-libsecret", "basic"], "desktop must set password-store to exactly these three values (kwallet6 on KDE, gnome-libsecret elsewhere on Linux, basic otherwise); any extra or unconditional switch would override the backend and re-break plugin secret saves.");
 assert.match(mainSource, /OPENPETS_ALLOW_WAYLAND/, "Linux X11 override must support the OPENPETS_ALLOW_WAYLAND opt-out escape hatch.");
@@ -130,6 +136,11 @@ assert.match(localIpcPathsSource, /OPENPETS_IPC_ENDPOINT must use the same port 
 for (const key of ["eyebrow", "title", "description", "refresh", "mode", "host", "server", "auth", "authToken", "authEnv", "authStored", "authGenerated", "authInsecure", "authNone", "tokenHint", "tokenHintValue", "currentOwner", "persistedOwner"]) {
   for (const [locale, source] of localeSources) {
     assert.match(source, new RegExp(`"settings\\.lan\\.${key}"\\s*:`), `LAN settings label must be translated for ${locale}: settings.lan.${key}`);
+  }
+}
+for (const key of ["name", "description", "settingsPath", "mcpEntryPreview"]) {
+  for (const [locale, source] of localeSources) {
+    assert.match(source, new RegExp(`"integrations\\.zed\\.${key}"\\s*:`), `Zed integration label must be translated for ${locale}: integrations.zed.${key}`);
   }
 }
 assert.match(lanControllerSource, /maxLanResponseBodyBytes\s*=\s*16 \* 1024/, "LAN client responses must be capped before JSON parsing.");
@@ -262,6 +273,7 @@ assert.match(controlCenterRendererSource, /function IntegrationsView\(\)/, "Cont
 assert.match(enCatalogSource, /Claude Code/, "Control Center integrations must include Claude Code.");
 assert.match(enCatalogSource, /OpenCode/, "Control Center integrations must include OpenCode.");
 assert.match(enCatalogSource, /Cursor/, "Control Center integrations must include Cursor.");
+assert.match(enCatalogSource, /Zed/, "Control Center integrations must include Zed.");
 assert.match(enCatalogSource, /Pi/, "Control Center integrations must include Pi.");
 assert.doesNotMatch(agentSetupSource, /JSON\.parse\(prepared\.configWrite\.content\)/, "OpenCode desktop preview must parse JSONC planned config safely, not JSON.parse.");
 assert.match(windowsSource, /refreshDefaultPetContent\(\);\s*refreshAgentPetContent\(\);/, "pet scale preference changes must refresh default and agent pet windows.");
@@ -307,6 +319,8 @@ function checkPackageOutput(): void {
   assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "opencode", "package.json")), "packaged @open-pets/opencode package metadata is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "cursor", "dist", "index.js")), "packaged @open-pets/cursor runtime is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "cursor", "package.json")), "packaged @open-pets/cursor package metadata is missing.");
+  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js")), "packaged @open-pets/zed runtime is missing.");
+  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "zed", "package.json")), "packaged @open-pets/zed package metadata is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "agent-events", "dist", "index.js")), "packaged @open-pets/agent-events runtime is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "@modelcontextprotocol", "sdk")), "packaged MCP SDK runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "zod", "index.cjs")), "packaged zod runtime dependency is missing.");
@@ -314,12 +328,14 @@ function checkPackageOutput(): void {
   assert.ok(existsSync(join(appContents, "node_modules", "yauzl", "fd-slicer.js")), "packaged yauzl fd-slicer helper is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "buffer-crc32", "index.js")), "packaged yauzl transitive dependency buffer-crc32 is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "pend", "index.js")), "packaged yauzl transitive dependency pend is missing.");
+  assert.ok(existsSync(join(appContents, "node_modules", "jsonc-parser", "lib", "umd", "main.js")), "packaged Zed JSONC runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "sharp", "lib", "index.js")), "packaged sharp runtime is missing.");
   assertPackagedHostSharpNative(appContents);
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "mcp", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "cli", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "claude", "dist", "cli.js"));
+  assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js"));
   assertCommandSmoke(appContents);
 }
 

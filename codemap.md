@@ -2,7 +2,7 @@
 
 ## Project Responsibility
 
-OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plus npm packages that let coding agents control animated desktop pets. The workspace provides a local IPC protocol, MCP server, CLI tooling, and editor/agent integrations for Claude Code, OpenCode, Cursor, Pi, and OpenClaw.
+OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plus npm packages that let coding agents control animated desktop pets. The workspace provides a local IPC protocol, MCP server, CLI tooling, and editor/agent integrations for Claude Code, OpenCode, Cursor, Zed, Pi, and OpenClaw.
 
 ## System Entry Points
 
@@ -13,6 +13,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 - `packages/mcp/src/index.ts`: MCP server entry point used by agents.
 - `packages/client/src/index.ts`: public IPC client API consumed by integrations and tools.
 - `packages/cursor/src/index.ts`: Cursor MCP/rules setup API.
+- `packages/zed/src/index.ts`: Zed MCP settings management API.
 - `packages/pi/src/extension.ts`: Pi coding-agent extension runtime entry point.
 - `packages/openclaw/src/index.ts`: Native OpenClaw plugin entry point and lifecycle-management exports.
 - `packages/sdk/src/index.ts`: public SDK v3 type contract for plugin authors.
@@ -41,9 +42,11 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 | `packages/client/contracts/` | Client protocol contract tests for discovery, endpoint validation, responses, and pet result parsing. | [View Map](packages/client/contracts/codemap.md) |
 | `packages/client/src/` | Protocol definitions, discovery logic, public client API, and smoke entry points. | [View Map](packages/client/src/codemap.md) |
 | `packages/cli/` | User-facing OpenPets CLI package. | [View Map](packages/cli/codemap.md) |
-| `packages/cli/src/` | CLI command parsing and orchestration across client, Claude, OpenCode, and MCP packages. | [View Map](packages/cli/src/codemap.md) |
+| `packages/cli/src/` | CLI command parsing and orchestration across client, Claude, OpenCode, Cursor, Zed, and MCP packages. | [View Map](packages/cli/src/codemap.md) |
 | `packages/cursor/` | Cursor editor integration package for managed MCP configuration and project-local rules. | [View Map](packages/cursor/codemap.md) |
 | `packages/cursor/src/` | Cursor config/rules planning, status classification, safe writes, previews, and validation checks. | [View Map](packages/cursor/src/codemap.md) |
+| `packages/zed/` | Zed editor integration package for managed global MCP settings. | [View Map](packages/zed/codemap.md) |
+| `packages/zed/src/` | Zed JSONC settings path resolution, MCP entry construction, status classification, safe writes, and validation checks. | [View Map](packages/zed/src/codemap.md) |
 | `packages/install-pet/` | Standalone installer package for gallery/catalog pets. | [View Map](packages/install-pet/codemap.md) |
 | `packages/install-pet/src/` | Pet installation command implementation. | [View Map](packages/install-pet/src/codemap.md) |
 | `packages/mcp/` | MCP server package exposing OpenPets tools to compatible agents. | [View Map](packages/mcp/codemap.md) |
@@ -64,7 +67,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 ## Architecture Flow
 
 1. The desktop app starts `apps/desktop/src/main.ts`, initializes app state, creates tray/task windows, and starts a local IPC server.
-2. Agent integrations (`packages/claude`, `packages/opencode`, `packages/cursor`, `packages/pi`, `packages/openclaw`, and `packages/mcp`) configure agents or emit pet commands through `@open-pets/client`. OpenClaw is a native OpenClaw plugin with strict local-only, payload-free hooks.
+2. Agent integrations (`packages/claude`, `packages/opencode`, `packages/cursor`, `packages/zed`, `packages/pi`, `packages/openclaw`, and `packages/mcp`) configure agents or emit pet commands through their configuration APIs and, for runtime integrations, `@open-pets/client`. OpenClaw is a native OpenClaw plugin with strict local-only, payload-free hooks; Zed is configuration-only and runs the configured MCP server.
 3. The client discovers Unix sockets, Windows named pipes, or TCP endpoints for WSL cross-platform access.
 4. The desktop IPC server routes commands through lease-managed controllers so default and agent pets can coexist safely.
 5. The plugin service loads approved catalog or local `openpets.plugin.json` manifests, persists plugin state/config, schedules declarative timers, and bridges SDK v3 calls through permission-checked host modules for UI, audio, events, storage, AI, OAuth, voice, panels, and pet control. Plugin voice input remains one-shot, visibly indicated, cancellable, timeout-bounded, and never ambient; the separate realtime conversation foundation is host-private and not exposed through the SDK.

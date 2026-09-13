@@ -65,6 +65,8 @@ dist checks. Three buckets:
     guard that a _packaged_ build is actually shippable.
   - `check-opencode-desktop-setup.ts` - verifies the bundled OpenCode setup
     preview matches expectations.
+  - `check-zed-desktop.ts` - verifies desktop Zed path resolution, preview
+    shape, targeted writes, and removal preservation.
 
 ## Package tests & contracts
 
@@ -84,8 +86,10 @@ Each package runs its own `check`/`test`. Notable contract/boundary coverage:
 - `@open-pets/dsh` - package artifact/load smoke: confirm the built or published
   artifact loads as the DSH Cordis bundle and its automatic dispatch wiring is
   available without model tools or MCP setup. See [Agent integrations](/agent-integrations).
-- `packages/cursor/src/check-cursor.ts`, `packages/opencode` checks, etc. - validate the safe config-write behavior (status classification, redaction,
-  symlink/oversize rejection, atomic writes, uninstall preserving user entries).
+- `packages/cursor/src/check-cursor.ts`, `packages/zed/src/check-zed.ts`,
+  `packages/opencode` checks, etc. - validate the safe config-write behavior
+  (status classification, redaction, symlink/oversize rejection, atomic writes,
+  interrupted-write recovery, uninstall preserving user entries).
   See [Agent integrations](/agent-integrations).
 
 ## Plugin testing
