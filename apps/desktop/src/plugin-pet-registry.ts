@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
-import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter, type DisplayChangeReason } from "./default-pet-controller.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { debug, info } from "./logger.js";
@@ -347,13 +347,17 @@ export function getPluginPetArbiter(petHandleId: string): PetBubbleArbiter {
   return pet.arbiter;
 }
 
-export function reclampPluginPetWindows(): void {
+export function reclampPluginPetWindows(reason?: DisplayChangeReason): void {
   for (const pet of spawnedPets.values()) {
     const { window } = pet;
     if (!window || window.isDestroyed()) continue;
     const [cx, cy] = window.getPosition();
     const safe = readWindowPosition(window);
     if (safe.x !== cx || safe.y !== cy) window.setPosition(safe.x, safe.y, false);
+    // A live display-scale change invalidates the Linux setShape() click-through
+    // mask for plugin pet windows too, not just the default pet -- see the
+    // matching fix in default-pet-controller.ts's reclampDefaultPetWindow().
+    if (reason === "display-metrics-changed") refreshSpawnedPet(pet);
   }
 }
 

@@ -1,6 +1,7 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
+import type { DisplayChangeReason } from "./default-pet-controller.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { clampToTerminalBounds, getConfinementState, getEffectiveConfinementBounds } from "./confinement-manager.js";
 import { defaultPetWindowSize, clampToVisibleWorkArea, getDefaultPetInitialPosition } from "./display.js";
@@ -136,7 +137,7 @@ export function refreshAgentPetContent(targetPetId?: string): void {
  * Called on display topology changes to ensure agent pets are not stranded
  * on a display that has been removed or whose geometry has changed.
  */
-export function reclampAgentPetWindows(): void {
+export function reclampAgentPetWindows(reason?: DisplayChangeReason): void {
   for (const [petId, window] of agentPetWindows.entries()) {
     if (!window || window.isDestroyed()) continue;
     const safePosition = readWindowPosition(window);
@@ -145,6 +146,12 @@ export function reclampAgentPetWindows(): void {
       info("pet.agent", "reclamp position", { petId, windowId: window.id, from: { x: currentX, y: currentY }, to: safePosition });
       window.setPosition(safePosition.x, safePosition.y, false);
     }
+  }
+  // A live display-scale change invalidates the Linux setShape() click-through
+  // mask for every agent pet window too, not just the default pet -- see the
+  // matching fix in default-pet-controller.ts's reclampDefaultPetWindow().
+  if (reason === "display-metrics-changed") {
+    refreshAgentPetContent();
   }
 }
 
