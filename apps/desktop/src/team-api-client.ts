@@ -1,6 +1,6 @@
 import { validateTeamPack, type TeamPack } from "./team-protocol.js";
 
-export const defaultTeamsApiBaseUrl = "https://teams.openpets.dev";
+export const defaultTeamsApiBaseUrl = "https://openpets-teams-api.tokozedg793.workers.dev";
 const maxResponseBytes = 512 * 1024;
 const maxArtifactBytes = 50 * 1024 * 1024;
 

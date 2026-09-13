@@ -174,7 +174,8 @@ bucket with `OPENPETS_R2_BUCKET`; `--skip-r2` is for local testing only.
 ## Teams private catalog lane
 
 Teams is an optional cloud service separate from the public catalog. The desktop
-uses `OPENPETS_TEAMS_API_URL` (default `https://teams.openpets.dev`) and downloads
+uses `OPENPETS_TEAMS_API_URL` (default
+`https://openpets-teams-api.tokozedg793.workers.dev`) and downloads
 Team artifacts only through the authenticated configured API origin. Team Packs
 contain published pets/plugins, required/optional policy, organization
 configuration, immutable release references, and removals. Dedicated storage,

@@ -5,6 +5,7 @@ import "./styles.css";
 import openPetsLogoUrl from "../../../assets/openpets.webp";
 import defaultThumbUrl from "../../../assets/default-pet-thumbnail.png";
 import { ConversationView } from "./conversation/ConversationView.js";
+import { TeamsView } from "./teams/TeamsView.js";
 import type { ConversationEvent, ConversationSnapshot, LocalConversationHistoryMessage, VoiceAssistantTalkEvent, VoiceAssistantSessionSnapshot } from "./conversation/conversation-types.js";
 import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
 import { resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
@@ -603,12 +604,22 @@ const IntegrationsIcon = () => (
   </svg>
 );
 
+const TeamsIcon = () => (
+  <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+
 const navTabs = [
   { id: "dashboard" as const, labelKey: "nav.dashboard", icon: <DashboardIcon /> },
   { id: "pets" as const, labelKey: "nav.pets", icon: <PetsIcon /> },
   { id: "settings" as const, labelKey: "nav.settings", icon: <SettingsIcon /> },
   { id: "plugins" as const, labelKey: "nav.plugins", icon: <PluginsIcon /> },
   { id: "integrations" as const, labelKey: "nav.integrations", icon: <IntegrationsIcon /> },
+  { id: "teams" as const, labelKey: "nav.teams", icon: <TeamsIcon /> },
 ];
 
 const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
@@ -5330,8 +5341,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       <header className="hero">
         <div className="hero-content">
           <p className="eyebrow">{t("app.controlCenter")}</p>
-          <h1>{t(currentMeta.titleKey)}</h1>
-          <p className="hero-desc">{t(currentMeta.descKey)}</p>
+          <h1>{currentMeta.titleKey === "route.teams.title" && t(currentMeta.titleKey) === currentMeta.titleKey ? "Teams" : t(currentMeta.titleKey)}</h1>
+          <p className="hero-desc">{currentMeta.descKey === "route.teams.description" && t(currentMeta.descKey) === currentMeta.descKey ? "Manage your organization membership, team pets, and deployed companion plugins." : t(currentMeta.descKey)}</p>
         </div>
         <div className="hero-logo-container">
           <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />
@@ -5346,7 +5357,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
             onClick={() => setCurrentRoute(tab.id)}
           >
             {tab.icon}
-            <span>{t(tab.labelKey)}</span>
+            <span>{tab.labelKey === "nav.teams" && t(tab.labelKey) === tab.labelKey ? "Teams" : t(tab.labelKey)}</span>
           </button>
         ))}
       </nav>
@@ -5363,6 +5374,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         <PluginsView />
       ) : currentRoute === "integrations" ? (
         <IntegrationsView />
+      ) : currentRoute === "teams" ? (
+        <TeamsView api={api} onNavigate={setCurrentRoute} />
       ) : (
         <div className="layout">
           <GlassCard className="gallery">

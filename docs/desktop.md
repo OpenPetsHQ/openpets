@@ -128,12 +128,19 @@ pet keeps rendering during fullscreen video and games.
 ### Control Center (renderer)
 
 The React/Tailwind UI under `src/renderer/`. Pages: **Dashboard,
-Pets, Integrations, Plugins, Settings** (the **Conversation** route is currently
+Pets, Settings, Plugins, Integrations, Teams** (the **Conversation** route is currently
 internal/experimental and not exposed in Control Center navigation). It is a pure consumer of main-process
 snapshots and actions exposed over the preload bridge - it holds no privileged
 capability of its own. The renderer is the only "frontend" in scope for these
 docs (the `web/` marketing site is out of scope). See
 `src/renderer/src/codemap.md` for component structure.
+
+The **Teams** route presents organization membership, applied/pending revisions,
+sync timestamps, and separated lists of organization-managed team pets and team
+plugins while preserving personal content in an isolated lane. It supports
+pending deep-link enrollment with display-name input, explicit synchronization,
+explicit leave with destructive-action confirmation, and clear presentation of
+permission-block or synchronization failure states.
 
 Provider-profile bridge operations are exposed by
 `control-center-preload.cjs` without a generic patch route: list profiles,
