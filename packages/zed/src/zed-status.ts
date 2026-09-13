@@ -33,6 +33,7 @@ export interface ZedConfigError {
 export interface ZedPlannedWrite {
   readonly targetPath: string;
   readonly backupPath?: string;
+  readonly claimPath?: string;
   readonly tempPath: string;
   readonly sourceExists: boolean;
   readonly sourceContent: string;
@@ -68,6 +69,8 @@ interface ZedWriteLockRecord {
   readonly lockTempPath: string;
   readonly targetPath: string;
   readonly backupPath?: string;
+  readonly claimPath?: string;
+  readonly withdrawalPath?: string;
   readonly tempPath: string;
   readonly sourceExists: boolean;
   readonly sourceHash: string;
@@ -337,18 +340,27 @@ export function executeZedMcpWrite(plan: ZedPlannedWrite): void {
 
   const lockPath = join(parent, ".openpets-zed.lock");
   if (!isSafeSiblingPath(parent, lockPath)) throw new Error("Zed write lock path is unsafe.");
+  const withdrawalPath = targetSafety.exists
+    ? uniquePath(join(parent, `.openpets-zed-withdraw-${process.pid}-${Date.now()}-${randomUUID()}.tmp`))
+    : undefined;
   let lockFd: number | undefined;
   let lockToken: string | undefined;
   let lockOwnerTempPath: string | undefined;
+  let lockOwnerTempHash: string | undefined;
   let tempCreated = false;
   let backupCreated = false;
+  let claimCreated = false;
+  let withdrawalCreated = false;
   let committed = false;
+  let retainLock = false;
   try {
-    const lock = acquireZedWriteLock(lockPath, parent, plan);
+    assertZedHardLinkSupport(parent);
+    const lock = acquireZedWriteLock(lockPath, parent, plan, withdrawalPath);
     lockFd = lock.fd;
     lockToken = lock.token;
     lockOwnerTempPath = lock.ownerTempPath;
-    const supportPaths = [plan.backupPath, plan.tempPath].filter((path): path is string => typeof path === "string");
+    lockOwnerTempHash = lock.ownerTempHash;
+    const supportPaths = [plan.backupPath, plan.claimPath, withdrawalPath, plan.tempPath].filter((path): path is string => typeof path === "string");
     for (const supportPath of supportPaths) {
       if (!isSafeSiblingPath(parent, supportPath)) throw new Error("Zed write support path is unsafe.");
       if (lstatSync(supportPath, { throwIfNoEntry: false })) throw new Error("Zed write support path already exists.");
@@ -374,30 +386,92 @@ export function executeZedMcpWrite(plan: ZedPlannedWrite): void {
     if (finalTarget.exists !== plan.sourceExists || finalContent !== plan.sourceContent) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
 
     if (finalTarget.exists) {
-      if (!plan.backupPath) throw new Error("Zed writes require a backup path for existing settings.");
-      const backupFd = openSync(plan.backupPath, "wx", 0o600);
-      backupCreated = true;
+      if (!plan.backupPath || !plan.claimPath || !withdrawalPath) throw new Error("Zed writes require backup, claim, and withdrawal paths for existing settings.");
       try {
-        writeFileSync(backupFd, readFileSync(plan.targetPath));
-        fsyncSync(backupFd);
-      } finally {
-        closeSync(backupFd);
-      }
-      if (readFileSync(plan.backupPath, "utf8") !== plan.sourceContent) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
-      const backedUpTarget = assertSafeExistingSettingsFile(plan.targetPath, true);
-      if (!backedUpTarget.ok) throw new Error(backedUpTarget.message);
-      if (!backedUpTarget.exists || readFileSync(plan.targetPath, "utf8") !== plan.sourceContent) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
-
-      // Rename is the portable atomic replacement primitive; the final check and
-      // lock protect cooperating OpenPets writers before this point.
-      try {
-        renameSync(plan.tempPath, plan.targetPath);
+        // Keep the original inode recoverable while the visible target is
+        // withdrawn. An exclusive hard link also preserves writes through an
+        // already-open descriptor after publication.
+        linkSync(plan.targetPath, plan.backupPath);
       } catch (error) {
         if (isAlreadyExistsError(error)) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
         throw error;
       }
+      backupCreated = true;
+      const backup = readZedRecoveryArtifact(plan.backupPath, parent);
+      if (!backup.exists || backup.content !== plan.sourceContent) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
+      const copiedTarget = assertSafeExistingSettingsFile(plan.targetPath, true);
+      if (!copiedTarget.ok) throw new Error(copiedTarget.message);
+      const copiedContent = copiedTarget.exists ? readFileSync(plan.targetPath, "utf8") : "";
+      if (!copiedTarget.exists || copiedContent !== plan.sourceContent) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+
+      try {
+        // Claim creation is no-clobber. The backup hard link keeps the source
+        // inode recoverable even after the target directory entry is removed.
+        linkSync(plan.targetPath, plan.claimPath);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+        throw error;
+      }
+      claimCreated = true;
+      const claim = readZedRecoveryArtifact(plan.claimPath, parent);
+      if (!claim.exists || claim.content !== plan.sourceContent) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
+      const claimStat = lstatSync(plan.claimPath);
+      const targetStat = lstatSync(plan.targetPath);
+      if (claimStat.dev !== targetStat.dev || claimStat.ino !== targetStat.ino) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
+      try {
+        renameSync(plan.targetPath, withdrawalPath);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+        throw error;
+      }
+      withdrawalCreated = true;
+      const withdrawnTarget = assertSafeExistingSettingsFile(plan.targetPath, true);
+      if (!withdrawnTarget.ok) throw new Error(withdrawnTarget.message);
+      if (withdrawnTarget.exists) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+
+      try {
+        linkSync(plan.tempPath, plan.targetPath);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+        throw error;
+      }
+      const publishedClaim = readZedRecoveryArtifact(plan.claimPath, parent);
+      if (!publishedClaim.exists || publishedClaim.content !== plan.sourceContent) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
+      const publishedBackup = readZedRecoveryArtifact(plan.backupPath, parent);
+      if (!publishedBackup.exists || publishedBackup.content !== plan.sourceContent) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
+      const publishedWithdrawal = readZedRecoveryArtifact(withdrawalPath, parent);
+      if (!publishedWithdrawal.exists || publishedWithdrawal.content !== plan.sourceContent) {
+        throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
+      }
       tempCreated = false;
       committed = true;
+      try {
+        removeZedRecoveryArtifact(plan.tempPath, parent, hashZedSettingsContent(plan.content), "Zed write recovery is ambiguous; the prepared settings changed.");
+      } catch {
+        retainLock = true;
+      }
+      try {
+        removeZedRecoveryArtifact(plan.claimPath, parent, hashZedSettingsContent(plan.sourceContent), "Zed write recovery is ambiguous; the original claim changed.");
+        claimCreated = false;
+      } catch {
+        retainLock = true;
+      }
+      try {
+        removeZedRecoveryArtifact(withdrawalPath, parent, hashZedSettingsContent(plan.sourceContent), "Zed write recovery is ambiguous; the withdrawn settings changed.");
+        withdrawalCreated = false;
+      } catch {
+        retainLock = true;
+      }
     } else {
       // A missing target must not be replaced if another writer creates it first.
       try {
@@ -407,16 +481,68 @@ export function executeZedMcpWrite(plan: ZedPlannedWrite): void {
         throw error;
       }
       committed = true;
-      rmSync(plan.tempPath, { force: true });
+      try {
+        removeZedRecoveryArtifact(plan.tempPath, parent, hashZedSettingsContent(plan.content), "Zed write recovery is ambiguous; the prepared settings changed.");
+      } catch {
+        retainLock = true;
+      }
       tempCreated = false;
     }
     try { chmodSync(plan.targetPath, 0o600); } catch { /* best effort */ }
+    const committedTarget = assertSafeExistingSettingsFile(plan.targetPath, true);
+    if (!committedTarget.ok) throw new Error(committedTarget.message);
+    if (!committedTarget.exists || readFileSync(plan.targetPath, "utf8") !== plan.content) throw new Error("Zed settings changed during this operation. Refresh the status and try again.");
   } catch (error) {
-    if (tempCreated) {
-      try { rmSync(plan.tempPath, { force: true }); } catch { /* best effort */ }
+    if (committed) retainLock = true;
+    if (!committed && withdrawalCreated && plan.backupPath && plan.claimPath && withdrawalPath) {
+      try {
+        const restoredContent = restoreZedWithdrawalAfterFailedWrite(plan.targetPath, plan.tempPath, withdrawalPath, plan.content);
+        if (restoredContent !== undefined) {
+          withdrawalCreated = false;
+          if (restoredContent === plan.sourceContent && cleanupZedRollbackArtifacts(plan.targetPath, plan.backupPath, plan.claimPath, plan.sourceContent)) {
+            claimCreated = false;
+            backupCreated = false;
+          } else {
+            retainLock = true;
+          }
+        } else {
+          retainLock = true;
+        }
+      } catch {
+        retainLock = true;
+      }
     }
-    if (!committed && backupCreated && plan.backupPath) {
-      try { rmSync(plan.backupPath, { force: true }); } catch { /* best effort */ }
+    if (!committed && claimCreated && !withdrawalCreated && plan.backupPath && plan.claimPath) {
+      try {
+        if (cleanupZedRollbackArtifacts(plan.targetPath, plan.backupPath, plan.claimPath, plan.sourceContent)) {
+          claimCreated = false;
+          backupCreated = false;
+        } else {
+          retainLock = true;
+        }
+      } catch {
+        retainLock = true;
+      }
+    }
+    if (!committed && backupCreated && plan.backupPath && !claimCreated) {
+      try {
+        const currentTarget = assertSafeExistingSettingsFile(plan.targetPath, true);
+        if (!currentTarget.ok || !currentTarget.exists || readFileSync(plan.targetPath, "utf8") !== plan.sourceContent) {
+          retainLock = true;
+        } else {
+          removeZedRecoveryArtifact(plan.backupPath, parent, hashZedSettingsContent(plan.sourceContent), "Zed write recovery is ambiguous; the original backup changed.");
+          backupCreated = false;
+        }
+      } catch {
+        retainLock = true;
+      }
+    }
+    if (tempCreated) {
+      try {
+        removeZedRecoveryArtifact(plan.tempPath, parent, hashZedSettingsContent(plan.content), "Zed write recovery is ambiguous; the prepared settings changed.");
+      } catch {
+        retainLock = true;
+      }
     }
     throw error;
   } finally {
@@ -424,16 +550,47 @@ export function executeZedMcpWrite(plan: ZedPlannedWrite): void {
       try {
         closeSync(lockFd);
       } finally {
-        if (lockToken) removeOwnedZedWriteLock(lockPath, lockToken);
-        if (lockOwnerTempPath) {
-          try { rmSync(lockOwnerTempPath, { force: true }); } catch { /* best effort */ }
+        if (lockToken && !retainLock) removeOwnedZedWriteLock(lockPath, lockToken);
+        if (lockOwnerTempPath && lockOwnerTempHash) {
+          try {
+            removeZedRecoveryArtifact(lockOwnerTempPath, parent, lockOwnerTempHash, "Zed write lock owner artifact changed during cleanup.");
+          } catch { /* best effort; preserve ambiguous artifacts */ }
         }
       }
     }
   }
 }
 
-function acquireZedWriteLock(lockPath: string, parent: string, plan: ZedPlannedWrite): { readonly fd: number; readonly token: string; readonly ownerTempPath: string } {
+function assertZedHardLinkSupport(parent: string): void {
+  const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
+  const sourcePath = uniquePath(join(parent, `.openpets-zed-link-probe-${stamp}.tmp`));
+  const linkPath = uniquePath(join(parent, `.openpets-zed-link-probe-${stamp}.link`));
+  let sourceCreated = false;
+  let linkCreated = false;
+  let sourceFd: number | undefined;
+  try {
+    sourceFd = openSync(sourcePath, "wx", 0o600);
+    sourceCreated = true;
+    closeSync(sourceFd);
+    sourceFd = undefined;
+    linkSync(sourcePath, linkPath);
+    linkCreated = true;
+  } catch {
+    throw new Error("Zed settings writes require filesystem hard-link support.");
+  } finally {
+    if (sourceFd !== undefined) {
+      try { closeSync(sourceFd); } catch { /* best effort */ }
+    }
+    if (sourceCreated) {
+      try { rmSync(sourcePath, { force: true }); } catch { /* best effort */ }
+    }
+    if (linkCreated) {
+      try { rmSync(linkPath, { force: true }); } catch { /* best effort */ }
+    }
+  }
+}
+
+function acquireZedWriteLock(lockPath: string, parent: string, plan: ZedPlannedWrite, withdrawalPath?: string): { readonly fd: number; readonly token: string; readonly ownerTempPath: string; readonly ownerTempHash: string } {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const token = randomUUID();
     const ownerTempPath = uniquePath(join(parent, `.openpets-zed-lock-${process.pid}-${Date.now()}-${token}.tmp`));
@@ -444,19 +601,25 @@ function acquireZedWriteLock(lockPath: string, parent: string, plan: ZedPlannedW
       lockTempPath: ownerTempPath,
       targetPath: plan.targetPath,
       ...(plan.backupPath ? { backupPath: plan.backupPath } : {}),
+      ...(plan.claimPath ? { claimPath: plan.claimPath } : {}),
+      ...(withdrawalPath ? { withdrawalPath } : {}),
       tempPath: plan.tempPath,
       sourceExists: plan.sourceExists,
       sourceHash: hashZedSettingsContent(plan.sourceContent),
       contentHash: hashZedSettingsContent(plan.content),
     };
+    const recordContent = JSON.stringify(record);
+    const ownerTempHash = hashZedSettingsContent(recordContent);
 
     const ownerFd = openSync(ownerTempPath, "wx", 0o600);
     try {
-      writeFileSync(ownerFd, JSON.stringify(record), "utf8");
+      writeFileSync(ownerFd, recordContent, "utf8");
       fsyncSync(ownerFd);
     } catch (error) {
       closeSync(ownerFd);
-      rmSync(ownerTempPath, { force: true });
+      try {
+        removeZedRecoveryArtifact(ownerTempPath, parent, ownerTempHash, "Zed write lock owner artifact changed during cleanup.");
+      } catch { /* preserve an ambiguous owner artifact */ }
       throw error;
     }
     closeSync(ownerFd);
@@ -464,19 +627,25 @@ function acquireZedWriteLock(lockPath: string, parent: string, plan: ZedPlannedW
     try {
       linkSync(ownerTempPath, lockPath);
     } catch (error) {
-      rmSync(ownerTempPath, { force: true });
+      try {
+        removeZedRecoveryArtifact(ownerTempPath, parent, ownerTempHash, "Zed write lock owner artifact changed during cleanup.");
+      } catch {
+        throw error;
+      }
       if (!isAlreadyExistsError(error)) throw error;
       if (attempt === 2) throw zedWriteInProgressError();
       recoverStaleZedWriteLock(lockPath, parent, plan.targetPath);
       continue;
     }
 
-    try { rmSync(ownerTempPath, { force: true }); } catch { /* best effort; the caller cleans it up */ }
+    removeZedRecoveryArtifact(ownerTempPath, parent, ownerTempHash, "Zed write lock owner artifact changed during acquisition.");
     try {
-      return { fd: openSync(lockPath, "r+"), token, ownerTempPath };
+      return { fd: openSync(lockPath, "r+"), token, ownerTempPath, ownerTempHash };
     } catch (error) {
       removeOwnedZedWriteLock(lockPath, token);
-      try { rmSync(ownerTempPath, { force: true }); } catch { /* best effort */ }
+      try {
+        removeZedRecoveryArtifact(ownerTempPath, parent, ownerTempHash, "Zed write lock owner artifact changed during cleanup.");
+      } catch { /* best effort; preserve ambiguous owner artifacts */ }
       throw error;
     }
   }
@@ -506,6 +675,7 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
 
   let claimOwned = true;
   try {
+    const claimedArtifact = readZedRecoveryArtifact(claimPath, parent);
     const claimedRecord = readZedWriteLockRecord(claimPath);
     if ((record && (!claimedRecord || claimedRecord.token !== record.token)) || (!record && claimedRecord)) {
       restoreZedWriteLockClaim(claimPath, lockPath);
@@ -521,16 +691,22 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
       }
       validateZedWriteLockRecord(claimedRecord, lockPath, parent, targetPath);
       if (lstatSync(lockPath, { throwIfNoEntry: false })) {
-        rmSync(claimPath, { force: true });
+        if (claimedArtifact.exists && claimedArtifact.content !== undefined) {
+          removeZedRecoveryArtifact(claimPath, parent, hashZedSettingsContent(claimedArtifact.content), "Zed write lock claim changed during recovery.");
+        }
         claimOwned = false;
         return;
       }
       const ownerTemp = readZedRecoveryArtifact(claimedRecord.lockTempPath, parent);
       recoverZedWriteArtifacts(claimedRecord, parent);
-      if (ownerTemp.exists) rmSync(claimedRecord.lockTempPath, { force: true });
+      if (ownerTemp.exists && ownerTemp.content !== undefined) {
+        removeZedRecoveryArtifact(claimedRecord.lockTempPath, parent, hashZedSettingsContent(ownerTemp.content), "Zed write lock owner artifact changed during recovery.");
+      }
     }
 
-    rmSync(claimPath, { force: true });
+    if (claimedArtifact.exists && claimedArtifact.content !== undefined) {
+      removeZedRecoveryArtifact(claimPath, parent, hashZedSettingsContent(claimedArtifact.content), "Zed write lock claim changed during recovery.");
+    }
     claimOwned = false;
   } catch (error) {
     if (claimOwned) {
@@ -541,12 +717,16 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
 }
 
 function restoreZedWriteLockClaim(claimPath: string, lockPath: string): void {
+  const parent = dirname(lockPath);
+  const claim = readZedRecoveryArtifact(claimPath, parent);
   try {
     linkSync(claimPath, lockPath);
   } catch (error) {
     if (!isAlreadyExistsError(error)) throw error;
   }
-  rmSync(claimPath, { force: true });
+  if (claim.exists && claim.content !== undefined) {
+    removeZedRecoveryArtifact(claimPath, parent, hashZedSettingsContent(claim.content), "Zed write lock claim changed during recovery.");
+  }
 }
 
 function readZedWriteLockRecord(lockPath: string): ZedWriteLockRecord | undefined {
@@ -567,6 +747,8 @@ function readZedWriteLockRecord(lockPath: string): ZedWriteLockRecord | undefine
   if (!isRecord(parsed)) throw new Error("Zed write lock metadata is invalid.");
 
   const backupPath = parsed.backupPath;
+  const claimPath = parsed.claimPath;
+  const withdrawalPath = parsed.withdrawalPath;
   if (
     parsed.version !== zedWriteLockVersion
     || typeof parsed.token !== "string" || parsed.token.length < 1 || parsed.token.length > 128
@@ -574,6 +756,8 @@ function readZedWriteLockRecord(lockPath: string): ZedWriteLockRecord | undefine
     || typeof parsed.lockTempPath !== "string"
     || typeof parsed.targetPath !== "string"
     || (backupPath !== undefined && typeof backupPath !== "string")
+    || (claimPath !== undefined && typeof claimPath !== "string")
+    || (withdrawalPath !== undefined && typeof withdrawalPath !== "string")
     || typeof parsed.tempPath !== "string"
     || typeof parsed.sourceExists !== "boolean"
     || !isZedContentHash(parsed.sourceHash)
@@ -589,6 +773,8 @@ function readZedWriteLockRecord(lockPath: string): ZedWriteLockRecord | undefine
     lockTempPath: parsed.lockTempPath as string,
     targetPath: parsed.targetPath as string,
     ...(backupPath === undefined ? {} : { backupPath }),
+    ...(claimPath === undefined ? {} : { claimPath }),
+    ...(withdrawalPath === undefined ? {} : { withdrawalPath }),
     tempPath: parsed.tempPath as string,
     sourceExists: parsed.sourceExists as boolean,
     sourceHash: parsed.sourceHash as string,
@@ -603,14 +789,36 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
   if (!isSafeSiblingPath(parent, record.lockTempPath) || !parse(record.lockTempPath).base.startsWith(".openpets-zed-lock-")) {
     throw new Error("Zed write lock metadata targets an unsafe lock path.");
   }
-  if (resolve(record.lockTempPath) === resolve(lockPath) || resolve(record.lockTempPath) === resolve(record.targetPath) || resolve(record.lockTempPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.lockTempPath) === resolve(record.backupPath))) {
+  if (resolve(record.lockTempPath) === resolve(lockPath) || resolve(record.lockTempPath) === resolve(record.targetPath) || resolve(record.lockTempPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.lockTempPath) === resolve(record.backupPath)) || (record.claimPath !== undefined && resolve(record.lockTempPath) === resolve(record.claimPath)) || (record.withdrawalPath !== undefined && resolve(record.lockTempPath) === resolve(record.withdrawalPath))) {
     throw new Error("Zed write lock metadata targets an unsafe lock path.");
   }
   if (!isSafeSiblingPath(parent, record.tempPath) || !parse(record.tempPath).base.startsWith(".openpets-")) {
     throw new Error("Zed write lock metadata targets an unsafe temp path.");
   }
-  if (resolve(record.tempPath) === resolve(lockPath) || resolve(record.tempPath) === resolve(record.targetPath)) {
+  if (resolve(record.tempPath) === resolve(lockPath) || resolve(record.tempPath) === resolve(record.targetPath) || (record.backupPath !== undefined && resolve(record.tempPath) === resolve(record.backupPath)) || (record.claimPath !== undefined && resolve(record.tempPath) === resolve(record.claimPath)) || (record.withdrawalPath !== undefined && resolve(record.tempPath) === resolve(record.withdrawalPath))) {
     throw new Error("Zed write lock metadata targets an unsafe temp path.");
+  }
+  if (record.claimPath !== undefined) {
+    if (!record.sourceExists || record.backupPath === undefined) {
+      throw new Error("Zed write lock metadata has inconsistent claim state.");
+    }
+    const claimName = parse(record.claimPath).base;
+    if (!isSafeSiblingPath(parent, record.claimPath) || !claimName.startsWith(".openpets-zed-claim-")) {
+      throw new Error("Zed write lock metadata targets an unsafe claim path.");
+    }
+    if (resolve(record.claimPath) === resolve(lockPath) || resolve(record.claimPath) === resolve(record.targetPath) || resolve(record.claimPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.claimPath) === resolve(record.backupPath)) || (record.withdrawalPath !== undefined && resolve(record.claimPath) === resolve(record.withdrawalPath))) {
+      throw new Error("Zed write lock metadata targets an unsafe claim path.");
+    }
+  }
+  if (record.withdrawalPath !== undefined) {
+    if (!record.sourceExists) throw new Error("Zed write lock metadata has inconsistent withdrawal state.");
+    const withdrawalName = parse(record.withdrawalPath).base;
+    if (!isSafeSiblingPath(parent, record.withdrawalPath) || !withdrawalName.startsWith(".openpets-zed-withdraw-")) {
+      throw new Error("Zed write lock metadata targets an unsafe withdrawal path.");
+    }
+    if (resolve(record.withdrawalPath) === resolve(lockPath) || resolve(record.withdrawalPath) === resolve(record.targetPath) || resolve(record.withdrawalPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.withdrawalPath) === resolve(record.backupPath))) {
+      throw new Error("Zed write lock metadata targets an unsafe withdrawal path.");
+    }
   }
   if (record.sourceExists !== (record.backupPath !== undefined)) {
     throw new Error("Zed write lock metadata has inconsistent backup state.");
@@ -621,7 +829,7 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
     if (!isSafeSiblingPath(parent, record.backupPath) || !backupName.startsWith(`${targetName}.openpets-backup-`)) {
       throw new Error("Zed write lock metadata targets an unsafe backup path.");
     }
-    if (resolve(record.backupPath) === resolve(lockPath) || resolve(record.backupPath) === resolve(record.targetPath) || resolve(record.backupPath) === resolve(record.tempPath)) {
+    if (resolve(record.backupPath) === resolve(lockPath) || resolve(record.backupPath) === resolve(record.targetPath) || resolve(record.backupPath) === resolve(record.tempPath) || (record.withdrawalPath !== undefined && resolve(record.backupPath) === resolve(record.withdrawalPath))) {
       throw new Error("Zed write lock metadata targets an unsafe backup path.");
     }
   }
@@ -633,6 +841,8 @@ function recoverZedWriteArtifacts(record: ZedWriteLockRecord, parent: string): v
   const targetContent = targetSafety.exists ? readFileSync(record.targetPath, "utf8") : undefined;
   const temp = readZedRecoveryArtifact(record.tempPath, parent);
   const backup = record.backupPath ? readZedRecoveryArtifact(record.backupPath, parent) : undefined;
+  const claim = record.claimPath ? readZedRecoveryArtifact(record.claimPath, parent) : undefined;
+  const withdrawal = record.withdrawalPath ? readZedRecoveryArtifact(record.withdrawalPath, parent) : undefined;
   const targetHash = targetContent === undefined ? undefined : hashZedSettingsContent(targetContent);
   const backupHash = backup?.content === undefined ? undefined : hashZedSettingsContent(backup.content);
   const targetMatchesSource = targetSafety.exists === record.sourceExists && (!targetSafety.exists || targetHash === record.sourceHash);
@@ -643,13 +853,17 @@ function recoverZedWriteArtifacts(record: ZedWriteLockRecord, parent: string): v
       throw new Error("Zed write recovery is ambiguous; the original backup is missing or changed.");
     }
     removeZedRecoveryTemp(record, temp);
+    removeZedRecoveryClaim(record, claim);
+    removeZedRecoveryWithdrawal(record, withdrawal);
     return;
   }
 
   if (record.sourceExists && !targetSafety.exists && backup?.exists && backupHash === record.sourceHash) {
     restoreZedOriginalFromJournal(record, parent, backup.content!);
     removeZedRecoveryTemp(record, temp);
-    rmSync(record.backupPath!, { force: true });
+    removeZedRecoveryClaim(record, claim);
+    removeZedRecoveryWithdrawal(record, withdrawal);
+    removeZedRecoveryArtifact(record.backupPath!, parent, record.sourceHash, "Zed write recovery is ambiguous; the original backup changed.");
     return;
   }
 
@@ -658,7 +872,9 @@ function recoverZedWriteArtifacts(record: ZedWriteLockRecord, parent: string): v
       throw new Error("Zed write recovery is ambiguous; the original backup is missing or changed.");
     }
     removeZedRecoveryTemp(record, temp);
-    if (backup?.exists) rmSync(record.backupPath!, { force: true });
+    removeZedRecoveryClaim(record, claim);
+    removeZedRecoveryWithdrawal(record, withdrawal);
+    if (backup?.exists) removeZedRecoveryArtifact(record.backupPath!, parent, record.sourceHash, "Zed write recovery is ambiguous; the original backup changed.");
     return;
   }
 
@@ -675,7 +891,23 @@ function removeZedRecoveryTemp(record: ZedWriteLockRecord, temp: { readonly exis
   if (temp.content === undefined || hashZedSettingsContent(temp.content) !== record.contentHash) {
     throw new Error("Zed write recovery is ambiguous; the prepared settings changed.");
   }
-  rmSync(record.tempPath, { force: true });
+  removeZedRecoveryArtifact(record.tempPath, dirname(record.targetPath), record.contentHash, "Zed write recovery is ambiguous; the prepared settings changed.");
+}
+
+function removeZedRecoveryClaim(record: ZedWriteLockRecord, claim: { readonly exists: boolean; readonly content?: string } | undefined): void {
+  if (!record.claimPath || !claim?.exists) return;
+  if (claim.content === undefined || hashZedSettingsContent(claim.content) !== record.sourceHash) {
+    throw new Error("Zed write recovery is ambiguous; the original claim changed.");
+  }
+  removeZedRecoveryArtifact(record.claimPath, dirname(record.targetPath), record.sourceHash, "Zed write recovery is ambiguous; the original claim changed.");
+}
+
+function removeZedRecoveryWithdrawal(record: ZedWriteLockRecord, withdrawal: { readonly exists: boolean; readonly content?: string } | undefined): void {
+  if (!record.withdrawalPath || !withdrawal?.exists) return;
+  if (withdrawal.content === undefined || hashZedSettingsContent(withdrawal.content) !== record.sourceHash) {
+    throw new Error("Zed write recovery is ambiguous; the withdrawn settings changed.");
+  }
+  removeZedRecoveryArtifact(record.withdrawalPath, dirname(record.targetPath), record.sourceHash, "Zed write recovery is ambiguous; the withdrawn settings changed.");
 }
 
 function readZedRecoveryArtifact(path: string, parent: string): { readonly exists: boolean; readonly content?: string } {
@@ -685,6 +917,39 @@ function readZedRecoveryArtifact(path: string, parent: string): { readonly exist
   if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("Zed write recovery artifact is not a regular file.");
   if (stat.size > maxZedSettingsBytes) throw new Error("Zed write recovery artifact is too large.");
   return { exists: true, content: readFileSync(path, "utf8") };
+}
+
+function removeZedRecoveryArtifact(path: string, parent: string, expectedHash: string, ambiguousMessage: string): void {
+  const artifact = readZedRecoveryArtifact(path, parent);
+  if (!artifact.exists) return;
+  if (artifact.content === undefined || hashZedSettingsContent(artifact.content) !== expectedHash) throw new Error(ambiguousMessage);
+
+  const cleanupPath = uniquePath(join(parent, `.openpets-zed-cleanup-${process.pid}-${Date.now()}-${randomUUID()}.tmp`));
+  try {
+    renameSync(path, cleanupPath);
+  } catch (error) {
+    if (isMissingError(error)) return;
+    throw error;
+  }
+
+  const moved = readZedRecoveryArtifact(cleanupPath, parent);
+  if (!moved.exists || moved.content === undefined || hashZedSettingsContent(moved.content) !== expectedHash) {
+    restoreZedCleanupArtifact(cleanupPath, path, parent);
+    throw new Error(ambiguousMessage);
+  }
+  rmSync(cleanupPath, { force: true });
+}
+
+function restoreZedCleanupArtifact(cleanupPath: string, originalPath: string, parent: string): void {
+  const original = readZedRecoveryArtifact(originalPath, parent);
+  if (original.exists) return;
+  try {
+    linkSync(cleanupPath, originalPath);
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) throw error;
+    return;
+  }
+  rmSync(cleanupPath, { force: true });
 }
 
 function restoreZedOriginalFromJournal(record: ZedWriteLockRecord, parent: string, content: string): void {
@@ -709,10 +974,55 @@ function restoreZedOriginalFromJournal(record: ZedWriteLockRecord, parent: strin
   }
 }
 
+function restoreZedWithdrawalAfterFailedWrite(targetPath: string, preparedPath: string, withdrawalPath: string, preparedContent: string): string | undefined {
+  const parent = dirname(targetPath);
+  const withdrawal = readZedRecoveryArtifact(withdrawalPath, parent);
+  if (!withdrawal.exists || withdrawal.content === undefined) return undefined;
+  const target = assertSafeExistingSettingsFile(targetPath, true);
+  if (!target.ok) throw new Error(target.message);
+  if (target.exists) {
+    if (readFileSync(targetPath, "utf8") !== preparedContent) return undefined;
+    const prepared = readZedRecoveryArtifact(preparedPath, parent);
+    if (!prepared.exists || prepared.content !== preparedContent) return undefined;
+    const targetStat = lstatSync(targetPath);
+    const preparedStat = lstatSync(preparedPath);
+    if (targetStat.dev !== preparedStat.dev || targetStat.ino !== preparedStat.ino) return undefined;
+    removeZedRecoveryArtifact(targetPath, parent, hashZedSettingsContent(preparedContent), "Zed settings changed during recovery. Refresh the status and try again.");
+  }
+  try {
+    linkSync(withdrawalPath, targetPath);
+  } catch (error) {
+    if (isAlreadyExistsError(error)) return undefined;
+    throw error;
+  }
+  const restored = assertSafeExistingSettingsFile(targetPath, true);
+  if (!restored.ok) throw new Error(restored.message);
+  if (!restored.exists || readFileSync(targetPath, "utf8") !== withdrawal.content) {
+    throw new Error("Zed settings changed during recovery. Refresh the status and try again.");
+  }
+  removeZedRecoveryArtifact(withdrawalPath, parent, hashZedSettingsContent(withdrawal.content), "Zed settings changed during recovery. Refresh the status and try again.");
+  return withdrawal.content;
+}
+
+function cleanupZedRollbackArtifacts(targetPath: string, backupPath: string, claimPath: string, sourceContent: string): boolean {
+  const parent = dirname(targetPath);
+  const target = assertSafeExistingSettingsFile(targetPath, true);
+  const backup = readZedRecoveryArtifact(backupPath, parent);
+  const claim = readZedRecoveryArtifact(claimPath, parent);
+  if (!target.ok || !target.exists || readFileSync(targetPath, "utf8") !== sourceContent || !backup.exists || backup.content !== sourceContent || !claim.exists || claim.content !== sourceContent) return false;
+  removeZedRecoveryArtifact(claimPath, parent, hashZedSettingsContent(sourceContent), "Zed write recovery is ambiguous; the original claim changed.");
+  removeZedRecoveryArtifact(backupPath, parent, hashZedSettingsContent(sourceContent), "Zed write recovery is ambiguous; the original backup changed.");
+  return true;
+}
+
 function removeOwnedZedWriteLock(lockPath: string, token: string): void {
   try {
     const record = readZedWriteLockRecord(lockPath);
-    if (record?.token === token) rmSync(lockPath, { force: true });
+    if (record?.token !== token) return;
+    const lock = readZedRecoveryArtifact(lockPath, dirname(lockPath));
+    if (lock.exists && lock.content !== undefined) {
+      removeZedRecoveryArtifact(lockPath, dirname(lockPath), hashZedSettingsContent(lock.content), "Zed write lock changed during cleanup.");
+    }
   } catch {
     // Leave an unreadable lock for the next invocation to handle safely.
   }
@@ -846,6 +1156,7 @@ function buildZedWritePlan(settingsPath: string, content: string, sourceContent 
   return {
     targetPath: settingsPath,
     backupPath: targetSafety.exists ? uniquePath(`${settingsPath}.openpets-backup-${stamp}.jsonc`) : undefined,
+    claimPath: targetSafety.exists ? uniquePath(join(parent, `.openpets-zed-claim-${stamp}.tmp`)) : undefined,
     tempPath: uniquePath(join(parent, `.openpets-${stamp}.tmp`)),
     sourceExists,
     sourceContent,

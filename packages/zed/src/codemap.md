@@ -48,9 +48,12 @@ check-zed.ts imports the public APIs for contract validation
 
 - No mutation is planned for parse, schema, size, symlink, unsafe-path, or I/O
   failures.
-- Existing settings are never overwritten without a verified backup path.
-- Interrupted writes recover from the journal without leaving the live target
-  absent; ambiguous or unsafe recovery artifacts fail closed.
+- Existing settings are never overwritten without a verified hard-link backup;
+  claim and withdrawal artifacts preserve the original or a replacement during
+  publication.
+- Interrupted writes recover from the journal on the next write; the live
+  target may be absent briefly during withdrawal, and ambiguous or unsafe
+  recovery artifacts fail closed.
 - Only `context_servers.openpets` is changed or removed.
 - Disabled entries require an explicit replace operation before re-enabling.
 - User-controlled `env`, `timeout`, and enabled fields are retained for

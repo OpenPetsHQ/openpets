@@ -34,11 +34,15 @@ management; it does not provide runtime hooks or use IPC itself.
   context servers survive targeted edits.
 - Settings are capped at 256 KiB; symlinks, unsafe paths, non-regular files,
   malformed JSONC, and invalid schemas are rejected.
-- Existing files receive an exclusive backup after a fresh source check; the
-  prepared temp file is atomically linked into place without replacing a target
-  that appeared during the operation. A sibling lock serializes OpenPets
-  writers, and execution aborts if settings content or existence changed after
-  planning. Write support paths are restricted to the settings directory.
+- Existing files receive an exclusive hard-link backup after a fresh source
+  check; the original is held at a journaled claim path while the prepared temp
+  file is hard-linked into place without replacing a target that appeared during
+  the operation. A journaled withdrawal path preserves a replacement that
+  arrives while the target is being moved. The backup keeps the original inode
+  recoverable while a pre-existing descriptor is still open. A sibling lock
+  serializes OpenPets writers, interrupted claims are recovered from the journal,
+  and execution aborts if settings content or existence changed after planning.
+  Write support paths are restricted to the settings directory.
 - Managed `enabled`, `env`, and `timeout` fields are preserved during updates;
   unsupported `remote` execution is stripped during correction. A disabled
   managed entry is not silently re-enabled by install; replace is the explicit

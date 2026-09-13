@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync, accessSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 import { createRequire } from "node:module";
 
 import { app } from "electron";
@@ -654,16 +654,24 @@ function normalizeOptionalCommandPath(value: unknown, label: string): string | u
   if (!trimmed) return undefined;
   if (trimmed.length > 4096 || /[\r\n\0]/.test(trimmed)) throw new Error(`${label} command path is invalid.`);
   if (!isAbsolute(trimmed)) throw new Error(`${label} command path must be a full absolute path.`);
-  if (label === "Node.js" && !isValidZedNodeCommand(trimmed)) throw new Error(`${label} command path is invalid.`);
-  if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) throw new Error(`${label} command path contains unsupported shell characters.`);
+  let normalized = normalize(trimmed);
+  if (label === "Node.js") {
+    try {
+      normalized = realpathSync(trimmed);
+    } catch {
+      throw new Error(`${label} command path must point to an existing executable file.`);
+    }
+  }
+  if (label === "Node.js" && !isValidZedNodeCommand(normalized)) throw new Error(`${label} command path is invalid.`);
+  if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) throw new Error(`${label} command path contains unsupported shell characters.`);
   try {
-    const stat = statSync(trimmed);
+    const stat = statSync(normalized);
     if (!stat.isFile()) throw new Error();
-    if (process.platform !== "win32") accessSync(trimmed, constants.X_OK);
+    if (process.platform !== "win32") accessSync(normalized, constants.X_OK);
   } catch {
     throw new Error(`${label} command path must point to an existing executable file.`);
   }
-  return trimmed;
+  return normalized;
 }
 
 function quoteCommandForDisplay(command: string): string {

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
@@ -589,14 +589,22 @@ function normalizeCommandPath(value: unknown, requireSafeNodeCommand = false): s
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 4096 || /[\r\n\0]/.test(trimmed) || !isAbsolute(trimmed)) return undefined;
-  if (requireSafeNodeCommand && !isValidZedNodeCommand(trimmed)) return undefined;
-  if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) return undefined;
+  let normalized = normalize(trimmed);
+  if (requireSafeNodeCommand) {
+    try {
+      normalized = realpathSync(trimmed);
+    } catch {
+      return undefined;
+    }
+  }
+  if (requireSafeNodeCommand && !isValidZedNodeCommand(normalized)) return undefined;
+  if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) return undefined;
   try {
-    if (!statSync(trimmed).isFile()) return undefined;
+    if (!statSync(normalized).isFile()) return undefined;
   } catch {
     return undefined;
   }
-  return trimmed;
+  return normalized;
 }
 
 function normalizeInstalledPets(value: Record<string, unknown>): InstalledPetState[] {

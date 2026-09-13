@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire, syncBuiltinESMExports } from "node:module";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -56,7 +57,7 @@ function executePlan(plan: ReturnType<typeof planZedMcpInstall> | ReturnType<typ
   if ("targetPath" in plan) executeZedMcpWrite(plan);
 }
 
-function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempPath: string): void {
+function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempPath: string, includeClaimPath = true, withdrawalPath?: string): void {
   const hash = (content: string): string => createHash("sha256").update(content, "utf8").digest("hex");
   writeSettings(lockPath, JSON.stringify({
     version: 1,
@@ -65,6 +66,8 @@ function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempP
     lockTempPath,
     targetPath: plan.targetPath,
     ...(plan.backupPath ? { backupPath: plan.backupPath } : {}),
+    ...(includeClaimPath && plan.claimPath ? { claimPath: plan.claimPath } : {}),
+    ...(withdrawalPath ? { withdrawalPath } : {}),
     tempPath: plan.tempPath,
     sourceExists: plan.sourceExists,
     sourceHash: hash(plan.sourceContent),
@@ -235,6 +238,209 @@ try {
   writeSettings(concurrentPath, JSON.stringify({ theme: "light", context_servers: { other: { command: "other", args: [] } } }, null, 2));
   assert.throws(() => executePlan(stalePlan), /changed since this operation was previewed/);
   assert.match(readFileSync(concurrentPath, "utf8"), /"theme": "light"/);
+
+  // A pre-existing backup artifact is never overwritten by a fresh write.
+  const backupCollisionPath = settingsPath("backup-collision");
+  const backupCollisionSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(backupCollisionPath, backupCollisionSource);
+  const backupCollisionPlan = planZedMcpInstall(backupCollisionPath, expected);
+  assert.equal("targetPath" in backupCollisionPlan, true);
+  if ("targetPath" in backupCollisionPlan && backupCollisionPlan.backupPath) {
+    writeSettings(backupCollisionPlan.backupPath, "occupied backup\n");
+    assert.throws(() => executePlan(backupCollisionPlan), /support path already exists/);
+    assert.equal(readFileSync(backupCollisionPath, "utf8"), backupCollisionSource);
+    assert.equal(readFileSync(backupCollisionPlan.backupPath, "utf8"), "occupied backup\n");
+    rmSync(backupCollisionPlan.backupPath, { force: true });
+  }
+
+  // A write through a descriptor opened before publication remains recoverable in the backup.
+  const descriptorPath = settingsPath("preexisting-descriptor");
+  const descriptorSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(descriptorPath, descriptorSource);
+  const descriptorPlan = planZedMcpInstall(descriptorPath, expected);
+  assert.equal("targetPath" in descriptorPlan, true);
+  if ("targetPath" in descriptorPlan && descriptorPlan.backupPath) {
+    const descriptorFd = openSync(descriptorPath, "r+");
+    try {
+      executePlan(descriptorPlan);
+      const descriptorUpdate = descriptorSource.replace('"dark"', '"light"');
+      writeFileSync(descriptorFd, descriptorUpdate, "utf8");
+    } finally {
+      closeSync(descriptorFd);
+    }
+    assert.equal(readFileSync(descriptorPath, "utf8"), descriptorPlan.content);
+    assert.equal(readFileSync(descriptorPlan.backupPath, "utf8"), descriptorSource.replace('"dark"', '"light"'));
+  }
+
+  // A replacement that arrives while the original target is withdrawn is preserved and surfaced.
+  const replacementPath = settingsPath("replacement-during-withdrawal");
+  const replacementSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(replacementPath, replacementSource);
+  const replacementPlan = planZedMcpInstall(replacementPath, expected);
+  assert.equal("targetPath" in replacementPlan, true);
+  if ("targetPath" in replacementPlan && replacementPlan.claimPath) {
+    const replacementContent = replacementPlan.content;
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalLinkSync = fs.linkSync;
+    let replacementInjected = false;
+    fs.linkSync = ((source: string, destination: string) => {
+      if (!replacementInjected && source === replacementPlan.tempPath && destination === replacementPlan.targetPath) {
+        writeSettings(destination, replacementContent);
+        replacementInjected = true;
+      }
+      return originalLinkSync(source, destination);
+    }) as typeof fs.linkSync;
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => executePlan(replacementPlan), /changed during this operation/);
+      assert.equal(readFileSync(replacementPath, "utf8"), replacementContent);
+      assert.equal(existsSync(join(dirname(replacementPlan.targetPath), ".openpets-zed.lock")), true);
+    } finally {
+      fs.linkSync = originalLinkSync;
+      syncBuiltinESMExports();
+    }
+  }
+
+  // Cleanup preserves an artifact replaced after its content was validated.
+  const cleanupPath = settingsPath("replacement-during-cleanup");
+  const cleanupSource = JSON.stringify({ theme: "dark" }, null, 2);
+  const cleanupReplacement = JSON.stringify({ theme: "light" }, null, 2);
+  writeSettings(cleanupPath, cleanupSource);
+  const cleanupPlan = planZedMcpInstall(cleanupPath, expected);
+  assert.equal("targetPath" in cleanupPlan, true);
+  if ("targetPath" in cleanupPlan && cleanupPlan.claimPath) {
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalRenameSync = fs.renameSync;
+    let cleanupReplacementPath: string | undefined;
+    fs.renameSync = ((source: string, destination: string) => {
+      if (!cleanupReplacementPath && source.includes(".openpets-zed-withdraw-") && destination.includes(".openpets-zed-cleanup-")) {
+        cleanupReplacementPath = source;
+        writeSettings(source, cleanupReplacement);
+      }
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync;
+    syncBuiltinESMExports();
+    try {
+      executePlan(cleanupPlan);
+      assert.equal(typeof cleanupReplacementPath, "string");
+      if (cleanupReplacementPath) assert.equal(readFileSync(cleanupReplacementPath, "utf8"), cleanupReplacement);
+      assert.equal(readFileSync(cleanupPath, "utf8"), cleanupPlan.content);
+      assert.equal(existsSync(join(dirname(cleanupPlan.targetPath), ".openpets-zed.lock")), true);
+    } finally {
+      fs.renameSync = originalRenameSync;
+      syncBuiltinESMExports();
+    }
+  }
+
+  // Lock cleanup never deletes a replacement lock that appears after ownership is checked.
+  const lockCleanupPath = settingsPath("replacement-during-lock-cleanup");
+  const lockCleanupSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(lockCleanupPath, lockCleanupSource);
+  const lockCleanupPlan = planZedMcpInstall(lockCleanupPath, expected);
+  assert.equal("targetPath" in lockCleanupPlan, true);
+  if ("targetPath" in lockCleanupPlan) {
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalRenameSync = fs.renameSync;
+    const lockPath = join(dirname(lockCleanupPlan.targetPath), ".openpets-zed.lock");
+    const replacementLock = "replacement lock\n";
+    fs.renameSync = ((source: string, destination: string) => {
+      if (source === lockPath && destination.includes(".openpets-zed-cleanup-")) writeSettings(source, replacementLock);
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync;
+    syncBuiltinESMExports();
+    try {
+      executePlan(lockCleanupPlan);
+      assert.equal(readFileSync(lockPath, "utf8"), replacementLock);
+    } finally {
+      fs.renameSync = originalRenameSync;
+      syncBuiltinESMExports();
+      rmSync(lockPath, { force: true });
+    }
+  }
+
+  // Stale-lock claim cleanup never deletes a replacement that appears after the claim is checked.
+  const claimCleanupPath = settingsPath("replacement-during-lock-claim-cleanup");
+  const claimCleanupSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(claimCleanupPath, claimCleanupSource);
+  const claimCleanupPlan = planZedMcpInstall(claimCleanupPath, expected);
+  assert.equal("targetPath" in claimCleanupPlan, true);
+  if ("targetPath" in claimCleanupPlan && claimCleanupPlan.backupPath && claimCleanupPlan.claimPath) {
+    writeSettings(claimCleanupPlan.backupPath, claimCleanupPlan.sourceContent);
+    writeSettings(claimCleanupPlan.claimPath, claimCleanupPlan.sourceContent);
+    writeSettings(claimCleanupPlan.tempPath, claimCleanupPlan.content);
+    const claimLockPath = join(dirname(claimCleanupPlan.targetPath), ".openpets-zed.lock");
+    const claimLockTempPath = join(dirname(claimCleanupPlan.targetPath), ".openpets-zed-lock-claim-cleanup.tmp");
+    writeSettings(claimLockTempPath, "stale lock owner");
+    writeInterruptedLock(claimCleanupPlan, claimLockPath, claimLockTempPath);
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalRenameSync = fs.renameSync;
+    const originalRmSync = fs.rmSync;
+    const replacementLock = "replacement lock\n";
+    let recoveryClaimPath: string | undefined;
+    let replacementInjected = false;
+    fs.renameSync = ((source: string, destination: string) => {
+      if (!recoveryClaimPath && source === claimLockPath && destination.includes(".openpets-zed-lock-recovery-")) recoveryClaimPath = destination;
+      if (!replacementInjected && source.includes(".openpets-zed-lock-recovery-") && destination.includes(".openpets-zed-cleanup-")) {
+        writeSettings(source, replacementLock);
+        replacementInjected = true;
+      }
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync;
+    fs.rmSync = ((path: string, options?: Parameters<typeof fs.rmSync>[1]) => {
+      if (!replacementInjected && path.includes(".openpets-zed-lock-recovery-")) {
+        writeSettings(path, replacementLock);
+        replacementInjected = true;
+      }
+      return originalRmSync(path, options);
+    }) as typeof fs.rmSync;
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => executePlan(claimCleanupPlan), /claim changed during recovery/);
+      assert.equal(replacementInjected, true);
+      assert.equal(readFileSync(claimLockPath, "utf8"), replacementLock);
+    } finally {
+      fs.renameSync = originalRenameSync;
+      fs.rmSync = originalRmSync;
+      syncBuiltinESMExports();
+      rmSync(claimLockPath, { force: true });
+      rmSync(claimLockTempPath, { force: true });
+      if (recoveryClaimPath) rmSync(recoveryClaimPath, { force: true });
+      rmSync(claimCleanupPlan.backupPath, { force: true });
+      rmSync(claimCleanupPlan.claimPath, { force: true });
+      rmSync(claimCleanupPlan.tempPath, { force: true });
+    }
+  }
+
+  // A failure after backup creation releases the lock when the original target is still intact.
+  const failedWritePath = settingsPath("failed-write-lock-release");
+  const failedWriteSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(failedWritePath, failedWriteSource);
+  const failedWritePlan = planZedMcpInstall(failedWritePath, expected);
+  assert.equal("targetPath" in failedWritePlan, true);
+  if ("targetPath" in failedWritePlan && failedWritePlan.backupPath && failedWritePlan.claimPath) {
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalLinkSync = fs.linkSync;
+    fs.linkSync = ((source: string, destination: string) => {
+      if (source === failedWritePlan.targetPath && destination === failedWritePlan.claimPath) {
+        const injected = new Error("injected claim failure") as NodeJS.ErrnoException;
+        injected.code = "EIO";
+        throw injected;
+      }
+      return originalLinkSync(source, destination);
+    }) as typeof fs.linkSync;
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => executePlan(failedWritePlan), /injected claim failure/);
+      assert.equal(readFileSync(failedWritePath, "utf8"), failedWriteSource);
+      assert.equal(existsSync(failedWritePlan.backupPath), false);
+      assert.equal(existsSync(join(dirname(failedWritePlan.targetPath), ".openpets-zed.lock")), false);
+    } finally {
+      fs.linkSync = originalLinkSync;
+      syncBuiltinESMExports();
+    }
+    executePlan(failedWritePlan);
+  }
+
   const emptyConcurrentPath = settingsPath("empty-concurrent-change");
   writeSettings(emptyConcurrentPath, "");
   const emptyStalePlan = planZedMcpInstall(emptyConcurrentPath, expected);
@@ -333,7 +539,7 @@ try {
     rmSync(movedPath);
     writeSettings(movedPlan.backupPath, movedPlan.sourceContent);
     writeSettings(movedPlan.tempPath, movedPlan.content);
-    writeInterruptedLock(movedPlan, join(dirname(movedPlan.targetPath), ".openpets-zed.lock"), join(dirname(movedPlan.targetPath), ".openpets-zed-lock-moved.tmp"));
+    writeInterruptedLock(movedPlan, join(dirname(movedPlan.targetPath), ".openpets-zed.lock"), join(dirname(movedPlan.targetPath), ".openpets-zed-lock-moved.tmp"), false);
     const staleMissingPlan = planZedMcpInstall(movedPath, expected);
     assert.equal("targetPath" in staleMissingPlan, true);
     assert.throws(() => executePlan(staleMissingPlan), /changed since this operation was previewed/);
@@ -341,6 +547,34 @@ try {
     const freshPlan = planZedMcpInstall(movedPath, expected);
     executePlan(freshPlan);
     assert.equal(classifyZedMcpStatus(readZedSettings(movedPath), movedPath, expected).status, "installed");
+  }
+
+  // A stale journal with a withdrawn target restores every support artifact before retrying.
+  const withdrawnRecoveryPath = settingsPath("interrupted-withdrawal");
+  const withdrawnRecoverySource = JSON.stringify({ theme: "dark", context_servers: { other: { command: "other", args: [] } } }, null, 2);
+  writeSettings(withdrawnRecoveryPath, withdrawnRecoverySource);
+  const withdrawnRecoveryPlan = planZedMcpInstall(withdrawnRecoveryPath, expected);
+  assert.equal("targetPath" in withdrawnRecoveryPlan, true);
+  if ("targetPath" in withdrawnRecoveryPlan && withdrawnRecoveryPlan.backupPath && withdrawnRecoveryPlan.claimPath) {
+    const withdrawnPath = join(dirname(withdrawnRecoveryPlan.targetPath), ".openpets-zed-withdraw-interrupted.tmp");
+    writeSettings(withdrawnRecoveryPlan.backupPath, withdrawnRecoveryPlan.sourceContent);
+    writeSettings(withdrawnRecoveryPlan.claimPath, withdrawnRecoveryPlan.sourceContent);
+    writeSettings(withdrawnRecoveryPlan.tempPath, withdrawnRecoveryPlan.content);
+    writeSettings(withdrawnPath, withdrawnRecoveryPlan.sourceContent);
+    rmSync(withdrawnRecoveryPath);
+    const withdrawnLockPath = join(dirname(withdrawnRecoveryPlan.targetPath), ".openpets-zed.lock");
+    writeInterruptedLock(withdrawnRecoveryPlan, withdrawnLockPath, join(dirname(withdrawnRecoveryPlan.targetPath), ".openpets-zed-lock-withdrawn.tmp"), true, withdrawnPath);
+    const staleMissingPlan = planZedMcpInstall(withdrawnRecoveryPath, expected);
+    assert.equal("targetPath" in staleMissingPlan, true);
+    assert.throws(() => executePlan(staleMissingPlan), /changed since this operation was previewed/);
+    assert.equal(readFileSync(withdrawnRecoveryPath, "utf8"), withdrawnRecoverySource);
+    assert.equal(existsSync(withdrawnRecoveryPlan.backupPath), false);
+    assert.equal(existsSync(withdrawnRecoveryPlan.claimPath), false);
+    assert.equal(existsSync(withdrawnPath), false);
+    assert.equal(existsSync(withdrawnRecoveryPlan.tempPath), false);
+    assert.equal(existsSync(withdrawnLockPath), false);
+    const freshPlan = planZedMcpInstall(withdrawnRecoveryPath, expected);
+    executePlan(freshPlan);
   }
 
   // An active owner is never mistaken for a stale lock or overwritten.

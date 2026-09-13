@@ -20,10 +20,14 @@ in each `packages/*/codemap.md`.
 
 Every integration follows the same contract, which is worth internalizing once:
 
-- **Configuration is atomic and reversible.** Writes go through temp-file +
-  rename with a backup first; paths are validated against traversal/symlink
-  escape; managed entries are marked so they can be detected, updated, and
-  removed without clobbering the user's own config. Status is always classified
+- **Configuration is safe and reversible.** Each integration uses a transaction
+  suited to its config format. Most writes use temp-file + rename with a backup
+  first; Zed settings use a sibling lock, an fsynced temp file, an exclusive
+  backup, journaled claim and withdrawal artifacts, and no-clobber hard-link
+  publication.
+  Paths are validated against traversal/symlink escape; managed entries are
+  marked so they can be detected, updated, and removed without clobbering the
+  user's own config. Status is always classified
   (`missing`/`installed`/`needs-update`/`conflict`/`invalid`/…), so the UI and
   CLI can offer the right action.
 - **Runtime is fire-and-forget.** Agent events are classified into a reaction
@@ -212,10 +216,11 @@ Planned writes are rejected when the settings file changes before execution.
 The desktop Control Center manages the same status-aware lifecycle through
 `apps/desktop/src/agent-setup.ts`; the CLI
 manages the global file with `openpets configure --agent zed`. Both paths use
-the package's journaled, crash-recoverable atomic plan and write APIs rather than
-editing JSONC directly. Existing settings remain in place while their verified
-backup is prepared, so an interrupted write does not expose a missing target;
-ambiguous recovery state is rejected rather than guessed.
+the package's journaled, crash-recoverable write APIs rather than editing JSONC
+directly. Existing settings remain in place while their verified backup is
+prepared; publication uses a temporary claim and no-clobber hard link, and an
+interrupted claim is restored from the journal on the next attempt. Ambiguous
+recovery state is rejected rather than guessed.
 
 ## Pi - `@open-pets/pi`
 
