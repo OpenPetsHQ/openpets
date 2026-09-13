@@ -56,10 +56,19 @@ Teams is an optional cloud lane. `openpets://teams/enroll?intent=...` is parsed
 only by the main process; the singleton Control Center is focused and routed to
 the Teams contract route. One stable installation ID and nonsecret enrollment
 metadata are stored atomically in a dedicated state file. The device bearer
-credential is stored only with Electron `safeStorage`. Teams starts after the
-plugin service, polls with bounded jitter, and stops before plugin shutdown.
-Snapshots expose separated Team pets/plugins and status, never credentials,
-enrollment tokens, or full server packs.
+credential is stored only with Electron `safeStorage`. For enrollment, the
+desktop generates an ephemeral proof, sends it with the intent ID, installation
+ID, and display name, and uses that same proof only for bounded completion
+polling. The API returns the intent expiration and the desktop retries lost
+request/completion responses with the same proof only until that server-defined
+window ends. Neither the browser token nor the proof is stored in desktop state
+or included in logs; the proof is cleared after terminal completion/failure or
+app shutdown. The browser confirms the requested desktop through the
+browser-token-authenticated Teams page before the API issues a deterministically
+derived 256-bit credential. Teams starts after the plugin service, polls with
+bounded jitter, and stops before plugin shutdown. Snapshots expose separated
+Team pets/plugins and status, never credentials, enrollment tokens, proofs, or
+full server packs.
 
 ## Linux display backend (Ozone/Wayland)
 

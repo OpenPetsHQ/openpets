@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 
@@ -48,6 +49,8 @@ export class TeamService {
   #timer: NodeJS.Timeout | null = null;
   #started = false;
   #syncing: Promise<TeamServiceSnapshot> | null = null;
+  #enrollmentSession: { readonly controller: AbortController; proof: string } | null = null;
+  #enrollmentDone: Promise<void> | null = null;
 
   constructor(options: TeamServiceOptions) {
     this.#userDataPath = options.userDataPath;
@@ -60,7 +63,7 @@ export class TeamService {
   }
 
   async start(): Promise<void> { this.#started = true; this.stateStore.initialize(); if (this.stateStore.snapshot()?.organizationId) { try { if (this.credentialStore.load()) { await this.syncNow().catch(() => undefined); this.#schedule(); } else { this.stateStore.setError("secure_storage_unavailable"); this.#log("error", "Teams secure credential storage is unavailable", {}); } } catch { this.stateStore.setError("secure_storage_unavailable"); this.#log("error", "Teams secure credential storage is unavailable", {}); } } }
-  async stop(): Promise<void> { this.#started = false; if (this.#timer) clearTimeout(this.#timer); this.#timer = null; await this.#syncing?.catch(() => undefined); }
+  async stop(): Promise<void> { this.#started = false; if (this.#timer) clearTimeout(this.#timer); this.#timer = null; if (this.#enrollmentSession) { this.#enrollmentSession.proof = ""; this.#enrollmentSession.controller.abort(); } await this.#enrollmentDone; await this.#syncing?.catch(() => undefined); }
   handleDeepLink(value: unknown): boolean { const link = typeof value === "string" ? findTeamEnrollmentLink([value]) : null; if (!link) return false; this.stateStore.setPendingIntent(link); this.#log("info", "Teams enrollment link received", {}); return true; }
   handleArgv(argv: readonly unknown[]): boolean { const link = findTeamEnrollmentLink(argv); return link ? this.handleDeepLink(`openpets://teams/enroll?intent=${encodeURIComponent(link.intentId)}`) : false; }
 
@@ -69,17 +72,24 @@ export class TeamService {
     if (this.stateStore.snapshot()?.organizationId) throw new Error("Leave the current organization before re-enrolling this desktop.");
     const pending = this.stateStore.snapshot()?.pendingIntent;
     if (!pending) throw new Error("No pending Teams enrollment link.");
+    if (this.#enrollmentSession) throw new Error("Teams enrollment is already in progress.");
     const installationId = this.stateStore.installationId;
-    // The browser confirmation token is deliberately never persisted. The API accepts
-    // the opaque intent handoff and keeps the browser-side confirmation state server-side.
-    await this.apiClient.requestEnrollment(pending.intentId, pending.intentId, installationId, displayName.trim());
-    const enrollment = await this.apiClient.completeEnrollment(pending.intentId, pending.intentId);
-    this.credentialStore.save(enrollment.deviceCredential);
-    this.stateStore.enroll({ organizationId: enrollment.organization.id, organizationName: enrollment.organization.name, deviceId: enrollment.deviceId });
-    this.stateStore.clearPendingIntent();
-    this.#log("info", "Teams enrollment completed", { organizationId: enrollment.organization.id });
-    await this.syncNow();
-    return this.getSnapshot();
+    const session = { controller: new AbortController(), proof: randomBytes(32).toString("base64url") };
+    this.#enrollmentSession = session;
+    const work = (async () => {
+      const requested = await this.apiClient.requestEnrollment(pending.intentId, session.proof, installationId, displayName.trim(), session.controller.signal);
+      const enrollment = await this.apiClient.completeEnrollment(pending.intentId, session.proof, requested.expiresAt, session.controller.signal);
+      session.proof = "";
+      this.credentialStore.save(enrollment.deviceCredential);
+      this.stateStore.enroll({ organizationId: enrollment.organization.id, organizationName: enrollment.organization.name, deviceId: enrollment.deviceId });
+      this.stateStore.clearPendingIntent();
+      this.#log("info", "Teams enrollment completed", { organizationId: enrollment.organization.id });
+      await this.syncNow();
+      return this.getSnapshot();
+    })();
+    this.#enrollmentDone = work.then(() => undefined, () => undefined);
+    try { return await work; }
+    finally { session.proof = ""; if (this.#enrollmentSession === session) this.#enrollmentSession = null; this.#enrollmentDone = null; }
   }
 
   async syncNow(): Promise<TeamServiceSnapshot> {

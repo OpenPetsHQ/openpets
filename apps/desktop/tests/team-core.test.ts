@@ -76,6 +76,66 @@ test("Teams API client pins requests to the configured origin and validates pack
   assert.throws(() => new TeamApiClient({ baseUrl: "http://insecure.example.test" }));
 });
 
+test("Teams enrollment crosses the boundary with only an intent and desktop proof", async () => {
+  const requestBodies: Record<string, Record<string, unknown>> = {};
+  const expiresAt = new Date(Date.now() + 3_000).toISOString();
+  let requestedProof = "";
+  let browserConfirmed = false;
+  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    requestBodies[path] = body;
+    if (path.endsWith("/request")) {
+      requestedProof = String(body.desktopProof);
+      return new Response(JSON.stringify({ intentId: "intent-1", status: "awaiting_confirmation", organization: { id: "org-1", name: "Acme" }, displayName: "Alice desktop", expiresAt }), { status: 200 });
+    }
+    if (path.endsWith("/complete")) {
+      if (body.desktopProof !== requestedProof) return new Response(JSON.stringify({ error: "invalid proof" }), { status: 401 });
+      if (!browserConfirmed) return new Response(JSON.stringify({ error: "not confirmed" }), { status: 409 });
+      return new Response(JSON.stringify({ deviceId: "device-1", organization: { id: "org-1", name: "Acme" }, deviceCredential: "credential_" + "a".repeat(32), packRevision: 4 }), { status: 201 });
+    }
+    throw new Error(`Unexpected enrollment URL: ${path}`);
+  } });
+
+  await client.requestEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop");
+  assert.deepEqual(requestBodies["/v1/enrollment/intents/intent-1/request"], { desktopProof: "desktop-proof", deviceInstallationId: "desktop-installation", displayName: "Alice desktop" });
+  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/request"], false);
+  await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", expiresAt), /HTTP 401/);
+
+  const confirmation = setTimeout(() => { browserConfirmed = true; }, 10);
+  const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", expiresAt);
+  clearTimeout(confirmation);
+  assert.equal(enrollment.deviceId, "device-1");
+  assert.equal(requestBodies["/v1/enrollment/intents/intent-1/complete"].desktopProof, "desktop-proof");
+  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
+});
+
+test("Teams enrollment request retries a lost response with the same proof and stops at the API window", async () => {
+  let calls = 0;
+  const proof = "desktop-proof";
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async (_url, init) => {
+    calls += 1;
+    assert.equal((JSON.parse(String(init?.body)) as Record<string, unknown>).desktopProof, proof);
+    if (calls === 1) throw new TypeError("response connection lost");
+    return new Response(JSON.stringify({ intentId: "intent-1", status: "confirmed", organization: { id: "org-1", name: "Acme" }, displayName: "Alice desktop", expiresAt }), { status: 200 });
+  } });
+  const result = await client.requestEnrollment("intent-1", proof, "desktop-installation", "Alice desktop");
+  assert.equal(result.status, "confirmed");
+  assert.equal(calls, 2);
+});
+
+test("Teams enrollment completion respects the server-provided bounded window", async () => {
+  let calls = 0;
+  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: "not confirmed" }), { status: 409 });
+  } });
+  const expiresAt = new Date(Date.now() + 20).toISOString();
+  await assert.rejects(() => client.completeEnrollment("intent-1", "desktop-proof", expiresAt), /confirmation timed out/);
+  assert.ok(calls <= 2);
+});
+
 test("required and optional Team plugin policy never bypasses permission approval", () => {
   assert.deepEqual(resolveTeamPluginPolicy("required", false, [], []), { enabled: true, permissionBlocked: false });
   assert.deepEqual(resolveTeamPluginPolicy("required", false, ["network"], []), { enabled: false, permissionBlocked: true });
