@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -337,6 +338,39 @@ try {
     assert.throws(() => executePlan(cleanupPlan), /Zed write recovery is ambiguous/);
   }
 
+  // A retained lock from a transient cleanup failure is recoverable in the same process.
+  const retryPath = settingsPath("retained-lock-retry");
+  writeSettings(retryPath, JSON.stringify({ theme: "dark" }, null, 2));
+  const retryPlan = planZedMcpInstall(retryPath, expected);
+  assert.equal("targetPath" in retryPlan, true);
+  if ("targetPath" in retryPlan) {
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalRenameSync = fs.renameSync;
+    let cleanupFailureInjected = false;
+    fs.renameSync = ((source: string, destination: string) => {
+      if (!cleanupFailureInjected && source === retryPlan.tempPath && destination.includes(".openpets-zed-cleanup-")) {
+        cleanupFailureInjected = true;
+        const error = new Error("injected cleanup failure") as NodeJS.ErrnoException;
+        error.code = "EIO";
+        throw error;
+      }
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync;
+    syncBuiltinESMExports();
+    try {
+      executePlan(retryPlan);
+    } finally {
+      fs.renameSync = originalRenameSync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(cleanupFailureInjected, true);
+    assert.equal(existsSync(join(dirname(retryPlan.targetPath), ".openpets-zed.lock")), true);
+    const retryRemovePlan = planZedMcpRemove(retryPath, expected);
+    executePlan(retryRemovePlan);
+    assert.equal(classifyZedMcpStatus(readZedSettings(retryPath), retryPath, expected).status, "missing");
+    assert.equal(existsSync(join(dirname(retryPlan.targetPath), ".openpets-zed.lock")), false);
+  }
+
   // Lock cleanup never deletes a replacement lock that appears after ownership is checked.
   const lockCleanupPath = settingsPath("replacement-during-lock-cleanup");
   const lockCleanupSource = JSON.stringify({ theme: "dark" }, null, 2);
@@ -608,6 +642,28 @@ try {
     }
     assert.equal(nestedAttempted, true);
     assert.equal(readFileSync(heldPath, "utf8"), heldPlan.content);
+  }
+
+  // A live lock owned by another process is never recovered.
+  const foreignPath = settingsPath("foreign-live-lock");
+  writeSettings(foreignPath, JSON.stringify({ theme: "dark" }, null, 2));
+  const foreignPlan = planZedMcpInstall(foreignPath, expected);
+  assert.equal("targetPath" in foreignPlan, true);
+  if ("targetPath" in foreignPlan) {
+    const foreignOwner = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { stdio: "ignore" });
+    const foreignLockPath = join(dirname(foreignPlan.targetPath), ".openpets-zed.lock");
+    try {
+      if (foreignOwner.pid === undefined) throw new Error("Failed to start foreign lock owner.");
+      writeInterruptedLock(foreignPlan, foreignLockPath, join(dirname(foreignPlan.targetPath), ".openpets-zed-lock-foreign.tmp"));
+      const foreignLock = JSON.parse(readFileSync(foreignLockPath, "utf8")) as Record<string, unknown>;
+      writeSettings(foreignLockPath, JSON.stringify({ ...foreignLock, pid: foreignOwner.pid }));
+      assert.throws(() => executePlan(foreignPlan), /EEXIST/);
+      assert.equal(readFileSync(foreignPath, "utf8"), foreignPlan.sourceContent);
+      assert.equal(existsSync(foreignLockPath), true);
+    } finally {
+      foreignOwner.kill();
+      rmSync(foreignLockPath, { force: true });
+    }
   }
 
   // A non-OpenPets server occupying the key is a conflict and is not overwritten by install.
