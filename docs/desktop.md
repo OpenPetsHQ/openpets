@@ -40,14 +40,26 @@ launching a second one.
 order): install lifecycle handlers → initialize app state → initialize the
 logger → register the configured Talk shortcut → create the tray → start the
 local IPC server → start the persisted, opt-in remote-control service if enabled
-→ initialize and start the plugin service (with the Electron JS host) → construct
-the host Pet Assistant service → optionally show the default pet. Shutdown
-unregisters the exact shortcut before stopping voice, then stops the bounded Pet
-Assistant turns before plugin teardown, remote-control listener, local IPC
-server, and pet windows.
+→ initialize and start the plugin service (with the Electron JS host) → start
+the optional Teams service and reconcile its Team Pack → construct the host Pet
+Assistant service → optionally show the default pet. Shutdown unregisters the
+exact shortcut before stopping voice, then stops the bounded Pet Assistant turns
+and Teams before plugin teardown, remote-control listener, local IPC server, and
+pet windows.
 
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
 `state.ts` (shell pause flag).
+
+## Optional Teams desktop scope
+
+Teams is an optional cloud lane. `openpets://teams/enroll?intent=...` is parsed
+only by the main process; the singleton Control Center is focused and routed to
+the Teams contract route. One stable installation ID and nonsecret enrollment
+metadata are stored atomically in a dedicated state file. The device bearer
+credential is stored only with Electron `safeStorage`. Teams starts after the
+plugin service, polls with bounded jitter, and stops before plugin shutdown.
+Snapshots expose separated Team pets/plugins and status, never credentials,
+enrollment tokens, or full server packs.
 
 ## Linux display backend (Ozone/Wayland)
 

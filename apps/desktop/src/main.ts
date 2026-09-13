@@ -25,8 +25,14 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol } from "./windows.js";
+import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow } from "./windows.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
+import { initializeTeamService, type TeamService } from "./team-service.js";
+import { TeamApiClient } from "./team-api-client.js";
+import { findTeamEnrollmentLink } from "./team-protocol.js";
+
+let teamService: TeamService | null = null;
+let pendingTeamEnrollmentLink: string | null = null;
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
 // real encryption backend. On Linux use the keyring so safeStorage can
@@ -106,7 +112,15 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  installAppLifecycle();
+  installAppLifecycle({
+    onTeamEnrollmentLink: (link) => {
+      const value = `openpets://teams/enroll?intent=${encodeURIComponent(link.intentId)}`;
+      if (!teamService) { pendingTeamEnrollmentLink = value; return; }
+      teamService.handleDeepLink(value);
+      openControlCenterWindow("teams");
+    },
+    stopTeams: () => teamService?.stop() ?? Promise.resolve(),
+  });
 
   app.whenReady().then(async () => {
     initializeLogger();
@@ -129,6 +143,8 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
+    try { app.setAsDefaultProtocolClient("openpets"); }
+    catch (error) { warn("app", "Teams enrollment protocol registration unavailable", { reason: error instanceof Error ? error.message : "registration_failed" }); }
     try {
       const migration = await migrateLegacyCodexV2ImportsAtStartup();
       info("state", "Codex V2 import metadata migration completed", {
@@ -169,6 +185,18 @@ if (!gotSingleInstanceLock) {
     const pluginCapabilities = createElectronPluginHostCapabilities(app.getPath("userData"));
     let devPluginWatcher: ReturnType<typeof startDevPluginWatcher> | undefined;
     const pluginService = initializePluginService(app.getPath("userData"), defaultPluginPetApi, app.getVersion(), new ElectronPluginJsHost(), writePluginRuntimeLog, process.env.OPENPETS_DISABLE_PLUGIN_CATALOG === "1" || devPluginMode, resolveBundledOfficialPluginRoots(), !devPluginMode, pluginCapabilities, undefined, (sourcePath) => devPluginWatcher?.addPaths([sourcePath]), (sourcePath) => devPluginWatcher?.removePath(sourcePath));
+    teamService = initializeTeamService({ userDataPath: app.getPath("userData"), apiClient: new TeamApiClient({ production: app.isPackaged }), pluginService, log: (level, message, fields) => level === "error" ? logError("teams", message, fields) : level === "warn" ? warn("teams", message, fields) : info("teams", message, fields) });
+    powerMonitor.on("resume", () => { void teamService?.syncNow().catch(() => undefined); });
+    const startupTeamLink = findTeamEnrollmentLink(process.argv);
+    if (startupTeamLink) {
+      teamService.handleDeepLink(`openpets://teams/enroll?intent=${encodeURIComponent(startupTeamLink.intentId)}`);
+      openControlCenterWindow("teams");
+    }
+    if (pendingTeamEnrollmentLink) {
+      teamService.handleDeepLink(pendingTeamEnrollmentLink);
+      pendingTeamEnrollmentLink = null;
+      openControlCenterWindow("teams");
+    }
     // Wall-clock schedules (daily/cron/at) re-arm deterministically after sleep.
     powerMonitor.on("resume", () => pluginService.runtime.resyncSchedules());
     if (shouldOpenDefaultPetOnLaunch()) {
@@ -184,6 +212,7 @@ if (!gotSingleInstanceLock) {
     void (async () => {
       const service = pluginService;
       await service.start();
+      await teamService?.start();
       const assistant = startPetAssistantHost(service, pluginCapabilities.secretsStore, {
         // App state is host-owned and synchronous; the service snapshots this
         // profile before each turn.

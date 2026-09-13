@@ -34,6 +34,15 @@ There are three sources a pet can come from at runtime:
    (`codex-pets.ts`), the dev workflow for authoring a new pet before
    publishing it.
 
+## Teams-owned pets
+
+Teams adds a fourth explicit source kind, `team`. Team pets use a dedicated root
+and appear separately in snapshots while remaining selectable. Immutable
+organization/item/artifact/release references ensure reconciliation removes only
+matching Team records; personal catalog and Codex pets are never overwritten or
+removed on ID collision. Removing the Team default falls back to the built-in
+pet.
+
 ## Default pet vs agent pets
 
 Two distinct window roles, two controllers:

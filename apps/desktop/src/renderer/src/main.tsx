@@ -193,6 +193,10 @@ function limitUtf8Bytes(value: string, maxBytes: number): string {
 type ControlCenterApi = {
   getPetsState(): Promise<StateSnapshot>;
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
+  getTeamsSnapshot(): Promise<TeamsSnapshot>;
+  submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
+  syncTeamsNow(): Promise<TeamsSnapshot>;
+  leaveTeams(): Promise<TeamsSnapshot>;
   getSettingsState(): Promise<SettingsState>;
   getLanStatus(): Promise<LanStatusSnapshot>;
   getI18n(): Promise<I18nSnapshot>;
@@ -531,7 +535,8 @@ const ShieldIcon = () => (
 );
 
 // Navigation Shell Types and Icons
-type Route = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations";
+type TeamsSnapshot = { enrolled: boolean; organizationId: string | null; organizationName: string | null; pendingEnrollment: boolean; installationId: string | null; pendingRevision: number; appliedRevision: number; lastSyncAt?: string; lastError?: string; teamPets: Array<{ id: string; displayName: string; source: "team" }>; teamPlugins: Array<{ id: string; version: string; enabled: boolean; policy: "required" | "optional"; source: "team" }> };
+type Route = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams";
 
 const DashboardIcon = () => (
   <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -630,6 +635,10 @@ const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
   integrations: {
     titleKey: "route.integrations.title",
     descKey: "route.integrations.description",
+  },
+  teams: {
+    titleKey: "route.teams.title",
+    descKey: "route.teams.description",
   },
 };
 
@@ -924,7 +933,7 @@ const statusPillToneClass = {
 } as const;
 
 function isRoute(value: string | null | undefined): value is Route {
-  return value === "dashboard" || value === "conversation" || value === "pets" || value === "settings" || value === "plugins" || value === "integrations";
+  return value === "dashboard" || value === "conversation" || value === "pets" || value === "settings" || value === "plugins" || value === "integrations" || value === "teams";
 }
 
 function initialControlCenterRoute(): Route {

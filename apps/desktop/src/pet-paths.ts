@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -15,7 +16,13 @@ export function getInstalledPetDir(petId: string): string {
   const root = getPetsRoot();
   const target = resolve(root, petId);
   assertInsideRoot(root, target);
-  return target;
+  const teamTarget = resolve(root, "..", "team-pets", petId);
+  return !existsSync(target) && existsSync(teamTarget) ? teamTarget : target;
+}
+
+export function getTeamPetDir(petId: string): string {
+  assertSafePetId(petId);
+  return resolve(getPetsRoot(), "..", "team-pets", petId);
 }
 
 export function assertSafePetId(petId: string): void {

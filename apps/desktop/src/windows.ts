@@ -36,6 +36,7 @@ import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } f
 import { deleteProviderCredentialForProfile } from "./provider-service.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
+import { getTeamService } from "./team-service.js";
 import {
   buildProviderControlCenterSnapshot,
   createProviderProfile,
@@ -53,9 +54,9 @@ import {
 } from "./plugin-platform-settings.js";
 
 type InternalUiWindowKind = "control-center";
-export type ControlCenterRoute = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations";
+export type ControlCenterRoute = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams";
 
-const controlCenterRoutes = new Set<ControlCenterRoute>(["dashboard", "conversation", "pets", "settings", "plugins", "integrations"]);
+const controlCenterRoutes = new Set<ControlCenterRoute>(["dashboard", "conversation", "pets", "settings", "plugins", "integrations", "teams"]);
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
 const conversationSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
@@ -390,6 +391,24 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:get-dashboard-snapshot", async (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getDashboardSnapshot();
+  });
+
+  ipcMain.handle("openpets:teams-snapshot", (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getTeamService().getSnapshot();
+  });
+  ipcMain.handle("openpets:teams-enroll", async (event, displayName: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (typeof displayName !== "string" || displayName.length > 120 || displayName.trim().length === 0) throw new Error("Invalid Teams display name.");
+    return getTeamService().submitEnrollment(displayName.trim());
+  });
+  ipcMain.handle("openpets:teams-sync", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getTeamService().syncNow();
+  });
+  ipcMain.handle("openpets:teams-leave", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getTeamService().leave();
   });
 
   ipcMain.handle("openpets:get-reaction-animation-settings", async (event) => {
