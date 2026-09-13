@@ -196,7 +196,13 @@ export async function motionMoveTo(petHandleId: string, accessor: WindowAccessor
     const nextX = Math.round(startX + (clamped.x - startX) * t);
     const nextY = Math.round(startY + (clamped.y - startY) * t);
     if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;  // abort move if NaN (e.g. startX was NaN from mid-destroy getPosition)
-    live.setPosition(nextX, nextY, false);
+    // setBounds with the known-correct fixed size (not a live-queried size,
+    // which would itself be corrupted -- see the second call site below)
+    // instead of bare setPosition: repeated setPosition() at animation-frame
+    // rate causes unbounded window growth on Linux/XWayland at fractional
+    // display scale. This is a defensive workaround for what looks like a
+    // genuine Electron/Chromium bug, not something wrong on our end.
+    live.setBounds({ x: nextX, y: nextY, width: defaultPetWindowSize.width, height: defaultPetWindowSize.height }, false);
     await delay(durationMs / steps);
   }
 }
@@ -336,7 +342,10 @@ function tickPet(petHandleId: string, accessor: WindowAccessor, state: MotionSta
   if (nextX !== x || nextY !== y) {
     const clamped = clampPosition(petHandleId, { x: nextX, y: nextY }, windowSize);
     if (!Number.isFinite(clamped.x) || !Number.isFinite(clamped.y)) return;  // skip write when clamp produces NaN (e.g. from NaN workArea on monitor disconnect)
-    window.setPosition(clamped.x, clamped.y, false);
+    // Same setBounds workaround as motionMoveTo above -- use the fixed
+    // constant size, not `windowSize` (derived from getBounds(), which is
+    // exactly the value this bug corrupts).
+    window.setBounds({ x: clamped.x, y: clamped.y, width: defaultPetWindowSize.width, height: defaultPetWindowSize.height }, false);
   }
 }
 

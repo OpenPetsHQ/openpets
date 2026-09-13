@@ -66,6 +66,7 @@ setCrossDisplayRoamingEnabled(false);
     isVisible: () => false, // always hidden
     getPosition: (): [number, number] => [currentPos.x, currentPos.y],
     setPosition: (x: number, y: number) => { positions.push({ x, y }); currentPos = { x, y }; },
+    setBounds: (bounds: { x: number; y: number }) => { positions.push({ x: bounds.x, y: bounds.y }); currentPos = { x: bounds.x, y: bounds.y }; },
   } as any;
   const accessor = () => mockWindow;
 
@@ -103,6 +104,7 @@ setCrossDisplayRoamingEnabled(false);
     isVisible: () => true, // visible but dragging
     getPosition: (): [number, number] => [currentPos.x, currentPos.y],
     setPosition: (x: number, y: number) => { positions.push({ x, y }); currentPos = { x, y }; },
+    setBounds: (bounds: { x: number; y: number }) => { positions.push({ x: bounds.x, y: bounds.y }); currentPos = { x: bounds.x, y: bounds.y }; },
   } as any;
   const accessor = () => mockWindow;
 
@@ -140,6 +142,7 @@ setCrossDisplayRoamingEnabled(false);
     isVisible: () => true,
     getPosition: (): [number, number] => [currentPos.x, currentPos.y],
     setPosition: (x: number, y: number) => { positions.push({ x, y }); currentPos = { x, y }; },
+    setBounds: (bounds: { x: number; y: number }) => { positions.push({ x: bounds.x, y: bounds.y }); currentPos = { x: bounds.x, y: bounds.y }; },
   } as any;
   const accessor = () => mockWindow;
 
@@ -176,6 +179,7 @@ setCrossDisplayRoamingEnabled(false);
     isVisible: () => isVisible,
     getPosition: (): [number, number] => [currentPos.x, currentPos.y],
     setPosition: (x: number, y: number) => { positions.push({ x, y }); currentPos = { x, y }; },
+    setBounds: (bounds: { x: number; y: number }) => { positions.push({ x: bounds.x, y: bounds.y }); currentPos = { x: bounds.x, y: bounds.y }; },
   } as any;
   const accessor = () => mockWindow;
 

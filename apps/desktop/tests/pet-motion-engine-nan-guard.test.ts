@@ -37,6 +37,9 @@ function makeWindowMock(posX: number, posY: number, setPositionSpy?: (x: number,
     setPosition: (x: number, y: number, _animate: boolean) => {
       setPositionSpy?.(x, y);
     },
+    setBounds: (bounds: { x: number; y: number }, _animate: boolean) => {
+      setPositionSpy?.(bounds.x, bounds.y);
+    },
   } as any);
 }
 

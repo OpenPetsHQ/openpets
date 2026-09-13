@@ -159,6 +159,11 @@ describe("gravity seam oscillation regression", () => {
         petY = y;
         snapYValues.push(y);
       },
+      setBounds: (bounds: { x: number; y: number }, _: boolean) => {
+        petX = bounds.x;
+        petY = bounds.y;
+        snapYValues.push(bounds.y);
+      },
     } as any);
 
     registerPet("seam-osc-test", accessor);
@@ -206,6 +211,10 @@ describe("gravity seam oscillation regression", () => {
       setPosition: (x: number, y: number) => {
         petX = x;
         petY = y;
+      },
+      setBounds: (bounds: { x: number; y: number }) => {
+        petX = bounds.x;
+        petY = bounds.y;
       },
     };
     const accessor = () => nativeWindow as any;

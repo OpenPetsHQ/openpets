@@ -23,6 +23,10 @@ const mockWindow = {
     positions.push({ x, y });
     currentPos = { x, y };
   },
+  setBounds: (bounds: { x: number; y: number }) => {
+    positions.push({ x: bounds.x, y: bounds.y });
+    currentPos = { x: bounds.x, y: bounds.y };
+  },
 } as any;
 
 const mockScreen = {
