@@ -57,7 +57,7 @@ export function isValidOpenPetsPackageVersion(value: string): boolean {
 }
 
 export function isValidZedNodeCommand(value: string): boolean {
-  return value === "node" || (isAbsolute(value) && value.trim() === value && value.length <= 4096 && !/[\0\r\n]/u.test(value) && !hasParentTraversal(value));
+  return value === "node" || (isAbsolute(value) && value.trim() === value && value.length <= 4096 && !/[\0\r\n]/u.test(value));
 }
 
 export function isValidOpenPetsMcpScriptPath(value: string): boolean {

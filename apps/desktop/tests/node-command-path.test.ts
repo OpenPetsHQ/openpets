@@ -32,9 +32,9 @@ try {
   const { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock } = await import("../src/app-state.js");
   try {
     initializeAppState();
-    assert.equal(getAppStateSnapshot().preferences.nodeCommandPath, realpathSync(nodePath));
+    assert.equal(getAppStateSnapshot().preferences.nodeCommandPath, rawNodePath);
     const persisted = JSON.parse(readFileSync(join(userDataPath, "openpets-state.json"), "utf8")) as { preferences?: { nodeCommandPath?: unknown } };
-    assert.equal(persisted.preferences?.nodeCommandPath, realpathSync(nodePath));
+    assert.equal(persisted.preferences?.nodeCommandPath, rawNodePath);
   } finally {
     releaseStartupInstallLock();
   }
@@ -42,4 +42,4 @@ try {
   rmSync(userDataPath, { recursive: true, force: true });
 }
 
-console.error("Node command paths with parent traversal are canonicalized and preserved.");
+console.error("Node command paths are resolved for validation and preserved in their safe configured form.");

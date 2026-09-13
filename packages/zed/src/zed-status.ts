@@ -61,6 +61,7 @@ export const maxZedSettingsBytes = 256 * 1024;
 const zedWriteLockVersion = 1;
 const maxZedWriteLockBytes = 16 * 1024;
 const staleUnownedZedLockMs = 10 * 60 * 1000;
+const activeZedWriteLockTokens = new Set<string>();
 
 interface ZedWriteLockRecord {
   readonly version: number;
@@ -556,6 +557,7 @@ export function executeZedMcpWrite(plan: ZedPlannedWrite): void {
             removeZedRecoveryArtifact(lockOwnerTempPath, parent, lockOwnerTempHash, "Zed write lock owner artifact changed during cleanup.");
           } catch { /* best effort; preserve ambiguous artifacts */ }
         }
+        if (lockToken) activeZedWriteLockTokens.delete(lockToken);
       }
     }
   }
@@ -640,7 +642,9 @@ function acquireZedWriteLock(lockPath: string, parent: string, plan: ZedPlannedW
 
     removeZedRecoveryArtifact(ownerTempPath, parent, ownerTempHash, "Zed write lock owner artifact changed during acquisition.");
     try {
-      return { fd: openSync(lockPath, "r+"), token, ownerTempPath, ownerTempHash };
+      const fd = openSync(lockPath, "r+");
+      activeZedWriteLockTokens.add(token);
+      return { fd, token, ownerTempPath, ownerTempHash };
     } catch (error) {
       removeOwnedZedWriteLock(lockPath, token);
       try {
@@ -663,7 +667,11 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
     if (Date.now() - lockStat.mtimeMs < staleUnownedZedLockMs) throw zedWriteInProgressError();
   }
 
-  if (record && isProcessAlive(record.pid)) throw zedWriteInProgressError();
+  // A retained lock from a completed write may be retried by this process,
+  // but a live lock owned by another process must never be recovered.
+  if (record && isZedWriteLockInUse(record)) {
+    throw zedWriteInProgressError();
+  }
 
   const claimPath = uniquePath(join(parent, `.openpets-zed-lock-recovery-${process.pid}-${Date.now()}-${randomUUID()}.tmp`));
   try {
@@ -684,7 +692,7 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
     }
 
     if (claimedRecord) {
-      if (isProcessAlive(claimedRecord.pid)) {
+      if (isZedWriteLockInUse(claimedRecord)) {
         restoreZedWriteLockClaim(claimPath, lockPath);
         claimOwned = false;
         throw zedWriteInProgressError();
@@ -714,6 +722,10 @@ function recoverStaleZedWriteLock(lockPath: string, parent: string, targetPath: 
     }
     throw error;
   }
+}
+
+function isZedWriteLockInUse(record: ZedWriteLockRecord): boolean {
+  return isProcessAlive(record.pid) && (record.pid !== process.pid || activeZedWriteLockTokens.has(record.token));
 }
 
 function restoreZedWriteLockClaim(claimPath: string, lockPath: string): void {

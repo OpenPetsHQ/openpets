@@ -654,6 +654,7 @@ function normalizeOptionalCommandPath(value: unknown, label: string): string | u
   if (!trimmed) return undefined;
   if (trimmed.length > 4096 || /[\r\n\0]/.test(trimmed)) throw new Error(`${label} command path is invalid.`);
   if (!isAbsolute(trimmed)) throw new Error(`${label} command path must be a full absolute path.`);
+  if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) throw new Error(`${label} command path contains unsupported shell characters.`);
   let normalized = normalize(trimmed);
   if (label === "Node.js") {
     try {
@@ -661,8 +662,8 @@ function normalizeOptionalCommandPath(value: unknown, label: string): string | u
     } catch {
       throw new Error(`${label} command path must point to an existing executable file.`);
     }
+    if (!isValidZedNodeCommand(normalized)) throw new Error(`${label} command path is invalid.`);
   }
-  if (label === "Node.js" && !isValidZedNodeCommand(normalized)) throw new Error(`${label} command path is invalid.`);
   if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) throw new Error(`${label} command path contains unsupported shell characters.`);
   try {
     const stat = statSync(normalized);
@@ -671,7 +672,7 @@ function normalizeOptionalCommandPath(value: unknown, label: string): string | u
   } catch {
     throw new Error(`${label} command path must point to an existing executable file.`);
   }
-  return normalized;
+  return label === "Node.js" ? trimmed : normalized;
 }
 
 function quoteCommandForDisplay(command: string): string {

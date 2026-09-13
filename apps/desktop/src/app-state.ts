@@ -589,6 +589,7 @@ function normalizeCommandPath(value: unknown, requireSafeNodeCommand = false): s
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 4096 || /[\r\n\0]/.test(trimmed) || !isAbsolute(trimmed)) return undefined;
+  if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) return undefined;
   let normalized = normalize(trimmed);
   if (requireSafeNodeCommand) {
     try {
@@ -596,15 +597,15 @@ function normalizeCommandPath(value: unknown, requireSafeNodeCommand = false): s
     } catch {
       return undefined;
     }
+    if (!isValidZedNodeCommand(normalized)) return undefined;
   }
-  if (requireSafeNodeCommand && !isValidZedNodeCommand(normalized)) return undefined;
   if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) return undefined;
   try {
     if (!statSync(normalized).isFile()) return undefined;
   } catch {
     return undefined;
   }
-  return normalized;
+  return requireSafeNodeCommand ? trimmed : normalized;
 }
 
 function normalizeInstalledPets(value: Record<string, unknown>): InstalledPetState[] {

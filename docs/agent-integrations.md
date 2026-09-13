@@ -212,6 +212,9 @@ desktop's configured Node.js command when applicable). It reports
 `error` states, refuses unsafe or ambiguous mutations, strips unsupported
 `remote` execution during correction while preserving managed environment and
 timeout fields, and requires explicit replacement to re-enable a disabled entry.
+Configured Node.js paths are validated through their resolved executable but
+stored in their original safe form so version-manager symlinks continue to
+follow upgrades.
 Planned writes are rejected when the settings file changes before execution.
 The desktop Control Center manages the same status-aware lifecycle through
 `apps/desktop/src/agent-setup.ts`; the CLI

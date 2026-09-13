@@ -12,6 +12,7 @@ import {
   getZedGlobalSettingsPath,
   isValidOpenPetsPackageVersion,
   isValidPetId,
+  isValidZedNodeCommand,
   validateOpenPetsPackageVersion,
   validateOpenPetsPetId,
 } from "./zed-mcp.js";
@@ -133,7 +134,10 @@ try {
   if (customRemoved.ok) assert.equal((customRemoved.value.context_servers as Record<string, unknown>).openpets, undefined);
   assert.throws(() => buildZedMcpEntry({ ...expected, commandMode: "local", mcpEntryPath: "relative.js" }));
   assert.throws(() => buildZedMcpEntry({ ...expected, commandMode: "local", mcpEntryPath: join(root, "not-openpets.js") }));
-  assert.throws(() => buildZedMcpEntry({ ...expected, commandMode: "local", mcpEntryPath: localEntryPath, nodeCommand: `${root}\\..\\node` }));
+  const traversedNodeCommand = `${root}\\..\\node`;
+  assert.equal(isValidZedNodeCommand(traversedNodeCommand), true);
+  assert.doesNotThrow(() => buildZedMcpEntry({ ...expected, commandMode: "local", mcpEntryPath: localEntryPath, nodeCommand: traversedNodeCommand }));
+  assert.throws(() => buildZedMcpEntry({ ...expected, commandMode: "local", mcpEntryPath: localEntryPath, nodeCommand: "relative-node" }));
 
   // Clean install creates only the settings file and managed OpenPets entry.
   const cleanPath = settingsPath("clean-install");
@@ -330,6 +334,7 @@ try {
       fs.renameSync = originalRenameSync;
       syncBuiltinESMExports();
     }
+    assert.throws(() => executePlan(cleanupPlan), /Zed write recovery is ambiguous/);
   }
 
   // Lock cleanup never deletes a replacement lock that appears after ownership is checked.
@@ -584,14 +589,25 @@ try {
   const heldPlan = planZedMcpInstall(heldPath, expected);
   assert.equal("targetPath" in heldPlan, true);
   if ("targetPath" in heldPlan) {
-    const heldLockPath = join(dirname(heldPlan.targetPath), ".openpets-zed.lock");
-    writeInterruptedLock(heldPlan, heldLockPath, join(dirname(heldPlan.targetPath), ".openpets-zed-lock-held.tmp"));
-    const heldLock = JSON.parse(readFileSync(heldLockPath, "utf8")) as Record<string, unknown>;
-    writeSettings(heldLockPath, JSON.stringify({ ...heldLock, pid: process.pid }));
-    assert.throws(() => executePlan(heldPlan), /EEXIST/);
-    assert.equal(readFileSync(heldPath, "utf8"), heldSource);
-    assert.equal(existsSync(heldLockPath), true);
-    rmSync(heldLockPath);
+    const fs = createRequire(import.meta.url)("node:fs") as typeof import("node:fs");
+    const originalLinkSync = fs.linkSync;
+    let nestedAttempted = false;
+    fs.linkSync = ((source: string, destination: string) => {
+      if (!nestedAttempted && source === heldPlan.tempPath && destination === heldPlan.targetPath) {
+        nestedAttempted = true;
+        assert.throws(() => executePlan(heldPlan), /EEXIST/);
+      }
+      return originalLinkSync(source, destination);
+    }) as typeof fs.linkSync;
+    syncBuiltinESMExports();
+    try {
+      executePlan(heldPlan);
+    } finally {
+      fs.linkSync = originalLinkSync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(nestedAttempted, true);
+    assert.equal(readFileSync(heldPath, "utf8"), heldPlan.content);
   }
 
   // A non-OpenPets server occupying the key is a conflict and is not overwritten by install.

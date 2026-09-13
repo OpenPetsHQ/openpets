@@ -43,6 +43,8 @@ management; it does not provide runtime hooks or use IPC itself.
   serializes OpenPets writers, interrupted claims are recovered from the journal,
   and execution aborts if settings content or existence changed after planning.
   Write support paths are restricted to the settings directory.
+- Configured Node.js paths validate their resolved executable while retaining
+  the original safe path, including version-manager symlinks and `..` segments.
 - Managed `enabled`, `env`, and `timeout` fields are preserved during updates;
   unsupported `remote` execution is stripped during correction. A disabled
   managed entry is not silently re-enabled by install; replace is the explicit
