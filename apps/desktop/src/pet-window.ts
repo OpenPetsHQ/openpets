@@ -1116,7 +1116,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
   const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
   const scaledHeight = Math.ceil(defaultPetSprite.frameHeight * scale);
   const petBottom = 22;
-  const hitPadding = 18;
+  const hitPadding = 28;
   const petHitboxWidth = scaledWidth + hitPadding * 2;
   const petHitboxHeight = scaledHeight + hitPadding * 2;
   const shape: Electron.Rectangle[] = [
@@ -1138,9 +1138,23 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     });
   }
 
+  // setShape's rects are undocumented as to units, but empirically the window's
+  // true on-screen size/position are scaled by the display's scaleFactor, while
+  // window.getBounds()/getContentBounds() unreliably report values close to the
+  // unscaled logical size instead of the true physical geometry — so getBounds()
+  // must not be used here. Scale the DIP-computed rect by the live scaleFactor
+  // directly instead.
+  const scaleFactor = screen.getDisplayMatching(window.getBounds()).scaleFactor;
+  const physicalShape: Electron.Rectangle[] = scaleFactor === 1 ? shape : shape.map((rect) => ({
+    x: Math.round(rect.x * scaleFactor),
+    y: Math.round(rect.y * scaleFactor),
+    width: Math.round(rect.width * scaleFactor),
+    height: Math.round(rect.height * scaleFactor),
+  }));
+
   try {
-    window.setShape(shape);
-    debug("pet.window", "linux window shape applied", { windowId: window.id, scale, hasBubble, shape });
+    window.setShape(physicalShape);
+    debug("pet.window", "linux window shape applied", { windowId: window.id, scale, hasBubble, scaleFactor, shape: physicalShape });
   } catch (error) {
     logError("pet.window", "linux window shape failed", error instanceof Error ? error : { error });
   }
@@ -1311,7 +1325,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
   const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
   const scaledHeight = Math.ceil(defaultPetSprite.frameHeight * scale);
   const petBottom = 22;
-  const hitPadding = 18;
+  const hitPadding = 28;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
   const emojiFontUrl = pathToFileURL(join(app.getAppPath(), "assets", "NotoColorEmoji.ttf")).toString();
   const petShellFilter = process.platform === "win32" ? "none" : "drop-shadow(0 10px 12px rgba(15, 23, 42, 0.24)) drop-shadow(0 2px 3px rgba(15, 23, 42, 0.18))";
