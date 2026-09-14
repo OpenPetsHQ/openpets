@@ -1,6 +1,7 @@
 !v1
 !web
 !lfs
+!teams
 !local
 !.slim/deepwork/
 !.slim/deepwork/**
