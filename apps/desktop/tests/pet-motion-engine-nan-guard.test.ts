@@ -149,13 +149,18 @@ describe("pet-motion-engine NaN coordinate guards", () => {
 
     const movePromise = motionMoveTo("nan-move-test", accessor, { x: 500, y: 500 }, { durationMs: 100 });
 
-    const outcome = await Promise.race([
-      movePromise.then(() => "resolved" as const),
-      new Promise<"timeout">((resolve) => {
-        const t = setTimeout(() => resolve("timeout"), 1000);
-        t.unref?.();
-      }),
-    ]);
+    let deadlineTimer: NodeJS.Timeout | undefined;
+    let outcome: "resolved" | "timeout";
+    try {
+      outcome = await Promise.race([
+        movePromise.then(() => "resolved" as const),
+        new Promise<"timeout">((resolve) => {
+          deadlineTimer = setTimeout(() => resolve("timeout"), 1000);
+        }),
+      ]);
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
 
     assert.equal(
       outcome,
