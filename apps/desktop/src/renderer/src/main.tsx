@@ -536,8 +536,27 @@ const ShieldIcon = () => (
 );
 
 // Navigation Shell Types and Icons
-type TeamsSnapshot = { enrolled: boolean; organizationId: string | null; organizationName: string | null; pendingEnrollment: boolean; installationId: string | null; pendingRevision: number; appliedRevision: number; lastSyncAt?: string; lastError?: string; teamPets: Array<{ id: string; displayName: string; source: "team" }>; teamPlugins: Array<{ id: string; version: string; enabled: boolean; policy: "required" | "optional"; source: "team" }> };
+type TeamsSnapshot = {
+  enrolled: boolean;
+  organizationId: string | null;
+  organizationName: string | null;
+  pendingEnrollment: boolean;
+  installationId: string | null;
+  pendingRevision: number;
+  appliedRevision: number;
+  lastSyncAt?: string;
+  lastError?: string;
+  teamPets: Array<{ id: string; displayName: string; source: "team" }>;
+  teamPlugins: Array<{
+    id: string;
+    version: string;
+    enabled: boolean;
+    policy: "required" | "optional";
+    source: "team";
+  }>;
+};
 type Route = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams";
+
 
 const DashboardIcon = () => (
   <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

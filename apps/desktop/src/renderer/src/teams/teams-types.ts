@@ -39,9 +39,18 @@ export type TeamsApi = {
   setTeamPluginEnabled?(id: string, enabled: boolean): Promise<TeamsSnapshot>;
 };
 
+export type TeamsNavigationRoute =
+  | "dashboard"
+  | "conversation"
+  | "pets"
+  | "settings"
+  | "plugins"
+  | "integrations"
+  | "teams";
+
 export type TeamsViewProps = {
   readonly api: TeamsApi;
-  readonly onNavigate?: (route: "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams") => void;
+  readonly onNavigate?: (route: TeamsNavigationRoute) => void;
 };
 
 export type PermissionTone = "red" | "orange" | "blue" | "slate";

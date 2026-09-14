@@ -115,11 +115,15 @@ if (!gotSingleInstanceLock) {
   installAppLifecycle({
     onTeamEnrollmentLink: (link) => {
       const value = `openpets://teams/enroll?intent=${encodeURIComponent(link.intentId)}`;
-      if (!teamService) { pendingTeamEnrollmentLink = value; return; }
+      if (!teamService) {
+        pendingTeamEnrollmentLink = value;
+        return;
+      }
       teamService.handleDeepLink(value);
       openControlCenterWindow("teams");
     },
-    stopTeams: () => teamService?.stop() ?? Promise.resolve(),
+    stopTeams: () =>
+      teamService?.stop() ?? Promise.resolve(),
   });
 
   app.whenReady().then(async () => {
@@ -143,8 +147,13 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
-    try { app.setAsDefaultProtocolClient("openpets"); }
-    catch (error) { warn("app", "Teams enrollment protocol registration unavailable", { reason: error instanceof Error ? error.message : "registration_failed" }); }
+    try {
+      app.setAsDefaultProtocolClient("openpets");
+    } catch (error) {
+      warn("app", "Teams enrollment protocol registration unavailable", {
+        reason: error instanceof Error ? error.message : "registration_failed",
+      });
+    }
     try {
       const migration = await migrateLegacyCodexV2ImportsAtStartup();
       info("state", "Codex V2 import metadata migration completed", {
@@ -185,11 +194,25 @@ if (!gotSingleInstanceLock) {
     const pluginCapabilities = createElectronPluginHostCapabilities(app.getPath("userData"));
     let devPluginWatcher: ReturnType<typeof startDevPluginWatcher> | undefined;
     const pluginService = initializePluginService(app.getPath("userData"), defaultPluginPetApi, app.getVersion(), new ElectronPluginJsHost(), writePluginRuntimeLog, process.env.OPENPETS_DISABLE_PLUGIN_CATALOG === "1" || devPluginMode, resolveBundledOfficialPluginRoots(), !devPluginMode, pluginCapabilities, undefined, (sourcePath) => devPluginWatcher?.addPaths([sourcePath]), (sourcePath) => devPluginWatcher?.removePath(sourcePath));
-    teamService = initializeTeamService({ userDataPath: app.getPath("userData"), apiClient: new TeamApiClient({ production: app.isPackaged }), pluginService, log: (level, message, fields) => level === "error" ? logError("teams", message, fields) : level === "warn" ? warn("teams", message, fields) : info("teams", message, fields) });
-    powerMonitor.on("resume", () => { void teamService?.syncNow().catch(() => undefined); });
+    teamService = initializeTeamService({
+      userDataPath: app.getPath("userData"),
+      apiClient: new TeamApiClient({ production: app.isPackaged }),
+      pluginService,
+      log: (level, message, fields) =>
+        level === "error"
+          ? logError("teams", message, fields)
+          : level === "warn"
+            ? warn("teams", message, fields)
+            : info("teams", message, fields),
+    });
+    powerMonitor.on("resume", () => {
+      void teamService?.syncNow().catch(() => undefined);
+    });
     const startupTeamLink = findTeamEnrollmentLink(process.argv);
     if (startupTeamLink) {
-      teamService.handleDeepLink(`openpets://teams/enroll?intent=${encodeURIComponent(startupTeamLink.intentId)}`);
+      teamService.handleDeepLink(
+        `openpets://teams/enroll?intent=${encodeURIComponent(startupTeamLink.intentId)}`,
+      );
       openControlCenterWindow("teams");
     }
     if (pendingTeamEnrollmentLink) {

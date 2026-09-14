@@ -34,24 +34,27 @@ export function TeamsView({ api }: TeamsViewProps) {
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [expandedPluginDetails, setExpandedPluginDetails] = useState<Record<string, boolean>>({});
 
-  const loadSnapshot = useCallback(async (clearErrors = false) => {
-    if (clearErrors) {
-      setActionError("");
-    }
-    setLoading(true);
-    try {
-      const next = await api.getTeamsSnapshot();
-      if (isTeamsSnapshot(next)) {
-        setSnapshot(next);
-      } else {
-        throw new Error("Invalid Teams snapshot received.");
+  const loadSnapshot = useCallback(
+    async (clearErrors = false) => {
+      if (clearErrors) {
+        setActionError("");
       }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to load Teams status.");
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+      setLoading(true);
+      try {
+        const next = await api.getTeamsSnapshot();
+        if (isTeamsSnapshot(next)) {
+          setSnapshot(next);
+        } else {
+          throw new Error("Invalid Teams snapshot received.");
+        }
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Failed to load Teams status.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api],
+  );
 
   useEffect(() => {
     void loadSnapshot();
@@ -80,7 +83,9 @@ export function TeamsView({ api }: TeamsViewProps) {
       setDisplayNameInput("");
       setSuccessMessage(`Enrolled successfully in ${next.organizationName || "team"}!`);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to complete Teams enrollment.");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to complete Teams enrollment.",
+      );
     } finally {
       setBusy("");
     }
@@ -95,7 +100,9 @@ export function TeamsView({ api }: TeamsViewProps) {
       setSnapshot(next);
       setSuccessMessage("Team Pack synchronized successfully.");
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to synchronize Team Pack.");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to synchronize Team Pack.",
+      );
     } finally {
       setBusy("");
     }
@@ -121,7 +128,11 @@ export function TeamsView({ api }: TeamsViewProps) {
         setSuccessMessage(`Permissions approved for ${pluginId}.`);
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `Failed to approve permissions for ${pluginId}.`);
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : `Failed to approve permissions for ${pluginId}.`,
+      );
     } finally {
       setBusy("");
       setApprovingPluginId(null);
@@ -141,9 +152,15 @@ export function TeamsView({ api }: TeamsViewProps) {
       if (isTeamsSnapshot(next)) {
         setSnapshot(next);
       }
-      setSuccessMessage(enabled ? `Plugin ${pluginId} enabled.` : `Plugin ${pluginId} disabled.`);
+      setSuccessMessage(
+        enabled ? `Plugin ${pluginId} enabled.` : `Plugin ${pluginId} disabled.`,
+      );
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `Failed to ${enabled ? "enable" : "disable"} ${pluginId}.`);
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : `Failed to ${enabled ? "enable" : "disable"} ${pluginId}.`,
+      );
     } finally {
       setBusy("");
       setTogglingPluginId(null);
@@ -160,7 +177,9 @@ export function TeamsView({ api }: TeamsViewProps) {
       setShowLeaveModal(false);
       setSuccessMessage("Successfully disconnected from organization.");
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to leave organization.");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to leave organization.",
+      );
     } finally {
       setBusy("");
     }
@@ -232,7 +251,9 @@ export function TeamsView({ api }: TeamsViewProps) {
       {activeError && (
         <div
           className={`rounded-2xl border p-4 shadow-sm flex flex-col gap-2.5 ${
-            activeError.isPermissionBlock ? "border-amber-200 bg-amber-50 text-amber-900" : "border-red-200 bg-red-50 text-red-900"
+            activeError.isPermissionBlock
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-red-200 bg-red-50 text-red-900"
           }`}
         >
           <div className="flex items-start gap-3">
@@ -293,8 +314,14 @@ export function TeamsView({ api }: TeamsViewProps) {
             approvingPluginId={approvingPluginId}
             togglingPluginId={togglingPluginId}
             expandedPluginDetails={expandedPluginDetails}
-            onApprovePluginPermissions={(id, token) => void handleApprovePluginPermissions(id, token)}
-            onSetPluginEnabled={api.setTeamPluginEnabled ? (id, enabled) => void handleSetPluginEnabled(id, enabled) : undefined}
+            onApprovePluginPermissions={(id, token) =>
+              void handleApprovePluginPermissions(id, token)
+            }
+            onSetPluginEnabled={
+              api.setTeamPluginEnabled
+                ? (id, enabled) => void handleSetPluginEnabled(id, enabled)
+                : undefined
+            }
             onTogglePluginDetails={togglePluginDetails}
           />
 
@@ -307,7 +334,9 @@ export function TeamsView({ api }: TeamsViewProps) {
               <strong className="block font-bold text-navy dark:text-slate-100 mb-0.5">
                 Personal Content Isolation
               </strong>
-              Your personal catalog pets, Codex pets, and local plugins remain completely untouched in your local storage. Organization updates only synchronize assets under the team namespace.
+              Your personal catalog pets, Codex pets, and local plugins remain completely untouched
+              in your local storage. Organization updates only synchronize assets under the team
+              namespace.
             </div>
           </div>
         </div>

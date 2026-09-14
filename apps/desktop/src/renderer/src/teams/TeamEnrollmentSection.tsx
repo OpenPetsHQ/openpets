@@ -21,6 +21,9 @@ export function TeamEnrollmentSection({
   onEnrollSubmit,
   onRefreshStatus,
 }: TeamEnrollmentSectionProps) {
+  const isBusy = Boolean(busy);
+  const isSubmitDisabled = isBusy || !displayNameInput.trim();
+
   if (snapshot.pendingEnrollment && !snapshot.enrolled) {
     return (
       <section className="team-card border-brand/30 bg-blue-50/50">
@@ -36,16 +39,25 @@ export function TeamEnrollmentSection({
               Complete Team Enrollment
             </h2>
             <p className="m-0 mt-1 text-xs text-slatecopy leading-relaxed">
-              An invitation to join an organization was opened on this computer. Set a friendly display name so your organization administrator can identify this device.
+              An invitation to join an organization was opened on this computer. Set a friendly
+              display name so your organization administrator can identify this device.
             </p>
           </div>
         </div>
 
-        <form onSubmit={onEnrollSubmit} className="mt-2 flex flex-col gap-3 rounded-2xl border border-blue-100/70 bg-white/90 p-4 shadow-inner dark:bg-slate-950/60 dark:border-slate-800">
+        <form
+          onSubmit={onEnrollSubmit}
+          className="mt-2 flex flex-col gap-3 rounded-2xl border border-blue-100/70 bg-white/90 p-4 shadow-inner dark:bg-slate-950/60 dark:border-slate-800"
+        >
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="team-device-name" className="text-xs font-bold text-navy flex items-center justify-between">
+            <label
+              htmlFor="team-device-name"
+              className="text-xs font-bold text-navy flex items-center justify-between"
+            >
               <span>Device Display Name</span>
-              <span className="text-[11px] font-mono text-slatecopy/70">{displayNameInput.length}/120</span>
+              <span className="text-[11px] font-mono text-slatecopy/70">
+                {displayNameInput.length}/120
+              </span>
             </label>
             <input
               id="team-device-name"
@@ -54,7 +66,7 @@ export function TeamEnrollmentSection({
               value={displayNameInput}
               onChange={(e) => onDisplayNameChange(e.target.value)}
               placeholder="e.g., Work Laptop, Devbox, or MacBook Pro"
-              disabled={Boolean(busy)}
+              disabled={isBusy}
               className="team-input"
               autoFocus
             />
@@ -62,11 +74,12 @@ export function TeamEnrollmentSection({
 
           <div className="flex items-center justify-between gap-3 pt-2">
             <span className="text-[11px] text-slatecopy leading-snug">
-              This connects your device to your team’s private catalog. Personal pets and plugins remain completely separate.
+              This connects your device to your team’s private catalog. Personal pets and plugins
+              remain completely separate.
             </span>
             <button
               type="submit"
-              disabled={Boolean(busy) || !displayNameInput.trim()}
+              disabled={isSubmitDisabled}
               className="btn btn-primary px-5 shrink-0"
             >
               {busy ? "Enrolling..." : "Accept & Enroll"}
@@ -92,26 +105,40 @@ export function TeamEnrollmentSection({
               Join an Organization
             </h2>
             <p className="m-0 mt-1 text-xs text-slatecopy leading-relaxed">
-              OpenPets Teams allows engineering teams and organizations to securely distribute company-curated companions, shared workflow plugins, and team configurations directly to your desktop.
+              OpenPets Teams allows engineering teams and organizations to securely distribute
+              company-curated companions, shared workflow plugins, and team configurations directly
+              to your desktop.
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-2">
           <div className="team-guide-step">
-            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">1. Get Invitation</span>
+            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">
+              1. Get Invitation
+            </span>
             <p className="m-0 text-xs text-slatecopy leading-relaxed">
               Ask your team administrator for a deep-link invitation URL.
             </p>
           </div>
+
           <div className="team-guide-step">
-            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">2. Open Link</span>
+            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">
+              2. Open Link
+            </span>
             <p className="m-0 text-xs text-slatecopy leading-relaxed">
-              Click the link (<code className="font-mono text-[10px] bg-blue-100/70 px-1 py-0.5 rounded dark:bg-slate-800 dark:text-slate-200">openpets://teams/enroll...</code>) on this computer.
+              Click the link (
+              <code className="font-mono text-[10px] bg-blue-100/70 px-1 py-0.5 rounded dark:bg-slate-800 dark:text-slate-200">
+                openpets://teams/enroll...
+              </code>
+              ) on this computer.
             </p>
           </div>
+
           <div className="team-guide-step">
-            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">3. Auto Sync</span>
+            <span className="font-monoDisplay text-[11px] font-black uppercase tracking-wider text-brand">
+              3. Auto Sync
+            </span>
             <p className="m-0 text-xs text-slatecopy leading-relaxed">
               Your organization’s companions and plugins will appear here automatically.
             </p>
@@ -142,7 +169,9 @@ export function TeamEnrollmentSection({
             Personal Content Isolation Guarantee
           </strong>
           <p className="m-0 mt-0.5 text-xs text-emerald-800 leading-relaxed dark:text-emerald-300">
-            Your personal companions from the public catalog, Codex pets, and local developer plugins reside in an isolated lane. Joining an organization will never overwrite, modify, or delete any of your personal content.
+            Your personal companions from the public catalog, Codex pets, and local developer
+            plugins reside in an isolated lane. Joining an organization will never overwrite,
+            modify, or delete any of your personal content.
           </p>
         </div>
       </div>

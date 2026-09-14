@@ -13,7 +13,6 @@ export function emptyTeamsSnapshot(): TeamsSnapshot {
     teamPlugins: [],
   };
 }
-
 export function isTeamsSnapshot(value: unknown): value is TeamsSnapshot {
   if (!value || typeof value !== "object") return false;
   const raw = value as Partial<TeamsSnapshot>;
@@ -27,7 +26,11 @@ export function isTeamsSnapshot(value: unknown): value is TeamsSnapshot {
   );
 }
 
-export function validateDisplayName(name: string): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly error: string } {
+export type DisplayNameValidationResult =
+  | { readonly ok: true; readonly name: string }
+  | { readonly ok: false; readonly error: string };
+
+export function validateDisplayName(name: string): DisplayNameValidationResult {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
     return { ok: false, error: "Please enter a display name for this computer." };
@@ -67,10 +70,15 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
 
   const normalized = errorCodeOrMessage.trim();
 
-  if (normalized === "permission_blocked" || normalized.toLowerCase().includes("permission approval is required") || normalized.toLowerCase().includes("permission")) {
+  if (
+    normalized === "permission_blocked" ||
+    normalized.toLowerCase().includes("permission approval is required") ||
+    normalized.toLowerCase().includes("permission")
+  ) {
     return {
       title: "Permission Approval Required",
-      description: "One or more team plugins require local permission approval. Review and approve requested permissions below to enable them on this machine.",
+      description:
+        "One or more team plugins require local permission approval. Review and approve requested permissions below to enable them on this machine.",
       isPermissionBlock: true,
       canRetry: true,
     };
@@ -79,7 +87,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "secure_storage_unavailable") {
     return {
       title: "Secure Storage Unavailable",
-      description: "Teams device authentication requires secure system credential storage (such as OS Keychain or Secret Service), which is currently unavailable.",
+      description:
+        "Teams device authentication requires secure system credential storage (such as OS Keychain or Secret Service), which is currently unavailable.",
       isPermissionBlock: false,
       canRetry: true,
     };
@@ -88,7 +97,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "stage_failed") {
     return {
       title: "Download & Verification Failed",
-      description: "Unable to download or verify the latest Team Pack artifacts from the server. Check your network connection and try again.",
+      description:
+        "Unable to download or verify the latest Team Pack artifacts from the server. Check your network connection and try again.",
       isPermissionBlock: false,
       canRetry: true,
     };
@@ -97,7 +107,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "apply_failed") {
     return {
       title: "Activation Failed",
-      description: "Unable to activate team pets or plugins on this machine. An existing file or conflicting ID may be preventing installation.",
+      description:
+        "Unable to activate team pets or plugins on this machine. An existing file or conflicting ID may be preventing installation.",
       isPermissionBlock: false,
       canRetry: true,
     };
@@ -106,7 +117,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "remove_failed") {
     return {
       title: "Removal Failed",
-      description: "Failed to cleanly remove retired team pets or plugins during synchronization.",
+      description:
+        "Failed to cleanly remove retired team pets or plugins during synchronization.",
       isPermissionBlock: false,
       canRetry: true,
     };
@@ -115,7 +127,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "sync_failed") {
     return {
       title: "Sync Failed",
-      description: "Could not reach the Teams API server to fetch the latest organization configuration.",
+      description:
+        "Could not reach the Teams API server to fetch the latest organization configuration.",
       isPermissionBlock: false,
       canRetry: true,
     };
@@ -124,7 +137,8 @@ export function formatTeamsError(errorCodeOrMessage?: string): FormattedTeamsErr
   if (normalized === "leave_failed") {
     return {
       title: "Disconnection Warning",
-      description: "Could not notify the remote Teams server when leaving. Local team pets and plugins have been removed.",
+      description:
+        "Could not notify the remote Teams server when leaving. Local team pets and plugins have been removed.",
       isPermissionBlock: false,
       canRetry: false,
     };
@@ -243,8 +257,17 @@ export function isSensitivePermission(permission: string): boolean {
 export type { PermissionTone } from "./teams-types.js";
 
 export function getPermissionTone(permission: string): PermissionTone {
-  if (isSensitivePermission(permission)) return "red";
-  if (permission === "network" || permission === "network:write" || permission === "network:local" || permission === "files") return "orange";
+  if (isSensitivePermission(permission)) {
+    return "red";
+  }
+  if (
+    permission === "network" ||
+    permission === "network:write" ||
+    permission === "network:local" ||
+    permission === "files"
+  ) {
+    return "orange";
+  }
   return "blue";
 }
 

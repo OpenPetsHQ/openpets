@@ -16,10 +16,16 @@ export type TeamOwnedItem = {
 };
 export type TeamReconcileAdapter<TStage = unknown> = {
   readonly stage: (item: TeamPackItem) => Promise<TStage>;
-  readonly apply: (item: TeamPackItem, staged: TStage) => Promise<{ readonly pendingApproval?: boolean } | void>;
+  readonly apply: (
+    item: TeamPackItem,
+    staged: TStage,
+  ) => Promise<{ readonly pendingApproval?: boolean } | void>;
   readonly remove: (item: TeamOwnedItem) => Promise<void>;
   readonly discard?: (staged: TStage) => Promise<void>;
-  readonly needsApply?: (item: TeamPackItem, previous: TeamOwnedItem) => boolean | Promise<boolean>;
+  readonly needsApply?: (
+    item: TeamPackItem,
+    previous: TeamOwnedItem,
+  ) => boolean | Promise<boolean>;
 };
 export type TeamReconcileResult = {
   readonly applied: boolean;
@@ -54,8 +60,17 @@ export function resolveTeamPluginPolicy(
 ): { readonly enabled: boolean; readonly permissionBlocked: boolean } {
   const approved = new Set(approvedPermissions);
   const approvedHosts = new Set(approvedNetworkHosts);
-  const permissionBlocked = permissions.some((permission) => !approved.has(permission)) || networkHosts.some((host) => !approvedHosts.has(host));
-  return { enabled: permissionBlocked ? false : policy === "required" ? true : existingEnabled ?? false, permissionBlocked };
+  const permissionBlocked = permissions.some(
+    (permission) => !approved.has(permission),
+  ) || networkHosts.some((host) => !approvedHosts.has(host));
+  return {
+    enabled: permissionBlocked
+      ? false
+      : policy === "required"
+        ? true
+        : existingEnabled ?? false,
+    permissionBlocked,
+  };
 }
 
 /** Stage every changed artifact before touching active Team content. */
@@ -84,8 +99,10 @@ export async function reconcileTeamPack<TStage>(
     try {
       needsApply = previous === undefined
         || previous.artifactVersionId !== item.versionId
-        || previous.type === "plugin"
-        && await adapter.needsApply?.(item, previous) === true;
+        || (
+          previous.type === "plugin"
+          && await adapter.needsApply?.(item, previous) === true
+        );
     } catch {
       await discardStaged(staged, adapter);
       return {
@@ -140,9 +157,22 @@ export async function reconcileTeamPack<TStage>(
   }
   const removed: string[] = [];
   for (const item of current) {
-    if (item.source === "team" && item.organizationId !== "" && !desiredByKey.has(`${item.type}:${item.itemId}`)) {
-      try { await adapter.remove(item); removed.push(item.itemId); }
-      catch { return { applied: false, failedItemId: item.itemId, failureCode: "remove_failed", removed }; }
+    if (
+      item.source === "team"
+      && item.organizationId !== ""
+      && !desiredByKey.has(`${item.type}:${item.itemId}`)
+    ) {
+      try {
+        await adapter.remove(item);
+        removed.push(item.itemId);
+      } catch {
+        return {
+          applied: false,
+          failedItemId: item.itemId,
+          failureCode: "remove_failed",
+          removed,
+        };
+      }
     }
   }
   return {
@@ -152,7 +182,10 @@ export async function reconcileTeamPack<TStage>(
   };
 }
 
-async function discardStaged<TStage>(staged: ReadonlyMap<string, TStage>, adapter: TeamReconcileAdapter<TStage>): Promise<void> {
+async function discardStaged<TStage>(
+  staged: ReadonlyMap<string, TStage>,
+  adapter: TeamReconcileAdapter<TStage>,
+): Promise<void> {
   if (!adapter.discard) return;
   await Promise.all(
     [...staged.values()].map((value) => adapter.discard!(value).catch(() => undefined)),

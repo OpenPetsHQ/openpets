@@ -25,6 +25,8 @@ export function TeamPluginsSection({
   onSetPluginEnabled,
   onTogglePluginDetails,
 }: TeamPluginsSectionProps) {
+  const isBusy = Boolean(busy);
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -59,7 +61,7 @@ export function TeamPluginsSection({
               plugin={plugin}
               isApproving={approvingPluginId === plugin.id}
               isToggling={togglingPluginId === plugin.id}
-              isBusy={Boolean(busy)}
+              isBusy={isBusy}
               isExpanded={Boolean(expandedPluginDetails[plugin.id])}
               onApprove={onApprovePluginPermissions}
               onSetEnabled={onSetPluginEnabled}

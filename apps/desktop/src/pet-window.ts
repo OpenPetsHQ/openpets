@@ -970,7 +970,18 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     const scale = scaleOverride ?? state.preferences.petScale as PetScaleValue;
     const render = pet.id === builtInPet.id
       ? createBuiltInPetRender(false, display, badge, scale, `explicit:${pet.id}`, pet.id, dismissToken, pluginBubbles)
-      : await createInstalledPetRender(pet.id, pet.displayName, false, display, scale, badge, `explicit:${pet.id}`, dismissToken, pluginBubbles, pet.source?.kind === "team" ? "team" : "personal");
+      : await createInstalledPetRender(
+        pet.id,
+        pet.displayName,
+        false,
+        display,
+        scale,
+        badge,
+        `explicit:${pet.id}`,
+        dismissToken,
+        pluginBubbles,
+        pet.source?.kind === "team" ? "team" : "personal",
+      );
     applyLinuxPetWindowShape(window, scale, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient || pluginBubbles?.pinned));
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
@@ -1231,7 +1242,18 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
   }
 
   try {
-    return await createInstalledPetRender(selected.id, selected.displayName, paused, display, state.preferences.petScale as PetScaleValue, badge, `default:${selected.id}`, dismissToken, pluginBubbles, selected.source?.kind === "team" ? "team" : "personal");
+    return await createInstalledPetRender(
+      selected.id,
+      selected.displayName,
+      paused,
+      display,
+      state.preferences.petScale as PetScaleValue,
+      badge,
+      `default:${selected.id}`,
+      dismissToken,
+      pluginBubbles,
+      selected.source?.kind === "team" ? "team" : "personal",
+    );
   } catch (error) {
     console.error(`Failed to render installed default pet ${selected.id}; falling back to built-in pet.`, error);
     try {

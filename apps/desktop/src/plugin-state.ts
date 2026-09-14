@@ -13,6 +13,7 @@ export type TeamPluginOwnership = {
   readonly artifactVersionId: string;
   readonly releaseId: string;
 };
+
 export type TeamPluginPendingApproval = {
   readonly permissions: readonly PluginPermission[];
   readonly networkHosts: readonly string[];
@@ -196,7 +197,13 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
   if (!isPlainRecord(value) || value.id !== key) return null;
   if (!isNonEmptyString(value.id) || !isNonEmptyString(value.version) || !isNonEmptyString(value.manifestPath) || !isNonEmptyString(value.installPath)) return null;
   if (value.source !== "catalog" && value.source !== "local" && value.source !== "team") return null;
-  if (value.source === "team" && value.teamPolicy !== "required" && value.teamPolicy !== "optional") return null;
+  if (
+    value.source === "team"
+    && value.teamPolicy !== "required"
+    && value.teamPolicy !== "optional"
+  ) {
+    return null;
+  }
   if (typeof value.enabled !== "boolean" || !isPlainRecord(value.config)) return null;
   let approvedPermissions: readonly PluginPermission[];
   try {
@@ -205,9 +212,13 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
     return null;
   }
   try {
-    const teamOwnership = value.source === "team" ? normalizeTeamOwnership(value.teamOwnership) : undefined;
+    const teamOwnership = value.source === "team"
+      ? normalizeTeamOwnership(value.teamOwnership)
+      : undefined;
     if (value.source === "team" && !teamOwnership) return null;
-    const teamPendingApproval = value.source === "team" ? normalizeTeamPendingApproval(value.teamPendingApproval) : undefined;
+    const teamPendingApproval = value.source === "team"
+      ? normalizeTeamPendingApproval(value.teamPendingApproval)
+      : undefined;
     return omitUndefined({
       id: value.id,
       version: value.version,
@@ -216,9 +227,14 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
       source: value.source,
       sourcePath: value.source === "local" && isNonEmptyString(value.sourcePath) ? value.sourcePath : undefined,
       teamOwnership,
-      teamPolicy: value.source === "team" && (value.teamPolicy === "required" || value.teamPolicy === "optional") ? value.teamPolicy : undefined,
+      teamPolicy: value.source === "team"
+        && (value.teamPolicy === "required" || value.teamPolicy === "optional")
+        ? value.teamPolicy
+        : undefined,
       teamPendingApproval,
-      teamApprovalToken: value.source === "team" && isApprovalToken(value.teamApprovalToken) ? value.teamApprovalToken : undefined,
+      teamApprovalToken: value.source === "team" && isApprovalToken(value.teamApprovalToken)
+        ? value.teamApprovalToken
+        : undefined,
       bundled: value.bundled === true ? true : undefined,
       manifestVersion: value.manifestVersion === 1 || value.manifestVersion === 2 || value.manifestVersion === 3 ? value.manifestVersion : undefined,
       runtime: value.runtime === "declarative" || value.runtime === "javascript" ? value.runtime : undefined,
@@ -241,12 +257,24 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
 function normalizePluginRecordForApi(record: PluginStateRecord): PluginStateRecord {
   if (!isPlainRecord(record) || record.id.trim() === "" || record.version.trim() === "" || record.manifestPath.trim() === "" || record.installPath.trim() === "") throw new Error("Invalid plugin state record.");
   if (record.source !== "catalog" && record.source !== "local" && record.source !== "team") throw new Error("Invalid plugin state record.");
-  if (record.source === "team" && record.teamPolicy !== "required" && record.teamPolicy !== "optional") throw new Error("Invalid Team plugin policy.");
+  if (
+    record.source === "team"
+    && record.teamPolicy !== "required"
+    && record.teamPolicy !== "optional"
+  ) {
+    throw new Error("Invalid Team plugin policy.");
+  }
   if (typeof record.enabled !== "boolean" || !isPlainRecord(record.config)) throw new Error("Invalid plugin state record.");
   assertJsonCompatibleConfigObject(record.config);
-  const teamOwnership = record.source === "team" ? normalizeTeamOwnership(record.teamOwnership) : undefined;
-  if (record.source === "team" && !teamOwnership) throw new Error("Team plugin ownership is required.");
-  const teamPendingApproval = record.source === "team" ? normalizeTeamPendingApproval(record.teamPendingApproval) : undefined;
+  const teamOwnership = record.source === "team"
+    ? normalizeTeamOwnership(record.teamOwnership)
+    : undefined;
+  if (record.source === "team" && !teamOwnership) {
+    throw new Error("Team plugin ownership is required.");
+  }
+  const teamPendingApproval = record.source === "team"
+    ? normalizeTeamPendingApproval(record.teamPendingApproval)
+    : undefined;
   return omitUndefined({
     id: record.id,
     version: record.version,
@@ -257,7 +285,9 @@ function normalizePluginRecordForApi(record: PluginStateRecord): PluginStateReco
     teamOwnership,
     teamPolicy: record.source === "team" ? record.teamPolicy : undefined,
     teamPendingApproval,
-    teamApprovalToken: record.source === "team" && isApprovalToken(record.teamApprovalToken) ? record.teamApprovalToken : undefined,
+    teamApprovalToken: record.source === "team" && isApprovalToken(record.teamApprovalToken)
+      ? record.teamApprovalToken
+      : undefined,
     bundled: record.bundled === true ? true : undefined,
     manifestVersion: record.manifestVersion === 1 || record.manifestVersion === 2 || record.manifestVersion === 3 ? record.manifestVersion : undefined,
     runtime: record.runtime === "declarative" || record.runtime === "javascript" ? record.runtime : undefined,
@@ -336,7 +366,26 @@ function normalizeTeamOwnership(value: unknown): TeamPluginOwnership | undefined
   const itemId = value.itemId;
   const artifactVersionId = value.artifactVersionId;
   const releaseId = value.releaseId;
-  if (![organizationId, itemId, artifactVersionId, releaseId].every(isNonEmptyString) || [organizationId, itemId, artifactVersionId, releaseId].some((part) => (part as string).length > 160 || !/^[A-Za-z0-9._:-]+$/.test(part as string))) return undefined;
+  if (
+    ![
+      organizationId,
+      itemId,
+      artifactVersionId,
+      releaseId,
+    ].every(isNonEmptyString)
+    || [
+      organizationId,
+      itemId,
+      artifactVersionId,
+      releaseId,
+    ].some(
+      (part) =>
+        (part as string).length > 160
+        || !/^[A-Za-z0-9._:-]+$/.test(part as string),
+    )
+  ) {
+    return undefined;
+  }
   return {
     organizationId: organizationId as string,
     itemId: itemId as string,

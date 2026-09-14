@@ -1,6 +1,4 @@
 import { app } from "electron";
-import { parseTeamEnrollmentLink, type TeamEnrollmentLink } from "./team-protocol.js";
-
 import { closeAllAgentPets } from "./agent-pet-controller.js";
 import { destroyDefaultPet } from "./default-pet-controller.js";
 import { info } from "./logger.js";
@@ -11,6 +9,7 @@ import { stopPluginService } from "./plugin-service.js";
 import { stopPetAssistantHost } from "./pet-assistant-host.js";
 import { stopVoiceAssistantHost } from "./voice-assistant-host.js";
 import { shutdownPluginVoice } from "./plugin-voice.js";
+import { parseTeamEnrollmentLink, type TeamEnrollmentLink } from "./team-protocol.js";
 import { focusOpenTaskWindows } from "./windows.js";
 import { shutdownVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 
@@ -28,14 +27,20 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
   app.on("open-url", (event, url) => {
     event.preventDefault();
     const link = parseTeamEnrollmentLink(url);
-    if (link) options.onTeamEnrollmentLink?.(link);
+    if (link) {
+      options.onTeamEnrollmentLink?.(link);
+    }
   });
   app.on("second-instance", (_event, commandLine) => {
     info("app", "second instance requested");
     console.log("Second OpenPets launch requested; keeping existing instance.");
     focusOpenTaskWindows();
-    const value = commandLine.map((item) => parseTeamEnrollmentLink(item)).find((item): item is TeamEnrollmentLink => Boolean(item));
-    if (value) options.onTeamEnrollmentLink?.(value);
+    const value = commandLine
+      .map((item) => parseTeamEnrollmentLink(item))
+      .find((item): item is TeamEnrollmentLink => Boolean(item));
+    if (value) {
+      options.onTeamEnrollmentLink?.(value);
+    }
   });
 
   app.on("window-all-closed", () => {

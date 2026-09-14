@@ -5,18 +5,21 @@ const api = {
   getPetsState: () => ipcRenderer.invoke("openpets:get-pets-state"),
   getDashboardSnapshot: () => ipcRenderer.invoke("openpets:get-dashboard-snapshot"),
   getTeamsSnapshot: () => ipcRenderer.invoke("openpets:teams-snapshot"),
-  submitTeamsEnrollment: (displayName) => ipcRenderer.invoke("openpets:teams-enroll", displayName),
+  submitTeamsEnrollment: (displayName) =>
+    ipcRenderer.invoke("openpets:teams-enroll", displayName),
   syncTeamsNow: () => ipcRenderer.invoke("openpets:teams-sync"),
-  approveTeamPluginPermissions: (id, approvalToken) => ipcRenderer.invoke(
-    "openpets:teams-approve-plugin-permissions",
-    id,
-    approvalToken,
-  ),
-  setTeamPluginEnabled: (id, enabled) => ipcRenderer.invoke(
-    "openpets:teams-set-plugin-enabled",
-    id,
-    enabled,
-  ),
+  approveTeamPluginPermissions: (id, approvalToken) =>
+    ipcRenderer.invoke(
+      "openpets:teams-approve-plugin-permissions",
+      id,
+      approvalToken,
+    ),
+  setTeamPluginEnabled: (id, enabled) =>
+    ipcRenderer.invoke(
+      "openpets:teams-set-plugin-enabled",
+      id,
+      enabled,
+    ),
   leaveTeams: () => ipcRenderer.invoke("openpets:teams-leave"),
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
   getLanStatus: () => ipcRenderer.invoke("openpets:get-lan-status"),

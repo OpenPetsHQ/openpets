@@ -21,6 +21,8 @@ export function TeamLeaveModal({
 }: TeamLeaveModalProps) {
   if (!isOpen) return null;
 
+  const isBusy = Boolean(busy);
+
   return (
     <div
       className="plugin-config-overlay"
@@ -32,7 +34,7 @@ export function TeamLeaveModal({
         className="plugin-config-backdrop"
         type="button"
         aria-label="Close dialog"
-        onClick={() => !busy && onClose()}
+        onClick={() => !isBusy && onClose()}
       />
       <div className="team-modal">
         <div className="flex items-start justify-between gap-3">
@@ -47,7 +49,7 @@ export function TeamLeaveModal({
           <button
             type="button"
             className="text-slatecopy hover:text-navy dark:hover:text-slate-100 cursor-pointer p-1"
-            disabled={Boolean(busy)}
+            disabled={isBusy}
             onClick={onClose}
             aria-label="Close"
           >
@@ -56,13 +58,21 @@ export function TeamLeaveModal({
         </div>
 
         <p className="m-0 text-xs text-slatecopy leading-relaxed">
-          Are you sure you want to disconnect this computer from <strong className="text-navy dark:text-slate-100">{organizationName}</strong>?
+          Are you sure you want to disconnect this computer from{" "}
+          <strong className="text-navy dark:text-slate-100">{organizationName}</strong>?
         </p>
 
         <div className="rounded-xl border border-red-100 bg-red-50/50 dark:bg-red-950/30 dark:border-red-900/50 p-3 text-xs text-red-900 dark:text-red-300 leading-relaxed">
           <ul className="m-0 pl-4 list-disc space-y-1">
-            <li>All <strong>{teamPetsCount} team pets</strong> and <strong>{teamPluginsCount} team plugins</strong> will be cleanly removed from this machine.</li>
-            <li>Your personal catalog pets, Codex pets, and local developer plugins will <strong>not</strong> be affected.</li>
+            <li>
+              All <strong>{teamPetsCount} team pets</strong> and{" "}
+              <strong>{teamPluginsCount} team plugins</strong> will be cleanly removed from this
+              machine.
+            </li>
+            <li>
+              Your personal catalog pets, Codex pets, and local developer plugins will{" "}
+              <strong>not</strong> be affected.
+            </li>
             <li>You can re-enroll at any time with a new invitation link.</li>
           </ul>
         </div>
@@ -71,7 +81,7 @@ export function TeamLeaveModal({
           <button
             type="button"
             className="btn btn-compact btn-secondary text-xs"
-            disabled={Boolean(busy)}
+            disabled={isBusy}
             onClick={onClose}
           >
             Cancel
@@ -79,7 +89,7 @@ export function TeamLeaveModal({
           <button
             type="button"
             className="btn btn-compact btn-danger text-xs"
-            disabled={Boolean(busy)}
+            disabled={isBusy}
             onClick={onConfirm}
           >
             {busy ? "Leaving..." : "Yes, Leave Organization"}

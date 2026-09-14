@@ -54,9 +54,24 @@ import {
 } from "./plugin-platform-settings.js";
 
 type InternalUiWindowKind = "control-center";
-export type ControlCenterRoute = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams";
+export type ControlCenterRoute =
+  | "dashboard"
+  | "conversation"
+  | "pets"
+  | "settings"
+  | "plugins"
+  | "integrations"
+  | "teams";
 
-const controlCenterRoutes = new Set<ControlCenterRoute>(["dashboard", "conversation", "pets", "settings", "plugins", "integrations", "teams"]);
+const controlCenterRoutes = new Set<ControlCenterRoute>([
+  "dashboard",
+  "conversation",
+  "pets",
+  "settings",
+  "plugins",
+  "integrations",
+  "teams",
+]);
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
 const conversationSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
@@ -103,7 +118,13 @@ async function getPetsStateSnapshot(): Promise<{
   const installed = await Promise.all(state.pets.installed.map(async (pet) => {
     if (pet.builtIn) return { ...pet, spriteLayout: codexV1SpriteLayout };
     try {
-      return { ...pet, spriteLayout: await readInstalledPetSpriteLayout(pet.id, pet.source?.kind === "team" ? "team" : "personal") };
+      return {
+        ...pet,
+        spriteLayout: await readInstalledPetSpriteLayout(
+          pet.id,
+          pet.source?.kind === "team" ? "team" : "personal",
+        ),
+      };
     } catch {
       return pet;
     }
@@ -399,7 +420,13 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:teams-enroll", async (event, displayName: unknown) => {
     assertAllowedSender(event, ["control-center"]);
-    if (typeof displayName !== "string" || displayName.length > 120 || displayName.trim().length === 0) throw new Error("Invalid Teams display name.");
+    if (
+      typeof displayName !== "string"
+      || displayName.length > 120
+      || displayName.trim().length === 0
+    ) {
+      throw new Error("Invalid Teams display name.");
+    }
     return getTeamService().submitEnrollment(displayName.trim());
   });
   ipcMain.handle("openpets:teams-sync", async (event) => {
@@ -418,7 +445,13 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:teams-set-plugin-enabled", async (event, id: unknown, enabled: unknown) => {
     assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof enabled !== "boolean") throw new Error("Invalid Team plugin enabled state request.");
+    if (
+      typeof id !== "string"
+      || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)
+      || typeof enabled !== "boolean"
+    ) {
+      throw new Error("Invalid Team plugin enabled state request.");
+    }
     return getTeamService().setTeamPluginEnabled(id, enabled);
   });
   ipcMain.handle("openpets:teams-leave", async (event) => {
@@ -901,7 +934,10 @@ export function installInternalUiProtocol(): void {
       assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheetPath = join(getPetDir(petId, pet.source?.kind === "team" ? "team" : "personal"), "spritesheet.webp");
+      const spritesheetPath = join(
+        getPetDir(petId, pet.source?.kind === "team" ? "team" : "personal"),
+        "spritesheet.webp",
+      );
       const spritesheet = await stat(spritesheetPath);
       if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) return new Response(null, { status: 404 });
       return new Response(await readFile(spritesheetPath), {
@@ -1151,12 +1187,20 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string
   const builtInPath = join(app.getAppPath(), "assets", defaultPetSprite.fileName);
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
   const candidatePath = usesInstalledCandidate && selected
-    ? join(getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"), "spritesheet.webp")
+    ? join(
+        getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"),
+        "spritesheet.webp",
+      )
     : builtInPath;
   try {
     const spritesheet = await stat(candidatePath);
     if (spritesheet.isFile() && spritesheet.size > 0 && spritesheet.size <= 100 * 1024 * 1024) {
-      const spriteLayout = usesInstalledCandidate && selected ? await readInstalledPetSpriteLayout(selected.id, selected.source?.kind === "team" ? "team" : "personal") : codexV1SpriteLayout;
+      const spriteLayout = usesInstalledCandidate && selected
+        ? await readInstalledPetSpriteLayout(
+            selected.id,
+            selected.source?.kind === "team" ? "team" : "personal",
+          )
+        : codexV1SpriteLayout;
       return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
   } catch {

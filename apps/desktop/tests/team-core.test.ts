@@ -5,17 +5,40 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { findTeamEnrollmentLink, parseTeamEnrollmentLink, validateTeamPack, type TeamPack } from "../src/team-protocol.js";
-import { reconcileTeamPack, resolveTeamPluginPolicy, TeamOperationQueue } from "../src/team-reconciler.js";
+import {
+  findTeamEnrollmentLink,
+  parseTeamEnrollmentLink,
+  validateTeamPack,
+  type TeamPack,
+} from "../src/team-protocol.js";
+import {
+  reconcileTeamPack,
+  resolveTeamPluginPolicy,
+  TeamOperationQueue,
+} from "../src/team-reconciler.js";
 import { PluginStateStore } from "../src/plugin-state.js";
 import { TeamStateStore } from "../src/team-state.js";
 import { TeamApiClient } from "../src/team-api-client.js";
-import { activateTeamArtifact, removeTeamArtifact } from "../src/team-package.js";
+import {
+  activateTeamArtifact,
+  removeTeamArtifact,
+} from "../src/team-package.js";
 import { TeamService, type TeamServiceOptions } from "../src/team-service.js";
 import type { OpenPetsStateV1 } from "../src/app-state.js";
 import type { SecureCredentialStore } from "../src/team-state.js";
 
-const item = (overrides: Record<string, unknown> = {}) => ({ id: "team-pet", type: "pet", name: "Team Pet", versionId: "version-1", version: "1.0.0", sha256: "a".repeat(64), size: 12, itemId: "team-pet", releaseId: "release-1", ...overrides });
+const item = (overrides: Record<string, unknown> = {}) => ({
+  id: "team-pet",
+  type: "pet",
+  name: "Team Pet",
+  versionId: "version-1",
+  version: "1.0.0",
+  sha256: "a".repeat(64),
+  size: 12,
+  itemId: "team-pet",
+  releaseId: "release-1",
+  ...overrides,
+});
 
 test("Teams enrollment links accept only the exact deep-link contract", () => {
   assert.deepEqual(parseTeamEnrollmentLink("openpets://teams/enroll?intent=abc_123"), { intentId: "abc_123" });
@@ -28,14 +51,45 @@ test("Teams enrollment links accept only the exact deep-link contract", () => {
 test("Team Pack validation rejects malformed server payloads and bounds configuration", () => {
   assert.throws(() => validateTeamPack({ version: 1, revision: 1, items: [{ ...item(), sha256: "bad" }] }));
   assert.throws(() => validateTeamPack({ version: 1, revision: 1, items: [{ ...item(), extra: true }] }));
-  assert.throws(() => validateTeamPack({ version: 1, revision: 1, items: [{ ...item(), config: { huge: "x".repeat(129 * 1024) } }] }));
+  assert.throws(() => validateTeamPack({
+    version: 1,
+    revision: 1,
+    items: [{
+      ...item(),
+      config: { huge: "x".repeat(129 * 1024) },
+    }],
+  }));
   assert.deepEqual(validateTeamPack({ version: 1, revision: 4, items: [item()] }).revision, 4);
 });
 
 test("reconciliation stages before applying and does not remove personal collisions", async () => {
   const pack = validateTeamPack({ version: 1, revision: 2, items: [item()] });
   const calls: string[] = [];
-  const result = await reconcileTeamPack(pack, [{ type: "pet", id: "team-pet", source: "personal", organizationId: "personal", itemId: "team-pet", artifactVersionId: "old", releaseId: "old", version: "1.0.0" }], { stage: async () => { calls.push("stage"); return true; }, apply: async () => { calls.push("apply"); }, remove: async () => { calls.push("remove"); } });
+  const result = await reconcileTeamPack(
+    pack,
+    [{
+      type: "pet",
+      id: "team-pet",
+      source: "personal",
+      organizationId: "personal",
+      itemId: "team-pet",
+      artifactVersionId: "old",
+      releaseId: "old",
+      version: "1.0.0",
+    }],
+    {
+      stage: async () => {
+        calls.push("stage");
+        return true;
+      },
+      apply: async () => {
+        calls.push("apply");
+      },
+      remove: async () => {
+        calls.push("remove");
+      },
+    },
+  );
   assert.equal(result.applied, false);
   assert.deepEqual(calls, []);
 });
@@ -43,11 +97,43 @@ test("reconciliation stages before applying and does not remove personal collisi
 test("reconciliation updates optional state, removes Team items, and preserves staged rollback on failure", async () => {
   const pack = validateTeamPack({ version: 1, revision: 2, items: [item({ versionId: "version-2" })] });
   const calls: string[] = [];
-  const success = await reconcileTeamPack(pack, [{ type: "pet", id: "old-pet", source: "team", organizationId: "org", itemId: "old-pet", artifactVersionId: "old", releaseId: "old", version: "1.0.0" }], { stage: async (next) => { calls.push(`stage:${next.id}`); return next.id; }, apply: async (_next, staged) => { calls.push(`apply:${staged}`); }, remove: async (old) => { calls.push(`remove:${old.id}`); } });
+  const success = await reconcileTeamPack(
+    pack,
+    [{
+      type: "pet",
+      id: "old-pet",
+      source: "team",
+      organizationId: "org",
+      itemId: "old-pet",
+      artifactVersionId: "old",
+      releaseId: "old",
+      version: "1.0.0",
+    }],
+    {
+      stage: async (next) => {
+        calls.push(`stage:${next.id}`);
+        return next.id;
+      },
+      apply: async (_next, staged) => {
+        calls.push(`apply:${staged}`);
+      },
+      remove: async (old) => {
+        calls.push(`remove:${old.id}`);
+      },
+    },
+  );
   assert.equal(success.applied, true);
   assert.deepEqual(calls, ["stage:team-pet", "apply:team-pet", "remove:old-pet"]);
 
-  const failed = await reconcileTeamPack(pack, [], { stage: async () => { throw new Error("download failed"); }, apply: async () => { calls.push("bad-apply"); }, remove: async () => undefined });
+  const failed = await reconcileTeamPack(pack, [], {
+    stage: async () => {
+      throw new Error("download failed");
+    },
+    apply: async () => {
+      calls.push("bad-apply");
+    },
+    remove: async () => undefined,
+  });
   assert.equal(failed.applied, false);
   assert.equal(calls.includes("bad-apply"), false);
 });
@@ -64,17 +150,25 @@ test("Team state stores only nonsecret metadata atomically and enforces one orga
     store.leave();
     const installationId = store.installationId;
     assert.equal(store.enroll({ organizationId: "org-two" }).installationId, installationId);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Teams API client pins requests to the configured origin and validates pack responses", async () => {
   let seenAuthorization = "";
   let seenUrl = "";
-  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async (url, init) => {
-    seenUrl = String(url);
-    seenAuthorization = new Headers(init?.headers).get("Authorization") ?? "";
-    return new Response(JSON.stringify({ version: 1, revision: 3, items: [] }), { status: 200, headers: { ETag: '"pack-3"' } });
-  } });
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async (url, init) => {
+      seenUrl = String(url);
+      seenAuthorization = new Headers(init?.headers).get("Authorization") ?? "";
+      return new Response(
+        JSON.stringify({ version: 1, revision: 3, items: [] }),
+        { status: 200, headers: { ETag: '"pack-3"' } },
+      );
+    },
+  });
   const result = await client.getTeamPack("secret-is-not-logged");
   assert.equal(result.pack.revision, 3);
   assert.equal(seenUrl, "https://teams.example.test/v1/device/team-pack");
@@ -87,32 +181,79 @@ test("Teams enrollment crosses the boundary with only an intent and desktop proo
   const expiresAt = new Date(Date.now() + 3_000).toISOString();
   let requestedProof = "";
   let browserConfirmed = false;
-  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async (url, init) => {
-    const path = new URL(String(url)).pathname;
-    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-    requestBodies[path] = body;
-    if (path.endsWith("/request")) {
-      requestedProof = String(body.desktopProof);
-      return new Response(JSON.stringify({ intentId: "intent-1", status: "awaiting_confirmation", organization: { id: "org-1", name: "Acme" }, displayName: "Alice desktop", expiresAt }), { status: 200 });
-    }
-    if (path.endsWith("/complete")) {
-      if (body.desktopProof !== requestedProof) return new Response(JSON.stringify({ error: "invalid proof" }), { status: 401 });
-      if (!browserConfirmed) return new Response(JSON.stringify({ error: "not confirmed" }), { status: 409 });
-      return new Response(JSON.stringify({ deviceId: "device-1", organization: { id: "org-1", name: "Acme" }, deviceCredential: "credential_" + "a".repeat(32), packRevision: 4 }), { status: 201 });
-    }
-    throw new Error(`Unexpected enrollment URL: ${path}`);
-  } });
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      requestBodies[path] = body;
+      if (path.endsWith("/request")) {
+        requestedProof = String(body.desktopProof);
+        return new Response(
+          JSON.stringify({
+            intentId: "intent-1",
+            status: "awaiting_confirmation",
+            organization: { id: "org-1", name: "Acme" },
+            displayName: "Alice desktop",
+            expiresAt,
+          }),
+          { status: 200 },
+        );
+      }
+      if (path.endsWith("/complete")) {
+        if (body.desktopProof !== requestedProof) {
+          return new Response(
+            JSON.stringify({ error: "invalid proof" }),
+            { status: 401 },
+          );
+        }
+        if (!browserConfirmed) {
+          return new Response(
+            JSON.stringify({ error: "not confirmed" }),
+            { status: 409 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            deviceId: "device-1",
+            organization: { id: "org-1", name: "Acme" },
+            deviceCredential: "credential_" + "a".repeat(32),
+            packRevision: 4,
+          }),
+          { status: 201 },
+        );
+      }
+      throw new Error(`Unexpected enrollment URL: ${path}`);
+    },
+  });
 
-  await client.requestEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop");
-  assert.deepEqual(requestBodies["/v1/enrollment/intents/intent-1/request"], { desktopProof: "desktop-proof", deviceInstallationId: "desktop-installation", displayName: "Alice desktop" });
+  await client.requestEnrollment(
+    "intent-1",
+    "desktop-proof",
+    "desktop-installation",
+    "Alice desktop",
+  );
+  assert.deepEqual(
+    requestBodies["/v1/enrollment/intents/intent-1/request"],
+    {
+      desktopProof: "desktop-proof",
+      deviceInstallationId: "desktop-installation",
+      displayName: "Alice desktop",
+    },
+  );
   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/request"], false);
   await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", expiresAt), /HTTP 401/);
 
-  const confirmation = setTimeout(() => { browserConfirmed = true; }, 10);
+  const confirmation = setTimeout(() => {
+    browserConfirmed = true;
+  }, 10);
   const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", expiresAt);
   clearTimeout(confirmation);
   assert.equal(enrollment.deviceId, "device-1");
-  assert.equal(requestBodies["/v1/enrollment/intents/intent-1/complete"].desktopProof, "desktop-proof");
+  assert.equal(
+    requestBodies["/v1/enrollment/intents/intent-1/complete"].desktopProof,
+    "desktop-proof",
+  );
   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
 });
 
@@ -120,40 +261,93 @@ test("Teams enrollment request retries a lost response with the same proof and s
   let calls = 0;
   const proof = "desktop-proof";
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
-  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async (_url, init) => {
-    calls += 1;
-    assert.equal((JSON.parse(String(init?.body)) as Record<string, unknown>).desktopProof, proof);
-    if (calls === 1) throw new TypeError("response connection lost");
-    return new Response(JSON.stringify({ intentId: "intent-1", status: "confirmed", organization: { id: "org-1", name: "Acme" }, displayName: "Alice desktop", expiresAt }), { status: 200 });
-  } });
-  const result = await client.requestEnrollment("intent-1", proof, "desktop-installation", "Alice desktop");
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async (_url, init) => {
+      calls += 1;
+      assert.equal(
+        (JSON.parse(String(init?.body)) as Record<string, unknown>).desktopProof,
+        proof,
+      );
+      if (calls === 1) throw new TypeError("response connection lost");
+      return new Response(
+        JSON.stringify({
+          intentId: "intent-1",
+          status: "confirmed",
+          organization: { id: "org-1", name: "Acme" },
+          displayName: "Alice desktop",
+          expiresAt,
+        }),
+        { status: 200 },
+      );
+    },
+  });
+  const result = await client.requestEnrollment(
+    "intent-1",
+    proof,
+    "desktop-installation",
+    "Alice desktop",
+  );
   assert.equal(result.status, "confirmed");
   assert.equal(calls, 2);
 });
 
 test("Teams enrollment completion respects the server-provided bounded window", async () => {
   let calls = 0;
-  const client = new TeamApiClient({ baseUrl: "https://teams.example.test/", fetchImpl: async () => {
-    calls += 1;
-    return new Response(JSON.stringify({ error: "not confirmed" }), { status: 409 });
-  } });
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ error: "not confirmed" }),
+        { status: 409 },
+      );
+    },
+  });
   const expiresAt = new Date(Date.now() + 20).toISOString();
-  await assert.rejects(() => client.completeEnrollment("intent-1", "desktop-proof", expiresAt), /confirmation timed out/);
+  await assert.rejects(
+    () => client.completeEnrollment("intent-1", "desktop-proof", expiresAt),
+    /confirmation timed out/,
+  );
   assert.ok(calls <= 2);
 });
 
 test("required and optional Team plugin policy never bypasses permission approval", () => {
-  assert.deepEqual(resolveTeamPluginPolicy("required", false, [], []), { enabled: true, permissionBlocked: false });
-  assert.deepEqual(resolveTeamPluginPolicy("required", false, ["network"], []), { enabled: false, permissionBlocked: true });
-  assert.deepEqual(resolveTeamPluginPolicy("required", false, ["network"], ["network"], ["api.example.test"], []), { enabled: false, permissionBlocked: true });
-  assert.deepEqual(resolveTeamPluginPolicy("optional", undefined, [], []), { enabled: false, permissionBlocked: false });
-  assert.deepEqual(resolveTeamPluginPolicy("optional", true, [], []), { enabled: true, permissionBlocked: false });
+  assert.deepEqual(
+    resolveTeamPluginPolicy("required", false, [], []),
+    { enabled: true, permissionBlocked: false },
+  );
+  assert.deepEqual(
+    resolveTeamPluginPolicy("required", false, ["network"], []),
+    { enabled: false, permissionBlocked: true },
+  );
+  assert.deepEqual(
+    resolveTeamPluginPolicy(
+      "required",
+      false,
+      ["network"],
+      ["network"],
+      ["api.example.test"],
+      [],
+    ),
+    { enabled: false, permissionBlocked: true },
+  );
+  assert.deepEqual(
+    resolveTeamPluginPolicy("optional", undefined, [], []),
+    { enabled: false, permissionBlocked: false },
+  );
+  assert.deepEqual(
+    resolveTeamPluginPolicy("optional", true, [], []),
+    { enabled: true, permissionBlocked: false },
+  );
 });
 
 test("Team sync and leave operations are serialized through cleanup, and post-leave sync is harmless", async () => {
   const queue = new TeamOperationQueue();
   let releaseFetch!: () => void;
-  const fetchFinished = new Promise<void>((resolve) => { releaseFetch = resolve; });
+  const fetchFinished = new Promise<void>((resolve) => {
+    releaseFetch = resolve;
+  });
   let enrolled = true;
   const events: string[] = [];
 
@@ -192,19 +386,32 @@ test("Team plugin pending approval state is disabled and exposes only requested 
       id: "team-plugin",
       version: "1.0.0",
       source: "team",
-      teamOwnership: { organizationId: "org", itemId: "team-plugin", artifactVersionId: "artifact", releaseId: "release" },
+      teamOwnership: {
+        organizationId: "org",
+        itemId: "team-plugin",
+        artifactVersionId: "artifact",
+        releaseId: "release",
+      },
       teamPolicy: "required",
       installPath: join(root, "team-plugins", "team-plugin"),
       manifestPath: join(root, "team-plugins", "team-plugin", "openpets.plugin.json"),
       enabled: false,
       approvedPermissions: [],
       config: {},
-      teamPendingApproval: { permissions: ["network"], networkHosts: ["api.example.test"] },
+      teamPendingApproval: {
+        permissions: ["network"],
+        networkHosts: ["api.example.test"],
+      },
     });
     const record = store.getRecord("team-plugin");
     assert.equal(record?.enabled, false);
-    assert.deepEqual(record?.teamPendingApproval, { permissions: ["network"], networkHosts: ["api.example.test"] });
-  } finally { await rm(root, { recursive: true, force: true }); }
+    assert.deepEqual(
+      record?.teamPendingApproval,
+      { permissions: ["network"], networkHosts: ["api.example.test"] },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Team artifact rollback and cleanup never touch a colliding personal pet", async () => {
@@ -221,7 +428,14 @@ test("Team artifact rollback and cleanup never touch a colliding personal pet", 
     const stagingPath = join(teamRoot, ".staging-team-pet");
     await mkdir(stagingPath, { recursive: true });
     await writeFile(join(stagingPath, "marker"), "new");
-    const staged = { item: validateTeamPack({ version: 1, revision: 1, items: [item()] }).items[0]!, stagingPath };
+    const staged = {
+      item: validateTeamPack({
+        version: 1,
+        revision: 1,
+        items: [item()],
+      }).items[0]!,
+      stagingPath,
+    };
     const activated = await activateTeamArtifact(root, staged);
     assert.equal(await readFile(join(activated.target, "marker"), "utf8"), "new");
 
@@ -231,8 +445,13 @@ test("Team artifact rollback and cleanup never touch a colliding personal pet", 
     assert.equal(await readFile(join(personalRoot, "team-pet", "marker"), "utf8"), "personal");
 
     await removeTeamArtifact(root, "pet", "team-pet");
-    assert.equal(await readFile(join(personalRoot, "team-pet", "marker"), "utf8"), "personal");
-  } finally { await rm(root, { recursive: true, force: true }); }
+    assert.equal(
+      await readFile(join(personalRoot, "team-pet", "marker"), "utf8"),
+      "personal",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("TeamService cancels an in-flight sync before leave and never resurrects old-org content", async () => {
@@ -250,26 +469,42 @@ test("TeamService cancels an in-flight sync before leave and never resurrects ol
     await mkdir(join(root, "team-plugins", "old-plugin"), { recursive: true });
     await writeFile(join(root, "team-plugins", "old-plugin", "marker"), "old-plugin");
     let pets: unknown[] = [teamPetState("old-pet", "org-one")];
-    const petState = createPetStateAdapter(() => pets, (next) => { pets = next; });
+    const petState = createPetStateAdapter(() => pets, (next) => {
+      pets = next;
+    });
     const reloads: string[] = [];
     const activePlugins = new Set<string>();
     let releaseFetch!: () => void;
     let fetchStarted!: () => void;
-    const fetchReady = new Promise<void>((resolve) => { fetchStarted = resolve; });
-    const blockedFetch = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    const fetchReady = new Promise<void>((resolve) => {
+      fetchStarted = resolve;
+    });
+    const blockedFetch = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
     let getPackCalls = 0;
     const api = {
       getTeamPack: async () => {
         getPackCalls += 1;
         fetchStarted();
         await blockedFetch;
-        return { pack: validateTeamPack({ version: 1, revision: 1, items: [] }), notModified: false, etag: "pack-1" };
+        return {
+          pack: validateTeamPack({ version: 1, revision: 1, items: [] }),
+          notModified: false,
+          etag: "pack-1",
+        };
       },
-      downloadArtifact: async () => { throw new Error("artifact download should not start"); },
+      downloadArtifact: async () => {
+        throw new Error("artifact download should not start");
+      },
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => { throw new Error("not used"); },
-      completeEnrollment: async () => { throw new Error("not used"); },
+      requestEnrollment: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
     } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
     const service = new TeamService({
       userDataPath: root,
@@ -320,24 +555,46 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
     const credentialStore = new MemoryCredentialStore("credential_" + "b".repeat(32));
     const pluginState = new PluginStateStore({ userDataPath: root });
     pluginState.initialize();
-    pluginState.upsertRecord({ ...teamPluginRecord(root, "other-plugin", "org-two"), teamPendingApproval: { permissions: ["pet:speak"], networkHosts: [] }, teamApprovalToken: "A".repeat(43) });
+    pluginState.upsertRecord({
+      ...teamPluginRecord(root, "other-plugin", "org-two"),
+      teamPendingApproval: {
+        permissions: ["pet:speak"],
+        networkHosts: [],
+      },
+      teamApprovalToken: "A".repeat(43),
+    });
     const reloads: string[] = [];
     let currentPack = createPluginPack("1.0.0", "artifact-one", 1, "optional");
     let currentZip = createPluginZip("team-plugin", "1.0.0");
     const api = {
-      getTeamPack: async () => ({ pack: currentPack, notModified: false, etag: `pack-${currentPack.revision}` }),
+      getTeamPack: async () => ({
+        pack: currentPack,
+        notModified: false,
+        etag: `pack-${currentPack.revision}`,
+      }),
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => { throw new Error("not used"); },
-      completeEnrollment: async () => { throw new Error("not used"); },
+      requestEnrollment: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
     } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
     const service = new TeamService({
       userDataPath: root,
       apiClient: api,
       stateStore: teamState,
       credentialStore,
-      pluginService: { stateStore: pluginState, runtime: { reloadPlugin: async (id: string) => { reloads.push(id); } } },
+      pluginService: {
+        stateStore: pluginState,
+        runtime: {
+          reloadPlugin: async (id: string) => {
+            reloads.push(id);
+          },
+        },
+      },
       petState: createPetStateAdapter(() => [], () => undefined),
     });
 
@@ -349,7 +606,10 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
     assert.equal(first.appliedRevision, 0);
     assert.equal(first.teamPlugins.some((plugin) => plugin.id === "other-plugin"), false);
     assert.equal(firstToken?.length, 43);
-    await assert.rejects(() => service.approveTeamPluginPermissions("other-plugin", "A".repeat(43)), /unavailable/);
+    await assert.rejects(
+      () => service.approveTeamPluginPermissions("other-plugin", "A".repeat(43)),
+      /unavailable/,
+    );
     await assert.rejects(() => service.setTeamPluginEnabled("other-plugin", true), /unavailable/);
     await assert.rejects(() => service.setTeamPluginEnabled("team-plugin", true), /Only fully approved/);
 
@@ -358,24 +618,39 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
     await service.syncNow();
     const secondToken = pluginState.getRecord("team-plugin")?.teamApprovalToken;
     assert.notEqual(secondToken, firstToken);
-    await assert.rejects(() => service.approveTeamPluginPermissions("team-plugin", firstToken!), /unavailable/);
+    await assert.rejects(
+      () => service.approveTeamPluginPermissions("team-plugin", firstToken!),
+      /unavailable/,
+    );
     assert.equal(teamState.snapshot()?.appliedRevision, 0);
 
     const approved = await service.approveTeamPluginPermissions("team-plugin", secondToken!);
     assert.equal(pluginState.getRecord("team-plugin")?.enabled, false);
     assert.equal(pluginState.getRecord("team-plugin")?.teamPendingApproval, undefined);
     assert.equal(approved.appliedRevision, 2);
-    assert.equal(approved.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.permissionBlocked, false);
+    assert.equal(
+      approved.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.permissionBlocked,
+      false,
+    );
     assert.equal(reloads.includes("team-plugin"), true);
 
     const enabled = await service.setTeamPluginEnabled("team-plugin", true);
-    assert.equal(enabled.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.enabled, true);
+    assert.equal(
+      enabled.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.enabled,
+      true,
+    );
     const disabled = await service.setTeamPluginEnabled("team-plugin", false);
-    assert.equal(disabled.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.enabled, false);
+    assert.equal(
+      disabled.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.enabled,
+      false,
+    );
 
     currentPack = createPluginPack("1.1.0", "artifact-two", 3, "required");
     await service.syncNow();
-    await assert.rejects(() => service.setTeamPluginEnabled("team-plugin", false), /Only fully approved/);
+    await assert.rejects(
+      () => service.setTeamPluginEnabled("team-plugin", false),
+      /Only fully approved/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -393,12 +668,20 @@ test("TeamService clears stale pending approval when the same revision replaces 
     let currentPack = createPluginPack("1.0.0", "artifact-one");
     let currentZip = createPluginZip("team-plugin", "1.0.0");
     const api = {
-      getTeamPack: async () => ({ pack: currentPack, notModified: false, etag: "pack-1" }),
+      getTeamPack: async () => ({
+        pack: currentPack,
+        notModified: false,
+        etag: "pack-1",
+      }),
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => { throw new Error("not used"); },
-      completeEnrollment: async () => { throw new Error("not used"); },
+      requestEnrollment: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
     } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
     const service = new TeamService({
       userDataPath: root,
@@ -487,30 +770,61 @@ test("TeamService uses persisted pet ownership to reject a personal collision", 
     const teamState = new TeamStateStore({ userDataPath: root });
     teamState.initialize();
     teamState.enroll({ organizationId: "org-one" });
-    const personalPet = { ...teamPetState("same-id", "personal"), source: { kind: "catalog" as const, catalogVersion: 2 as const, zip: "pet.zip", preview: "pet.webp" } };
+    const personalPet = {
+      ...teamPetState("same-id", "personal"),
+      source: {
+        kind: "catalog" as const,
+        catalogVersion: 2 as const,
+        zip: "pet.zip",
+        preview: "pet.webp",
+      },
+    };
     let pets: unknown[] = [personalPet];
     const pluginState = new PluginStateStore({ statePath: join(root, "plugins.json") });
     pluginState.initialize();
     const api = {
-      getTeamPack: async () => ({ pack: createPetPack("same-id"), notModified: false, etag: "pack-1" }),
+      getTeamPack: async () => ({
+        pack: createPetPack("same-id"),
+        notModified: false,
+        etag: "pack-1",
+      }),
       downloadArtifact: async () => createPetZip("same-id"),
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => { throw new Error("not used"); },
-      completeEnrollment: async () => { throw new Error("not used"); },
+      requestEnrollment: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
     } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
     const service = new TeamService({
       userDataPath: root,
       apiClient: api,
       stateStore: teamState,
       credentialStore: new MemoryCredentialStore("credential_" + "c".repeat(32)),
-      pluginService: { stateStore: pluginState, runtime: { reloadPlugin: async () => undefined } },
-      petState: createPetStateAdapter(() => pets, (next) => { pets = next; }),
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => pets, (next) => {
+        pets = next;
+      }),
     });
     const snapshot = await service.syncNow();
     assert.equal(snapshot.lastError, "apply_failed");
-    assert.equal(((pets[0] as Record<string, unknown> | undefined)?.source as Record<string, unknown> | undefined)?.kind, "catalog");
-    assert.equal(pets.some((pet) => ((pet as Record<string, unknown>).source as Record<string, unknown> | undefined)?.kind === "team"), false);
+    assert.equal(
+      ((pets[0] as Record<string, unknown> | undefined)?.source as Record<string, unknown> | undefined)?.kind,
+      "catalog",
+    );
+    assert.equal(
+      pets.some(
+        (pet) => (
+          (pet as Record<string, unknown>).source as Record<string, unknown> | undefined
+        )?.kind === "team",
+      ),
+      false,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -549,20 +863,33 @@ test("TeamService does not make a failed revision current when an earlier plugin
       ["version-1", petZip],
     ]);
     const api = {
-      getTeamPack: async () => ({ pack: currentPack, notModified: false, etag: `pack-${currentPack.revision}` }),
+      getTeamPack: async () => ({
+        pack: currentPack,
+        notModified: false,
+        etag: `pack-${currentPack.revision}`,
+      }),
       downloadArtifact: async (_credential: string, versionId: string) => zips.get(versionId)!,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => { throw new Error("not used"); },
-      completeEnrollment: async () => { throw new Error("not used"); },
+      requestEnrollment: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
     } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
     const service = new TeamService({
       userDataPath: root,
       apiClient: api,
       stateStore: teamState,
       credentialStore,
-      pluginService: { stateStore: pluginState, runtime: { reloadPlugin: async () => undefined } },
-      petState: createPetStateAdapter(() => pets, (next) => { pets = next; }),
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => pets, (next) => {
+        pets = next;
+      }),
     });
 
     const first = await service.syncNow();
@@ -592,7 +919,8 @@ test("TeamService does not make a failed revision current when an earlier plugin
 });
 
 class MemoryCredentialStore implements SecureCredentialStore {
-  constructor(private value: string | null) {}
+  constructor(private value: string | null) {
+  }
   load(): string | null {
     return this.value;
   }
@@ -606,7 +934,10 @@ class MemoryCredentialStore implements SecureCredentialStore {
   }
 }
 
-function createPetStateAdapter(getPets: () => readonly unknown[], setPets: (pets: unknown[]) => void): NonNullable<TeamServiceOptions["petState"]> {
+function createPetStateAdapter(
+  getPets: () => readonly unknown[],
+  setPets: (pets: unknown[]) => void,
+): NonNullable<TeamServiceOptions["petState"]> {
   type PetAdapter = NonNullable<TeamServiceOptions["petState"]>;
   return {
     snapshot: () => ({ pets: { installed: getPets() } } as unknown as OpenPetsStateV1),
@@ -675,7 +1006,13 @@ function teamPluginRecord(root: string, id: string, organizationId: string): {
   };
 }
 
-function createPluginPack(version: string, versionId: string, revision = 1, policy: "required" | "optional" = "required", permissions: string[] = ["pet:speak"]): TeamPack {
+function createPluginPack(
+  version: string,
+  versionId: string,
+  revision = 1,
+  policy: "required" | "optional" = "required",
+  permissions: string[] = ["pet:speak"],
+): TeamPack {
   const zip = createPluginZip("team-plugin", version, permissions);
   return validateTeamPack({
     version: 1,
@@ -708,7 +1045,11 @@ function createPetPack(id: string): TeamPack {
   });
 }
 
-function createPluginZip(id: string, version: string, permissions: string[] = ["pet:speak"]): Buffer {
+function createPluginZip(
+  id: string,
+  version: string,
+  permissions: string[] = ["pet:speak"],
+): Buffer {
   const manifest = JSON.stringify({
     manifestVersion: 3,
     id,
@@ -720,9 +1061,18 @@ function createPluginZip(id: string, version: string, permissions: string[] = ["
     permissions,
   });
   return makeZipFiles([
-    { name: "openpets.plugin.json", data: Buffer.from(manifest) },
-    { name: "index.js", data: Buffer.from("export function register() {}\n") },
-    { name: "locales/en.json", data: Buffer.from(JSON.stringify({ "plugin.name": "Team Plugin" })) },
+    {
+      name: "openpets.plugin.json",
+      data: Buffer.from(manifest),
+    },
+    {
+      name: "index.js",
+      data: Buffer.from("export function register() {}\n"),
+    },
+    {
+      name: "locales/en.json",
+      data: Buffer.from(JSON.stringify({ "plugin.name": "Team Plugin" })),
+    },
   ]);
 }
 
@@ -740,11 +1090,16 @@ function createPetZip(id: string): Buffer {
         spritesheetPath: "spritesheet.webp",
       })),
     },
-    { name: "spritesheet.webp", data: sprite },
+    {
+      name: "spritesheet.webp",
+      data: sprite,
+    },
   ]);
 }
 
-function makeZipFiles(files: Array<{ name: string; data: Buffer }>): Buffer {
+function makeZipFiles(
+  files: Array<{ name: string; data: Buffer }>,
+): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;

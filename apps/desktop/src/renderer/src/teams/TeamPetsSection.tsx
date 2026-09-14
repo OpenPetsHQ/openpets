@@ -45,6 +45,7 @@ export function TeamPetsSection({ pets }: TeamPetsSectionProps) {
                   }}
                 />
               </div>
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 justify-between">
                   <strong className="text-sm font-bold text-navy dark:text-slate-100 truncate block">

@@ -45,26 +45,32 @@ export function TeamPluginCard({
   const requestedPermissions = plugin.requestedPermissions ?? [];
   const requestedNetworkHosts = plugin.requestedNetworkHosts ?? [];
 
+  const cardStyle = isBlocked
+    ? "border-amber-300 bg-amber-50/30 dark:border-amber-700/70 dark:bg-amber-950/20"
+    : "border-blue-100/70 bg-white/75 hover:border-brand/40 hover:bg-white dark:border-slate-700/60 dark:bg-slate-900/60 dark:hover:border-slate-600 dark:hover:bg-slate-900/90";
+
+  const iconContainerStyle = isBlocked
+    ? "bg-amber-100/80 border-amber-200 text-amber-700 dark:bg-amber-900/40 dark:border-amber-800 dark:text-amber-300"
+    : "bg-blue-50 border-blue-100/70 text-brand dark:bg-slate-800 dark:border-slate-700";
+
+  const policyBadgeStyle =
+    plugin.policy === "required"
+      ? "bg-purple-50 text-purple-700 border-purple-100/60 dark:bg-purple-950/60 dark:border-purple-800 dark:text-purple-300"
+      : "bg-slate-50 text-slate-700 border-slate-200/60 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300";
+
   return (
     <article
-      className={`rounded-2xl border p-4 transition-[border-color,background-color] shadow-sm flex flex-col justify-between gap-3.5 ${
-        isBlocked
-          ? "border-amber-300 bg-amber-50/30 dark:border-amber-700/70 dark:bg-amber-950/20"
-          : "border-blue-100/70 bg-white/75 hover:border-brand/40 hover:bg-white dark:border-slate-700/60 dark:bg-slate-900/60 dark:hover:border-slate-600 dark:hover:bg-slate-900/90"
-      }`}
+      className={`rounded-2xl border p-4 transition-[border-color,background-color] shadow-sm flex flex-col justify-between gap-3.5 ${cardStyle}`}
     >
       {/* Plugin Header */}
       <div className="flex items-start justify-between gap-2.5">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <div
-            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border shadow-sm ${
-              isBlocked
-                ? "bg-amber-100/80 border-amber-200 text-amber-700 dark:bg-amber-900/40 dark:border-amber-800 dark:text-amber-300"
-                : "bg-blue-50 border-blue-100/70 text-brand dark:bg-slate-800 dark:border-slate-700"
-            }`}
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border shadow-sm ${iconContainerStyle}`}
           >
             <PluginIcon />
           </div>
+
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <strong className="text-sm font-bold text-navy dark:text-slate-100 truncate block">
@@ -74,13 +80,10 @@ export function TeamPluginCard({
                 v{plugin.version}
               </span>
             </div>
+
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                  plugin.policy === "required"
-                    ? "bg-purple-50 text-purple-700 border-purple-100/60 dark:bg-purple-950/60 dark:border-purple-800 dark:text-purple-300"
-                    : "bg-slate-50 text-slate-700 border-slate-200/60 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
-                }`}
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border ${policyBadgeStyle}`}
               >
                 {plugin.policy === "required" ? "Required by Org" : "Optional"}
               </span>
@@ -160,7 +163,12 @@ export function TeamPluginCard({
               <strong className="block font-bold text-amber-950 dark:text-amber-200 mb-0.5">
                 Device Approval Required
               </strong>
-              This plugin is {plugin.policy === "required" ? "required by your organization" : "offered by your organization"}, but organization policy never automatically grants permissions. You must review and grant permission on this computer before it can run.
+              This plugin is{" "}
+              {plugin.policy === "required"
+                ? "required by your organization"
+                : "offered by your organization"}
+              , but organization policy never automatically grants permissions. You must review
+              and grant permission on this computer before it can run.
             </div>
           </div>
 
@@ -169,8 +177,11 @@ export function TeamPluginCard({
             <span className="font-monoDisplay text-[10px] font-black uppercase tracking-wider text-slatecopy/80 dark:text-slate-400">
               Requested Capabilities ({requestedPermissions.length})
             </span>
+
             {requestedPermissions.length === 0 ? (
-              <span className="text-xs text-slatecopy italic">No system permissions requested.</span>
+              <span className="text-xs text-slatecopy italic">
+                No system permissions requested.
+              </span>
             ) : (
               <div className="flex flex-col gap-1.5">
                 {requestedPermissions.map((perm) => {
@@ -249,7 +260,11 @@ export function TeamPluginCard({
               ) : (
                 <>
                   <ShieldCheckIcon />
-                  <span>{plugin.policy === "required" ? "Approve & Activate" : "Approve Permissions"}</span>
+                  <span>
+                    {plugin.policy === "required"
+                      ? "Approve & Activate"
+                      : "Approve Permissions"}
+                  </span>
                 </>
               )}
             </button>
@@ -270,7 +285,11 @@ export function TeamPluginCard({
                   className="text-brand hover:underline cursor-pointer font-bold text-[11px] flex items-center gap-1"
                   onClick={() => onToggleDetails(plugin.id)}
                 >
-                  <span>{isExpanded ? "Hide Details" : `View Permissions (${requestedPermissions.length})`}</span>
+                  <span>
+                    {isExpanded
+                      ? "Hide Details"
+                      : `View Permissions (${requestedPermissions.length})`}
+                  </span>
                   {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
                 </button>
               </div>
@@ -290,6 +309,7 @@ export function TeamPluginCard({
                       ))}
                     </div>
                   )}
+
                   {requestedNetworkHosts.length > 0 && (
                     <div className="flex flex-col gap-1 pt-1.5 border-t border-blue-100/40 dark:border-slate-800">
                       <span className="text-[10px] font-monoDisplay uppercase font-bold text-slatecopy/70">

@@ -25,8 +25,17 @@ import {
   type StagedTeamArtifact,
 } from "./team-package.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
-import { findTeamEnrollmentLink, type TeamPack, type TeamPackItem } from "./team-protocol.js";
-import { ElectronTeamCredentialStore, TeamStateStore, type SecureCredentialStore, type TeamEnrollmentState } from "./team-state.js";
+import {
+  findTeamEnrollmentLink,
+  type TeamPack,
+  type TeamPackItem,
+} from "./team-protocol.js";
+import {
+  ElectronTeamCredentialStore,
+  TeamStateStore,
+  type SecureCredentialStore,
+  type TeamEnrollmentState,
+} from "./team-state.js";
 import {
   reconcileTeamPack,
   resolveTeamPluginPolicy,
@@ -44,7 +53,11 @@ export type TeamServiceSnapshot = {
   readonly appliedRevision: number;
   readonly lastSyncAt?: string;
   readonly lastError?: string;
-  readonly teamPets: readonly { readonly id: string; readonly displayName: string; readonly source: "team" }[];
+  readonly teamPets: readonly {
+    readonly id: string;
+    readonly displayName: string;
+    readonly source: "team";
+  }[];
   readonly teamPlugins: readonly {
     readonly id: string;
     readonly version: string;
@@ -65,7 +78,11 @@ export type TeamServiceOptions = {
   readonly credentialStore?: SecureCredentialStore;
   readonly pluginService: TeamPluginServiceAdapter;
   readonly petState?: TeamPetStateAdapter;
-  readonly log?: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void;
+  readonly log?: (
+    level: "info" | "warn" | "error",
+    message: string,
+    fields?: Record<string, unknown>,
+  ) => void;
   readonly pollMs?: number;
 };
 
@@ -117,15 +134,21 @@ export class TeamService {
   #syncSession: AbortController | null = null;
   readonly #operationQueue = new TeamOperationQueue();
   #leaveQueued = false;
-  #enrollmentSession: { readonly controller: AbortController; proof: string } | null = null;
+  #enrollmentSession: {
+    readonly controller: AbortController;
+    proof: string;
+  } | null = null;
   #enrollmentDone: Promise<void> | null = null;
 
   constructor(options: TeamServiceOptions) {
     this.#userDataPath = options.userDataPath;
     this.#pluginService = options.pluginService;
     this.#petState = options.petState ?? createDefaultPetStateAdapter();
-    this.stateStore = options.stateStore ?? new TeamStateStore({ userDataPath: options.userDataPath });
-    this.credentialStore = options.credentialStore ?? new ElectronTeamCredentialStore(options.userDataPath);
+    this.stateStore = options.stateStore ?? new TeamStateStore({
+      userDataPath: options.userDataPath,
+    });
+    this.credentialStore = options.credentialStore
+      ?? new ElectronTeamCredentialStore(options.userDataPath);
     this.apiClient = options.apiClient ?? new TeamApiClient();
     this.#log = options.log ?? (() => undefined);
     this.#pollMs = Math.max(60_000, Math.min(options.pollMs ?? 15 * 60_000, 24 * 60 * 60_000));
@@ -198,7 +221,10 @@ export class TeamService {
     if (!pending) throw new Error("No pending Teams enrollment link.");
     if (this.#enrollmentSession) throw new Error("Teams enrollment is already in progress.");
     const installationId = this.stateStore.installationId;
-    const session = { controller: new AbortController(), proof: randomBytes(32).toString("base64url") };
+    const session = {
+      controller: new AbortController(),
+      proof: randomBytes(32).toString("base64url"),
+    };
     this.#enrollmentSession = session;
     const work = (async () => {
       const requested = await this.apiClient.requestEnrollment(
@@ -226,7 +252,11 @@ export class TeamService {
           deviceId: enrollment.deviceId,
         });
         this.stateStore.clearPendingIntent();
-        this.#log("info", "Teams enrollment completed", { organizationId: enrollment.organization.id });
+        this.#log(
+          "info",
+          "Teams enrollment completed",
+          { organizationId: enrollment.organization.id },
+        );
         return this.getSnapshot();
       });
       return await this.syncNow();
@@ -283,7 +313,10 @@ export class TeamService {
       }
     });
   }
-  async approveTeamPluginPermissions(id: string, approvalToken: string): Promise<TeamServiceSnapshot> {
+  async approveTeamPluginPermissions(
+    id: string,
+    approvalToken: string,
+  ): Promise<TeamServiceSnapshot> {
     return this.#enqueueOperation(async () => {
       const teamState = this.stateStore.require();
       const record = this.#requireCurrentTeamPlugin(id, teamState);
@@ -340,9 +373,15 @@ export class TeamService {
         && !this.#hasPendingApprovals(teamState.organizationId)
       ) {
         const credential = this.credentialStore.load();
-        if (!credential) throw new Error("Teams secure credential is unavailable.");
+        if (!credential) {
+          throw new Error("Teams secure credential is unavailable.");
+        }
         this.stateStore.setApplied(nextState.pendingRevision);
-        await this.apiClient.reportDeployment(credential, nextState.pendingRevision, "current").catch(() => undefined);
+        await this.apiClient.reportDeployment(
+          credential,
+          nextState.pendingRevision,
+          "current",
+        ).catch(() => undefined);
       }
       return this.getSnapshot();
     });
@@ -350,7 +389,9 @@ export class TeamService {
 
   async setTeamPluginEnabled(id: string, enabled: boolean): Promise<TeamServiceSnapshot> {
     return this.#enqueueOperation(async () => {
-      if (typeof enabled !== "boolean") throw new Error("Team plugin enabled state is invalid.");
+      if (typeof enabled !== "boolean") {
+        throw new Error("Team plugin enabled state is invalid.");
+      }
       const teamState = this.stateStore.require();
       const record = this.#requireCurrentTeamPlugin(id, teamState);
       if (record.teamPolicy !== "optional" || record.teamPendingApproval || record.teamApprovalToken) {
@@ -372,13 +413,17 @@ export class TeamService {
         networkHosts,
         record.approvedNetworkHosts ?? [],
       );
-      if (policy.permissionBlocked) throw new Error("Team plugin permissions are not fully approved.");
+      if (policy.permissionBlocked) {
+        throw new Error("Team plugin permissions are not fully approved.");
+      }
       const nextRecord = { ...record, enabled };
       this.#pluginService.stateStore.upsertRecord(nextRecord);
       try {
         await this.#pluginService.runtime.reloadPlugin(id);
         const reloaded = this.#pluginService.stateStore.getRecord(id);
-        if (reloaded?.brokenReason) throw new Error("Team plugin failed to reload after enabled state change.");
+        if (reloaded?.brokenReason) {
+          throw new Error("Team plugin failed to reload after enabled state change.");
+        }
       } catch (error) {
         this.#pluginService.stateStore.upsertRecord(record);
         await this.#pluginService.runtime.reloadPlugin(id).catch(() => undefined);
@@ -399,7 +444,10 @@ export class TeamService {
         source: "team" as const,
       }));
     const teamPlugins = this.#pluginService.stateStore.listRecords()
-      .filter((record) => record.source === "team" && record.teamOwnership?.organizationId === organizationId)
+      .filter(
+        (record) => record.source === "team"
+          && record.teamOwnership?.organizationId === organizationId,
+      )
       .map((record) => ({
         id: record.id,
         version: record.version,
@@ -444,7 +492,9 @@ export class TeamService {
       if (this.#leaveQueued || syncController.signal.aborted) return this.getSnapshot();
       const pack = response.notModified ? state.desiredPack : response.pack;
       if (!pack) throw new Error("Teams server did not return a Team Pack.");
-      if (pack.revision < state.appliedRevision) throw new Error("Teams server returned an older Team Pack revision.");
+      if (pack.revision < state.appliedRevision) {
+        throw new Error("Teams server returned an older Team Pack revision.");
+      }
       this.stateStore.setPending(pack, response.etag);
       const current = this.currentItems(state.organizationId);
       const result = await reconcileTeamPack(pack, current, {
@@ -466,16 +516,28 @@ export class TeamService {
       if (this.#leaveQueued || syncController.signal.aborted) return this.getSnapshot();
       if (!result.applied) {
         this.stateStore.setError(result.failureCode ?? "reconcile_failed");
-        await this.apiClient.reportDeployment(credential, pack.revision, "error").catch(() => undefined);
+        await this.apiClient.reportDeployment(
+          credential,
+          pack.revision,
+          "error",
+        ).catch(() => undefined);
         return this.getSnapshot();
       }
       this.stateStore.setReconciled(pack.revision);
       if (result.pendingApproval) {
-        await this.apiClient.reportDeployment(credential, pack.revision, "out_of_date").catch(() => undefined);
+        await this.apiClient.reportDeployment(
+          credential,
+          pack.revision,
+          "out_of_date",
+        ).catch(() => undefined);
         return this.getSnapshot();
       }
       this.stateStore.setApplied(pack.revision);
-      await this.apiClient.reportDeployment(credential, pack.revision, "current").catch(() => undefined);
+      await this.apiClient.reportDeployment(
+        credential,
+        pack.revision,
+        "current",
+      ).catch(() => undefined);
       this.#log("info", "Teams Pack reconciled", {
         revision: pack.revision,
         itemCount: pack.items.length,
@@ -492,7 +554,11 @@ export class TeamService {
       if (this.#started) this.#schedule();
     }
   }
-  private async stage(item: TeamPackItem, credential: string, signal: AbortSignal): Promise<StagedTeamArtifact> {
+  private async stage(
+    item: TeamPackItem,
+    credential: string,
+    signal: AbortSignal,
+  ): Promise<StagedTeamArtifact> {
     const bytes = await this.apiClient.downloadArtifact(
       credential,
       item.versionId,
@@ -522,7 +588,9 @@ export class TeamService {
       || record.teamOwnership.releaseId !== desiredItem.releaseId
       || record.version !== desiredItem.version
       || resolve(record.installPath) !== resolve(expectedInstallPath)
-      || resolve(record.manifestPath) !== resolve(join(expectedInstallPath, "openpets.plugin.json"))
+      || resolve(record.manifestPath) !== resolve(
+        join(expectedInstallPath, "openpets.plugin.json"),
+      )
     ) throw new Error("Team plugin action is unavailable.");
     return record;
   }
@@ -542,7 +610,9 @@ export class TeamService {
     let petStateChanged = false;
     try {
       if (item.type === "pet") {
-        const existing = this.#petState.snapshot().pets.installed.find((pet) => pet.id === item.id);
+        const existing = this.#petState.snapshot().pets.installed.find(
+          (pet) => pet.id === item.id,
+        );
         previousPet = existing;
         if (existing && existing.source?.kind !== "team") {
           throw new Error(`A personal pet already uses this id: ${item.id}`);
@@ -610,7 +680,9 @@ export class TeamService {
         runtime: manifest.runtime,
         sdkVersion: "sdkVersion" in manifest ? manifest.sdkVersion : undefined,
         enabled: policy.enabled,
-        approvedPermissions: manifest.permissions.filter((permission) => previousApprovals.includes(permission)),
+        approvedPermissions: manifest.permissions.filter(
+          (permission) => previousApprovals.includes(permission),
+        ),
         approvedNetworkHosts: networkHosts.filter((host) => previousHosts.includes(host)),
         teamPendingApproval: policy.permissionBlocked
           ? {
