@@ -68,7 +68,7 @@ export async function reconcileTeamPack<TStage>(
   const desiredByKey = new Map(pack.items.map((item) => [`${item.type}:${item.id}`, item]));
   const staged = new Map<string, TStage>();
   const applyKeys = new Set<string>();
-  let pendingApproval = current.some((item) => item.type === "plugin" && item.pendingApproval === true && desiredByKey.has(`${item.type}:${item.itemId}`));
+  let pendingApproval = false;
   for (const item of pack.items) {
     const previous = currentByKey.get(`${item.type}:${item.id}`);
     if (previous?.source !== undefined && previous.source !== "team") {
@@ -121,9 +121,13 @@ export async function reconcileTeamPack<TStage>(
         removed: [],
       };
     }
-    if (!applyKeys.has(key)) continue;
+    if (!applyKeys.has(key)) {
+      if (previous?.type === "plugin" && previous.pendingApproval === true) pendingApproval = true;
+      continue;
+    }
     try {
-      if ((await adapter.apply(item, staged.get(key)!))?.pendingApproval) pendingApproval = true;
+      const result = await adapter.apply(item, staged.get(key)!);
+      if (result?.pendingApproval) pendingApproval = true;
     } catch {
       await discardStaged(staged, adapter);
       return {

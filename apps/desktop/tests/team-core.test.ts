@@ -381,6 +381,54 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
   }
 });
 
+test("TeamService clears stale pending approval when the same revision replaces the artifact", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-service-replacement-test-"));
+  try {
+    const teamState = new TeamStateStore({ userDataPath: root });
+    teamState.initialize();
+    teamState.enroll({ organizationId: "org-one" });
+    const pluginState = new PluginStateStore({ userDataPath: root });
+    pluginState.initialize();
+    const credentialStore = new MemoryCredentialStore("credential_" + "f".repeat(32));
+    let currentPack = createPluginPack("1.0.0", "artifact-one");
+    let currentZip = createPluginZip("team-plugin", "1.0.0");
+    const api = {
+      getTeamPack: async () => ({ pack: currentPack, notModified: false, etag: "pack-1" }),
+      downloadArtifact: async () => currentZip,
+      reportDeployment: async () => undefined,
+      leaveOrganization: async () => undefined,
+      requestEnrollment: async () => { throw new Error("not used"); },
+      completeEnrollment: async () => { throw new Error("not used"); },
+    } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
+    const service = new TeamService({
+      userDataPath: root,
+      apiClient: api,
+      stateStore: teamState,
+      credentialStore,
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => [], () => undefined),
+    });
+
+    const blocked = await service.syncNow();
+    assert.equal(blocked.appliedRevision, 0);
+    assert.equal(blocked.teamPlugins[0]?.permissionBlocked, true);
+    assert.equal(teamState.snapshot()?.reconciledRevision, 1);
+
+    currentPack = createPluginPack("1.1.0", "artifact-two", 1, "required", []);
+    currentZip = createPluginZip("team-plugin", "1.1.0", []);
+    const replaced = await service.syncNow();
+    assert.equal(replaced.appliedRevision, 1);
+    assert.equal(replaced.pendingRevision, 1);
+    assert.equal(replaced.teamPlugins[0]?.permissionBlocked, false);
+    assert.equal(teamState.snapshot()?.reconciledRevision, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("TeamService enrollment returns the snapshot produced by its initial sync", async () => {
   const root = await mkdtemp(join(tmpdir(), "openpets-team-service-enrollment-test-"));
   try {
@@ -627,8 +675,8 @@ function teamPluginRecord(root: string, id: string, organizationId: string): {
   };
 }
 
-function createPluginPack(version: string, versionId: string, revision = 1, policy: "required" | "optional" = "required"): TeamPack {
-  const zip = createPluginZip("team-plugin", version);
+function createPluginPack(version: string, versionId: string, revision = 1, policy: "required" | "optional" = "required", permissions: string[] = ["pet:speak"]): TeamPack {
+  const zip = createPluginZip("team-plugin", version, permissions);
   return validateTeamPack({
     version: 1,
     revision,
@@ -660,7 +708,7 @@ function createPetPack(id: string): TeamPack {
   });
 }
 
-function createPluginZip(id: string, version: string): Buffer {
+function createPluginZip(id: string, version: string, permissions: string[] = ["pet:speak"]): Buffer {
   const manifest = JSON.stringify({
     manifestVersion: 3,
     id,
@@ -669,7 +717,7 @@ function createPluginZip(id: string, version: string): Buffer {
     runtime: "javascript",
     sdkVersion: "3.0.0",
     entry: "index.js",
-    permissions: ["pet:speak"],
+    permissions,
   });
   return makeZipFiles([
     { name: "openpets.plugin.json", data: Buffer.from(manifest) },
