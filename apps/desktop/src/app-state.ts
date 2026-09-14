@@ -9,7 +9,11 @@ import { builtInPet } from "./built-in-pet.js";
 import type { Point } from "./display.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { assertSafePetId, getInstalledPetDir } from "./pet-paths.js";
+import {
+  assertSafePetId,
+  getInstalledPetDir,
+  getTeamPetDir,
+} from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -33,6 +37,12 @@ export interface InstalledPetState {
   } | {
     readonly kind: "codex";
     readonly path: string;
+  } | {
+    readonly kind: "team";
+    readonly organizationId: string;
+    readonly itemId: string;
+    readonly artifactVersionId: string;
+    readonly releaseId: string;
   };
   readonly broken?: boolean;
   readonly brokenReason?: string;
@@ -389,7 +399,38 @@ export function upsertPetState(pet: Omit<InstalledPetState, "builtIn" | "protect
   return getAppStateSnapshot();
 }
 
-export function removePetState(petId: string): OpenPetsStateV1 {
+export type TeamPetOwnership = Extract<
+  NonNullable<InstalledPetState["source"]>,
+  { readonly kind: "team" }
+>;
+
+export function installTeamPetState(
+  pet: Omit<InstalledPetState, "builtIn" | "protected" | "installed"> & {
+    readonly source: TeamPetOwnership;
+  },
+): OpenPetsStateV1 {
+  const state = getInitializedState();
+  const existing = state.pets.installed.find((installedPet) => installedPet.id === pet.id);
+  if (existing && existing.source?.kind !== "team") {
+    throw new Error(`A personal pet already uses this id: ${pet.id}`);
+  }
+  return upsertPetState(pet);
+}
+
+export function removeTeamPetState(ownership: TeamPetOwnership): OpenPetsStateV1 {
+  const state = getInitializedState();
+  const existing = state.pets.installed.find(
+    (pet) =>
+      pet.source?.kind === "team"
+      && pet.source.organizationId === ownership.organizationId
+      && pet.source.itemId === ownership.itemId
+      && pet.source.artifactVersionId === ownership.artifactVersionId,
+  );
+  if (!existing) return getAppStateSnapshot();
+  return removePetState(existing.id, true);
+}
+
+export function removePetState(petId: string, allowTeam = false): OpenPetsStateV1 {
   if (petId === builtInPet.id) {
     throw new Error("Built-in pet cannot be removed.");
   }
@@ -399,6 +440,11 @@ export function removePetState(petId: string): OpenPetsStateV1 {
 
   if (!existing) {
     throw new Error(`Pet is not installed: ${petId}`);
+  }
+  if (!allowTeam && existing.source?.kind === "team") {
+    throw new Error(
+      "Team pets can only be removed by leaving the organization or by organization policy.",
+    );
   }
 
   const nextDefaultPetId = state.preferences.defaultPetId === petId ? builtInPet.id : state.preferences.defaultPetId;
@@ -631,7 +677,8 @@ function normalizeInstalledPet(value: unknown): InstalledPetState | null {
     return null;
   }
 
-  const brokenReason = validateInstalledPetFiles(value.id);
+  const source = normalizeSource(value.source);
+  const brokenReason = validateInstalledPetFiles(value.id, source);
 
   return {
     id: value.id,
@@ -640,7 +687,7 @@ function normalizeInstalledPet(value: unknown): InstalledPetState | null {
     builtIn: value.id === builtInPet.id ? true : value.builtIn === true,
     protected: value.id === builtInPet.id ? true : value.protected === true,
     installed: true,
-    source: normalizeSource(value.source),
+    source,
     broken: brokenReason ? true : typeof value.broken === "boolean" ? value.broken : undefined,
     brokenReason: brokenReason ?? (typeof value.brokenReason === "string" ? value.brokenReason : undefined),
   };
@@ -700,9 +747,11 @@ function writeStateToDisk(state: OpenPetsStateV1): void {
   renameSync(tempPath, path);
 }
 
-function validateInstalledPetFiles(petId: string): string | undefined {
+function validateInstalledPetFiles(petId: string, source: InstalledPetState["source"]): string | undefined {
   try {
-    const dir = getInstalledPetDir(petId);
+    const dir = source?.kind === "team"
+      ? getTeamPetDir(petId)
+      : getInstalledPetDir(petId);
     const petJsonPath = join(dir, "pet.json");
     const spritesheetPath = join(dir, "spritesheet.webp");
     JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;
@@ -723,6 +772,28 @@ function normalizeSource(value: unknown): InstalledPetState["source"] | undefine
 
   if (value.kind === "codex" && typeof value.path === "string") {
     return { kind: "codex", path: value.path };
+  }
+
+  if (
+    value.kind === "team"
+    && typeof value.organizationId === "string"
+    && typeof value.itemId === "string"
+    && typeof value.artifactVersionId === "string"
+    && typeof value.releaseId === "string"
+    && [
+      value.organizationId,
+      value.itemId,
+      value.artifactVersionId,
+      value.releaseId,
+    ].every((part) => /^[A-Za-z0-9._:-]{1,160}$/.test(part))
+  ) {
+    return {
+      kind: "team",
+      organizationId: value.organizationId,
+      itemId: value.itemId,
+      artifactVersionId: value.artifactVersionId,
+      releaseId: value.releaseId,
+    };
   }
 
   if (value.catalogVersion !== 2 || typeof value.zip !== "string" || typeof value.preview !== "string") return undefined;

@@ -68,6 +68,14 @@ dist checks. Three buckets:
   - `check-zed-desktop.ts` - verifies desktop Zed path resolution, preview
     shape, targeted writes, and removal preservation.
 
+## Teams desktop behavior tests
+
+Teams behavior tests cover exact enrollment-link decoding, strict Team Pack
+payload validation, one-organization state, stable installation metadata,
+personal/Team ownership isolation, staged reconciliation failure, and Team
+removal behavior. Fake API tests use bounded responses and never persist or
+assert on bearer credentials.
+
 ## Package tests & contracts
 
 Each package runs its own `check`/`test`. Notable contract/boundary coverage:

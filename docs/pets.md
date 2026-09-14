@@ -34,6 +34,21 @@ There are three sources a pet can come from at runtime:
    (`codex-pets.ts`), the dev workflow for authoring a new pet before
    publishing it.
 
+## Teams-owned pets
+
+Teams adds a fourth explicit source kind, `team`. Persisted source ownership
+selects the dedicated Team pet root versus the personal catalog/Codex roots; the
+app never infers ownership from a directory. Team pets appear separately in
+snapshots while remaining selectable. Team Packs remain pending and not current
+until the current artifact's explicit first-install approval in the Teams route
+succeeds; the approval displays requested permissions and network hosts and
+cannot be bypassed by organization configuration. Immutable
+organization/item/artifact/release references ensure reconciliation removes only
+matching Team records. Rejected staged or activated Team installs roll back to
+the last approved Team state, while personal catalog and Codex pets remain
+isolated and are never overwritten or removed on ID collision. Removing the Team
+default falls back to the built-in pet.
+
 ## Default pet vs agent pets
 
 Two distinct window roles, two controllers:

@@ -471,6 +471,25 @@ Plugin owners can publish updates to their plugins without needing a manual PR t
 
 If an update is determined to be **safe**, OpenPets CI/CD automation automatically updates the catalog entry version and re-packages the plugin. If any safety boundary is crossed, the update triggers a `manual-review` block and requires a maintainer to inspect and merge the change.
 
+## Teams-owned plugins
+
+The `team` source is a separate organization-owned lane installed under
+`userData/team-plugins/{id}`. Team plugins carry immutable organization/item/
+artifact/release references and generic personal actions cannot remove, toggle,
+or reconfigure them. A Team-owned first install requires explicit approval in
+the Teams route of Control Center, not in the Plugins tab. The approval displays
+the current manifest permissions and declared network hosts; organization
+configuration cannot bypass it, and the approval is bound to the current
+organization/item/artifact/release identity. A Team Pack remains pending and not
+current until that approval succeeds. Required plugins enable only when the
+approved permissions cover the manifest; permission escalation blocks and reports
+the item. Optional plugins install disabled and preserve the employee toggle
+across updates. Team operations are serialized, and leave invalidates queued or
+in-flight work. A rejected staged or activated Team install rolls back to the
+last approved artifact and its state. Organization configuration is read-only
+locally, removal clears only Team-scoped runtime, storage, and user-sound data,
+and personal plugin state remains isolated.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

@@ -14,5 +14,5 @@ Vite renderer workspace for the desktop React/Tailwind Control Center. It owns t
 ## Key Files
 
 - `index.html`: Vite HTML entry mounting the React app.
-- `src/main.tsx`: Route shell and pages for Dashboard, Pets, Integrations, Plugins, and Settings.
+- `src/main.tsx`: Route shell and pages for Dashboard, Pets, Settings, Plugins, Integrations, and Teams.
 - `src/styles.css`: Tailwind directives plus Control Center component styling.

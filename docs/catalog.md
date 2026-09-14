@@ -171,6 +171,19 @@ bucket with `OPENPETS_R2_BUCKET`; `--skip-r2` is for local testing only.
   and install state; install downloads + verifies the plugin ZIP. See
   [Plugin platform](/plugins).
 
+## Teams private catalog lane
+
+Teams is an optional cloud service separate from the public catalog. The desktop
+uses `OPENPETS_TEAMS_API_URL` (default
+`https://openpets-teams-api.tokozedg793.workers.dev`) and downloads
+Team artifacts only through the authenticated configured API origin. Team Packs
+contain published pets/plugins, required/optional policy, organization
+configuration, immutable release references, and removals. Dedicated storage,
+strict package validation, and ZIP safety preserve public catalog restrictions.
+Updates are staged before activation and applied revision advances only after
+convergence. Offline leave/removal retains pending state and never claims remote
+deletion.
+
 ## Related docs
 
 - [Official plugins](/official-plugins) lists the current plugin catalog lineup

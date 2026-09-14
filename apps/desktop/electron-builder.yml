@@ -1,6 +1,10 @@
 appId: dev.openpets.app
 productName: OpenPets
 executableName: openpets
+protocols:
+  - name: OpenPets Teams enrollment
+    schemes:
+      - openpets
 copyright: Copyright © 2026 OpenPets
 
 directories:

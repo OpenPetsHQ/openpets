@@ -11,8 +11,18 @@ export function getPetsRoot(): string {
 }
 
 export function getInstalledPetDir(petId: string): string {
+  return getPetDir(petId, "personal");
+}
+
+export function getTeamPetDir(petId: string): string {
+  return getPetDir(petId, "team");
+}
+
+export function getPetDir(petId: string, source: "personal" | "team"): string {
   assertSafePetId(petId);
-  const root = getPetsRoot();
+  const root = source === "team"
+    ? join(getPetsRoot(), "..", "team-pets")
+    : getPetsRoot();
   const target = resolve(root, petId);
   assertInsideRoot(root, target);
   return target;

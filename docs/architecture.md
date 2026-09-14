@@ -237,6 +237,14 @@ These hold everywhere; the rest of the docs assume them.
   bloat. (From `AGENTS.md`.)
 - **Catalog v3 is the source of truth** for pets; catalog v2 is legacy/fallback
   only. Plugin catalog v2 is active; v1 is an empty compatibility shim.
+- **Team state is serialized and explicitly owned.** Team operations are
+  serialized, and leaving invalidates queued or in-flight Team work. A Team Pack
+  remains pending and not current until its current artifact receives explicit
+  first-install approval in Control Center; organization policy cannot bypass
+  that approval, which displays the requested permissions and network hosts and
+  is bound to the artifact. Persisted source ownership, never directory
+  inference, selects Team versus personal roots. Rejected staged or activated
+  Team installs roll back without touching personal assets.
 - **Validate at every boundary.** Catalog entries, ZIP contents, pet metadata,
   IPC params, and plugin manifests are all strictly validated before use.
 - **Atomic, safe I/O.** All persisted state uses temp-write + rename; all path

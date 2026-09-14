@@ -9,7 +9,7 @@ import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pe
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
-import { getInstalledPetDir } from "./pet-paths.js";
+import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
 import { defaultMediaDurationMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
 import { pickReactionMessage } from "./reaction-messages.js";
@@ -970,7 +970,18 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     const scale = scaleOverride ?? state.preferences.petScale as PetScaleValue;
     const render = pet.id === builtInPet.id
       ? createBuiltInPetRender(false, display, badge, scale, `explicit:${pet.id}`, pet.id, dismissToken, pluginBubbles)
-      : await createInstalledPetRender(pet.id, pet.displayName, false, display, scale, badge, `explicit:${pet.id}`, dismissToken, pluginBubbles);
+      : await createInstalledPetRender(
+        pet.id,
+        pet.displayName,
+        false,
+        display,
+        scale,
+        badge,
+        `explicit:${pet.id}`,
+        dismissToken,
+        pluginBubbles,
+        pet.source?.kind === "team" ? "team" : "personal",
+      );
     applyLinuxPetWindowShape(window, scale, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient || pluginBubbles?.pinned));
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
@@ -1231,7 +1242,18 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
   }
 
   try {
-    return await createInstalledPetRender(selected.id, selected.displayName, paused, display, state.preferences.petScale as PetScaleValue, badge, `default:${selected.id}`, dismissToken, pluginBubbles);
+    return await createInstalledPetRender(
+      selected.id,
+      selected.displayName,
+      paused,
+      display,
+      state.preferences.petScale as PetScaleValue,
+      badge,
+      `default:${selected.id}`,
+      dismissToken,
+      pluginBubbles,
+      selected.source?.kind === "team" ? "team" : "personal",
+    );
   } catch (error) {
     console.error(`Failed to render installed default pet ${selected.id}; falling back to built-in pet.`, error);
     try {
@@ -1243,13 +1265,24 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
   }
 }
 
-async function createInstalledPetRender(petId: string, displayName: string, paused: boolean, display: PetTransientDisplay | null, scale: PetScaleValue, badge: PetStatusBadgeReaction | null, cachePrefix: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<PetContentRender> {
-  const spritesheetPath = join(getInstalledPetDir(petId), "spritesheet.webp");
+async function createInstalledPetRender(
+  petId: string,
+  displayName: string,
+  paused: boolean,
+  display: PetTransientDisplay | null,
+  scale: PetScaleValue,
+  badge: PetStatusBadgeReaction | null,
+  cachePrefix: string,
+  dismissToken?: string,
+  pluginBubbles: PetPluginBubbles | null = null,
+  source: "personal" | "team" = "personal",
+): Promise<PetContentRender> {
+  const spritesheetPath = join(getPetDir(petId, source), "spritesheet.webp");
   const spritesheet = await stat(spritesheetPath);
   if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) {
     throw new Error("Installed pet spritesheet is missing or too large.");
   }
-  const spriteLayout = await readInstalledPetSpriteLayout(petId);
+  const spriteLayout = await readInstalledPetSpriteLayout(petId, source);
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);

@@ -40,14 +40,44 @@ launching a second one.
 order): install lifecycle handlers → initialize app state → initialize the
 logger → register the configured Talk shortcut → create the tray → start the
 local IPC server → start the persisted, opt-in remote-control service if enabled
-→ initialize and start the plugin service (with the Electron JS host) → construct
-the host Pet Assistant service → optionally show the default pet. Shutdown
-unregisters the exact shortcut before stopping voice, then stops the bounded Pet
-Assistant turns before plugin teardown, remote-control listener, local IPC
-server, and pet windows.
+→ initialize and start the plugin service (with the Electron JS host) → start
+the optional Teams service and reconcile its Team Pack → construct the host Pet
+Assistant service → optionally show the default pet. Shutdown unregisters the
+exact shortcut before stopping voice, then stops the bounded Pet Assistant turns
+and Teams before plugin teardown, remote-control listener, local IPC server, and
+pet windows.
 
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
 `state.ts` (shell pause flag).
+
+## Optional Teams desktop scope
+
+Teams is an optional cloud lane. `openpets://teams/enroll?intent=...` is parsed
+only by the main process; the singleton Control Center is focused and routed to
+the Teams contract route. One stable installation ID and nonsecret enrollment
+metadata are stored atomically in a dedicated state file. The device bearer
+credential is stored only with Electron `safeStorage`. For enrollment, the
+desktop generates an ephemeral proof, sends it with the intent ID, installation
+ID, and display name, and uses that same proof only for bounded completion
+polling. The API returns the intent expiration and the desktop retries lost
+request/completion responses with the same proof only until that server-defined
+window ends. Neither the browser token nor the proof is stored in desktop state
+or included in logs; the proof is cleared after terminal completion/failure or
+app shutdown. The browser confirms the requested desktop through the
+browser-token-authenticated Teams page before the API issues a deterministically
+derived 256-bit credential. Teams starts after the plugin service, polls with
+bounded jitter, and stops before plugin shutdown. Snapshots expose separated
+Team pets/plugins and status, never credentials, enrollment tokens, proofs, or
+full server packs.
+
+Team synchronization, installation, and leave operations are serialized. Leaving
+invalidates queued and in-flight Team work, so a late sync or install cannot
+reapply organization state after departure. A Team Pack stays pending and is not
+the current revision until its current artifact has received explicit first-install
+permission approval in the Teams route. The approval view displays the artifact's
+requested permissions and declared network hosts; organization configuration does
+not bypass it, and approval is bound to the current artifact. Rejected staged or
+activated Team installs roll back to the last approved state.
 
 ## Linux display backend (Ozone/Wayland)
 
@@ -116,12 +146,23 @@ pet keeps rendering during fullscreen video and games.
 ### Control Center (renderer)
 
 The React/Tailwind UI under `src/renderer/`. Pages: **Dashboard,
-Pets, Integrations, Plugins, Settings** (the **Conversation** route is currently
+Pets, Settings, Plugins, Integrations, Teams** (the **Conversation** route is currently
 internal/experimental and not exposed in Control Center navigation). It is a pure consumer of main-process
 snapshots and actions exposed over the preload bridge - it holds no privileged
 capability of its own. The renderer is the only "frontend" in scope for these
 docs (the `web/` marketing site is out of scope). See
 `src/renderer/src/codemap.md` for component structure.
+
+The **Teams** route presents organization membership, applied/pending revisions,
+sync timestamps, and separated lists of organization-managed team pets and team
+plugins while preserving personal content in an isolated lane. It supports
+pending deep-link enrollment with display-name input, explicit synchronization,
+explicit leave with destructive-action confirmation, and clear presentation of
+permission-block or synchronization failure states. Team-owned first installs
+require an explicit approval here, not in the Plugins tab: the approval shows all
+requested permissions and network hosts and is bound to the current artifact, so
+organization membership or policy cannot silently approve it. Team Packs remain
+pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
 `control-center-preload.cjs` without a generic patch route: list profiles,
@@ -248,6 +289,12 @@ preference and canonical `voiceAssistantShortcut` accelerator. That duration is 
 (Relaxed), with `1010` ms as the default. `app-state-core.ts` and
 `pet-assistant-personality.ts` hold pure normalization helpers that are testable
 without Electron.
+
+Installed pet records persist their source ownership. That ownership selects the
+Team or personal pet root; the app never infers ownership from whichever directory
+currently contains an artifact. Team reconciliation and rejected installs restore
+the prior Team state without overwriting or removing personal catalog or Codex
+pets.
 
 #### Pet pool preference
 

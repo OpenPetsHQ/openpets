@@ -5,7 +5,23 @@ import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
-export type LogScope = "app" | "ipc" | "lease" | "pet.default" | "pet.agent" | "pet.window" | "pet.wayland" | "plugin" | "state" | "tray" | "ui" | "remote" | "terminal-focus" | "window-tracker" | "capabilities";
+export type LogScope =
+  | "app"
+  | "ipc"
+  | "lease"
+  | "pet.default"
+  | "pet.agent"
+  | "pet.window"
+  | "pet.wayland"
+  | "plugin"
+  | "state"
+  | "tray"
+  | "ui"
+  | "remote"
+  | "teams"
+  | "terminal-focus"
+  | "window-tracker"
+  | "capabilities";
 
 type LogFields = Record<string, unknown>;
 

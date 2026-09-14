@@ -27,6 +27,8 @@ export type SafePluginRecord = {
   readonly icon?: PluginIcon;
   readonly iconDataUrl?: string;
   readonly source: PluginSource;
+  readonly teamOwnership?: import("./plugin-state.js").TeamPluginOwnership;
+  readonly teamPolicy?: "required" | "optional";
   readonly sourcePath?: string;
   readonly bundled?: boolean;
   readonly enabled: boolean;
@@ -106,7 +108,11 @@ export class PluginService {
   constructor(options: PluginServiceOptions) {
     if (!options.stateStore && !options.userDataPath) throw new Error("Plugin service requires userDataPath or stateStore.");
     if (!options.allowedPluginRoots && !options.userDataPath) throw new Error("Plugin service requires allowedPluginRoots when userDataPath is not provided.");
-    this.allowedPluginRoots = options.allowedPluginRoots ?? [join(options.userDataPath ?? "", "plugins"), join(options.userDataPath ?? "", "plugins-dev")];
+    this.allowedPluginRoots = options.allowedPluginRoots ?? [
+      join(options.userDataPath ?? "", "plugins"),
+      join(options.userDataPath ?? "", "plugins-dev"),
+      join(options.userDataPath ?? "", "team-plugins"),
+    ];
     this.#userDataPath = options.userDataPath;
     this.#showOpenDialog = options.showOpenDialog;
     this.#showSoundOpenDialog = options.showSoundOpenDialog;
@@ -189,6 +195,9 @@ export class PluginService {
   async setEnabled(id: string, enabled: boolean): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
+    if (record.source === "team") {
+      return this.#error("Team plugin settings are managed by your organization.");
+    }
     if (enabled && record.catalogDisabled) return this.#error("Plugin is disabled in the catalog.");
     if (enabled && record.brokenReason) return this.#error(record.brokenReason);
     this.stateStore.setEnabled(id, enabled);
@@ -199,6 +208,9 @@ export class PluginService {
   async saveConfig(id: string, config: unknown): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
+    if (record.source === "team") {
+      return this.#error("Team plugin configuration is managed by your organization.");
+    }
     let manifest: OpenPetsPluginManifest;
     try {
       manifest = await this.#readManifest(record);
@@ -297,6 +309,9 @@ export class PluginService {
     if (!this.#userDataPath) return this.#error("Plugin uninstall is unavailable.");
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
+    if (record.source === "team") {
+      return this.#error("Team plugins can only be removed by leaving the organization or by organization policy.");
+    }
     if (record.bundled) return this.#error("Bundled plugins cannot be uninstalled. Disable the plugin instead.");
     let realInstall: string | undefined;
     try { realInstall = await resolveSafePluginInstallDir(this.#userDataPath, id, record.installPath, record.source); }
@@ -335,6 +350,9 @@ export class PluginService {
       return this.#error(safeError(error));
     }
     const existing = this.stateStore.getRecord(source.manifest.id);
+    if (existing?.source === "team") {
+      return this.#error("A Team plugin with this id is managed by your organization.");
+    }
     if (existing?.source === "catalog") return this.#error("A catalog plugin with this id is already installed.");
     const networkHosts = "network" in source.manifest ? source.manifest.network?.hosts : undefined;
     const approvalsChanged = existing ? !isPermissionSubset(source.manifest.permissions, existing.approvedPermissions) || !isStringSubset(networkHosts ?? [], existing.approvedNetworkHosts ?? []) : true;
@@ -465,7 +483,23 @@ export class PluginService {
   }
 
   async #safeRecord(record: PluginStateRecord): Promise<SafePluginRecord> {
-    const base = { id: record.id, version: record.version, source: record.source, sourcePath: record.sourcePath, bundled: record.bundled, enabled: record.enabled, brokenReason: record.brokenReason, approvedPermissions: record.approvedPermissions, runtime: record.runtime, sdkVersion: record.sdkVersion, catalogDisabled: record.catalogDisabled, catalogDeprecated: record.catalogDeprecated, catalogStatusReason: record.catalogStatusReason };
+    const base = {
+      id: record.id,
+      version: record.version,
+      source: record.source,
+      sourcePath: record.sourcePath,
+      teamOwnership: record.teamOwnership,
+      teamPolicy: record.teamPolicy,
+      bundled: record.bundled,
+      enabled: record.enabled,
+      brokenReason: record.brokenReason,
+      approvedPermissions: record.approvedPermissions,
+      runtime: record.runtime,
+      sdkVersion: record.sdkVersion,
+      catalogDisabled: record.catalogDisabled,
+      catalogDeprecated: record.catalogDeprecated,
+      catalogStatusReason: record.catalogStatusReason,
+    };
     try {
       const manifest = await this.#readManifest(record);
       const config = getEffectivePluginConfig(manifest, record.config);
@@ -488,7 +522,7 @@ export class PluginService {
   }
 
   #readManifest(record: PluginStateRecord): Promise<OpenPetsPluginManifest> {
-    return readSafePluginManifest({ installPath: record.installPath, manifestPath: record.manifestPath, allowedPluginRoots: this.allowedPluginRoots, maxManifestBytes: this.#maxManifestBytes, expectedId: record.id, expectedVersion: record.version });
+    return readSafePluginManifest({ installPath: record.installPath, manifestPath: record.manifestPath, allowedPluginRoots: this.allowedPluginRoots.filter((root) => existsSync(root)), maxManifestBytes: this.#maxManifestBytes, expectedId: record.id, expectedVersion: record.version });
   }
 
   async #error(error: string): Promise<PluginServiceResult> {

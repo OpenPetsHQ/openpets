@@ -76,6 +76,7 @@ const behaviorTests = [
   ".test-dist/tests/pool-toggle.test.js",
   ".test-dist/tests/local-ipc-confinement.test.js",
   ".test-dist/tests/remote-control.test.js",
+  ".test-dist/tests/team-core.test.js",
   ".test-dist/tests/logger-redaction.test.js",
   ".test-dist/tests/confinement-permission.test.js",
   ".test-dist/tests/confinement-poller-backoff.test.js",

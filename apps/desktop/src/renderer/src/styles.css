@@ -832,4 +832,43 @@ body.theme-dark .plugin-config-backdrop {
   body.theme-dark .provider-header-table,
   body.theme-dark .provider-auth-box { @apply border-slate-800 bg-slate-950/50; }
 
+  /* Teams Section Styling */
+  .team-card {
+    @apply flex flex-col gap-4 rounded-[28px] border border-blue-100/70 bg-white/80 p-6 shadow-sm;
+  }
+  .team-item-card {
+    @apply rounded-2xl border border-blue-100/70 bg-white/75 p-3.5 shadow-sm transition-[border-color,background-color] hover:border-brand/40 hover:bg-white;
+  }
+  .team-input {
+    @apply w-full rounded-xl border border-blue-200/80 bg-white px-3.5 py-2.5 text-sm font-medium text-navy outline-none placeholder:text-slatecopy/60 focus:border-brand focus:ring-4 focus:ring-brand/15 disabled:opacity-60;
+  }
+  .team-modal {
+    @apply relative z-10 flex max-h-[calc(100vh-4rem)] w-[min(520px,calc(100vw-3rem))] flex-col gap-4 rounded-[28px] border border-blue-100/80 bg-white p-6 shadow-2xl;
+  }
+  .team-guide-step {
+    @apply flex flex-col gap-1.5 rounded-2xl border border-blue-100/60 bg-blue-50/30 p-4;
+  }
+
+  body.theme-dark .team-card,
+  body.theme-dark .team-modal {
+    @apply border-slate-700/60 bg-slate-900/80 text-slate-100;
+  }
+  body.theme-dark .team-item-card {
+    @apply border-slate-700/60 bg-slate-900/60 text-slate-100;
+  }
+  body.theme-dark .team-item-card:hover {
+    @apply border-slate-600 bg-slate-900/90;
+  }
+  body.theme-dark .team-input {
+    @apply border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20;
+  }
+  body.theme-dark .team-guide-step {
+    @apply border-slate-700/60 bg-slate-800/40 text-slate-300;
+  }
+  body.theme-dark .team-card h2,
+  body.theme-dark .team-card h3,
+  body.theme-dark .team-modal h3 {
+    @apply text-slate-50;
+  }
+
 }
