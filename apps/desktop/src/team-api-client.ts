@@ -25,18 +25,47 @@ export class TeamApiClient {
     this.#timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? 15_000, 60_000));
   }
 
-  async getTeamPack(credential: string, etag?: string): Promise<{ readonly pack: TeamPack; readonly etag?: string; readonly notModified: boolean }> {
-    const response = await this.request("/v1/device/team-pack", { credential, headers: etag ? { "If-None-Match": etag } : undefined, allowNotModified: true });
+  async getTeamPack(
+    credential: string,
+    etag?: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly pack: TeamPack;
+    readonly etag?: string;
+    readonly notModified: boolean;
+  }> {
+    const response = await this.request("/v1/device/team-pack", {
+      credential,
+      headers: etag ? { "If-None-Match": etag } : undefined,
+      allowNotModified: true,
+      signal,
+    });
     if (response.status === 304) return { pack: validateTeamPack({ version: 1, revision: 0, items: [] }), etag, notModified: true };
     const pack = validateTeamPack(response.body);
     return { pack, etag: header(response.headers, "etag"), notModified: false };
   }
 
-  async downloadArtifact(credential: string, versionId: string, expectedSize: number, expectedSha256: string): Promise<Buffer> {
+  async downloadArtifact(
+    credential: string,
+    versionId: string,
+    expectedSize: number,
+    expectedSha256: string,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
     if (!/^[A-Za-z0-9_-]{1,160}$/.test(versionId) || !Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > maxArtifactBytes || !/^[a-f0-9]{64}$/.test(expectedSha256)) throw new Error("Team artifact request is invalid.");
-    const capabilityResponse = await this.request(`/v1/device/artifacts/${encodeURIComponent(versionId)}/capability`, { credential });
+    const capabilityResponse = await this.request(
+      `/v1/device/artifacts/${encodeURIComponent(versionId)}/capability`,
+      { credential, signal },
+    );
     const capability = requireString(capabilityResponse.body, "capability", 512);
-    const artifact = await this.request(`/v1/device/artifacts/${encodeURIComponent(versionId)}?capability=${encodeURIComponent(capability)}`, { credential, maxBytes: Math.min(maxArtifactBytes, expectedSize + 1) });
+    const artifact = await this.request(
+      `/v1/device/artifacts/${encodeURIComponent(versionId)}?capability=${encodeURIComponent(capability)}`,
+      {
+        credential,
+        maxBytes: Math.min(maxArtifactBytes, expectedSize + 1),
+        signal,
+      },
+    );
     if (!(artifact.raw instanceof Uint8Array) || artifact.raw.byteLength !== expectedSize) throw new Error("Team artifact size does not match the Team Pack.");
     const digest = await sha256(artifact.raw);
     if (digest !== expectedSha256) throw new Error("Team artifact checksum does not match the Team Pack.");

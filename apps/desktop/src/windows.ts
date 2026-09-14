@@ -20,7 +20,7 @@ import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
 import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
-import { assertSafePetId, getInstalledPetDir } from "./pet-paths.js";
+import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
 import { getPluginService, type PluginConfigSoundPickResult, type PluginServiceResult } from "./plugin-service.js";
 import { endVoiceAssistant, getVoiceAssistantSnapshot, interruptVoiceAssistant, muteVoiceAssistant, onVoiceAssistantEvent, startVoiceAssistant, unmuteVoiceAssistant } from "./voice-assistant-host.js";
@@ -103,7 +103,7 @@ async function getPetsStateSnapshot(): Promise<{
   const installed = await Promise.all(state.pets.installed.map(async (pet) => {
     if (pet.builtIn) return { ...pet, spriteLayout: codexV1SpriteLayout };
     try {
-      return { ...pet, spriteLayout: await readInstalledPetSpriteLayout(pet.id) };
+      return { ...pet, spriteLayout: await readInstalledPetSpriteLayout(pet.id, pet.source?.kind === "team" ? "team" : "personal") };
     } catch {
       return pet;
     }
@@ -405,6 +405,21 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:teams-sync", async (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getTeamService().syncNow();
+  });
+  ipcMain.handle("openpets:teams-approve-plugin-permissions", async (event, id: unknown, approvalToken: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (
+      typeof id !== "string"
+      || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)
+      || typeof approvalToken !== "string"
+      || !/^[A-Za-z0-9_-]{43}$/.test(approvalToken)
+    ) throw new Error("Invalid Team plugin approval request.");
+    return getTeamService().approveTeamPluginPermissions(id, approvalToken);
+  });
+  ipcMain.handle("openpets:teams-set-plugin-enabled", async (event, id: unknown, enabled: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof enabled !== "boolean") throw new Error("Invalid Team plugin enabled state request.");
+    return getTeamService().setTeamPluginEnabled(id, enabled);
   });
   ipcMain.handle("openpets:teams-leave", async (event) => {
     assertAllowedSender(event, ["control-center"]);
@@ -886,7 +901,7 @@ export function installInternalUiProtocol(): void {
       assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheetPath = join(getInstalledPetDir(petId), "spritesheet.webp");
+      const spritesheetPath = join(getPetDir(petId, pet.source?.kind === "team" ? "team" : "personal"), "spritesheet.webp");
       const spritesheet = await stat(spritesheetPath);
       if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) return new Response(null, { status: 404 });
       return new Response(await readFile(spritesheetPath), {
@@ -1136,12 +1151,12 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string
   const builtInPath = join(app.getAppPath(), "assets", defaultPetSprite.fileName);
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
   const candidatePath = usesInstalledCandidate && selected
-    ? join(getInstalledPetDir(selected.id), "spritesheet.webp")
+    ? join(getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"), "spritesheet.webp")
     : builtInPath;
   try {
     const spritesheet = await stat(candidatePath);
     if (spritesheet.isFile() && spritesheet.size > 0 && spritesheet.size <= 100 * 1024 * 1024) {
-      const spriteLayout = usesInstalledCandidate && selected ? await readInstalledPetSpriteLayout(selected.id) : codexV1SpriteLayout;
+      const spriteLayout = usesInstalledCandidate && selected ? await readInstalledPetSpriteLayout(selected.id, selected.source?.kind === "team" ? "team" : "personal") : codexV1SpriteLayout;
       return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
   } catch {

@@ -10,6 +10,10 @@ export type TeamPluginEntry = {
   readonly enabled: boolean;
   readonly policy: "required" | "optional";
   readonly source: "team";
+  readonly permissionBlocked?: boolean;
+  readonly approvalToken?: string;
+  readonly requestedPermissions?: readonly string[];
+  readonly requestedNetworkHosts?: readonly string[];
 };
 
 export type TeamsSnapshot = {
@@ -31,9 +35,13 @@ export type TeamsApi = {
   submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
   syncTeamsNow(): Promise<TeamsSnapshot>;
   leaveTeams(): Promise<TeamsSnapshot>;
+  approveTeamPluginPermissions?(id: string, approvalToken?: string): Promise<TeamsSnapshot>;
+  setTeamPluginEnabled?(id: string, enabled: boolean): Promise<TeamsSnapshot>;
 };
 
 export type TeamsViewProps = {
   readonly api: TeamsApi;
   readonly onNavigate?: (route: "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations" | "teams") => void;
 };
+
+export type PermissionTone = "red" | "orange" | "blue" | "slate";

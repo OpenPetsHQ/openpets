@@ -12,9 +12,23 @@ import type { TeamPackItem } from "./team-protocol.js";
 const maxZipBytes = 50 * 1024 * 1024;
 const maxFiles = 500;
 const maxUncompressed = 200 * 1024 * 1024;
-const safeId = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$/;
+const safeId = /^[a-z0-9][a-z0-9._-]{0,62}$/;
 
-export type StagedTeamArtifact = { readonly item: TeamPackItem; readonly stagingPath: string; readonly manifest?: OpenPetsPluginManifest; readonly petMetadata?: { readonly id: string; readonly displayName: string; readonly description: string } };
+export type StagedTeamArtifact = {
+  readonly item: TeamPackItem;
+  readonly stagingPath: string;
+  readonly manifest?: OpenPetsPluginManifest;
+  readonly petMetadata?: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly description: string;
+  };
+};
+export type ActivatedTeamArtifact = {
+  readonly target: string;
+  readonly commit: () => Promise<void>;
+  readonly rollback: () => Promise<void>;
+};
 
 export async function stageTeamArtifact(userDataPath: string, item: TeamPackItem, bytes: Buffer): Promise<StagedTeamArtifact> {
   if (bytes.byteLength !== item.size || bytes.byteLength > maxZipBytes || bytes[0] !== 0x50 || bytes[1] !== 0x4b || createHash("sha256").update(bytes).digest("hex") !== item.sha256) throw new Error("Team artifact is invalid or has the wrong checksum or size.");
@@ -41,16 +55,37 @@ export async function stageTeamArtifact(userDataPath: string, item: TeamPackItem
   } catch (error) { await fs.rm(stagingPath, { recursive: true, force: true }); throw error; }
 }
 
-export async function activateTeamArtifact(userDataPath: string, staged: StagedTeamArtifact): Promise<string> {
+export async function activateTeamArtifact(
+  userDataPath: string,
+  staged: StagedTeamArtifact,
+): Promise<ActivatedTeamArtifact> {
   const root = join(userDataPath, staged.item.type === "pet" ? "team-pets" : "team-plugins");
   const target = join(root, staged.item.id);
   const backup = `${target}.previous-${process.pid}-${Date.now()}`;
   let hadTarget = false;
   try {
-    try { await fs.rename(target, backup); hadTarget = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try {
+      await fs.rename(target, backup);
+      hadTarget = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     await fs.rename(staged.stagingPath, target);
-    if (hadTarget) await fs.rm(backup, { recursive: true, force: true });
-    return target;
+    let settled = false;
+    return {
+      target,
+      commit: async () => {
+        if (settled) return;
+        settled = true;
+        if (hadTarget) await fs.rm(backup, { recursive: true, force: true }).catch(() => undefined);
+      },
+      rollback: async () => {
+        if (settled) return;
+        settled = true;
+        await fs.rm(target, { recursive: true, force: true }).catch(() => undefined);
+        if (hadTarget) await fs.rename(backup, target).catch(() => undefined);
+      },
+    };
   } catch (error) {
     await fs.rm(target, { recursive: true, force: true }).catch(() => undefined);
     if (hadTarget) await fs.rename(backup, target).catch(() => undefined);
@@ -59,9 +94,17 @@ export async function activateTeamArtifact(userDataPath: string, staged: StagedT
   }
 }
 
-export async function removeTeamArtifact(userDataPath: string, type: TeamPackItem["type"], id: string): Promise<void> {
+export async function removeTeamArtifact(
+  userDataPath: string,
+  type: TeamPackItem["type"],
+  id: string,
+): Promise<void> {
   if (!safeId.test(id)) throw new Error("Team item id is invalid.");
   await fs.rm(join(userDataPath, type === "pet" ? "team-pets" : "team-plugins", id), { recursive: true, force: true });
+}
+
+export async function discardStagedTeamArtifact(staged: StagedTeamArtifact): Promise<void> {
+  await fs.rm(staged.stagingPath, { recursive: true, force: true });
 }
 
 function validatePetFiles(files: Map<string, Buffer>, expectedId: string): { id: string; displayName: string; description: string } {

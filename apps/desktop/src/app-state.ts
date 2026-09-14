@@ -9,7 +9,11 @@ import { builtInPet } from "./built-in-pet.js";
 import type { Point } from "./display.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { assertSafePetId, getInstalledPetDir } from "./pet-paths.js";
+import {
+  assertSafePetId,
+  getInstalledPetDir,
+  getTeamPetDir,
+} from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -657,7 +661,7 @@ function normalizeInstalledPet(value: unknown): InstalledPetState | null {
   }
 
   const source = normalizeSource(value.source);
-  const brokenReason = validateInstalledPetFiles(value.id, source?.kind === "team");
+  const brokenReason = validateInstalledPetFiles(value.id, source);
 
   return {
     id: value.id,
@@ -726,9 +730,9 @@ function writeStateToDisk(state: OpenPetsStateV1): void {
   renameSync(tempPath, path);
 }
 
-function validateInstalledPetFiles(petId: string, team = false): string | undefined {
+function validateInstalledPetFiles(petId: string, source: InstalledPetState["source"]): string | undefined {
   try {
-    const dir = team ? join(app.getPath("userData"), "team-pets", petId) : getInstalledPetDir(petId);
+    const dir = source?.kind === "team" ? getTeamPetDir(petId) : getInstalledPetDir(petId);
     const petJsonPath = join(dir, "pet.json");
     const spritesheetPath = join(dir, "spritesheet.webp");
     JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;

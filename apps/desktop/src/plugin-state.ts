@@ -13,6 +13,11 @@ export type TeamPluginOwnership = {
   readonly artifactVersionId: string;
   readonly releaseId: string;
 };
+export type TeamPluginPendingApproval = {
+  readonly permissions: readonly PluginPermission[];
+  readonly networkHosts: readonly string[];
+  readonly previousEnabled?: boolean;
+};
 
 export type PluginUpdateMetadata = {
   readonly availableVersion?: string;
@@ -28,6 +33,8 @@ export type PluginStateRecord = {
   readonly source: PluginSource;
   readonly teamOwnership?: TeamPluginOwnership;
   readonly teamPolicy?: "required" | "optional";
+  readonly teamPendingApproval?: TeamPluginPendingApproval;
+  readonly teamApprovalToken?: string;
   readonly sourcePath?: string;
   readonly bundled?: boolean;
   readonly manifestVersion?: 1 | 2 | 3;
@@ -200,6 +207,7 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
   try {
     const teamOwnership = value.source === "team" ? normalizeTeamOwnership(value.teamOwnership) : undefined;
     if (value.source === "team" && !teamOwnership) return null;
+    const teamPendingApproval = value.source === "team" ? normalizeTeamPendingApproval(value.teamPendingApproval) : undefined;
     return omitUndefined({
       id: value.id,
       version: value.version,
@@ -209,6 +217,8 @@ function normalizePluginRecordFromDisk(key: string, value: unknown): PluginState
       sourcePath: value.source === "local" && isNonEmptyString(value.sourcePath) ? value.sourcePath : undefined,
       teamOwnership,
       teamPolicy: value.source === "team" && (value.teamPolicy === "required" || value.teamPolicy === "optional") ? value.teamPolicy : undefined,
+      teamPendingApproval,
+      teamApprovalToken: value.source === "team" && isApprovalToken(value.teamApprovalToken) ? value.teamApprovalToken : undefined,
       bundled: value.bundled === true ? true : undefined,
       manifestVersion: value.manifestVersion === 1 || value.manifestVersion === 2 || value.manifestVersion === 3 ? value.manifestVersion : undefined,
       runtime: value.runtime === "declarative" || value.runtime === "javascript" ? value.runtime : undefined,
@@ -236,6 +246,7 @@ function normalizePluginRecordForApi(record: PluginStateRecord): PluginStateReco
   assertJsonCompatibleConfigObject(record.config);
   const teamOwnership = record.source === "team" ? normalizeTeamOwnership(record.teamOwnership) : undefined;
   if (record.source === "team" && !teamOwnership) throw new Error("Team plugin ownership is required.");
+  const teamPendingApproval = record.source === "team" ? normalizeTeamPendingApproval(record.teamPendingApproval) : undefined;
   return omitUndefined({
     id: record.id,
     version: record.version,
@@ -245,6 +256,8 @@ function normalizePluginRecordForApi(record: PluginStateRecord): PluginStateReco
     sourcePath: record.source === "local" && isNonEmptyString(record.sourcePath) ? record.sourcePath : undefined,
     teamOwnership,
     teamPolicy: record.source === "team" ? record.teamPolicy : undefined,
+    teamPendingApproval,
+    teamApprovalToken: record.source === "team" && isApprovalToken(record.teamApprovalToken) ? record.teamApprovalToken : undefined,
     bundled: record.bundled === true ? true : undefined,
     manifestVersion: record.manifestVersion === 1 || record.manifestVersion === 2 || record.manifestVersion === 3 ? record.manifestVersion : undefined,
     runtime: record.runtime === "declarative" || record.runtime === "javascript" ? record.runtime : undefined,
@@ -330,6 +343,26 @@ function normalizeTeamOwnership(value: unknown): TeamPluginOwnership | undefined
     artifactVersionId: artifactVersionId as string,
     releaseId: releaseId as string,
   };
+}
+
+function normalizeTeamPendingApproval(value: unknown): TeamPluginPendingApproval | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  let permissions: PluginPermission[];
+  try {
+    permissions = canonicalizePermissions(value.permissions);
+  } catch {
+    return undefined;
+  }
+  const networkHosts = normalizeStringArray(value.networkHosts) ?? [];
+  if (permissions.length === 0 && networkHosts.length === 0) return undefined;
+  const previousEnabled = typeof value.previousEnabled === "boolean" ? value.previousEnabled : undefined;
+  return previousEnabled === undefined
+    ? { permissions, networkHosts }
+    : { permissions, networkHosts, previousEnabled };
+}
+
+function isApprovalToken(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
 function writePluginStateToDisk(path: string, state: OpenPetsPluginStateV1): void {

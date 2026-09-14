@@ -70,6 +70,15 @@ bounded jitter, and stops before plugin shutdown. Snapshots expose separated
 Team pets/plugins and status, never credentials, enrollment tokens, proofs, or
 full server packs.
 
+Team synchronization, installation, and leave operations are serialized. Leaving
+invalidates queued and in-flight Team work, so a late sync or install cannot
+reapply organization state after departure. A Team Pack stays pending and is not
+the current revision until its current artifact has received explicit first-install
+permission approval in the Teams route. The approval view displays the artifact's
+requested permissions and declared network hosts; organization configuration does
+not bypass it, and approval is bound to the current artifact. Rejected staged or
+activated Team installs roll back to the last approved state.
+
 ## Linux display backend (Ozone/Wayland)
 
 On Linux, `main.ts` appends `--ozone-platform=x11` **before** `app` is ready, so
@@ -149,7 +158,11 @@ sync timestamps, and separated lists of organization-managed team pets and team
 plugins while preserving personal content in an isolated lane. It supports
 pending deep-link enrollment with display-name input, explicit synchronization,
 explicit leave with destructive-action confirmation, and clear presentation of
-permission-block or synchronization failure states.
+permission-block or synchronization failure states. Team-owned first installs
+require an explicit approval here, not in the Plugins tab: the approval shows all
+requested permissions and network hosts and is bound to the current artifact, so
+organization membership or policy cannot silently approve it. Team Packs remain
+pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
 `control-center-preload.cjs` without a generic patch route: list profiles,
@@ -276,6 +289,12 @@ preference and canonical `voiceAssistantShortcut` accelerator. That duration is 
 (Relaxed), with `1010` ms as the default. `app-state-core.ts` and
 `pet-assistant-personality.ts` hold pure normalization helpers that are testable
 without Electron.
+
+Installed pet records persist their source ownership. That ownership selects the
+Team or personal pet root; the app never infers ownership from whichever directory
+currently contains an artifact. Team reconciliation and rejected installs restore
+the prior Team state without overwriting or removing personal catalog or Codex
+pets.
 
 #### Pet pool preference
 
