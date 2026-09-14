@@ -276,7 +276,7 @@ export function installDefaultPetDisplayHandlers(): void {
   powerMonitor.on("resume", recoverDefaultPetWindowAfterResume);
 }
 
-type DisplayChangeReason = "display-added" | "display-removed" | "display-metrics-changed";
+export type DisplayChangeReason = "display-added" | "display-removed" | "display-metrics-changed";
 
 function debounceDisplayChange(reason: DisplayChangeReason): (_event: unknown, display: Display) => void {
   let timer: NodeJS.Timeout | null = null;
@@ -560,13 +560,21 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   defaultPetWindow.setPosition(safePosition.x, safePosition.y, false);
   handlePositionChanged(safePosition);
   recoverDefaultPetMouseInterop("display-change");
+  // A live display-scale change invalidates the Linux setShape() click-through mask
+  // (it's computed from the display's scaleFactor at render time — see
+  // applyLinuxPetWindowShape() in pet-window.ts) — repositioning alone isn't enough,
+  // the content/shape must be recomputed too, or the mask goes stale relative to the
+  // new scale and the pet becomes invisible/unclickable.
+  if (reason === "display-metrics-changed") {
+    refreshDefaultPetContent();
+  }
 }
 
 function reclampAllLivePetWindows(reason: DisplayChangeReason, changedDisplay?: Display): void {
   reclampDefaultPetWindow(reason, changedDisplay);
-  reclampAgentPetWindows();
+  reclampAgentPetWindows(reason);
   reclampLanVisitingPetWindows();
-  reclampPluginPetWindows();
+  reclampPluginPetWindows(reason);
 }
 
 function recoverDefaultPetWindowAfterResume(): void {
