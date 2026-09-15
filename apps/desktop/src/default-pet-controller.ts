@@ -15,23 +15,32 @@ import { reclampAgentPetWindows } from "./agent-pet-controller.js";
 import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
 import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
+import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
-let transientDisplay: PetTransientDisplay | null = null;
-let statusBadge: PetStatusBadgeReaction | null = null;
 let voiceActivityReaction: OpenPetsReaction | null = null;
 let voiceTerminalReaction: OpenPetsReaction | null = null;
-let transientDisplayTimeout: NodeJS.Timeout | null = null;
-let transientAnimationTimeout: NodeJS.Timeout | null = null;
-let statusBadgeTimeout: NodeJS.Timeout | null = null;
 let voiceTerminalReactionTimeout: NodeJS.Timeout | null = null;
-let displayGeneration = 0;
-const busyStatusBadgeMs = 120_000;
 const maxPluginMoveDistance = 160;
 const minPluginMoveDurationMs = 250;
 const maxPluginMoveDurationMs = 1_500;
 let movementInProgress = false;
+const busyStatusBadgeMs = 120_000;
+
+const transientPresentation: PetTransientPresentation = createPetTransientPresentation({
+  mergeDisplay: mergePetTransientDisplay,
+  getDisplayDurationMs: getDefaultTransientDisplayDurationMs,
+  getReactionAnimationMs: getDefaultTransientReactionAnimationMs,
+  clearReaction: clearTransientReaction,
+  badgeExpiryMs: { busy: busyStatusBadgeMs, normal: transientDisplayMs },
+  callbacks: {
+    onRenderNeeded: () => refreshDefaultPetContent(),
+    onReactionIdle: () => {
+      if (defaultPetWindow && !defaultPetWindow.isDestroyed()) setPetReactionState(defaultPetWindow, "idle");
+    },
+  },
+});
 
 export type PetMoveOptions = { readonly x: number; readonly y: number; readonly durationMs?: number };
 export type PetWanderOptions = { readonly distance?: number; readonly durationMs?: number };
@@ -293,23 +302,24 @@ function debounceDisplayChange(reason: DisplayChangeReason): (_event: unknown, d
 }
 
 function handleBubbleDismissed(dismissToken: string): void {
-  debug("pet.default", "bubble dismissed callback", { windowId: defaultPetWindow?.id, dismissToken, currentGeneration: displayGeneration });
+  debug("pet.default", "bubble dismissed callback", { windowId: defaultPetWindow?.id, dismissToken, currentGeneration: transientPresentation.getDismissToken() });
   if (PetBubbleArbiter.isArbiterToken(dismissToken)) {
     defaultPetBubbleArbiter.handleDismissed(dismissToken);
     return;
   }
-  if (dismissToken !== String(displayGeneration)) {
-    debug("pet.default", "bubble dismissed stale token", { dismissToken, currentGeneration: displayGeneration });
+  const result = transientPresentation.dismiss(dismissToken);
+  if (!result.matched) {
+    debug("pet.default", "bubble dismissed stale token", { dismissToken, currentGeneration: transientPresentation.getDismissToken() });
     return;
   }
-  const clickUrl = transientDisplay?.clickUrl;
+  const clickUrl = result.display?.clickUrl;
   if (clickUrl) {
     info("pet.default", "media bubble clicked", { windowId: defaultPetWindow?.id });
     void shell.openExternal(clickUrl).catch((error: unknown) => {
       debug("pet.default", "media bubble click open failed", { error: error instanceof Error ? error.message : String(error) });
     });
   }
-  clearDefaultPetDisplayTimers();
+  clearVoiceTerminalFeedback();
   if (defaultPetWindow && !defaultPetWindow.isDestroyed()) {
     void loadDefaultPetContent(defaultPetWindow, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
   }
@@ -371,40 +381,15 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
 
 function setTransientDisplay(display: PetTransientDisplay): void {
   debug("pet.default", "transient display set", { reaction: display.reaction, hasMessage: Boolean(display.message), hasReactionMessage: Boolean(display.reactionMessage) });
-  displayGeneration++;
-  transientDisplay = mergePetTransientDisplay(transientDisplay, { ...display, dismissToken: String(displayGeneration) });
-  if (display.reaction) setStatusBadge(display.reaction);
+  transientPresentation.setDisplay(display);
+}
 
-  if (transientDisplayTimeout) {
-    clearTimeout(transientDisplayTimeout);
-  }
-  if (transientAnimationTimeout) {
-    clearTimeout(transientAnimationTimeout);
-    transientAnimationTimeout = null;
-  }
+function getDefaultTransientReactionAnimationMs(transientDisplay: PetTransientDisplay): number | null {
+  return getTransientReactionAnimationMs(transientDisplay);
+}
 
-  const animationMs = getTransientReactionAnimationMs(transientDisplay);
-  const displayDurationMs = getTransientDisplayDurationMs(transientDisplay);
-  if (animationMs !== null && animationMs < displayDurationMs) {
-    transientAnimationTimeout = setTimeout(() => {
-      if (!transientDisplay) return;
-      transientDisplay = clearTransientReaction(transientDisplay);
-      transientAnimationTimeout = null;
-      if (defaultPetWindow && !defaultPetWindow.isDestroyed()) setPetReactionState(defaultPetWindow, "idle");
-    }, animationMs);
-  }
-
-  transientDisplayTimeout = setTimeout(() => {
-    transientDisplay = null;
-    transientDisplayTimeout = null;
-    if (transientAnimationTimeout) {
-      clearTimeout(transientAnimationTimeout);
-      transientAnimationTimeout = null;
-    }
-    refreshDefaultPetContent();
-  }, displayDurationMs);
-
-  refreshDefaultPetContent();
+function getDefaultTransientDisplayDurationMs(transientDisplay: PetTransientDisplay): number {
+  return getTransientDisplayDurationMs(transientDisplay);
 }
 
 function showDefaultPetForExternalEvent(): void {
@@ -473,45 +458,24 @@ function delay(ms: number): Promise<void> {
 }
 
 function setStatusBadge(reaction: OpenPetsReaction): void {
-  if (reaction === "idle") {
-    clearStatusBadge();
-    return;
-  }
-
-  statusBadge = reaction;
-  debug("pet.default", "status badge set", { reaction, durationMs: isBusyStatusBadgeReaction(reaction) ? busyStatusBadgeMs : transientDisplayMs });
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
-  statusBadgeTimeout = setTimeout(() => {
-    clearStatusBadge();
-    refreshDefaultPetContent();
-  }, isBusyStatusBadgeReaction(reaction) ? busyStatusBadgeMs : transientDisplayMs);
+  transientPresentation.setStatusBadge(reaction);
 }
 
 function clearStatusBadge(): void {
-  if (statusBadge) debug("pet.default", "status badge cleared", { reaction: statusBadge });
-  statusBadge = null;
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
-  statusBadgeTimeout = null;
+  transientPresentation.clearStatusBadge();
 }
 
 function clearDefaultPetDisplayTimers(): void {
-  if (transientDisplayTimeout) clearTimeout(transientDisplayTimeout);
-  if (transientAnimationTimeout) clearTimeout(transientAnimationTimeout);
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
+  transientPresentation.reset();
   clearVoiceTerminalFeedback();
-  transientDisplayTimeout = null;
-  transientAnimationTimeout = null;
-  statusBadgeTimeout = null;
-  transientDisplay = null;
-  statusBadge = null;
 }
 
 function getRenderedDisplay(): PetTransientDisplay | null {
-  return composeVoiceActivityDisplay(transientDisplay, voiceActivityReaction, voiceTerminalReaction) as PetTransientDisplay | null;
+  return composeVoiceActivityDisplay(transientPresentation.getDisplay(), voiceActivityReaction, voiceTerminalReaction) as PetTransientDisplay | null;
 }
 
 function getRenderedBadge(): PetStatusBadgeReaction | null {
-  return composeVoiceActivityBadge(statusBadge, voiceActivityReaction, voiceTerminalReaction) as PetStatusBadgeReaction | null;
+  return composeVoiceActivityBadge(transientPresentation.getBadge(), voiceActivityReaction, voiceTerminalReaction) as PetStatusBadgeReaction | null;
 }
 
 function clearVoiceTerminalFeedback(): void {
@@ -521,11 +485,7 @@ function clearVoiceTerminalFeedback(): void {
 }
 
 function getCurrentDismissToken(): string | undefined {
-  return transientDisplay?.dismissToken ?? (statusBadge ? String(displayGeneration) : undefined);
-}
-
-function isBusyStatusBadgeReaction(reaction: OpenPetsReaction): boolean {
-  return reaction === "thinking" || reaction === "working" || reaction === "editing" || reaction === "running" || reaction === "testing" || reaction === "waiting";
+  return transientPresentation.getDismissToken();
 }
 
 /** Save position both in the flat key (backwards compat) and per-monitor map. */
