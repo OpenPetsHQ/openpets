@@ -153,7 +153,8 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 
 Control Center plugins route:
 tray.ts → openControlCenterWindow("plugins") → windows.ts → renderer React app
-└── openpets:plugins-* IPC handlers call PluginService methods
+└── control-center-plugin-ipc.ts (installed once by windows.ts) → injected sender authorization and PluginService access
+    └── fixed openpets:plugins-* IPC handlers call PluginService methods
 
 Catalog install/update:
 plugin-catalog.ts → plugin-catalog-validation.ts
@@ -218,6 +219,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 **UI**:
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
 - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, and scoped internal protocols
+- `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
