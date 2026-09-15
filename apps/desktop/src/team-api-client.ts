@@ -275,7 +275,7 @@ export class TeamApiClient {
     limit = 100,
     signal?: AbortSignal,
   ): Promise<ManagerCheckInSyncResponse> {
-    if (cursor !== undefined && !/^[A-Za-z0-9_-]{1,256}$/.test(cursor)) {
+    if (cursor !== undefined && !isValidManagerCheckInCursor(cursor)) {
       throw new Error("Manager check-in cursor is invalid.");
     }
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
@@ -675,7 +675,9 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
   if (!Array.isArray(value.submissions) || value.submissions.length > 100) {
     throw new Error("Manager check-in sync response is invalid.");
   }
-  if (!isValidManagerCheckInCursor(value.nextCursor)) {
+  const hasValidNextCursor = value.nextCursor === null
+    || isValidManagerCheckInCursor(value.nextCursor);
+  if (!hasValidNextCursor) {
     throw new Error("Manager check-in sync response is invalid.");
   }
 
@@ -878,8 +880,7 @@ function isValidManagerCheckInEmployee(value: unknown): boolean {
 }
 
 function isValidManagerCheckInCursor(value: unknown): boolean {
-  return value === null
-    || (typeof value === "string" && value.length <= 256);
+  return typeof value === "string" && value.length <= 256;
 }
 
 function createManagerCheckInLabels(

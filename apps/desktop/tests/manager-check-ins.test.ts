@@ -757,3 +757,28 @@ test("Team API errors retain bounded manager check-in error codes", async () => 
     (error: unknown) => error instanceof TeamApiError && error.code === "settings_revision_conflict" && error.status === 409,
   );
 });
+
+test("Manager Check-in pagination forwards valid opaque cursor punctuation unchanged", async () => {
+  const serverCursor = "cursor.v1:/page+2?opaque=value=";
+  const receivedCursors: Array<string | null> = [];
+  let requestCount = 0;
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test",
+    fetchImpl: async (url) => {
+      const requestUrl = new URL(String(url));
+      receivedCursors.push(requestUrl.searchParams.get("cursor"));
+      requestCount += 1;
+      const responseBody = requestCount === 1
+        ? createSyncResponse({ nextCursor: serverCursor })
+        : createSyncResponse({ nextCursor: null });
+      return new Response(JSON.stringify(responseBody), { status: 200 });
+    },
+  });
+
+  const firstPage = await client.getManagerCheckInSync("credential");
+  const secondPage = await client.getManagerCheckInSync("credential", firstPage.nextCursor ?? undefined);
+
+  assert.equal(firstPage.nextCursor, serverCursor);
+  assert.equal(secondPage.nextCursor, null);
+  assert.deepEqual(receivedCursors, [null, serverCursor]);
+});
