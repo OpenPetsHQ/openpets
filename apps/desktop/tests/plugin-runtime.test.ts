@@ -3,14 +3,21 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Agent, fetch as undiciFetch } from "undici";
+
 import { OPENPETS_PLUGIN_MANIFEST_FILENAME, type OpenPetsDeclarativePluginManifest, type OpenPetsJavascriptPluginManifest } from "../src/plugin-manifest.js";
 import { type PluginPetApi } from "../src/plugin-pet-api.js";
 import { PluginRuntime, type PluginRuntimeScheduler, type PluginTimerHandle } from "../src/plugin-runtime.js";
 import { createDefaultPluginHostCapabilities } from "../src/plugin-sdk-bridge.js";
+import { setPluginSdkNetworkTestHooks } from "../src/plugin-sdk-network.js";
 import type { PluginJsHost, PluginJsHostInstance, PluginJsHostStartOptions } from "../src/plugin-js-host.js";
 import { initializePluginState, type PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js";
 
 let currentRoot = "";
+const fixedGithubLookup = async (hostname: string) => {
+  assert.equal(hostname, "api.github.com");
+  return [{ address: "140.82.112.6", family: 4 }];
+};
 
 class FakeScheduler implements PluginRuntimeScheduler {
   timers: Array<{ delayMs: number; active: boolean; callback: () => void }> = [];
@@ -106,17 +113,19 @@ await scenario("javascript sdk pet movement requires pet move permission", async
 });
 
 await scenario("javascript http fetch allows approved github host", async ({ store }) => {
-  const originalFetch = globalThis.fetch;
   const jsHost = new FakeJsHost();
   addPlugin(store, { manifestVersion: 2, runtime: "javascript", approvedPermissions: ["network"], approvedNetworkHosts: ["api.github.com"] }, jsManifest({ permissions: ["network"], network: { hosts: ["api.github.com"] } }));
-  globalThis.fetch = (async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json", etag: "abc" } })) as typeof fetch;
+  const restoreNetworkHooks = setPluginSdkNetworkTestHooks({
+    lookup: fixedGithubLookup,
+    fetch: (async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json", etag: "abc" } })) as unknown as typeof undiciFetch,
+  });
   try {
     await runtime(store, new FakeScheduler(), new FakePetApi(), undefined, jsHost).start();
     const result = await jsHost.starts[0].sdk?.http.fetch("https://api.github.com/repos/open-pets/openpets/releases");
     assert.equal(result?.status, 200);
     assert.deepEqual(result?.json, { ok: true });
     assert.equal(result?.headers.etag, "abc");
-  } finally { globalThis.fetch = originalFetch; }
+  } finally { restoreNetworkHooks(); }
 });
 
 await scenario("javascript http fetch denies unapproved host and non-get", async ({ store }) => {
@@ -146,11 +155,12 @@ await scenario("javascript http fetch stays GET-only when network:write is appro
 });
 
 await scenario("javascript net.fetch with network:local reaches local and public hosts", async ({ store }) => {
-  const originalFetch = globalThis.fetch;
   const jsHost = new FakeJsHost();
   const localHost = "127.0.0.1:18766";
   const publicHost = "1.1.1.1";
-  globalThis.fetch = (async (input: string | URL) => new Response(String(input).includes("127.0.0.1") ? "local-ok" : "public-ok", { status: 200 })) as typeof fetch;
+  const restoreNetworkHooks = setPluginSdkNetworkTestHooks({
+    fetch: (async (input: string | URL) => new Response(String(input).includes("127.0.0.1") ? "local-ok" : "public-ok", { status: 200 })) as unknown as typeof undiciFetch,
+  });
   try {
     addPlugin(store, {
       manifestVersion: 3,
@@ -172,7 +182,7 @@ await scenario("javascript net.fetch with network:local reaches local and public
     assert.equal(pub.status, 200);
     assert.equal(pub.text, "public-ok");
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreNetworkHooks();
   }
 });
 
@@ -195,9 +205,10 @@ await scenario("javascript net.fetch denies stale network:write after manifest r
 });
 
 await scenario("javascript net.fetch bare host approval denies non-default port", async ({ store }) => {
-  const originalFetch = globalThis.fetch;
   const jsHost = new FakeJsHost();
-  globalThis.fetch = (async () => new Response("ok", { status: 200 })) as typeof fetch;
+  const restoreNetworkHooks = setPluginSdkNetworkTestHooks({
+    fetch: (async () => new Response("ok", { status: 200 })) as unknown as typeof undiciFetch,
+  });
   try {
     addPlugin(store, {
       manifestVersion: 3,
@@ -216,7 +227,7 @@ await scenario("javascript net.fetch bare host approval denies non-default port"
     const ok = await jsHost.starts[0].sdk!.net.fetch("https://1.1.1.1/");
     assert.equal(ok.status, 200);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreNetworkHooks();
   }
 });
 
@@ -239,14 +250,16 @@ await scenario("javascript net.fetch requires exact approved host:port", async (
 });
 
 await scenario("javascript http fetch rejects oversized response", async ({ store }) => {
-  const originalFetch = globalThis.fetch;
   const jsHost = new FakeJsHost();
   addPlugin(store, { manifestVersion: 2, runtime: "javascript", approvedPermissions: ["network"], approvedNetworkHosts: ["api.github.com"] }, jsManifest({ permissions: ["network"], network: { hosts: ["api.github.com"] } }));
-  globalThis.fetch = (async () => new Response("x".repeat(4 * 1024 * 1024 + 1), { status: 200 })) as typeof fetch;
+  const restoreNetworkHooks = setPluginSdkNetworkTestHooks({
+    lookup: fixedGithubLookup,
+    fetch: (async () => new Response("x".repeat(4 * 1024 * 1024 + 1), { status: 200 })) as unknown as typeof undiciFetch,
+  });
   try {
     await runtime(store, new FakeScheduler(), new FakePetApi(), undefined, jsHost).start();
     await assert.rejects(() => jsHost.starts[0].sdk!.http.fetch("https://api.github.com/"), /too large/);
-  } finally { globalThis.fetch = originalFetch; }
+  } finally { restoreNetworkHooks(); }
 });
 
 await scenario("javascript plugin starts through host", async ({ store }) => {
@@ -595,6 +608,85 @@ await scenario("reload waits for host teardown", async ({ store, scheduler }) =>
   releaseTeardown();
   await reload;
   assert.equal(scheduler.activeCount(), 1);
+});
+
+await scenario("stale broken teardown preserves a reloaded host resource", async ({ store, scheduler }) => {
+  const hostResources = new Set<string>();
+  let starts = 0;
+  let clearCalls = 0;
+  let releaseBrokenTeardown!: () => void;
+  let brokenTeardownStarted!: () => void;
+  let brokenTeardownFinished!: () => void;
+  const brokenTeardownStartedPromise = new Promise<void>((resolve) => { brokenTeardownStarted = resolve; });
+  const brokenTeardownFinishedPromise = new Promise<void>((resolve) => { brokenTeardownFinished = resolve; });
+  const brokenTeardownGate = new Promise<void>((resolve) => { releaseBrokenTeardown = resolve; });
+  const capabilities = createDefaultPluginHostCapabilities(new FakePetApi());
+  capabilities.clearPlugin = async (_pluginId, isCurrentGeneration) => {
+    clearCalls += 1;
+    if (clearCalls === 2) {
+      brokenTeardownStarted();
+      await brokenTeardownGate;
+      brokenTeardownFinished();
+    }
+    if (isCurrentGeneration?.() ?? true) hostResources.clear();
+  };
+  const jsHost: PluginJsHost = {
+    async startPlugin(options) {
+      starts += 1;
+      hostResources.add(`generation-${starts}`);
+      if (starts === 1) options.onBroken("broken host");
+      return { stop: () => undefined };
+    },
+  };
+  addPlugin(store, { manifestVersion: 3, runtime: "javascript", sdkVersion: "3.0.0", approvedPermissions: [] }, jsManifest({ manifestVersion: 3, sdkVersion: "3.0.0", permissions: [] }));
+  const rt = new PluginRuntime({ stateStore: store, petApi: new FakePetApi(), scheduler, allowedPluginRoots: [currentRoot], jsHost, capabilities });
+  await rt.start();
+  await brokenTeardownStartedPromise;
+  const reload = rt.reloadPlugin("plug");
+  await reload;
+  assert.deepEqual([...hostResources], ["generation-2"]);
+  releaseBrokenTeardown();
+  await brokenTeardownFinishedPromise;
+  assert.deepEqual([...hostResources], ["generation-2"]);
+  await rt.stop();
+  assert.deepEqual([...hostResources], []);
+});
+
+await scenario("stop awaits bridge network cleanup before capability teardown", async ({ store, scheduler }) => {
+  const host = "1.1.1.1";
+  addPlugin(store, {
+    manifestVersion: 3,
+    runtime: "javascript",
+    sdkVersion: "3.0.0",
+    approvedPermissions: ["network"],
+    approvedNetworkHosts: [host],
+  }, jsManifest({ manifestVersion: 3, sdkVersion: "3.0.0", permissions: ["network"], network: { hosts: [host] } }));
+  let fetchStarted!: () => void;
+  const fetchStartedPromise = new Promise<void>((resolve) => { fetchStarted = resolve; });
+  let agentDestroyed = false;
+  const agent = new Agent();
+  Object.defineProperty(agent, "destroy", { configurable: true, value: () => { agentDestroyed = true; } });
+  const restore = setPluginSdkNetworkTestHooks({
+    createAgent: () => agent,
+    fetch: async () => {
+      fetchStarted();
+      return new Promise<never>(() => undefined);
+    },
+  });
+  const capabilities = createDefaultPluginHostCapabilities(new FakePetApi());
+  capabilities.clearPlugin = async () => { assert.equal(agentDestroyed, true); };
+  const jsHost = new FakeJsHost();
+  const rt = new PluginRuntime({ stateStore: store, petApi: new FakePetApi(), scheduler, allowedPluginRoots: [currentRoot], jsHost, capabilities });
+  try {
+    await rt.start();
+    const pending = jsHost.starts[0]!.sdk!.net.fetch(`https://${host}/`);
+    await fetchStartedPromise;
+    await rt.stop();
+    await assert.rejects(pending, /Plugin is no longer active\./);
+  } finally {
+    restore();
+    void agent.destroy();
+  }
 });
 
 await scenario("concurrent reloads are serialized", async ({ store, scheduler }) => {

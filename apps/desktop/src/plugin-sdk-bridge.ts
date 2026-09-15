@@ -1,6 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { lookup } from "node:dns/promises";
-import * as net from "node:net";
 import { join } from "node:path";
 
 import type { OpenPetsAssistantCapability, OpenPetsAssistantCapabilityHandler } from "@open-pets/plugin-sdk";
@@ -24,7 +22,8 @@ import { createPluginStorageApi } from "./plugin-sdk-storage.js";
 import { createPluginUiApi } from "./plugin-sdk-ui.js";
 import { normalizeAssistantResult, PluginAssistantCapabilityError, validateAssistantCapability, validateAssistantInput, type PluginAssistantCapability, type PluginAssistantCapabilityHandle, type PluginAssistantCapabilityRegistration } from "./plugin-sdk-assistant.js";
 import type { PluginStateRecord, PluginStateStore } from "./plugin-state.js";
-import { classifyPluginError, logPluginDiagnostic } from "./plugin-diagnostics.js";
+import { classifyPluginError } from "./plugin-diagnostics.js";
+import { normalizeNetHeaders, safeHttpFetch, safeHttpStream, validateNetOptions } from "./plugin-sdk-network.js";
 
 // ---------------------------------------------------------------------------
 // Public bridge types
@@ -215,7 +214,7 @@ export interface PluginHostCapabilities {
     inQuietHours(): boolean;
   };
   /** Trusted host lifecycle hook; not exposed through the plugin SDK. */
-  clearPlugin?(pluginId: string): void | Promise<void>;
+  clearPlugin?(pluginId: string, isCurrentGeneration?: () => boolean): void | Promise<void>;
 }
 
 /**
@@ -343,6 +342,9 @@ export class MemoryPluginStorageStore implements PluginStorageStore {
 let nextOpaqueId = 0;
 function opaqueId(prefix: string): string { return `${prefix}-${++nextOpaqueId}-${Math.random().toString(36).slice(2, 8)}`; }
 
+type PendingNetworkRequest = { readonly controller: AbortController; readonly promise: Promise<unknown> };
+const PLUGIN_INACTIVE_ERROR = "Plugin is no longer active.";
+
 export class PluginSdkBridge {
   readonly #stateStore: PluginStateStore;
   readonly #petApi: PluginPetApi;
@@ -356,6 +358,7 @@ export class PluginSdkBridge {
   readonly #assistantHandles = new WeakMap<object, { readonly pluginId: string; readonly registration: PluginAssistantCapabilityRegistration; readonly generation: number }>();
   readonly #assistantHandleByRegistration = new WeakMap<object, PluginAssistantCapabilityHandle>();
   readonly #busTopics = new Map<string, Set<PluginBusTopicEntry>>();
+  readonly #networkRequests = new Map<string, Map<number, Set<PendingNetworkRequest>>>();
 
   constructor(options: { stateStore: PluginStateStore; petApi: PluginPetApi; scheduler: PluginRuntimeScheduler; storage?: PluginStorageStore; onError?: (id: string, reason: string) => void; logger?: PluginRuntimeLogger; capabilities?: PluginHostCapabilities }) {
     this.#stateStore = options.stateStore;
@@ -374,9 +377,43 @@ export class PluginSdkBridge {
     const caps = this.#capabilities;
     const pluginId = record.id;
     const apiGeneration = this.#apiGenerations.get(pluginId) ?? 0;
-    const requireActive = () => { if ((this.#apiGenerations.get(pluginId) ?? 0) !== apiGeneration) throw new Error("Plugin is no longer active."); };
+    const requireActive = () => { if ((this.#apiGenerations.get(pluginId) ?? 0) !== apiGeneration) throw new Error(PLUGIN_INACTIVE_ERROR); };
     const requirePermission = (permission: PluginPermission) => { requireActive(); if (!approved.has(permission)) throw new Error(`Plugin permission is not approved: ${permission}`); };
     const isCurrentGeneration = () => (this.#apiGenerations.get(pluginId) ?? 0) === apiGeneration;
+    const trackNetworkRequest = <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+      requireActive();
+      const controller = new AbortController();
+      const operationPromise = Promise.resolve().then(() => operation(controller.signal));
+      const cleanupPromise = operationPromise.finally(() => {
+        const generations = this.#networkRequests.get(pluginId);
+        const requests = generations?.get(apiGeneration);
+        requests?.delete(pending);
+        if (requests?.size === 0) generations?.delete(apiGeneration);
+        if (generations?.size === 0) this.#networkRequests.delete(pluginId);
+      });
+      const pending: PendingNetworkRequest = {
+        controller,
+        promise: cleanupPromise,
+      };
+      let generations = this.#networkRequests.get(pluginId);
+      if (!generations) {
+        generations = new Map();
+        this.#networkRequests.set(pluginId, generations);
+      }
+      let requests = generations.get(apiGeneration);
+      if (!requests) {
+        requests = new Set();
+        generations.set(apiGeneration, requests);
+      }
+      requests.add(pending);
+      return cleanupPromise.then(
+        (value) => {
+          if (!isCurrentGeneration()) throw new Error(PLUGIN_INACTIVE_ERROR);
+          return value;
+        },
+        (error: unknown) => { throw error; },
+      );
+    };
     const runScheduled = async (callback: () => unknown) => { try { requireActive(); await callback(); } catch (error) { if (isCurrentGeneration()) this.#onError(pluginId, safeError(error)); } };
     const getConfig = () => ({ ...(this.#stateStore.getRecord(pluginId)?.config ?? {}) }) as PluginConfig;
     const guardCallback = <A extends unknown[]>(fn: (...args: A) => unknown): ((...args: A) => void) => (...args) => { void Promise.resolve().then(() => { requireActive(); return fn(...args); }).catch((error: unknown) => { if (isCurrentGeneration()) this.#onError(pluginId, safeError(error)); }); };
@@ -538,6 +575,18 @@ export class PluginSdkBridge {
     const config = createPluginConfigApi({ state, getConfig, requireActive });
     const events = createPluginEventsApi({ state, capabilities: caps, requireActive, requirePermission, guardCallback, allowedEventNames, eventSubscriptionsQuota: quotas.eventSubscriptions });
     const bus = createPluginBusApi({ pluginId, state, topics: this.#busTopics, requireActive, requirePermission, guardCallback, normalizeJson, busPerMinute: quotas.busPerMinute, busPayloadBytes: quotas.busPayloadBytes, busSubscriptionsQuota: quotas.busSubscriptions });
+    const guardStreamCallback = (handler: (chunk: string) => unknown) => async (chunk: string): Promise<void> => {
+      try {
+        requireActive();
+        await handler(chunk);
+      } catch (error) {
+        try {
+          if (isCurrentGeneration()) this.#onError(pluginId, safeError(error));
+        } finally {
+          throw error;
+        }
+      }
+    };
 
     const petNamespace = (petHandleId: string) => ({
       speak: (spec: unknown) => ui.showBubble(petHandleId, spec),
@@ -641,16 +690,16 @@ export class PluginSdkBridge {
         fetch: async (url: string, options?: unknown) => {
           requirePermission("network");
           state.httpWindow.tick(quotas.httpPerMinute, "HTTP");
-          const opts = validateNetOptions(options, approved);
+          const opts = validateNetOptions(options, { allowWrite: approved.has("network:write"), requestBodyBytes: quotas.httpRequestBodyBytes });
           const allowLocal = approved.has("network:local");
-          return safeHttpFetch(String(url), opts, allowedNetworkHosts(record, manifest), allowLocal, { logger: this.#logger, pluginId, route: "net.fetch" });
+          return trackNetworkRequest((lifecycleSignal) => safeHttpFetch(String(url), opts, allowedNetworkHosts(record, manifest), allowLocal, { logger: this.#logger, pluginId, route: "net.fetch" }, { responseBytes: quotas.httpResponseBytes, streamResponseBytes: quotas.streamResponseBytes }, lifecycleSignal));
         },
         stream: async (url: string, options: unknown, onChunk: (chunk: string) => void) => {
           requirePermission("network");
           state.httpWindow.tick(quotas.httpPerMinute, "HTTP");
-          const opts = validateNetOptions(options, approved);
+          const opts = validateNetOptions(options, { allowWrite: approved.has("network:write"), requestBodyBytes: quotas.httpRequestBodyBytes });
           const allowLocal = approved.has("network:local");
-          return safeHttpStream(String(url), opts, allowedNetworkHosts(record, manifest), guardCallback(onChunk), allowLocal, { logger: this.#logger, pluginId, route: "net.stream" });
+          return trackNetworkRequest((lifecycleSignal) => safeHttpStream(String(url), opts, allowedNetworkHosts(record, manifest), guardStreamCallback(onChunk), allowLocal, { logger: this.#logger, pluginId, route: "net.stream" }, { responseBytes: quotas.httpResponseBytes, streamResponseBytes: quotas.streamResponseBytes }, lifecycleSignal));
         },
       },
       notify: {
@@ -777,7 +826,7 @@ export class PluginSdkBridge {
           if (registration?.generation === apiGeneration) state.assistantCapabilities.delete(capabilityId);
         },
       },
-      http: { fetch: async (url: string, options?: unknown) => { requirePermission("network"); state.httpWindow.tick(quotas.httpPerMinute, "HTTP"); const opts = isRecord(options) ? options : {}; check(opts.method === undefined || String(opts.method).toUpperCase() === "GET", "Plugin HTTP fetch only supports GET."); return safeHttpFetch(String(url), { method: "GET", headers: safeNetHeaders(opts.headers), timeoutMs: opts.timeoutMs === undefined ? undefined : Number(opts.timeoutMs) }, allowedNetworkHosts(record, manifest), false, { logger: this.#logger, pluginId, route: "http.fetch" }); } },
+      http: { fetch: async (url: string, options?: unknown) => { requirePermission("network"); state.httpWindow.tick(quotas.httpPerMinute, "HTTP"); const opts = isRecord(options) ? options : {}; check(opts.method === undefined || String(opts.method).toUpperCase() === "GET", "Plugin HTTP fetch only supports GET."); return trackNetworkRequest((lifecycleSignal) => safeHttpFetch(String(url), { method: "GET", headers: normalizeNetHeaders(opts.headers), timeoutMs: opts.timeoutMs === undefined ? undefined : Number(opts.timeoutMs) }, allowedNetworkHosts(record, manifest), false, { logger: this.#logger, pluginId, route: "http.fetch" }, { responseBytes: quotas.httpResponseBytes, streamResponseBytes: quotas.streamResponseBytes }, lifecycleSignal)); } },
       log: Object.fromEntries((["debug", "info", "warn", "error"] as PluginLogLevel[]).map((level) => [level, (...args: unknown[]) => { requireActive(); state.logWindow.tick(quotas.logsPerMinute, "log"); this.#logger(level, "plugin log", { id: manifest.id, args }); }])) as Record<PluginLogLevel, (...args: unknown[]) => void>,
       t: makePluginT(manifest.id),
       get locale(): string { return getActiveLocaleLang(); },
@@ -928,9 +977,17 @@ export class PluginSdkBridge {
     }
   }
 
-  clearPlugin(id: string): void {
+  clearPlugin(id: string): Promise<void> {
     const currentGeneration = this.#apiGenerations.get(id) ?? 0;
     this.#apiGenerations.set(id, currentGeneration + 1);
+    const requests = this.#networkRequests.get(id)?.get(currentGeneration);
+    this.#networkRequests.get(id)?.delete(currentGeneration);
+    const drain = requests
+      ? Promise.allSettled([...requests].map((request) => {
+        try { request.controller.abort(new Error(PLUGIN_INACTIVE_ERROR)); } catch { /* abort is best effort */ }
+        return request.promise;
+      })).then(() => undefined)
+      : Promise.resolve();
     const state = this.#pluginState(id);
     for (const slot of state.schedules.values()) slot.handle.cancel();
     state.schedules.clear();
@@ -958,6 +1015,7 @@ export class PluginSdkBridge {
     state.userCommandDepth = 0;
     state.lastError = undefined;
     state.petWindow.reset(); state.logWindow.reset(); state.httpWindow.reset(); state.busWindow.reset(); state.audioWindow.reset(); state.notifyWindow.reset(); state.toastWindow.reset(); state.deliveryWindow.reset(); state.aiWindow.reset(); state.voiceWindow.reset();
+    return drain;
   }
 
   #pluginState(id: string): PluginRuntimeState {
@@ -978,170 +1036,11 @@ export class PluginSdkBridge {
 
 function countActiveBubbles(state: PluginRuntimeState): number { return state.bubbles.size; }
 
-// ---------------------------------------------------------------------------
-// Network
-// ---------------------------------------------------------------------------
-
-type SimpleHttpResponse = { status: number; ok: boolean; headers: Record<string, string>; text: string; json?: unknown };
-type ValidatedNetOptions = { method: string; headers?: Record<string, string>; body?: string; timeoutMs?: number };
-
-const forbiddenHeaderNames = new Set(["host", "cookie", "cookie2", "origin", "referer", "content-length", "connection", "transfer-encoding", "upgrade", "keep-alive", "te", "trailer", "expect", "via"]);
-
-function validateNetOptions(options: unknown, approved: ReadonlySet<PluginPermission>): ValidatedNetOptions {
-  const opts = isRecord(options) ? options : {};
-  const method = String(opts.method ?? "GET").toUpperCase();
-  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) throw new Error("Plugin HTTP method is not allowed.");
-  if (method !== "GET" && !approved.has("network:write")) throw new Error("Plugin permission is not approved: network:write");
-  let body: string | undefined;
-  if (opts.body !== undefined) {
-    if (method === "GET") throw new Error("Plugin GET requests must not have a body.");
-    body = String(opts.body);
-    if (Buffer.byteLength(body) > quotas.httpRequestBodyBytes) throw new Error("Plugin HTTP request body is too large.");
-  }
-  return { method, headers: safeNetHeaders(opts.headers), body, timeoutMs: opts.timeoutMs === undefined ? undefined : Number(opts.timeoutMs) };
-}
-
-function safeNetHeaders(value: unknown): Record<string, string> | undefined {
-  if (!isRecord(value)) return undefined;
-  const out: Record<string, string> = {};
-  for (const [name, headerValue] of Object.entries(value).slice(0, 24)) {
-    const lower = name.toLowerCase();
-    if (!/^[a-z0-9-]{1,64}$/.test(lower) || forbiddenHeaderNames.has(lower) || lower.startsWith("proxy-") || lower.startsWith("sec-")) continue;
-    if (typeof headerValue !== "string" || headerValue.length > 4096 || /[\r\n\0]/.test(headerValue)) continue;
-    out[lower] = headerValue;
-  }
-  return out;
-}
-
 function allowedNetworkHosts(record: PluginStateRecord, manifest: OpenPetsJavascriptPluginManifest): Set<string> {
   const manifestHosts = new Set((manifest.network?.hosts ?? []).map((h) => h.toLowerCase()));
   const approved = record.approvedNetworkHosts?.map((h) => h.toLowerCase()) ?? [];
   return new Set(approved.filter((h) => manifestHosts.has(h)));
 }
-
-const UNCONDITIONALLY_BLOCKED_HOSTS = new Set([
-  "169.254.169.254", "metadata.google.internal", "169.254.170.2", "fd00:ec2::254"
-]);
-
-function isExplicitLocalHost(host: string): boolean {
-  return host === "localhost" || host.endsWith(".localhost") || isPrivateIp(host);
-}
-
-function isApprovedNetworkHost(host: string, effectivePort: string, defaultPort: string, allowedHosts: Set<string>): boolean {
-  if (allowedHosts.has(`${host}:${effectivePort}`)) return true;
-  // Bare hostname approval covers only the scheme default port — never an explicit non-default port.
-  return effectivePort === defaultPort && allowedHosts.has(host);
-}
-
-async function prepareSafeRequest(urlText: string, opts: ValidatedNetOptions, allowedHosts: Set<string>, allowLocal: boolean = false): Promise<{ url: URL; init: RequestInit; controller: AbortController; timeout: NodeJS.Timeout }> {
-  const url = new URL(urlText);
-  if (url.username || url.password) throw new Error("Plugin HTTP fetch credentials are not allowed.");
-  const host = url.hostname.toLowerCase();
-
-  if (UNCONDITIONALLY_BLOCKED_HOSTS.has(host)) {
-    throw new Error("Plugin HTTP host is unconditionally blocked (metadata service).");
-  }
-
-  const localTarget = isExplicitLocalHost(host);
-  if (localTarget) {
-    if (!allowLocal) throw new Error("Plugin HTTP fetch requires HTTPS (or HTTP with network:local).");
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Plugin HTTP fetch requires HTTPS (or HTTP with network:local).");
-  } else if (url.protocol !== "https:") {
-    throw new Error("Plugin HTTP fetch requires HTTPS (or HTTP with network:local).");
-  }
-
-  const defaultPort = url.protocol === "https:" ? "443" : "80";
-  const effectivePort = url.port || defaultPort;
-  if (!isApprovedNetworkHost(host, effectivePort, defaultPort, allowedHosts)) {
-    throw new Error("Plugin HTTP host is not approved.");
-  }
-
-  if (localTarget) {
-    // network:local is additive: local endpoints keep loopback/metadata defenses; public hosts still use assertPublicHost below.
-    if (host === "localhost" || host.endsWith(".localhost")) url.hostname = "127.0.0.1";
-  } else {
-    await assertPublicHost(host);
-  }
-
-  const controller = new AbortController();
-  const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs ?? 10_000), 1_000), 120_000);
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const init: RequestInit = { method: opts.method, redirect: "manual", credentials: "omit", signal: controller.signal, headers: opts.headers ?? {}, ...(opts.body === undefined ? {} : { body: opts.body }) };
-  return { url, init, controller, timeout };
-}
-
-type NetworkDiagnostics = { logger?: PluginRuntimeLogger; pluginId?: string; route?: string };
-
-export async function safeHttpFetch(urlText: string, options: ValidatedNetOptions | unknown, allowedHosts: Set<string>, allowLocal: boolean = false, diagnostics?: NetworkDiagnostics): Promise<SimpleHttpResponse> {
-  const opts: ValidatedNetOptions = isValidatedNetOptions(options) ? options : { method: "GET", headers: undefined, timeoutMs: undefined };
-  const started = Date.now();
-  let host = "";
-  try { host = new URL(urlText).hostname.toLowerCase(); } catch { host = "invalid"; }
-  logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host, phase: "begin" });
-  let prepared: Awaited<ReturnType<typeof prepareSafeRequest>>;
-  try { prepared = await prepareSafeRequest(urlText, opts, allowedHosts, allowLocal); }
-  catch (error) { logPluginDiagnostic(diagnostics?.logger, "warn", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host, phase: "denied", reason: error instanceof Error ? error.message : String(error), errorCode: classifyPluginError(error), durationMs: Date.now() - started }); throw error; }
-  const { url, init, timeout } = prepared;
-  try {
-    const response = await fetch(url, init);
-    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) throw new Error("Plugin HTTP redirects are not allowed.");
-    const text = await readCapped(response, quotas.httpResponseBytes);
-    const headers: Record<string, string> = {};
-    for (const key of ["content-type", "etag", "last-modified", "retry-after", "x-ratelimit-remaining"]) { const value = response.headers.get(key); if (value) headers[key] = value; }
-    let json: unknown;
-    if ((headers["content-type"] ?? "").includes("application/json")) { try { json = JSON.parse(text); } catch { json = undefined; } }
-    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host: url.hostname, phase: "success", status: response.status, sizeBytes: Buffer.byteLength(text), durationMs: Date.now() - started });
-    return { status: response.status, ok: response.ok, headers, text, ...(json === undefined ? {} : { json }) };
-  } catch (error) {
-    const mapped = error instanceof Error && error.name === "AbortError" ? new Error("Plugin HTTP fetch timed out.") : error;
-    logPluginDiagnostic(diagnostics?.logger, "warn", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host: url.hostname, phase: "fail", reason: mapped instanceof Error ? mapped.message : String(mapped), errorCode: classifyPluginError(mapped), durationMs: Date.now() - started });
-    if (mapped instanceof Error) throw mapped;
-    throw error;
-  } finally { clearTimeout(timeout); }
-}
-
-export async function safeHttpStream(urlText: string, opts: ValidatedNetOptions, allowedHosts: Set<string>, onChunk: (chunk: string) => void, allowLocal: boolean = false, diagnostics?: NetworkDiagnostics): Promise<{ status: number; ok: boolean }> {
-  const started = Date.now();
-  let host = "";
-  try { host = new URL(urlText).hostname.toLowerCase(); } catch { host = "invalid"; }
-  let prepared: Awaited<ReturnType<typeof prepareSafeRequest>>;
-  try { prepared = await prepareSafeRequest(urlText, { ...opts, timeoutMs: opts.timeoutMs ?? 120_000 }, allowedHosts, allowLocal); }
-  catch (error) { logPluginDiagnostic(diagnostics?.logger, "warn", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.stream", method: opts.method, host, phase: "denied", reason: error instanceof Error ? error.message : String(error), errorCode: classifyPluginError(error), durationMs: Date.now() - started }); throw error; }
-  const { url, init, timeout } = prepared;
-  try {
-    const response = await fetch(url, init);
-    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) throw new Error("Plugin HTTP redirects are not allowed.");
-    const reader = response.body?.getReader();
-    if (reader) {
-      const decoder = new TextDecoder();
-      let total = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > quotas.streamResponseBytes) { await reader.cancel().catch(() => undefined); throw new Error("Plugin HTTP stream is too large."); }
-        const chunk = decoder.decode(value, { stream: true });
-        if (chunk.length > 0) onChunk(chunk);
-      }
-      const tail = decoder.decode();
-      if (tail.length > 0) onChunk(tail);
-    }
-    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.stream", method: opts.method, host: url.hostname, phase: "success", status: response.status, durationMs: Date.now() - started });
-    return { status: response.status, ok: response.ok };
-  } catch (error) {
-    const mapped = error instanceof Error && error.name === "AbortError" ? new Error("Plugin HTTP stream timed out.") : error;
-    logPluginDiagnostic(diagnostics?.logger, "warn", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.stream", method: opts.method, host: url.hostname, phase: "fail", reason: mapped instanceof Error ? mapped.message : String(mapped), errorCode: classifyPluginError(mapped), durationMs: Date.now() - started });
-    if (mapped instanceof Error) throw mapped;
-    throw error;
-  } finally { clearTimeout(timeout); }
-}
-
-function isValidatedNetOptions(value: unknown): value is ValidatedNetOptions { return isRecord(value) && typeof value.method === "string"; }
-
-async function readCapped(response: Response, cap: number): Promise<string> { const reader = response.body?.getReader(); if (!reader) return ""; const chunks: Uint8Array[] = []; let total = 0; for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.byteLength; if (total > cap) throw new Error("Plugin HTTP response is too large."); chunks.push(value); } return Buffer.concat(chunks).toString("utf8"); }
-export async function assertPublicHost(host: string): Promise<void> { if (["localhost", "metadata.google.internal"].includes(host) || host.endsWith(".localhost")) throw new Error("Plugin HTTP host is not public."); const results = await lookup(host, { all: true, verbatim: true }); if (results.length === 0 || results.some((r) => isPrivateIp(r.address))) throw new Error("Plugin HTTP host resolves to a restricted address."); }
-export function isPrivateIp(address: string): boolean { if (net.isIPv4(address)) { const p = address.split(".").map(Number); return p[0] === 10 || p[0] === 127 || p[0] === 0 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || (p[0] === 100 && p[1] >= 64 && p[1] <= 127); } const v = address.toLowerCase(); return v === "::1" || v === "::" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80:") || v.startsWith("::ffff:127.") || v.startsWith("::ffff:10.") || v.startsWith("::ffff:192.168."); }
-
 // ---------------------------------------------------------------------------
 // Validators
 // ---------------------------------------------------------------------------

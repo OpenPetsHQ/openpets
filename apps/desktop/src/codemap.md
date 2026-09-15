@@ -257,6 +257,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-local-loader.ts`: Developer loader that validates a selected local folder and snapshots only the manifest into `plugins-dev` with symlink/path/size protections.
 - `plugin-js-host.ts`: Sandboxed hidden BrowserWindow host for JavaScript plugin entry modules with per-plugin session partitioning, navigation/window-open hardening, SDK IPC tokening, registration handshake, config listener cleanup, and teardown.
 - `plugin-sdk-bridge.ts`: Permission-checked JavaScript plugin SDK bridge that validates routes, creates plugin contexts, enforces approved permissions/quotas, and delegates namespace behavior to focused SDK modules.
+- `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation.
 - `plugin-sdk-audio.ts`: Audio SDK facade that checks global audio settings, resolves plugin/user sound refs, and reports blocked playback through diagnostics.
 - `plugin-sdk-bus.ts`: Inter-plugin publish/subscribe namespace with clone-safe payload routing and plugin-scoped topic handling.
 - `plugin-sdk-config.ts`: Runtime config read/change namespace backed by validated plugin config state.

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { PetBubbleArbiter, type ActiveBubble, type ArbiterSlot } from "../src/plugin-bubble-arbiter.js";
 import { sanitizeSvgText, injectPanelCsp } from "../src/plugin-assets.js";
 import {
-  isPrivateIp,
   nextCronRunMs,
   normalizeJson,
   parseCronExpression,
@@ -14,6 +13,7 @@ import {
   type PluginBubbleDescriptor,
   type PluginCommandForm,
 } from "../src/plugin-sdk-bridge.js";
+import { isPrivateIp } from "../src/plugin-sdk-network.js";
 
 /**
  * Property/fuzz tests for the bridge validators — the plugin security
@@ -129,10 +129,10 @@ assert.throws(() => normalizeJson({ big: "x".repeat(64 * 1024) }, 32 * 1024, "fu
 
 // --- private-IP guard --------------------------------------------------------
 
-for (const address of ["127.0.0.1", "10.1.2.3", "192.168.0.10", "169.254.1.1", "172.16.0.1", "172.31.255.255", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::abcd", "::ffff:127.0.0.1", "::ffff:10.0.0.1"]) {
+for (const address of ["127.0.0.1", "10.1.2.3", "192.0.0.0", "192.0.0.8", "192.0.0.11", "192.0.0.170", "192.0.0.171", "192.0.0.255", "192.0.2.0", "192.0.2.255", "192.88.99.0", "192.88.99.255", "192.168.0.10", "169.254.1.1", "172.16.0.1", "172.31.255.255", "100.64.0.1", "0.0.0.0", "198.18.0.0", "198.19.255.255", "198.51.100.0", "203.0.113.255", "224.0.0.0", "255.255.255.255", "64:ff9b::a9fe:a9fe", "64:ff9b:1::1", "100:0:0:1::", "2001::", "2001:0:ffff:ffff:ffff:ffff:ffff:ffff", "2001:1::", "2001:2::", "2001:2:1::", "2001:2:ffff:ffff:ffff:ffff:ffff:ffff", "2001:4::", "2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff", "2002::", "2002:a9fe:a9fe::", "5f00::", "5f00:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "::1", "fd00::1", "fe80::abcd", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:192.0.2.1"]) {
   assert.equal(isPrivateIp(address), true, `${address} is private`);
 }
-for (const address of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700::1111"]) {
+for (const address of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "192.0.0.9", "192.0.0.10", "192.0.1.0", "192.31.196.0", "192.31.196.255", "192.52.193.0", "192.52.193.255", "192.88.98.255", "192.88.100.0", "192.175.48.0", "192.175.48.255", "198.20.0.0", "100.128.0.1", "100:0:0:2::", "2001:1::1", "2001:1::2", "2001:1::3", "2001:3::", "2001:3:ffff:ffff:ffff:ffff:ffff:ffff", "2001:4:112::", "2001:20::", "2001:30::", "2001:2fff:ffff:ffff:ffff:ffff:ffff:ffff", "2001:200::", "2001:4000::", "2003:a9fe:a9fe::", "2001:4860:4860::a9fe:a9fe", "64:ff9b::808:808", "64:ff9b:0:1::1", "64:ff9b:2::1", "2606:4700::1111"]) {
   assert.equal(isPrivateIp(address), false, `${address} is public`);
 }
 for (let index = 0; index < rounds; index += 1) {

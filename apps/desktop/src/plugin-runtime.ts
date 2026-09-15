@@ -243,21 +243,21 @@ export class PluginRuntime {
     const slot = this.#slotFor(id);
     if (slot.active || slot.timers.length > 0 || slot.jsHost) logPluginDiagnostic(this.#logger, "debug", "plugin cancel", { pluginId: id, phase: "begin", count: slot.timers.length });
     slot.active = false;
-    slot.generation += 1;
+    const capturedGeneration = ++slot.generation;
     for (const timer of slot.timers) timer.cancel();
     slot.timers = [];
     slot.jsHost?.stop();
     slot.jsHost = undefined;
     unregisterPluginLocales(id);
-    await this.#clearPlugin(id);
+    await this.#clearPlugin(id, () => this.#slotFor(id).generation === capturedGeneration);
     logPluginDiagnostic(this.#logger, "debug", "plugin cancel", { pluginId: id, phase: "end" });
   }
 
-  async #clearPlugin(id: string): Promise<void> {
-    this.#sdkBridge.clearPlugin(id);
-    const teardown = (this.#capabilities as { clearPlugin?: (pluginId: string) => void | Promise<void> } | undefined)?.clearPlugin;
+  async #clearPlugin(id: string, isCurrentGeneration: () => boolean): Promise<void> {
+    await this.#sdkBridge.clearPlugin(id);
+    const teardown = this.#capabilities?.clearPlugin;
     if (teardown) {
-      try { await teardown(id); } catch { /* host teardown is best effort */ }
+      try { await teardown(id, isCurrentGeneration); } catch { /* host teardown is best effort */ }
     }
   }
 

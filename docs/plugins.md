@@ -193,11 +193,14 @@ capability the current manifest no longer declares.
   scheme default port (443 for HTTPS, 80 for HTTP) - never an explicit
   non-default port, and never a later `host:port` addition without fresh approval.
 - `network` covers HTTPS GET to approved **public** hosts (public-host / private-IP
-  checks still apply). Non-GET methods require `network:write` on `ctx.net` only.
-- `network:local` is **additive**: it also allows declared loopback/private HTTP
-  endpoints on `ctx.net` while public HTTPS hosts in the same manifest keep the
-  normal public-host path. Local targets require explicit local IPs/`localhost`
-  (DNS-rebinding defense); cloud-metadata addresses stay blocked.
+  checks still apply). Public destinations are filtered against IANA special-purpose
+  ranges, with explicit current more-specific exceptions resolved before broader
+  denials. Non-GET methods require `network:write` on `ctx.net` only.
+- `network:local` is **additive**: it also allows declared actual local/private,
+  link-local, or CGNAT HTTP endpoints on `ctx.net` while public HTTPS hosts in
+  the same manifest keep the normal public-host path. It does not allow arbitrary
+  non-public special-purpose addresses. Local targets require explicit local
+  IPs/`localhost` (DNS-rebinding defense); cloud-metadata addresses stay blocked.
 - Legacy `ctx.http.fetch` remains GET-only, public HTTPS only - it never gains
   local or mutating access.
 
@@ -319,12 +322,25 @@ plugin's `index.js` runs here, isolated from the renderer and the main process.
 
 `plugin-sdk-bridge.ts` is the gate between the sandbox and the host. It
 validates routes, builds the per-plugin context, enforces permissions + quotas,
-and delegates to focused namespace modules (`plugin-sdk-audio`, `-bus`,
+and delegates to focused namespace modules (`plugin-sdk-audio`, `plugin-sdk-network`, `-bus`,
 `-config`, `-events`, `-quotas`, `-routes`, `-state`, `-storage`, `-ui`, plus
 `plugin-voice`, `plugin-oauth`, `plugin-secrets`, `plugin-ai-gateway`,
 `plugin-panels`, `plugin-pet-api`/`plugin-pet-registry`). The split keeps each
 capability's permission check and host effect localized. The author-facing
 mirror of all this is the SDK in [Plugin SDK v3](/sdk).
+
+The bridge tracks active network requests by API generation, aborts the retired
+generation during teardown, and drains those requests before host cleanup.
+
+`plugin-sdk-network.ts` owns guarded DNS, dispatch, response limits, and
+agent transport, and bounded cleanup. Plugin teardown awaits agent destruction
+with a bounded one-second cleanup deadline and never waits indefinitely;
+successful results from a retired generation are rejected rather than delivered
+to its replacement.
+
+Runtime host teardown uses the plugin-slot generation predicate before voice
+cancellation and again after its await, so stale teardown cannot remove a
+replacement generation's deliveries, pets, or motion.
 
 ### Supporting modules
 

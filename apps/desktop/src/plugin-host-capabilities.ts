@@ -74,7 +74,7 @@ export type ElectronPluginHostCapabilities = PluginHostCapabilities & {
   readonly providerService: HostProviderService;
   readonly aiGateway: PluginAiGateway;
   /** Tear down everything a plugin owns on stop/reload. */
-  clearPlugin(pluginId: string): Promise<void>;
+  clearPlugin(pluginId: string, isCurrentGeneration?: () => boolean): Promise<void>;
   shutdown(): void;
 };
 
@@ -299,8 +299,10 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       listenAllowed: () => getPluginPlatformSettings().allowMicrophone,
       inQuietHours: () => isInQuietHours(),
     },
-    async clearPlugin(pluginId: string) {
+    async clearPlugin(pluginId: string, isCurrentGeneration = () => true) {
+      if (!isCurrentGeneration()) return;
       await cancelPluginVoiceListen(pluginId, "The plugin was stopped.").catch(() => undefined);
+      if (!isCurrentGeneration()) return;
       try {
         teardownPluginDeliveries(pluginId);
         clearPluginPetsForPlugin(pluginId);
