@@ -28,6 +28,7 @@ main.ts
 ├── lifecycle.ts (app events, cleanup)
 ├── logger.ts (structured logging init)
 ├── app-state.ts (state init)
+├── pet-install-transaction.ts (startup recovery of interrupted pet commits)
 ├── codex-pet-migration.ts (safe legacy V2 marker repair)
 ├── plugin-service.ts (plugin state/runtime init, JS host wiring)
 ├── tray.ts (tray creation)
@@ -98,13 +99,20 @@ windows.ts (IPC handlers)
 
 **Pet Installation Flow**:
 ```
+catalog/local ZIP/local folder/codex-pets.ts
+├── fully validate and stage a private candidate as a direct child of pets/
+└── pet-install-transaction.ts
+    ├── per-metadata.id lock (local parsing/staging stays parallel)
+    ├── journal explicit prepared → backup-created → promoted → state-mutating → committed phases
+    ├── preserve old final as a backup, atomically promote the candidate
+    ├── mutate app-state.ts only after promotion; rollback ordinary rejection
+    └── cleanup backup/marker only after successful mutation; startup recovery is conservative
+
 pet-installation.ts
-├── installPet()
-│   ├── getCatalogPet() → catalog.ts
-│   ├── downloadPetZip() → validate ZIP magic
-│   ├── extractPetZip() → yauzl with entry validation
-│   └── installPetState() → app-state.ts
-└── importCodexPet() → codex-pets.ts
+├── installPet() → getCatalogPet() → downloadPetZip() → extractPetZip()
+├── installPetFromZipFile()/installPetFromFolder() → local validation/staging
+└── all three paths → runPetInstallTransaction()
+codex-pets.ts → validated Codex metadata/assets → runPetInstallTransaction()
 ```
 
 **Control Center Flow**:
@@ -145,7 +153,8 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 
 Control Center plugins route:
 tray.ts → openControlCenterWindow("plugins") → windows.ts → renderer React app
-└── openpets:plugins-* IPC handlers call PluginService methods
+└── control-center-plugin-ipc.ts (installed once by windows.ts) → injected sender authorization and PluginService access
+    └── fixed openpets:plugins-* IPC handlers call PluginService methods
 
 Catalog install/update:
 plugin-catalog.ts → plugin-catalog-validation.ts
@@ -174,6 +183,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `pet-window.ts` ↔ `default-pet-controller.ts`, `agent-pet-controller.ts`
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
   - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
+  - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
   - `plugin-service.ts` ↔ `plugin-state.ts`, `plugin-runtime.ts`, `plugin-catalog.ts`, `plugin-package.ts`, `plugin-local-loader.ts`, `plugin-js-host.ts`, `plugin-sdk-bridge.ts`, plugin SDK namespace modules, diagnostics, assets, settings, panels, voice, OAuth, secrets, and user sounds
   - `i18n/` ↔ `tray.ts`, `windows.ts`, `pet-window.ts`, `reaction-messages.ts`, `plugin-i18n.ts`
 
@@ -209,6 +219,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 **UI**:
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
 - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, and scoped internal protocols
+- `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
@@ -234,6 +245,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Installation**:
 - `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
+- `pet-install-transaction.ts`: Electron-free staged pet commit protocol, canonical private-root/marker validation, per-ID lock, rollback, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
 - `pet-file-safety.ts`: Bounded, no-follow regular-file reads shared by pet import and installed-pet rendering
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
@@ -299,7 +311,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `update-version.ts`: Version parsing and comparison
 
 **Tests** (excluded from detailed codemap coverage per repository conventions):
-- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider profile persistence/routing is covered by `provider-profiles.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts
+- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider profile persistence/routing is covered by `provider-profiles.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts; `pet-install-transaction.test.ts` covers staged promotion, rollback, conservative recovery, and path/marker safety
 - Contract tests live in `contracts/*.contract.ts` (compiled to `.test-dist/contracts/`)
 - Runtime checks (`check-*.ts`) remain in `src/` for packaging/validation (compiled to `dist/`)
 
@@ -308,7 +320,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 | Source | Destination | Data |
 |--------|-------------|------|
 | Catalog API | `catalog.ts` | `CatalogV2/V3` JSON with pagination |
-| ZIP Download | `pet-installation.ts` | Extracted to `userData/pets/{id}/` |
+| ZIP/local/Codex staging | `pet-installation.ts` / `codex-pets.ts` | Fully validated private candidate under `userData/pets/` |
+| Pet promotion/recovery | `pet-install-transaction.ts` | Journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
 | `app-state.ts` | `userData/openpets-state.json` | Atomic JSON writes with reaction animation overrides |
 | `pet-assistant-service.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
 | CLI via IPC | `local-ipc.ts` | `pet.react`, `pet.say`, `lease.*` |

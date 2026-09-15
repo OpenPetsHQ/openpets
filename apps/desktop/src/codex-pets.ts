@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 
@@ -8,8 +8,8 @@ import { getAppStateSnapshot, installPetState, type OpenPetsStateV1 } from "./ap
 import { migrateLegacyCodexV2Imports, type LegacyCodexV2MigrationResult } from "./codex-pet-migration.js";
 import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { readBoundedRegularFile } from "./pet-file-safety.js";
-import { withPetOperation } from "./pet-installation.js";
-import { assertInsideRoot, assertSafePetId, getInstalledPetDir, getPetsRoot } from "./pet-paths.js";
+import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, runPetInstallTransaction } from "./pet-install-transaction.js";
+import { assertSafePetId, getPetsRoot } from "./pet-paths.js";
 
 const codexPetsRoot = join(homedir(), ".codex", "pets");
 const codexThumbnailCache = new Map<string, string>();
@@ -62,50 +62,42 @@ export async function getCodexPetsUiState(): Promise<CodexPetUiState> {
 }
 
 export async function importCodexPet(petId: string): Promise<OpenPetsStateV1> {
-  return withPetOperation(petId, async () => {
-    assertSafePetId(petId);
-    if (getAppStateSnapshot().pets.installed.some((pet) => pet.id === petId)) {
-      throw new Error(`Pet is already installed: ${petId}`);
-    }
+  assertSafePetId(petId);
+  const root = await validateCodexRoot();
+  const sourceDir = resolve(root, petId);
+  await assertCodexPetDirectory(root, sourceDir);
+  const metadata = await readCodexPetMetadata(root, sourceDir, petId);
+  const spritesheetPath = join(sourceDir, metadata.spritesheetPath);
+  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, "spritesheet.webp");
+  await validateCodexPetSpritesheet(spritesheet, metadata);
 
-    const root = await validateCodexRoot();
-    const sourceDir = resolve(root, petId);
-    await assertCodexPetDirectory(root, sourceDir);
-    const metadata = await readCodexPetMetadata(root, sourceDir, petId);
-    const spritesheetPath = join(sourceDir, metadata.spritesheetPath);
-    const spritesheet = await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, "spritesheet.webp");
-    await validateCodexPetSpritesheet(spritesheet, metadata);
-
-    const petsRoot = getPetsRoot();
-    await mkdir(petsRoot, { recursive: true, mode: 0o700 });
-    const finalDir = getInstalledPetDir(petId);
-    const tempDir = await mkdtemp(join(petsRoot, `.codex-import-${petId}-`));
-
-    try {
-      assertInsideRoot(petsRoot, tempDir);
-      await writeFile(join(tempDir, "spritesheet.webp"), spritesheet, { mode: 0o600, flag: "wx" });
-      await writeFile(join(tempDir, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-      await rm(finalDir, { recursive: true, force: true });
-      await rename(tempDir, finalDir);
-
-      try {
-        await validateInstalledRegularFile(join(finalDir, "spritesheet.webp"));
-        await validateInstalledRegularFile(join(finalDir, "pet.json"));
-        return installPetState({
-          id: metadata.id,
-          displayName: metadata.displayName,
-          description: metadata.description,
-          source: { kind: "codex", path: sourceDir },
-        });
-      } catch (error) {
-        await rm(finalDir, { recursive: true, force: true });
-        throw error;
-      }
-    } catch (error) {
-      await rm(tempDir, { recursive: true, force: true });
-      throw error;
-    }
-  });
+  const petsRoot = getPetsRoot();
+  await assertNoUnresolvedPetInstallTransaction(petsRoot, metadata.id);
+  const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
+  try {
+    await writeFile(join(candidate, "spritesheet.webp"), spritesheet, { mode: 0o600, flag: "wx" });
+    await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return await runPetInstallTransaction({
+      petsRoot,
+      petId: metadata.id,
+      candidateDir: candidate,
+      validateCandidate: async (directory) => {
+        const candidateMetadata = JSON.parse((await readBoundedRegularFile(join(directory, "pet.json"), maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
+        const validatedMetadata = validateCodexPetMetadata(candidateMetadata, metadata.id);
+        const candidateSpritesheet = await readBoundedRegularFile(join(directory, validatedMetadata.spritesheetPath), maxCodexSpritesheetBytes, "spritesheet.webp");
+        await validateCodexPetSpritesheet(candidateSpritesheet, validatedMetadata);
+      },
+      mutateState: () => installPetState({
+        id: metadata.id,
+        displayName: metadata.displayName,
+        description: metadata.description,
+        source: { kind: "codex", path: sourceDir },
+      }),
+    });
+  } catch (error) {
+    await rm(candidate, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function tryReadCodexPet(root: string, dir: string, folderName: string): Promise<CodexPetUiItem | null> {
@@ -198,12 +190,6 @@ async function assertCodexPetDirectory(root: string, target: string): Promise<vo
   if (!dirStats.isDirectory()) throw new Error("Codex pet path must be a directory.");
   const realTarget = await realpath(resolvedTarget);
   if (!realTarget.startsWith(`${root}${sep}`)) throw new Error("Codex pet directory escapes Codex pets root.");
-}
-
-async function validateInstalledRegularFile(path: string): Promise<void> {
-  const stats = await lstat(path);
-  if (stats.isSymbolicLink()) throw new Error("Imported pet file cannot be a symlink.");
-  if (!stats.isFile()) throw new Error("Imported pet file must be a regular file.");
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

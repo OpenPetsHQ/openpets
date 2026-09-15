@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell, type IpcMainInvokeEvent, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell, type OpenDialogOptions } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
@@ -22,7 +22,11 @@ import { validatePreferencePatch } from "./preference-patch.js";
 import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
-import { getPluginService, type PluginConfigSoundPickResult, type PluginServiceResult } from "./plugin-service.js";
+import {
+  getPluginService,
+  type PluginConfigSoundPickResult,
+  type PluginServiceResult,
+} from "./plugin-service.js";
 import { endVoiceAssistant, getVoiceAssistantSnapshot, interruptVoiceAssistant, muteVoiceAssistant, onVoiceAssistantEvent, startVoiceAssistant, unmuteVoiceAssistant } from "./voice-assistant-host.js";
 import { getPetAssistantConversationController, onPetAssistantConversationControllerReady } from "./pet-assistant-host.js";
 import { createEmptyPetAssistantConversationSnapshot, validateConversationMessageInput } from "./pet-assistant-conversation.js";
@@ -30,6 +34,7 @@ import { clearConversationHistory, deleteConversationHistoryMessage, getConversa
 import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
+import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
 import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
 import { getRemoteControlService } from "./remote-control-service.js";
 import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
@@ -500,92 +505,15 @@ export function installInternalUiHandlers(): void {
     return getReactionAnimationSettingsSnapshot();
   });
 
-  ipcMain.handle("openpets:plugins-snapshot", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().getSnapshot();
-  });
-
-  ipcMain.handle("openpets:plugins-set-enabled", async (event, id: unknown, enabled: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof enabled !== "boolean") return pluginUiError("Invalid plugin enable request.");
-    return getPluginService().setEnabled(id, enabled);
-  });
-
-  ipcMain.handle("openpets:plugins-save-config", async (event, id: unknown, config: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || !isPlainObject(config)) return pluginUiError("Invalid plugin config request.");
-    return getPluginService().saveConfig(id, config);
-  });
-
-  ipcMain.handle("openpets:plugins-pick-config-sound", async (event, id: unknown): Promise<PluginConfigSoundPickResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) {
-      warn("ui", "Plugin sound pick invalid request.", { ok: false, reason: "invalid-plugin-id" });
-      return pluginUiSoundError("Invalid plugin sound request.");
-    }
-    debug("ui", "Plugin sound pick requested.", { pluginId: id });
-    try {
-      const result = await getPluginService().pickConfigSound(id);
-      if (result.ok && "sound" in result && result.sound.id) debug("ui", "Plugin sound pick succeeded.", { pluginId: id, ok: true, soundId: result.sound.id });
-      else if (result.ok) debug("ui", "Plugin sound pick canceled.", { pluginId: id, ok: true, canceled: true });
-      else warn("ui", "Plugin sound pick failed.", { pluginId: id, ok: false, reason: result.error });
-      return result;
-    } catch (error) {
-      logError("ui", "Plugin sound pick errored.", { pluginId: id, ok: false, reason: error instanceof Error ? error.message : "unknown" });
-      throw error;
-    }
-  });
-
-  ipcMain.handle("openpets:plugins-reload", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin reload request.");
-    return getPluginService().reload(id);
-  });
-
-  ipcMain.handle("openpets:plugins-refresh-local", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin refresh request.");
-    return getPluginService().refreshLocal(id);
-  });
-
-  ipcMain.handle("openpets:plugins-execute-command", async (event, id: unknown, commandId: unknown, args: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof commandId !== "string" || !/^[A-Za-z0-9._:-]{1,64}$/.test(commandId) || (args !== undefined && !isPlainObject(args))) return pluginUiError("Invalid plugin command request.");
-    return getPluginService().executeCommand(id, commandId, isPlainObject(args) ? args as Record<string, unknown> : undefined);
-  });
-
-  ipcMain.handle("openpets:plugins-load-local", async (event): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().loadLocal();
-  });
-
-  ipcMain.handle("openpets:plugins-catalog-snapshot", async (event, refresh: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().getCatalogSnapshot(refresh === true);
-  });
-
-  ipcMain.handle("openpets:plugins-install-catalog", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin install request.");
-    return getPluginService().installCatalog(id);
-  });
-
-  ipcMain.handle("openpets:plugins-update-catalog", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin update request.");
-    return getPluginService().updateCatalog(id);
-  });
-
-  ipcMain.handle("openpets:plugins-uninstall", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin uninstall request.");
-    return getPluginService().uninstall(id);
-  });
-
-  ipcMain.handle("openpets:plugins-inspector", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) throw new Error("Invalid plugin inspector request.");
-    return getPluginService().runtime.getInspectorState(id);
+  installControlCenterPluginIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getPluginService,
+    logger: {
+      debug: (message, fields) => debug("ui", message, fields),
+      warn: (message, fields) => warn("ui", message, fields),
+      error: (message, fields) => logError("ui", message, fields),
+    },
   });
 
   ipcMain.handle("openpets:provider-profiles-get", async (event) => {
@@ -1214,7 +1142,7 @@ async function getProviderControlCenterSnapshot(): Promise<import("./plugin-plat
   return buildProviderControlCenterSnapshot(settings, (profile) => Boolean(profile.secretRef && credentialRefs.has(profile.secretRef)));
 }
 
-function assertAllowedSender(event: IpcMainInvokeEvent, allowedKinds: readonly InternalUiWindowKind[]): void {
+function assertAllowedSender(event: { readonly sender: { readonly id: number } }, allowedKinds: readonly InternalUiWindowKind[]): void {
   const actualKind = getInternalUiWindowKindForWebContents(event.sender.id);
 
   if (!actualKind || !allowedKinds.includes(actualKind)) {
