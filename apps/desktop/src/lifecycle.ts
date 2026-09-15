@@ -20,6 +20,7 @@ let hardExitTimer: NodeJS.Timeout | null = null;
 
 export type AppLifecycleOptions = {
   readonly onTeamEnrollmentLink?: (link: TeamEnrollmentLink) => void;
+  readonly stopManagerCheckIns?: () => Promise<void>;
   readonly stopTeams?: () => Promise<void>;
 };
 
@@ -68,6 +69,7 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
       await stopVoiceAssistantHost().catch(() => undefined);
       await stopPetAssistantHost().catch(() => undefined);
       await shutdownPluginVoice().catch(() => undefined);
+      await options.stopManagerCheckIns?.().catch(() => undefined);
       await options.stopTeams?.().catch(() => undefined);
       await stopPluginService().catch(() => undefined);
       await stopRemoteControlService().catch(() => undefined);

@@ -5,6 +5,7 @@ import { TeamLeaveModal } from "./TeamLeaveModal.js";
 import { TeamOverviewSection } from "./TeamOverviewSection.js";
 import { TeamPetsSection } from "./TeamPetsSection.js";
 import { TeamPluginsSection } from "./TeamPluginsSection.js";
+import { TeamManagerCheckInSection } from "./manager-check-ins/TeamManagerCheckInSection.js";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -304,6 +305,8 @@ export function TeamsView({ api }: TeamsViewProps) {
             onSyncNow={() => void handleSyncNow()}
             onOpenLeaveModal={() => setShowLeaveModal(true)}
           />
+
+          <TeamManagerCheckInSection api={api} />
 
           <TeamPetsSection pets={snapshot.teamPets} />
 

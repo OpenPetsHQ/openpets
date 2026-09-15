@@ -30,6 +30,70 @@ export type TeamsSnapshot = {
   readonly teamPlugins: readonly TeamPluginEntry[];
 };
 
+export const managerCheckInFeelingCodes = [
+  "good",
+  "steady",
+  "stretched",
+  "struggling",
+  "need_support",
+] as const;
+
+export type ManagerCheckInFeelingCode = (typeof managerCheckInFeelingCodes)[number];
+
+export type ManagerCheckInSettings = {
+  readonly revision: number;
+  readonly weeklyEnabled: boolean;
+  readonly weeklyDay: number;
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Readonly<Record<ManagerCheckInFeelingCode, string>>;
+};
+
+export type ManagerCheckInPromptSnapshot = {
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Readonly<Record<ManagerCheckInFeelingCode, string>>;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string };
+};
+
+export type ManagerCheckInSubmission = {
+  readonly id: string;
+  readonly clientGeneratedId: string;
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note: string | null;
+  readonly submittedAt: string;
+  readonly settingsRevision: number;
+  readonly promptSnapshot: ManagerCheckInPromptSnapshot;
+};
+
+export type ManagerCheckInSnapshot = {
+  readonly availability: "unavailable" | "unenrolled" | "available";
+  readonly unavailableReason?: "secure_storage_unavailable" | "employee_identity_required";
+  readonly organization: { readonly id: string; readonly name: string } | null;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string } | null;
+  readonly settings: ManagerCheckInSettings | null;
+  readonly submissions: readonly ManagerCheckInSubmission[];
+  readonly scheduledOffersPaused: boolean;
+  readonly dueScheduledOffer: boolean;
+  readonly lastSyncAt?: string;
+  readonly lastError?: string;
+};
+
+export type ManagerCheckInHistoryPage = {
+  readonly submissions: readonly ManagerCheckInSubmission[];
+  readonly nextCursor: string | null;
+};
+
+export type ManagerCheckInSubmitInput = {
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note?: string | null;
+  readonly settingsRevision: number;
+};
+
 export type TeamsApi = {
   getTeamsSnapshot(): Promise<TeamsSnapshot>;
   submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
@@ -37,6 +101,11 @@ export type TeamsApi = {
   leaveTeams(): Promise<TeamsSnapshot>;
   approveTeamPluginPermissions?(id: string, approvalToken?: string): Promise<TeamsSnapshot>;
   setTeamPluginEnabled?(id: string, enabled: boolean): Promise<TeamsSnapshot>;
+  getManagerCheckInsSnapshot?(): Promise<ManagerCheckInSnapshot>;
+  syncManagerCheckIns?(): Promise<ManagerCheckInSnapshot>;
+  getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;
+  submitManagerCheckIn?(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
+  setManagerCheckInScheduledOffersPaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
 };
 
 export type TeamsNavigationRoute =

@@ -22,7 +22,11 @@ import { validatePreferencePatch } from "./preference-patch.js";
 import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
-import { getPluginService } from "./plugin-service.js";
+import {
+  getPluginService,
+  type PluginConfigSoundPickResult,
+  type PluginServiceResult,
+} from "./plugin-service.js";
 import { endVoiceAssistant, getVoiceAssistantSnapshot, interruptVoiceAssistant, muteVoiceAssistant, onVoiceAssistantEvent, startVoiceAssistant, unmuteVoiceAssistant } from "./voice-assistant-host.js";
 import { getPetAssistantConversationController, onPetAssistantConversationControllerReady } from "./pet-assistant-host.js";
 import { createEmptyPetAssistantConversationSnapshot, validateConversationMessageInput } from "./pet-assistant-conversation.js";
@@ -38,6 +42,8 @@ import { deleteProviderCredentialForProfile } from "./provider-service.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { getTeamService } from "./team-service.js";
+import { getManagerCheckInService } from "./manager-check-in-service.js";
+import { managerCheckInFeelingCodes } from "./team-api-client.js";
 import {
   buildProviderControlCenterSnapshot,
   createProviderProfile,
@@ -428,7 +434,9 @@ export function installInternalUiHandlers(): void {
     ) {
       throw new Error("Invalid Teams display name.");
     }
-    return getTeamService().submitEnrollment(displayName.trim());
+    const result = await getTeamService().submitEnrollment(displayName.trim());
+    await getManagerCheckInService().syncNow().catch(() => undefined);
+    return result;
   });
   ipcMain.handle("openpets:teams-sync", async (event) => {
     assertAllowedSender(event, ["control-center"]);
@@ -457,7 +465,39 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:teams-leave", async (event) => {
     assertAllowedSender(event, ["control-center"]);
-    return getTeamService().leave();
+    await getManagerCheckInService().stop();
+    try {
+      return await getTeamService().leave();
+    } finally {
+      await getManagerCheckInService().start();
+    }
+  });
+
+  ipcMain.handle("openpets:manager-check-ins-snapshot", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getManagerCheckInService().getSnapshot();
+  });
+  ipcMain.handle("openpets:manager-check-ins-sync", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getManagerCheckInService().syncNow();
+  });
+  ipcMain.handle("openpets:manager-check-ins-history", async (event, cursor: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (!isValidManagerCheckInHistoryCursor(cursor)) {
+      throw new Error("Invalid manager check-in history cursor.");
+    }
+    return getManagerCheckInService().getHistory(cursor);
+  });
+  ipcMain.handle("openpets:manager-check-ins-submit", async (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getManagerCheckInService().submit(validateManagerCheckInSubmitInput(input));
+  });
+  ipcMain.handle("openpets:manager-check-ins-set-scheduled-offers-paused", async (event, paused: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (typeof paused !== "boolean") {
+      throw new Error("Invalid scheduled offers pause request.");
+    }
+    return getManagerCheckInService().setScheduledOffersPaused(paused);
   });
 
   ipcMain.handle("openpets:get-reaction-animation-settings", async (event) => {
@@ -1002,6 +1042,65 @@ function withControlCenterRoute(rawUrl: string, route: ControlCenterRoute): stri
   const url = new URL(rawUrl);
   url.searchParams.set("route", route);
   return url.toString();
+}
+
+function pluginUiError(error: string): PluginServiceResult {
+  return { ok: false, error, snapshot: { plugins: [] } };
+}
+
+function pluginUiSoundError(error: string): PluginConfigSoundPickResult {
+  return { ok: false, error, snapshot: { plugins: [] } };
+}
+
+function validateManagerCheckInSubmitInput(value: unknown): {
+  readonly feelingCode: string;
+  readonly note?: string | null;
+  readonly settingsRevision: number;
+} {
+  if (!isPlainObject(value)) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (Object.keys(value).some((key) => !["feelingCode", "note", "settingsRevision"].includes(key))) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+
+  if (
+    typeof value.feelingCode !== "string"
+    || !managerCheckInFeelingCodes.includes(value.feelingCode as typeof managerCheckInFeelingCodes[number])
+  ) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (value.note !== undefined && value.note !== null && typeof value.note !== "string") {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (typeof value.note === "string" && value.note.length > 1000) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (typeof value.settingsRevision !== "number" || !Number.isSafeInteger(value.settingsRevision) || value.settingsRevision < 0) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+
+  const settingsRevision = value.settingsRevision as number;
+  const result: {
+    readonly feelingCode: string;
+    readonly note?: string | null;
+    readonly settingsRevision: number;
+  } = {
+    feelingCode: value.feelingCode,
+    settingsRevision,
+  };
+  if (value.note !== undefined) {
+    return {
+      ...result,
+      note: value.note as string | null,
+    };
+  }
+  return result;
+}
+
+function isValidManagerCheckInHistoryCursor(value: unknown): boolean {
+  return value === undefined
+    || (typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value));
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

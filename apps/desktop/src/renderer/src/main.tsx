@@ -176,6 +176,52 @@ type RemoteControlConfigSnapshot = { enabled: boolean; address?: string; port?: 
 type RemoteControlClientSummary = { id: string; name: string; scopes: RemoteControlScope[]; createdAt: number; updatedAt: number; lastActivityAt?: number; revoked: boolean; revokedAt?: number };
 type RemoteControlSnapshot = { config: RemoteControlConfigSnapshot; clients: RemoteControlClientSummary[] };
 type RemotePairingResult = { clientId: string; token: string };
+type ManagerCheckInFeelingCode = "good" | "steady" | "stretched" | "struggling" | "need_support";
+type ManagerCheckInSettings = {
+  readonly revision: number;
+  readonly weeklyEnabled: boolean;
+  readonly weeklyDay: number;
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Record<ManagerCheckInFeelingCode, string>;
+};
+type ManagerCheckInPromptSnapshot = {
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Record<ManagerCheckInFeelingCode, string>;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string };
+};
+type ManagerCheckInSubmission = {
+  readonly id: string;
+  readonly clientGeneratedId: string;
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note: string | null;
+  readonly submittedAt: string;
+  readonly settingsRevision: number;
+  readonly promptSnapshot: ManagerCheckInPromptSnapshot;
+};
+type ManagerCheckInSnapshot = {
+  readonly availability: "unavailable" | "unenrolled" | "available";
+  readonly unavailableReason?: "secure_storage_unavailable" | "employee_identity_required";
+  readonly organization: { readonly id: string; readonly name: string } | null;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string } | null;
+  readonly settings: ManagerCheckInSettings | null;
+  readonly submissions: readonly ManagerCheckInSubmission[];
+  readonly scheduledOffersPaused: boolean;
+  readonly dueScheduledOffer: boolean;
+  readonly lastSyncAt?: string;
+  readonly lastError?: string;
+};
+type ManagerCheckInHistoryPage = { submissions: readonly ManagerCheckInSubmission[]; nextCursor: string | null };
+type ManagerCheckInSubmitInput = {
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note?: string | null;
+  readonly settingsRevision: number;
+};
 
 const utf8Encoder = new TextEncoder();
 
@@ -198,6 +244,11 @@ type ControlCenterApi = {
   submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
   syncTeamsNow(): Promise<TeamsSnapshot>;
   leaveTeams(): Promise<TeamsSnapshot>;
+  getManagerCheckInsSnapshot(): Promise<ManagerCheckInSnapshot>;
+  syncManagerCheckIns(): Promise<ManagerCheckInSnapshot>;
+  getManagerCheckInsHistory(cursor?: string): Promise<ManagerCheckInHistoryPage>;
+  submitManagerCheckIn(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
+  setManagerCheckInScheduledOffersPaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
   getLanStatus(): Promise<LanStatusSnapshot>;
   getI18n(): Promise<I18nSnapshot>;
@@ -5360,8 +5411,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       <header className="hero">
         <div className="hero-content">
           <p className="eyebrow">{t("app.controlCenter")}</p>
-          <h1>{currentMeta.titleKey === "route.teams.title" && t(currentMeta.titleKey) === currentMeta.titleKey ? "Teams" : t(currentMeta.titleKey)}</h1>
-          <p className="hero-desc">{currentMeta.descKey === "route.teams.description" && t(currentMeta.descKey) === currentMeta.descKey ? "Manage your organization membership, team pets, and deployed companion plugins." : t(currentMeta.descKey)}</p>
+          <h1>{t(currentMeta.titleKey)}</h1>
+          <p className="hero-desc">{t(currentMeta.descKey)}</p>
         </div>
         <div className="hero-logo-container">
           <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />

@@ -21,6 +21,21 @@ const api = {
       enabled,
     ),
   leaveTeams: () => ipcRenderer.invoke("openpets:teams-leave"),
+  getManagerCheckInsSnapshot: () => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-snapshot");
+  },
+  syncManagerCheckIns: () => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-sync");
+  },
+  getManagerCheckInsHistory: (cursor) => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-history", cursor);
+  },
+  submitManagerCheckIn: (input) => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-submit", input);
+  },
+  setManagerCheckInScheduledOffersPaused: (paused) => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-set-scheduled-offers-paused", paused);
+  },
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
   getLanStatus: () => ipcRenderer.invoke("openpets:get-lan-status"),
   getI18n: () => ipcRenderer.invoke("openpets:get-i18n"),
