@@ -41,11 +41,11 @@ order): install lifecycle handlers → initialize app state → initialize the
 logger → register the configured Talk shortcut → create the tray → start the
 local IPC server → start the persisted, opt-in remote-control service if enabled
 → initialize and start the plugin service (with the Electron JS host) → start
-the optional Teams service and reconcile its Team Pack → construct the host Pet
-Assistant service → optionally show the default pet. Shutdown unregisters the
-exact shortcut before stopping voice, then stops the bounded Pet Assistant turns
-and Teams before plugin teardown, remote-control listener, local IPC server, and
-pet windows.
+the optional Teams service and reconcile its Team Pack → start the bundled
+Manager Check-ins service → construct the host Pet Assistant service → optionally
+show the default pet. Shutdown unregisters the exact shortcut before stopping
+voice, then stops the bounded Pet Assistant turns and Teams before plugin teardown,
+remote-control listener, local IPC server, and pet windows.
 
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
 `state.ts` (shell pause flag).
@@ -78,6 +78,40 @@ permission approval in the Teams route. The approval view displays the artifact'
 requested permissions and declared network hosts; organization configuration does
 not bypass it, and approval is bound to the current artifact. Rejected staged or
 activated Team installs roll back to the last approved state.
+
+### Manager Check-ins V1
+
+Manager Check-ins is a bundled desktop capability that shares Teams enrollment
+and organization identity but does not use Team Pack configuration or transport.
+The main-process `ManagerCheckInService` synchronizes organization settings and
+the enrolled employee's submitted history through the dedicated device API. It
+persists its local state atomically in
+`userData/openpets-manager-check-in-state.json`; the local cache is bounded to
+the newest 200 submissions and 512 KiB, while the API retains submitted history
+indefinitely in V1.
+
+The Teams Control Center route provides **Check in now**, a fixed five-choice
+feeling form, an optional short note (limited to 500 characters by the desktop
+form), the organization visibility notice, and a read-only personal reflection
+timeline. It is available only when the enrolled device has an employee
+identity and usable secure storage. Submitted entries cannot be edited or
+deleted. The form uses the current settings revision and stores the server's
+prompt snapshot with the submission, so historical wording and labels remain
+meaningful after settings change.
+
+When the organization enables the weekly offer, the mascot may offer it when
+OpenPets is already open on the enrolled desktop's local weekday. The service
+tracks the offer per local week; a successful manual submission also suppresses
+that desktop's scheduled offer for the current local week. The employee can
+pause or resume scheduled offers on that device; **Check in now** remains
+available while paused, and the pause is not sent to the dashboard as a
+response or activity signal. Dismissing or not using an offer creates no
+check-in entry.
+
+Each active enrolled desktop has one employee identity in V1. Submitted
+check-ins are identified and visible to authenticated users in that employee's
+organization Teams dashboard. The desktop and dashboard expose no replies,
+missing-response/activity tracking, pet-usage telemetry, or anonymous mode.
 
 ## Linux display backend (Ozone/Wayland)
 

@@ -29,9 +29,11 @@ import { installInternalUiHandlers, installInternalUiProtocol, openControlCenter
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
+import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
 import { findTeamEnrollmentLink } from "./team-protocol.js";
 
 let teamService: TeamService | null = null;
+let managerCheckInService: ManagerCheckInService | null = null;
 let pendingTeamEnrollmentLink: string | null = null;
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
@@ -124,6 +126,8 @@ if (!gotSingleInstanceLock) {
     },
     stopTeams: () =>
       teamService?.stop() ?? Promise.resolve(),
+    stopManagerCheckIns: () =>
+      managerCheckInService?.stop() ?? Promise.resolve(),
   });
 
   app.whenReady().then(async () => {
@@ -194,10 +198,23 @@ if (!gotSingleInstanceLock) {
     const pluginCapabilities = createElectronPluginHostCapabilities(app.getPath("userData"));
     let devPluginWatcher: ReturnType<typeof startDevPluginWatcher> | undefined;
     const pluginService = initializePluginService(app.getPath("userData"), defaultPluginPetApi, app.getVersion(), new ElectronPluginJsHost(), writePluginRuntimeLog, process.env.OPENPETS_DISABLE_PLUGIN_CATALOG === "1" || devPluginMode, resolveBundledOfficialPluginRoots(), !devPluginMode, pluginCapabilities, undefined, (sourcePath) => devPluginWatcher?.addPaths([sourcePath]), (sourcePath) => devPluginWatcher?.removePath(sourcePath));
+    const teamsApiClient = new TeamApiClient({ production: app.isPackaged });
     teamService = initializeTeamService({
       userDataPath: app.getPath("userData"),
-      apiClient: new TeamApiClient({ production: app.isPackaged }),
+      apiClient: teamsApiClient,
       pluginService,
+      log: (level, message, fields) =>
+        level === "error"
+          ? logError("teams", message, fields)
+          : level === "warn"
+            ? warn("teams", message, fields)
+            : info("teams", message, fields),
+    });
+    managerCheckInService = initializeManagerCheckInService({
+      teamStateStore: teamService.stateStore,
+      credentialStore: teamService.credentialStore,
+      apiClient: teamsApiClient,
+      stateOptions: { userDataPath: app.getPath("userData") },
       log: (level, message, fields) =>
         level === "error"
           ? logError("teams", message, fields)
@@ -207,6 +224,7 @@ if (!gotSingleInstanceLock) {
     });
     powerMonitor.on("resume", () => {
       void teamService?.syncNow().catch(() => undefined);
+      void managerCheckInService?.syncNow().catch(() => undefined);
     });
     const startupTeamLink = findTeamEnrollmentLink(process.argv);
     if (startupTeamLink) {
@@ -236,6 +254,7 @@ if (!gotSingleInstanceLock) {
       const service = pluginService;
       await service.start();
       await teamService?.start();
+      await managerCheckInService?.start();
       const assistant = startPetAssistantHost(service, pluginCapabilities.secretsStore, {
         // App state is host-owned and synchronous; the service snapshots this
         // profile before each turn.
