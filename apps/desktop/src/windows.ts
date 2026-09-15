@@ -38,6 +38,7 @@ import { validateRemoteScopeList, type RemoteControlScope } from "./remote-contr
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { getTeamService } from "./team-service.js";
 import { getManagerCheckInService } from "./manager-check-in-service.js";
+import { managerCheckInFeelingCodes } from "./team-api-client.js";
 import {
   buildProviderControlCenterSnapshot,
   createProviderProfile,
@@ -477,7 +478,9 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:manager-check-ins-history", async (event, cursor: unknown) => {
     assertAllowedSender(event, ["control-center"]);
-    if (cursor !== undefined && (typeof cursor !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(cursor))) throw new Error("Invalid manager check-in history cursor.");
+    if (!isValidManagerCheckInHistoryCursor(cursor)) {
+      throw new Error("Invalid manager check-in history cursor.");
+    }
     return getManagerCheckInService().getHistory(cursor);
   });
   ipcMain.handle("openpets:manager-check-ins-submit", async (event, input: unknown) => {
@@ -486,7 +489,9 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:manager-check-ins-set-scheduled-offers-paused", async (event, paused: unknown) => {
     assertAllowedSender(event, ["control-center"]);
-    if (typeof paused !== "boolean") throw new Error("Invalid scheduled offers pause request.");
+    if (typeof paused !== "boolean") {
+      throw new Error("Invalid scheduled offers pause request.");
+    }
     return getManagerCheckInService().setScheduledOffersPaused(paused);
   });
 
@@ -1124,24 +1129,50 @@ function validateManagerCheckInSubmitInput(value: unknown): {
   readonly note?: string | null;
   readonly settingsRevision: number;
 } {
-  if (!isPlainObject(value) || Object.keys(value).some((key) => !["feelingCode", "note", "settingsRevision"].includes(key))) {
+  if (!isPlainObject(value)) {
     throw new Error("Invalid manager check-in submission request.");
   }
+  if (Object.keys(value).some((key) => !["feelingCode", "note", "settingsRevision"].includes(key))) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+
   if (
     typeof value.feelingCode !== "string"
-    || !["good", "steady", "stretched", "struggling", "need_support"].includes(value.feelingCode)
-    || (value.note !== undefined && value.note !== null && typeof value.note !== "string")
-    || (typeof value.note === "string" && value.note.length > 1000)
-    || typeof value.settingsRevision !== "number"
-    || !Number.isSafeInteger(value.settingsRevision)
-    || value.settingsRevision < 0
-  ) throw new Error("Invalid manager check-in submission request.");
+    || !managerCheckInFeelingCodes.includes(value.feelingCode as typeof managerCheckInFeelingCodes[number])
+  ) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (value.note !== undefined && value.note !== null && typeof value.note !== "string") {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (typeof value.note === "string" && value.note.length > 1000) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+  if (typeof value.settingsRevision !== "number" || !Number.isSafeInteger(value.settingsRevision) || value.settingsRevision < 0) {
+    throw new Error("Invalid manager check-in submission request.");
+  }
+
   const settingsRevision = value.settingsRevision as number;
-  return {
+  const result: {
+    readonly feelingCode: string;
+    readonly note?: string | null;
+    readonly settingsRevision: number;
+  } = {
     feelingCode: value.feelingCode,
-    ...(value.note !== undefined ? { note: value.note as string | null } : {}),
     settingsRevision,
   };
+  if (value.note !== undefined) {
+    return {
+      ...result,
+      note: value.note as string | null,
+    };
+  }
+  return result;
+}
+
+function isValidManagerCheckInHistoryCursor(value: unknown): boolean {
+  return value === undefined
+    || (typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value));
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

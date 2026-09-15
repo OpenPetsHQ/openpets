@@ -9,6 +9,7 @@ import {
   TeamApiError,
   type ManagerCheckInSettings,
   type ManagerCheckInSubmission,
+  type ManagerCheckInSyncResponse,
 } from "../src/team-api-client.js";
 import { ManagerCheckInService } from "../src/manager-check-in-service.js";
 import { ManagerCheckInStateStore } from "../src/manager-check-in-state.js";
@@ -22,10 +23,20 @@ const settings: ManagerCheckInSettings = {
   introduction: "This is voluntary.",
   acknowledgement: "Thanks.",
   notePlaceholder: "Add a note",
-  labels: { good: "Good", steady: "Steady", stretched: "Stretched", struggling: "Struggling", need_support: "Need support" },
+  labels: {
+    good: "Good",
+    steady: "Steady",
+    stretched: "Stretched",
+    struggling: "Struggling",
+    need_support: "Need support",
+  },
 };
 
-function createSubmission(clientGeneratedId: string, revision = settings.revision, id = "submission-1"): ManagerCheckInSubmission {
+function createSubmission(
+  clientGeneratedId: string,
+  revision = settings.revision,
+  id = "submission-1",
+): ManagerCheckInSubmission {
   return {
     id,
     clientGeneratedId,
@@ -39,13 +50,38 @@ function createSubmission(clientGeneratedId: string, revision = settings.revisio
       acknowledgement: settings.acknowledgement,
       notePlaceholder: settings.notePlaceholder,
       labels: settings.labels,
-      visibilityNotice: { version: 1, text: "Submitted check-ins are visible to your organization's Teams dashboard." },
+      visibilityNotice: {
+        version: 1,
+        text: "Submitted check-ins are visible to your organization's Teams dashboard.",
+      },
     },
   };
 }
 
 function createCredentialStore(): SecureCredentialStore {
-  return { load: () => "credential", save: () => undefined, clear: () => undefined };
+  return {
+    load: () => "credential",
+    save: () => undefined,
+    clear: () => undefined,
+  };
+}
+
+function createSyncResponse(
+  overrides: Partial<ManagerCheckInSyncResponse> = {},
+): ManagerCheckInSyncResponse {
+  return {
+    organization: { id: "org-1", name: "Acme" },
+    visibilityNotice: {
+      version: 1,
+      text: "Submitted check-ins are visible to your organization's Teams dashboard.",
+    },
+    employee: { id: "employee-1", displayName: "Alice" },
+    settings,
+    scheduledOffersPaused: false,
+    submissions: [],
+    nextCursor: null,
+    ...overrides,
+  };
 }
 
 function createTeamState() {
@@ -65,7 +101,7 @@ test("Manager Check-in service retries a pending submission with the same idempo
   try {
     let submitCalls = 0;
     const api = {
-      getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null }),
+      getManagerCheckInSync: async () => createSyncResponse(),
       submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number }) => {
         submitCalls += 1;
         if (submitCalls === 1) throw new Error("response connection lost");
@@ -100,7 +136,7 @@ test("an abort after dispatch retains the client ID for the next startup retry",
     let submitCalls = 0;
     let firstClientId = "";
     const api = {
-      getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null }),
+      getManagerCheckInSync: async () => createSyncResponse(),
       submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }, signal: AbortSignal) => {
         submitCalls += 1;
         if (submitCalls === 1) {
@@ -135,7 +171,7 @@ test("malformed and oversized successful responses retain the original client ID
   try {
     let submissionCalls = 0;
     const sentClientIds: string[] = [];
-    const syncBody = JSON.stringify({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null });
+    const syncBody = JSON.stringify(createSyncResponse());
     const client = new TeamApiClient({ baseUrl: "https://teams.example.test", fetchImpl: async (url, init) => {
       const path = new URL(String(url)).pathname;
       if (path.endsWith("/sync")) return new Response(syncBody, { status: 200 });
@@ -163,9 +199,17 @@ test("Manager Check-in scheduling is local-week based and pause suppresses only 
   let now = new Date("2026-09-14T12:00:00.000Z");
   let paused = false;
   const api = {
-    getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: paused, submissions: [], nextCursor: null }),
-    submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number }) => createSubmission(input.clientGeneratedId),
-    setScheduledOffersPaused: async (_credential: string, next: boolean) => { paused = next; return next; },
+    getManagerCheckInSync: async () => createSyncResponse({
+      scheduledOffersPaused: paused,
+    }),
+    submitManagerCheckIn: async (
+      _credential: string,
+      input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number },
+    ) => createSubmission(input.clientGeneratedId),
+    setScheduledOffersPaused: async (_credential: string, next: boolean) => {
+      paused = next;
+      return next;
+    },
   };
   const service = new ManagerCheckInService({
     teamStateStore: { snapshot: () => createTeamState() },
@@ -197,7 +241,7 @@ test("weekly mascot offer is presented once per local week and not repeated by r
     const api = {
       getManagerCheckInSync: async () => {
         syncCalls += 1;
-        return { organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null };
+        return createSyncResponse();
       },
       submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => createSubmission(input.clientGeneratedId),
       setScheduledOffersPaused: async () => false,
@@ -208,7 +252,10 @@ test("weekly mascot offer is presented once per local week and not repeated by r
       apiClient: api,
       stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
       now: () => now,
-      offerWeeklyCheckIn: (message) => { messages.push(message); return { shown: true }; },
+      offerWeeklyCheckIn: (message) => {
+        messages.push(message);
+        return { shown: true };
+      },
     });
 
     await service.start();
@@ -233,8 +280,12 @@ test("paused and manually completed weeks suppress the mascot offer", async () =
     let paused = true;
     const messages: string[] = [];
     const api = {
-      getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: paused, submissions: [], nextCursor: null }),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => createSubmission(input.clientGeneratedId),
+      getManagerCheckInSync: async () => createSyncResponse({
+        scheduledOffersPaused: paused,
+      }),
+      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => (
+        createSubmission(input.clientGeneratedId)
+      ),
       setScheduledOffersPaused: async () => paused,
     };
     const service = new ManagerCheckInService({
@@ -243,7 +294,10 @@ test("paused and manually completed weeks suppress the mascot offer", async () =
       apiClient: api,
       stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
       now: () => now,
-      offerWeeklyCheckIn: (message) => { messages.push(message); return { shown: true }; },
+      offerWeeklyCheckIn: (message) => {
+        messages.push(message);
+        return { shown: true };
+      },
     });
 
     await service.start();
@@ -270,10 +324,16 @@ test("mascot offers use only local state and do not create server telemetry", as
     const api = {
       getManagerCheckInSync: async () => {
         syncCalls += 1;
-        return { organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null };
+        return createSyncResponse();
       },
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => { submitCalls += 1; return createSubmission(input.clientGeneratedId); },
-      setScheduledOffersPaused: async () => { pauseCalls += 1; return false; },
+      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
+        submitCalls += 1;
+        return createSubmission(input.clientGeneratedId);
+      },
+      setScheduledOffersPaused: async () => {
+        pauseCalls += 1;
+        return false;
+      },
     };
     const service = new ManagerCheckInService({
       teamStateStore: { snapshot: () => createTeamState() },
@@ -310,16 +370,102 @@ test("Manager Check-in local state contains no app-open or non-response telemetr
   }
 });
 
+test("persisted empty submission notes survive reload without losing pending retry state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-empty-note-test-"));
+  try {
+    const statePath = join(root, "state.json");
+    const store = new ManagerCheckInStateStore({ statePath });
+    const emptyNoteSubmission = {
+      ...createSubmission("empty-note"),
+      note: "",
+    };
+
+    store.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-1",
+      settings,
+      submissions: [emptyNoteSubmission],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
+    store.setPendingSubmission({
+      clientGeneratedId: "pending-retry",
+      feelingCode: "steady",
+      note: null,
+      settingsRevision: settings.revision,
+    });
+
+    const reloaded = new ManagerCheckInStateStore({ statePath });
+    const snapshot = reloaded.snapshot();
+    assert.equal(snapshot?.submissions[0]?.note, "");
+    assert.equal(snapshot?.pendingSubmission?.clientGeneratedId, "pending-retry");
+
+    let retriedClientId = "";
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => createTeamState() },
+      credentialStore: createCredentialStore(),
+      apiClient: {
+        getManagerCheckInSync: async () => createSyncResponse({
+          submissions: [emptyNoteSubmission],
+        }),
+        submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
+          retriedClientId = input.clientGeneratedId;
+          return createSubmission(input.clientGeneratedId);
+        },
+        setScheduledOffersPaused: async () => false,
+      },
+      stateStore: reloaded,
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
+    await service.start();
+    assert.equal(retriedClientId, "pending-retry");
+    assert.equal(reloaded.snapshot()?.pendingSubmission, undefined);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("credential-unavailable snapshots hide cached data but preserve pending work for matching sync", async () => {
   const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-credential-test-"));
   try {
     const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
     stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({ organizationId: "org-1", deviceId: "device-1", employeeIdentityId: "employee-1", settings, submissions: [createSubmission("cached")], scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
-    stateStore.setPendingSubmission({ clientGeneratedId: "pending", feelingCode: "steady", note: null, settingsRevision: 3 });
+    stateStore.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-1",
+      settings,
+      submissions: [createSubmission("cached")],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
+    stateStore.setPendingSubmission({
+      clientGeneratedId: "pending",
+      feelingCode: "steady",
+      note: null,
+      settingsRevision: 3,
+    });
     let credential: string | null = null;
     let retriedClientId = "";
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => createTeamState() }, credentialStore: { load: () => credential, save: () => undefined, clear: () => undefined }, apiClient: { getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null }), submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => { retriedClientId = input.clientGeneratedId; return createSubmission(input.clientGeneratedId); }, setScheduledOffersPaused: async () => false }, stateStore });
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => createTeamState() },
+      credentialStore: {
+        load: () => credential,
+        save: () => undefined,
+        clear: () => undefined,
+      },
+      apiClient: {
+        getManagerCheckInSync: async () => createSyncResponse(),
+        submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
+          retriedClientId = input.clientGeneratedId;
+          return createSubmission(input.clientGeneratedId);
+        },
+        setScheduledOffersPaused: async () => false,
+      },
+      stateStore,
+    });
     const snapshot = service.getSnapshot();
     assert.equal(snapshot.availability, "unavailable");
     assert.equal(snapshot.settings, null);
@@ -341,13 +487,46 @@ test("changed device before authoritative sync cannot reuse an old pending clien
   try {
     const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
     stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({ organizationId: "org-1", deviceId: "device-old", employeeIdentityId: "employee-1", settings, submissions: [], scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
-    stateStore.setPendingSubmission({ clientGeneratedId: "old-pending", feelingCode: "steady", note: null, settingsRevision: 3 });
+    stateStore.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-old",
+      employeeIdentityId: "employee-1",
+      settings,
+      submissions: [],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
+    stateStore.setPendingSubmission({
+      clientGeneratedId: "old-pending",
+      feelingCode: "steady",
+      note: null,
+      settingsRevision: 3,
+    });
     let sentClientId = "";
-    const api = { getManagerCheckInSync: async () => { throw new TypeError("sync unavailable"); }, submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => { sentClientId = input.clientGeneratedId; return createSubmission(input.clientGeneratedId); }, setScheduledOffersPaused: async () => false };
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => ({ ...createTeamState(), deviceId: "device-new" }) }, credentialStore: createCredentialStore(), apiClient: api, stateStore, now: () => new Date("2026-09-14T12:00:00.000Z") });
+    const api = {
+      getManagerCheckInSync: async () => {
+        throw new TypeError("sync unavailable");
+      },
+      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
+        sentClientId = input.clientGeneratedId;
+        return createSubmission(input.clientGeneratedId);
+      },
+      setScheduledOffersPaused: async () => false,
+    };
+    const service = new ManagerCheckInService({
+      teamStateStore: {
+        snapshot: () => ({ ...createTeamState(), deviceId: "device-new" }),
+      },
+      credentialStore: createCredentialStore(),
+      apiClient: api,
+      stateStore,
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
     await service.start();
-    await assert.rejects(() => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }), /binding is unavailable/);
+    await assert.rejects(
+      () => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }),
+      /binding is unavailable/,
+    );
     assert.equal(sentClientId, "");
     assert.equal(stateStore.snapshot()?.pendingSubmission, undefined);
     await service.stop();
@@ -362,7 +541,9 @@ test("stale revision conflicts clear pending input, refresh settings, and surfac
     let revision = 3;
     let submissions = 0;
     const api = {
-      getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings: { ...settings, revision }, scheduledOffersPaused: false, submissions: [], nextCursor: null }),
+      getManagerCheckInSync: async () => createSyncResponse({
+        settings: { ...settings, revision },
+      }),
       submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number }) => {
         submissions += 1;
         if (submissions === 1) {
@@ -373,9 +554,18 @@ test("stale revision conflicts clear pending input, refresh settings, and surfac
       },
       setScheduledOffersPaused: async () => false,
     };
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => createTeamState() }, credentialStore: createCredentialStore(), apiClient: api, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00.000Z") });
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => createTeamState() },
+      credentialStore: createCredentialStore(),
+      apiClient: api,
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
     await service.start();
-    await assert.rejects(() => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }), /HTTP 409/);
+    await assert.rejects(
+      () => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }),
+      /HTTP 409/,
+    );
     assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
     assert.equal(service.stateStore.snapshot()?.settings?.revision, 4);
     await service.submit({ feelingCode: "steady", note: null, settingsRevision: 4 });
@@ -391,21 +581,61 @@ test("cached projections stay hidden across organization and employee binding ch
   try {
     const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
     stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({ organizationId: "org-1", deviceId: "device-1", employeeIdentityId: "employee-old", settings, submissions: [createSubmission("old")], scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
+    stateStore.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-old",
+      settings,
+      submissions: [createSubmission("old")],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
     const api = {
-      getManagerCheckInSync: async () => ({ organization: { id: "org-other", name: "Other" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-new", displayName: "New" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null }),
+      getManagerCheckInSync: async () => createSyncResponse({
+        organization: { id: "org-other", name: "Other" },
+        employee: { id: "employee-new", displayName: "New" },
+      }),
       submitManagerCheckIn: async () => createSubmission("new"),
       setScheduledOffersPaused: async () => false,
     };
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }) }, credentialStore: createCredentialStore(), apiClient: api, stateStore, now: () => new Date("2026-09-14T12:00:00.000Z") });
+    const service = new ManagerCheckInService({
+      teamStateStore: {
+        snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }),
+      },
+      credentialStore: createCredentialStore(),
+      apiClient: api,
+      stateStore,
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
     await service.start();
     assert.deepEqual(service.getSnapshot().submissions, []);
     assert.equal(stateStore.snapshot()?.submissions.length, 0);
     await service.stop();
 
-    stateStore.replaceFromSync({ organizationId: "org-1", deviceId: "device-1", employeeIdentityId: "employee-old", settings, submissions: [createSubmission("old-again")], scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
-    const changedIdentityApi = { ...api, getManagerCheckInSync: async () => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-new", displayName: "New" }, settings, scheduledOffersPaused: false, submissions: [], nextCursor: null }) };
-    const changed = new ManagerCheckInService({ teamStateStore: { snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }) }, credentialStore: createCredentialStore(), apiClient: changedIdentityApi, stateStore, now: () => new Date("2026-09-14T12:00:00.000Z") });
+    stateStore.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-old",
+      settings,
+      submissions: [createSubmission("old-again")],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
+    const changedIdentityApi = {
+      ...api,
+      getManagerCheckInSync: async () => createSyncResponse({
+        employee: { id: "employee-new", displayName: "New" },
+      }),
+    };
+    const changed = new ManagerCheckInService({
+      teamStateStore: {
+        snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }),
+      },
+      credentialStore: createCredentialStore(),
+      apiClient: changedIdentityApi,
+      stateStore,
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
     await changed.start();
     assert.deepEqual(changed.getSnapshot().submissions, []);
     assert.equal(stateStore.snapshot()?.employeeIdentityId, "employee-new");
@@ -418,9 +648,41 @@ test("cached projections stay hidden across organization and employee binding ch
 test("cursor history pages beyond the bounded 200-entry cache without exposing other employees", async () => {
   const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-history-test-"));
   try {
-    const makePage = (start: number, count: number, nextCursor: string | null) => ({ organization: { id: "org-1", name: "Acme" }, visibilityNotice: { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." }, employee: { id: "employee-1", displayName: "Alice" }, settings, scheduledOffersPaused: false, submissions: Array.from({ length: count }, (_, offset) => createSubmission(`client-${start + offset}`, 3, `submission-${start + offset}`)), nextCursor });
-    const api = { getManagerCheckInSync: async (_credential: string, cursor?: string) => cursor === "cursor-2" ? makePage(200, 1, null) : cursor === "cursor-1" ? makePage(100, 100, "cursor-2") : makePage(0, 100, "cursor-1"), submitManagerCheckIn: async () => createSubmission("unused"), setScheduledOffersPaused: async () => false };
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => createTeamState() }, credentialStore: createCredentialStore(), apiClient: api, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00.000Z") });
+    const makePage = (
+      start: number,
+      count: number,
+      nextCursor: string | null,
+    ): ManagerCheckInSyncResponse => createSyncResponse({
+      submissions: Array.from(
+        { length: count },
+        (_, offset) => createSubmission(
+          `client-${start + offset}`,
+          3,
+          `submission-${start + offset}`,
+        ),
+      ),
+      nextCursor,
+    });
+    const api = {
+      getManagerCheckInSync: async (_credential: string, cursor?: string) => {
+        if (cursor === "cursor-2") {
+          return makePage(200, 1, null);
+        }
+        if (cursor === "cursor-1") {
+          return makePage(100, 100, "cursor-2");
+        }
+        return makePage(0, 100, "cursor-1");
+      },
+      submitManagerCheckIn: async () => createSubmission("unused"),
+      setScheduledOffersPaused: async () => false,
+    };
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => createTeamState() },
+      credentialStore: createCredentialStore(),
+      apiClient: api,
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+    });
     await service.start();
     assert.equal(service.stateStore.snapshot()?.submissions.length, 200);
     const page = await service.getHistory("cursor-2");
@@ -439,11 +701,41 @@ test("full persisted manager state uses UTF-8 bytes and remains recoverable afte
     const statePath = join(root, "state.json");
     const store = new ManagerCheckInStateStore({ statePath });
     store.ensureOrganization("org-1");
-    store.replaceFromSync({ organizationId: "org-1", deviceId: "device-1", employeeIdentityId: "employee-1", settings, submissions: [], scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
-    store.setPendingSubmission({ clientGeneratedId: "pending", feelingCode: "steady", note: null, settingsRevision: settings.revision });
+    store.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-1",
+      settings,
+      submissions: [],
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
+    store.setPendingSubmission({
+      clientGeneratedId: "pending",
+      feelingCode: "steady",
+      note: null,
+      settingsRevision: settings.revision,
+    });
     const multibyte = createSubmission("multibyte", 3, "multibyte");
-    const oversized = Array.from({ length: 200 }, (_, index) => ({ ...multibyte, id: `multibyte-${index}`, clientGeneratedId: `multibyte-${index}`, note: "😀".repeat(500), promptSnapshot: { ...multibyte.promptSnapshot, title: "漢".repeat(200) } }));
-    store.replaceFromSync({ organizationId: "org-1", deviceId: "device-1", employeeIdentityId: "employee-1", settings, submissions: oversized, scheduledOffersPaused: false, syncedAt: "2026-09-14T00:00:00.000Z" });
+    const oversized = Array.from({ length: 200 }, (_, index) => ({
+      ...multibyte,
+      id: `multibyte-${index}`,
+      clientGeneratedId: `multibyte-${index}`,
+      note: "😀".repeat(500),
+      promptSnapshot: {
+        ...multibyte.promptSnapshot,
+        title: "漢".repeat(200),
+      },
+    }));
+    store.replaceFromSync({
+      organizationId: "org-1",
+      deviceId: "device-1",
+      employeeIdentityId: "employee-1",
+      settings,
+      submissions: oversized,
+      scheduledOffersPaused: false,
+      syncedAt: "2026-09-14T00:00:00.000Z",
+    });
     const raw = await readFile(statePath);
     assert.ok(raw.byteLength <= 512 * 1024);
     assert.equal(store.snapshot()?.pendingSubmission?.clientGeneratedId, "pending");

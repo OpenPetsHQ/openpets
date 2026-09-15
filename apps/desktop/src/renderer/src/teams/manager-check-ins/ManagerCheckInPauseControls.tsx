@@ -1,5 +1,6 @@
 import type React from "react";
-import { PauseIcon, PlayIcon, InfoIcon } from "../teams-icons.js";
+import { useI18n } from "../../i18n.js";
+import { InfoIcon, PauseIcon, PlayIcon } from "../teams-icons.js";
 
 export type ManagerCheckInPauseControlsProps = {
   readonly isPaused: boolean;
@@ -12,6 +13,12 @@ export function ManagerCheckInPauseControls({
   isBusy,
   onTogglePause,
 }: ManagerCheckInPauseControlsProps) {
+  const { t } = useI18n();
+
+  const handleToggleClick = () => {
+    onTogglePause(!isPaused);
+  };
+
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 rounded-2xl border border-blue-100/70 bg-white/60 p-4 shadow-sm dark:bg-slate-900/40 dark:border-slate-800">
       <div className="flex items-start gap-3">
@@ -20,38 +27,31 @@ export function ManagerCheckInPauseControls({
         </div>
         <div className="flex-1 min-w-0 text-xs leading-relaxed text-slatecopy dark:text-slate-300">
           <strong className="block font-bold text-navy dark:text-slate-100 mb-0.5">
-            Scheduled Offer Cadence
+            {t("teams.checkIn.pause.title")}
           </strong>
-          {isPaused ? (
-            <span>
-              Weekly offers are currently <strong>paused</strong> on this device. You can still
-              use <em>Check in now</em> whenever you want. Pausing creates no report or signal in
-              your organization’s Teams dashboard.
-            </span>
-          ) : (
-            <span>
-              The mascot offers your organization’s weekly check-in when OpenPets is open on your
-              team’s designated day. Pausing suppresses only the weekly prompt.
-            </span>
-          )}
+          <p className="m-0 leading-relaxed">
+            {isPaused
+              ? t("teams.checkIn.pause.pausedDescription")
+              : t("teams.checkIn.pause.activeDescription")}
+          </p>
         </div>
       </div>
 
       <button
         type="button"
         disabled={isBusy}
-        onClick={() => onTogglePause(!isPaused)}
+        onClick={handleToggleClick}
         className="btn btn-compact btn-secondary text-xs shrink-0"
       >
         {isPaused ? (
           <>
             <PlayIcon className="w-3.5 h-3.5 mr-1" />
-            Resume Weekly Offers
+            <span>{t("teams.checkIn.pause.resume")}</span>
           </>
         ) : (
           <>
             <PauseIcon className="w-3.5 h-3.5 mr-1" />
-            Pause Weekly Offers
+            <span>{t("teams.checkIn.pause.pause")}</span>
           </>
         )}
       </button>

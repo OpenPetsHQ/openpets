@@ -8,7 +8,13 @@ const maxResponseBytes = 512 * 1024;
 const maxArtifactBytes = 50 * 1024 * 1024;
 const enrollmentRequestWindowMs = 15 * 60 * 1000;
 const enrollmentPollIntervalMs = 1_000;
-export const managerCheckInFeelingCodes = ["good", "steady", "stretched", "struggling", "need_support"] as const;
+export const managerCheckInFeelingCodes = [
+  "good",
+  "steady",
+  "stretched",
+  "struggling",
+  "need_support",
+] as const;
 const managerCheckInVisibilityNotice = "Submitted check-ins are visible to your organization's Teams dashboard.";
 
 export type ManagerCheckInFeelingCode = typeof managerCheckInFeelingCodes[number];
@@ -269,7 +275,7 @@ export class TeamApiClient {
     limit = 100,
     signal?: AbortSignal,
   ): Promise<ManagerCheckInSyncResponse> {
-    if (cursor !== undefined && (!/^[A-Za-z0-9_-]{1,256}$/.test(cursor))) {
+    if (cursor !== undefined && !/^[A-Za-z0-9_-]{1,256}$/.test(cursor)) {
       throw new Error("Manager check-in cursor is invalid.");
     }
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
@@ -310,7 +316,9 @@ export class TeamApiClient {
     paused: boolean,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    if (typeof paused !== "boolean") throw new Error("Scheduled offers pause is invalid.");
+    if (typeof paused !== "boolean") {
+      throw new Error("Scheduled offers pause is invalid.");
+    }
     const response = await this.request(
       "/v1/device/manager-check-ins/scheduled-offers",
       { credential, method: "PATCH", body: { paused }, signal },
@@ -620,41 +628,76 @@ function validateManagerCheckInSubmissionInput(input: {
   readonly note?: string | null;
   readonly settingsRevision: number;
 }): void {
-  if (
-    !isRecord(input)
-    || typeof input.clientGeneratedId !== "string"
-    || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.clientGeneratedId)
-    || typeof input.feelingCode !== "string"
-    || !managerCheckInFeelingCodes.includes(input.feelingCode as ManagerCheckInFeelingCode)
-    || (input.note !== undefined && input.note !== null && typeof input.note !== "string")
-    || (typeof input.note === "string" && input.note.length > 1000)
-    || !Number.isSafeInteger(input.settingsRevision)
-    || input.settingsRevision < 0
-  ) throw new Error("Manager check-in submission is invalid.");
+  if (!isRecord(input)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (typeof input.clientGeneratedId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.clientGeneratedId)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (typeof input.feelingCode !== "string" || !managerCheckInFeelingCodes.includes(input.feelingCode as ManagerCheckInFeelingCode)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (input.note !== undefined && !isValidManagerCheckInNote(input.note)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (!Number.isSafeInteger(input.settingsRevision) || input.settingsRevision < 0) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
 }
 
 function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse {
-  if (!isRecord(value)) throw new Error("Manager check-in sync response is invalid.");
-  if (
-    !onlyKeys(value, ["organization", "visibilityNotice", "employee", "settings", "scheduledOffersPaused", "submissions", "nextCursor"])
-    || !isRecord(value.organization)
-    || !onlyKeys(value.organization, ["id", "name"])
-    || !boundedString(value.organization.id, 160)
-    || !boundedString(value.organization.name, 200)
-    || !isRecord(value.visibilityNotice)
-    || !onlyKeys(value.visibilityNotice, ["version", "text"])
-    || value.visibilityNotice.version !== 1
-    || value.visibilityNotice.text !== managerCheckInVisibilityNotice
-    || (value.employee !== null && (!isRecord(value.employee) || !onlyKeys(value.employee, ["id", "displayName"]) || !boundedString(value.employee.id, 160) || !boundedString(value.employee.displayName, 120)))
-    || typeof value.scheduledOffersPaused !== "boolean"
-    || !Array.isArray(value.submissions)
-    || value.submissions.length > 100
-    || (value.nextCursor !== null && (typeof value.nextCursor !== "string" || value.nextCursor.length > 256))
-  ) throw new Error("Manager check-in sync response is invalid.");
+  if (!isRecord(value)) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!onlyKeys(value, [
+    "organization",
+    "visibilityNotice",
+    "employee",
+    "settings",
+    "scheduledOffersPaused",
+    "submissions",
+    "nextCursor",
+  ])) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!isValidManagerCheckInOrganization(value.organization)) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!isValidManagerCheckInVisibilityNotice(value.visibilityNotice)) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!isValidManagerCheckInEmployee(value.employee)) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (typeof value.scheduledOffersPaused !== "boolean") {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!Array.isArray(value.submissions) || value.submissions.length > 100) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+  if (!isValidManagerCheckInCursor(value.nextCursor)) {
+    throw new Error("Manager check-in sync response is invalid.");
+  }
+
+  const organization = value.organization as Record<string, unknown>;
+  const visibilityNotice = value.visibilityNotice as Record<string, unknown>;
+  const employee = value.employee as Record<string, unknown> | null;
+
   return {
-    organization: { id: value.organization.id as string, name: value.organization.name as string },
-    visibilityNotice: { version: 1, text: value.visibilityNotice.text as string },
-    employee: value.employee === null ? null : { id: value.employee.id as string, displayName: value.employee.displayName as string },
+    organization: {
+      id: organization.id as string,
+      name: organization.name as string,
+    },
+    visibilityNotice: {
+      version: 1,
+      text: visibilityNotice.text as string,
+    },
+    employee: value.employee === null
+      ? null
+      : {
+        id: employee?.id as string,
+        displayName: employee?.displayName as string,
+      },
     settings: validateManagerCheckInSettings(value.settings),
     scheduledOffersPaused: value.scheduledOffersPaused,
     submissions: value.submissions.map(validateManagerCheckInSubmission),
@@ -663,23 +706,42 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
 }
 
 function validateManagerCheckInSettings(value: unknown): ManagerCheckInSettings {
+  if (!isRecord(value)) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+  if (!onlyKeys(value, [
+    "revision",
+    "weeklyEnabled",
+    "weeklyDay",
+    "title",
+    "introduction",
+    "acknowledgement",
+    "notePlaceholder",
+    "labels",
+  ])) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+  if (typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 0) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+  if (typeof value.weeklyEnabled !== "boolean") {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+  if (typeof value.weeklyDay !== "number" || !Number.isInteger(value.weeklyDay) || value.weeklyDay < 0 || value.weeklyDay > 6) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
   if (
-    !isRecord(value)
-    || !onlyKeys(value, ["revision", "weeklyEnabled", "weeklyDay", "title", "introduction", "acknowledgement", "notePlaceholder", "labels"])
-    || typeof value.revision !== "number"
-    || !Number.isSafeInteger(value.revision)
-    || value.revision < 0
-    || typeof value.weeklyEnabled !== "boolean"
-    || typeof value.weeklyDay !== "number"
-    || !Number.isInteger(value.weeklyDay)
-    || value.weeklyDay < 0
-    || value.weeklyDay > 6
-    || !boundedString(value.title, 200)
+    !boundedString(value.title, 200)
     || !boundedString(value.introduction, 1000)
     || !boundedString(value.acknowledgement, 500)
     || !boundedString(value.notePlaceholder, 200)
-    || !validManagerCheckInLabels(value.labels)
-  ) throw new Error("Manager check-in settings response is invalid.");
+  ) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+  if (!validManagerCheckInLabels(value.labels)) {
+    throw new Error("Manager check-in settings response is invalid.");
+  }
+
   const settings = value as Record<string, unknown>;
   const labels = settings.labels as Record<string, unknown>;
   return {
@@ -690,25 +752,33 @@ function validateManagerCheckInSettings(value: unknown): ManagerCheckInSettings 
     introduction: settings.introduction as string,
     acknowledgement: settings.acknowledgement as string,
     notePlaceholder: settings.notePlaceholder as string,
-    labels: Object.fromEntries(managerCheckInFeelingCodes.map((code) => [code, labels[code] as string])) as ManagerCheckInSettings["labels"],
+    labels: createManagerCheckInLabels(labels),
   };
 }
 
 function validateManagerCheckInSubmission(value: unknown): ManagerCheckInSubmission {
-  if (!isRecord(value)) throw new Error("Manager check-in submission response is invalid.");
+  if (!isRecord(value)) {
+    throw new Error("Manager check-in submission response is invalid.");
+  }
   validateManagerCheckInSubmissionInput({
     clientGeneratedId: value.clientGeneratedId as string,
     feelingCode: value.feelingCode as ManagerCheckInFeelingCode,
     note: value.note as string | null,
     settingsRevision: value.settingsRevision as number,
   });
-  if (
-    !onlyKeys(value, ["id", "clientGeneratedId", "feelingCode", "note", "submittedAt", "settingsRevision", "promptSnapshot"])
-    || !boundedString(value.id, 160)
-    || !boundedString(value.submittedAt, 64)
-    || (value.note !== null && typeof value.note !== "string")
-    || !isRecord(value.promptSnapshot)
-  ) throw new Error("Manager check-in submission response is invalid.");
+  if (!onlyKeys(value, ["id", "clientGeneratedId", "feelingCode", "note", "submittedAt", "settingsRevision", "promptSnapshot"])) {
+    throw new Error("Manager check-in submission response is invalid.");
+  }
+  if (!boundedString(value.id, 160) || !boundedString(value.submittedAt, 64)) {
+    throw new Error("Manager check-in submission response is invalid.");
+  }
+  if (!isValidManagerCheckInNote(value.note)) {
+    throw new Error("Manager check-in submission response is invalid.");
+  }
+  if (!isRecord(value.promptSnapshot)) {
+    throw new Error("Manager check-in submission response is invalid.");
+  }
+
   const promptSnapshot = validatePromptSnapshot(value.promptSnapshot);
   const submission = value as Record<string, unknown>;
   return {
@@ -719,22 +789,31 @@ function validateManagerCheckInSubmission(value: unknown): ManagerCheckInSubmiss
     submittedAt: submission.submittedAt as string,
     settingsRevision: submission.settingsRevision as number,
     promptSnapshot,
-  } as ManagerCheckInSubmission;
+  };
 }
 
 function validatePromptSnapshot(value: unknown): ManagerCheckInPromptSnapshot {
+  if (!isRecord(value)) {
+    throw new Error("Manager check-in prompt snapshot is invalid.");
+  }
+  if (!onlyKeys(value, ["title", "introduction", "acknowledgement", "notePlaceholder", "labels", "visibilityNotice"])) {
+    throw new Error("Manager check-in prompt snapshot is invalid.");
+  }
   if (
-    !isRecord(value)
-    || !onlyKeys(value, ["title", "introduction", "acknowledgement", "notePlaceholder", "labels", "visibilityNotice"])
-    || !boundedString(value.title, 200)
+    !boundedString(value.title, 200)
     || !boundedString(value.introduction, 1000)
     || !boundedString(value.acknowledgement, 500)
     || !boundedString(value.notePlaceholder, 200)
-    || !validManagerCheckInLabels(value.labels)
-    || !isRecord(value.visibilityNotice)
-    || value.visibilityNotice.version !== 1
-    || value.visibilityNotice.text !== managerCheckInVisibilityNotice
-  ) throw new Error("Manager check-in prompt snapshot is invalid.");
+  ) {
+    throw new Error("Manager check-in prompt snapshot is invalid.");
+  }
+  if (!validManagerCheckInLabels(value.labels)) {
+    throw new Error("Manager check-in prompt snapshot is invalid.");
+  }
+  if (!isValidManagerCheckInVisibilityNotice(value.visibilityNotice)) {
+    throw new Error("Manager check-in prompt snapshot is invalid.");
+  }
+
   const snapshot = value as Record<string, unknown>;
   const labels = snapshot.labels as Record<string, unknown>;
   const notice = snapshot.visibilityNotice as Record<string, unknown>;
@@ -743,8 +822,11 @@ function validatePromptSnapshot(value: unknown): ManagerCheckInPromptSnapshot {
     introduction: snapshot.introduction as string,
     acknowledgement: snapshot.acknowledgement as string,
     notePlaceholder: snapshot.notePlaceholder as string,
-    labels: Object.fromEntries(managerCheckInFeelingCodes.map((code) => [code, labels[code] as string])) as ManagerCheckInPromptSnapshot["labels"],
-    visibilityNotice: { version: 1, text: notice.text as string },
+    labels: createManagerCheckInLabels(labels),
+    visibilityNotice: {
+      version: 1,
+      text: notice.text as string,
+    },
   };
 }
 
@@ -757,9 +839,55 @@ function boundedApiErrorCode(value: unknown): string | undefined {
 }
 
 function validManagerCheckInLabels(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (Object.keys(value).length !== managerCheckInFeelingCodes.length) {
+    return false;
+  }
+  return managerCheckInFeelingCodes.every((code) => boundedString(value[code], 80));
+}
+
+function isValidManagerCheckInNote(value: unknown): value is string | null {
+  return value === null
+    || (typeof value === "string" && value.length <= 1000);
+}
+
+function isValidManagerCheckInOrganization(value: unknown): value is Record<string, unknown> {
   return isRecord(value)
-    && Object.keys(value).length === managerCheckInFeelingCodes.length
-    && managerCheckInFeelingCodes.every((code) => boundedString(value[code], 80));
+    && onlyKeys(value, ["id", "name"])
+    && boundedString(value.id, 160)
+    && boundedString(value.name, 200);
+}
+
+function isValidManagerCheckInVisibilityNotice(value: unknown): value is Record<string, unknown> {
+  return isRecord(value)
+    && onlyKeys(value, ["version", "text"])
+    && value.version === 1
+    && value.text === managerCheckInVisibilityNotice;
+}
+
+function isValidManagerCheckInEmployee(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return isRecord(value)
+    && onlyKeys(value, ["id", "displayName"])
+    && boundedString(value.id, 160)
+    && boundedString(value.displayName, 120);
+}
+
+function isValidManagerCheckInCursor(value: unknown): boolean {
+  return value === null
+    || (typeof value === "string" && value.length <= 256);
+}
+
+function createManagerCheckInLabels(
+  labels: Record<string, unknown>,
+): Record<ManagerCheckInFeelingCode, string> {
+  return Object.fromEntries(
+    managerCheckInFeelingCodes.map((code) => [code, labels[code] as string]),
+  ) as Record<ManagerCheckInFeelingCode, string>;
 }
 
 function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

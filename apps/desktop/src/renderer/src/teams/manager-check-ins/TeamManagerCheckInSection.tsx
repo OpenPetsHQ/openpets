@@ -1,5 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "../../i18n.js";
 import {
   AlertCircleIcon,
   CheckCircleIcon,
@@ -32,6 +33,7 @@ function deduplicateSubmissions(
 ): readonly ManagerCheckInSubmission[] {
   const seen = new Set<string>();
   const result: ManagerCheckInSubmission[] = [];
+
   for (const item of submissions) {
     const key = item.id || item.clientGeneratedId;
     if (key && !seen.has(key)) {
@@ -39,10 +41,13 @@ function deduplicateSubmissions(
       result.push(item);
     }
   }
+
   return result;
 }
 
 export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProps) {
+  const { t } = useI18n();
+
   const [snapshot, setSnapshot] = useState<ManagerCheckInSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -55,7 +60,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
   // Scheduled offer dismissal keyed to active desktop-local weekly cycle
   const [dismissedCycleKey, setDismissedCycleKey] = useState<string | null>(null);
 
-  // Pagination state for history submissions
+  // Pagination state for historical submissions
   const [historicalSubmissions, setHistoricalSubmissions] = useState<
     readonly ManagerCheckInSubmission[]
   >([]);
@@ -84,11 +89,17 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
     }
   }, [snapshot?.dueScheduledOffer]);
 
+  // Auto-clear transient success messages
+  useEffect(() => {
+    if (!successMessage) return;
+    const timer = window.setTimeout(() => setSuccessMessage(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [successMessage]);
+
   // Helper to fetch page zero of history, reread authoritative snapshot, and atomically commit
   const fetchPageZero = useCallback(
     async (fallbackSubmissions: readonly ManagerCheckInSubmission[]) => {
       const reqId = ++historyRequestIdRef.current;
-      // When page zero supersedes load-more, clear pagination busy state for the latest generation
       setIsLoadingMore(false);
       setHistoryError("");
 
@@ -109,6 +120,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           if (freshSnapshot) {
             setSnapshot(freshSnapshot);
           }
+
           const rows = deduplicateSubmissions(page.submissions || []);
           setHistoricalSubmissions(rows);
           setNextCursor(page.nextCursor || null);
@@ -116,11 +128,12 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           return;
         } catch (err) {
           if (reqId !== historyRequestIdRef.current) return;
+
           // Retain fallback submissions if available, but clearly record visible retryable error
           setHistoricalSubmissions(deduplicateSubmissions(fallbackSubmissions || []));
           setNextCursor(null);
           setHistoryError(
-            err instanceof Error ? err.message : "Failed to load reflection history.",
+            err instanceof Error ? err.message : t("teams.checkIn.error.historyLoadFailed"),
           );
           return;
         }
@@ -130,7 +143,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
       setHistoricalSubmissions(rows);
       setNextCursor(null);
     },
-    [api],
+    [api, t],
   );
 
   // Stable callback for loading snapshot
@@ -144,13 +157,16 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
       if (!hasLoadedInitialSnapshotRef.current) {
         setLoading(true);
       }
-      if (isManualSync) setBusy(true);
+      if (isManualSync) {
+        setBusy(true);
+      }
       setErrorMessage("");
 
       try {
-        const next = isManualSync && api.syncManagerCheckIns
-          ? await api.syncManagerCheckIns()
-          : await api.getManagerCheckInsSnapshot();
+        const next =
+          isManualSync && api.syncManagerCheckIns
+            ? await api.syncManagerCheckIns()
+            : await api.getManagerCheckInsSnapshot();
 
         hasLoadedInitialSnapshotRef.current = true;
         setSnapshot(next);
@@ -173,34 +189,30 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
         }
       } catch (err) {
         setErrorMessage(
-          err instanceof Error ? err.message : "Failed to load check-ins.",
+          err instanceof Error ? err.message : t("teams.checkIn.error.failedToLoad"),
         );
       } finally {
         setLoading(false);
-        if (isManualSync) setBusy(false);
+        if (isManualSync) {
+          setBusy(false);
+        }
       }
     },
-    [api, fetchPageZero],
+    [api, fetchPageZero, t],
   );
 
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
 
-  // Auto-clear transient success messages
-  useEffect(() => {
-    if (!successMessage) return;
-    const timer = window.setTimeout(() => setSuccessMessage(""), 4000);
-    return () => window.clearTimeout(timer);
-  }, [successMessage]);
-
   const handleSubmitCheckIn = async (input: ManagerCheckInSubmitInput) => {
     if (!api.submitManagerCheckIn) {
-      throw new Error("Submit Check-in API is not available on this host.");
+      throw new Error(t("teams.checkIn.error.submitNotAvailable"));
     }
 
     setBusy(true);
     setErrorMessage("");
+
     try {
       const next = await api.submitManagerCheckIn(input);
       setSnapshot(next);
@@ -216,12 +228,12 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
 
       const ackText =
         next.settings?.acknowledgement ||
-        "Thank you for sharing. Your reflection is saved and visible in your timeline.";
+        t("teams.checkIn.acknowledgement.default");
       setAcknowledgementMessage(ackText);
-      setSuccessMessage("Reflection submitted successfully.");
+      setSuccessMessage(t("teams.checkIn.toast.submitted"));
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "Failed to submit reflection.",
+        err instanceof Error ? err.message : t("teams.checkIn.error.submitFailed"),
       );
       throw err;
     } finally {
@@ -231,23 +243,24 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
 
   const handleTogglePause = async (paused: boolean) => {
     if (!api.setManagerCheckInScheduledOffersPaused) {
-      setErrorMessage("Scheduled offers pause API is not available.");
+      setErrorMessage(t("teams.checkIn.error.pauseNotAvailable"));
       return;
     }
 
     setBusy(true);
     setErrorMessage("");
+
     try {
       const next = await api.setManagerCheckInScheduledOffersPaused(paused);
       setSnapshot(next);
       setSuccessMessage(
         paused
-          ? "Weekly scheduled offers paused on this device."
-          : "Weekly scheduled offers resumed.",
+          ? t("teams.checkIn.toast.paused")
+          : t("teams.checkIn.toast.resumed"),
       );
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "Failed to update scheduled offers preference.",
+        err instanceof Error ? err.message : t("teams.checkIn.error.pauseFailed"),
       );
     } finally {
       setBusy(false);
@@ -255,14 +268,19 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
   };
 
   const handleLoadMoreHistory = async () => {
-    if (!api.getManagerCheckInsHistory || !nextCursor || isLoadingMore) return;
+    if (!api.getManagerCheckInsHistory || !nextCursor || isLoadingMore) {
+      return;
+    }
 
     const reqId = ++historyRequestIdRef.current;
     setIsLoadingMore(true);
     setHistoryError("");
+
     try {
       const page: ManagerCheckInHistoryPage = await api.getManagerCheckInsHistory(nextCursor);
-      if (reqId !== historyRequestIdRef.current) return;
+      if (reqId !== historyRequestIdRef.current) {
+        return;
+      }
 
       setHistoricalSubmissions((prev) =>
         deduplicateSubmissions([...prev, ...(page.submissions || [])]),
@@ -271,7 +289,9 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
     } catch (err) {
       if (reqId === historyRequestIdRef.current) {
         setHistoryError(
-          err instanceof Error ? err.message : "Failed to load older reflections.",
+          err instanceof Error
+            ? err.message
+            : t("teams.checkIn.error.historyLoadOlderFailed"),
         );
       }
     } finally {
@@ -281,8 +301,29 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
     }
   };
 
-  const handleRetryPageZero = () => {
+  const handleRetryHistory = () => {
     void fetchPageZero(snapshot?.submissions || []);
+  };
+
+  const handleOpenForm = () => {
+    setIsFormOpen(true);
+    setAcknowledgementMessage("");
+  };
+
+  const handleCloseForm = () => {
+    setIsFormOpen(false);
+  };
+
+  const handleDismissToast = () => {
+    setSuccessMessage("");
+  };
+
+  const handleDismissAcknowledgement = () => {
+    setAcknowledgementMessage("");
+  };
+
+  const handleDismissError = () => {
+    setErrorMessage("");
   };
 
   // If the API method is not wired in this host environment
@@ -290,29 +331,38 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
     return null;
   }
 
-  // Loading skeleton
+  // Initial loading skeleton
   if (loading && !snapshot) {
     return (
       <section className="flex flex-col gap-3">
         <div className="flex min-h-28 items-center justify-center rounded-2xl border border-blue-100/70 bg-white/60 p-6 text-center text-xs text-slatecopy dark:bg-slate-900/40 dark:border-slate-800">
           <div className="flex items-center gap-2 font-semibold">
             <RefreshIcon className="w-4 h-4 animate-spin text-brand" />
-            <span>Loading Check-ins...</span>
+            <span>{t("teams.checkIn.loading")}</span>
           </div>
         </div>
       </section>
     );
   }
 
-  if (!snapshot) return null;
+  if (!snapshot) {
+    return null;
+  }
 
   // Unenrolled state
   if (snapshot.availability === "unenrolled") {
     return null;
   }
 
-  // Unavailable state (e.g. secure storage not ready or employee identity required)
+  // Unavailable state (e.g. secure storage not accessible or employee identity required)
   if (snapshot.availability === "unavailable") {
+    let unavailableExplanation = t("teams.checkIn.unavailable.generic");
+    if (snapshot.unavailableReason === "secure_storage_unavailable") {
+      unavailableExplanation = t("teams.checkIn.unavailable.secureStorage");
+    } else if (snapshot.unavailableReason === "employee_identity_required") {
+      unavailableExplanation = t("teams.checkIn.unavailable.employeeIdentityRequired");
+    }
+
     return (
       <section className="flex flex-col gap-3">
         <div className="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-4 shadow-sm dark:bg-amber-950/40 dark:border-amber-800/60 flex items-start gap-3.5">
@@ -321,13 +371,9 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           </div>
           <div className="flex-1 min-w-0 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
             <strong className="block text-sm font-bold text-amber-950 dark:text-amber-100 mb-0.5">
-              Check-ins Temporarily Unavailable
+              {t("teams.checkIn.unavailable.title")}
             </strong>
-            {snapshot.unavailableReason === "secure_storage_unavailable"
-              ? "Secure storage is not accessible on this device. Your reflections cannot be loaded or stored securely."
-              : snapshot.unavailableReason === "employee_identity_required"
-              ? "Employee identity enrollment is required to submit reflections to your organization’s Teams dashboard."
-              : "Check-ins are currently not available on this device."}
+            <p className="m-0">{unavailableExplanation}</p>
           </div>
         </div>
       </section>
@@ -348,15 +394,15 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
   if (!isServerConfigReady) {
     return (
       <section className="flex flex-col gap-4">
-        {/* Header */}
+        {/* Section Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="m-0 font-monoDisplay text-lg font-black text-navy dark:text-slate-100 flex items-center gap-2">
               <HeartHandshakeIcon className="w-5 h-5 text-brand" />
-              <span>Manager Check-ins</span>
+              <span>{t("teams.checkIn.title")}</span>
             </h3>
             <p className="m-0 mt-0.5 text-xs text-slatecopy dark:text-slate-300">
-              Optional, asynchronous reflections shared with your organization’s Teams dashboard.
+              {t("teams.checkIn.description")}
             </p>
           </div>
 
@@ -366,10 +412,10 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
               disabled={busy}
               onClick={() => void loadSnapshot(true)}
               className="btn btn-compact btn-secondary text-xs"
-              title="Sync check-ins snapshot"
+              title={t("teams.checkIn.action.syncTooltip")}
             >
               <RefreshIcon className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} />
-              <span>Sync Now</span>
+              <span>{t("teams.checkIn.action.syncNow")}</span>
             </button>
           </div>
         </div>
@@ -382,11 +428,9 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
             </div>
             <div className="flex-1 min-w-0 text-xs leading-relaxed text-slatecopy dark:text-slate-300">
               <strong className="block text-sm font-bold text-navy dark:text-slate-100 mb-0.5">
-                Check-in Settings Synchronizing
+                {t("teams.checkIn.syncing.title")}
               </strong>
-              <span>
-                Organization check-in configuration and visibility notice are currently synchronizing with your organization’s Teams dashboard. Check-in submission and scheduled offers will become active as soon as synchronization completes.
-              </span>
+              <p className="m-0">{t("teams.checkIn.syncing.body")}</p>
             </div>
           </div>
 
@@ -397,19 +441,19 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
             className="btn btn-compact btn-primary text-xs shrink-0"
           >
             <RefreshIcon className={`w-3.5 h-3.5 mr-1 ${busy ? "animate-spin" : ""}`} />
-            <span>Retry</span>
+            <span>{t("teams.checkIn.action.retry")}</span>
           </button>
         </div>
 
-        {/* Still render local historical timeline if available */}
+        {/* Local historical timeline (if available) */}
         {historicalSubmissions.length > 0 && (
           <div className="flex flex-col gap-2 pt-2">
             <div className="flex items-center justify-between">
               <span className="font-monoDisplay text-xs font-black uppercase tracking-wider text-slatecopy dark:text-slate-300">
-                Personal Reflection Timeline
+                {t("teams.checkIn.timeline.title")}
               </span>
               <span className="text-[11px] text-slatecopy/80 dark:text-slate-400">
-                Read-only & immutable
+                {t("teams.checkIn.timeline.subtitle")}
               </span>
             </div>
 
@@ -429,10 +473,12 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
   const visibilityNoticeText = snapshot.visibilityNotice!.text;
 
   const showScheduledBanner =
-    snapshot.dueScheduledOffer &&
+    Boolean(snapshot.dueScheduledOffer) &&
     !isOfferDismissed &&
     !snapshot.scheduledOffersPaused &&
     !isFormOpen;
+
+  const activeSyncError = errorMessage || snapshot.lastError;
 
   return (
     <section className="flex flex-col gap-4">
@@ -441,10 +487,10 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
         <div>
           <h3 className="m-0 font-monoDisplay text-lg font-black text-navy dark:text-slate-100 flex items-center gap-2">
             <HeartHandshakeIcon className="w-5 h-5 text-brand" />
-            <span>Manager Check-ins</span>
+            <span>{t("teams.checkIn.title")}</span>
           </h3>
           <p className="m-0 mt-0.5 text-xs text-slatecopy dark:text-slate-300">
-            Optional, asynchronous reflections shared with your organization’s Teams dashboard.
+            {t("teams.checkIn.description")}
           </p>
         </div>
 
@@ -454,24 +500,21 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
             disabled={busy}
             onClick={() => void loadSnapshot(true)}
             className="btn btn-compact btn-secondary text-xs"
-            title="Sync check-ins snapshot"
+            title={t("teams.checkIn.action.syncTooltip")}
           >
             <RefreshIcon className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} />
-            <span>Sync</span>
+            <span>{t("teams.checkIn.action.sync")}</span>
           </button>
 
           {!isFormOpen && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                setIsFormOpen(true);
-                setAcknowledgementMessage("");
-              }}
+              onClick={handleOpenForm}
               className="btn btn-compact btn-primary text-xs"
             >
               <SparklesIcon className="w-3.5 h-3.5 mr-1" />
-              Check in now
+              <span>{t("teams.checkIn.action.checkInNow")}</span>
             </button>
           )}
         </div>
@@ -487,8 +530,8 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           <button
             type="button"
             className="text-emerald-700 hover:text-emerald-900 cursor-pointer p-1 dark:text-emerald-300 dark:hover:text-emerald-100"
-            onClick={() => setSuccessMessage("")}
-            aria-label="Dismiss message"
+            onClick={handleDismissToast}
+            aria-label={t("teams.checkIn.aria.dismissMessage")}
           >
             <CloseIcon className="w-3.5 h-3.5" />
           </button>
@@ -503,7 +546,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           </div>
           <div className="flex-1 min-w-0 text-xs leading-relaxed">
             <strong className="block text-xs font-bold text-navy dark:text-slate-100 mb-0.5">
-              Reflection Saved
+              {t("teams.checkIn.acknowledgement.title")}
             </strong>
             <p className="m-0 text-slatecopy dark:text-slate-300">
               {acknowledgementMessage}
@@ -512,8 +555,8 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           <button
             type="button"
             className="text-slatecopy/60 hover:text-slatecopy cursor-pointer p-1 dark:text-slate-400"
-            onClick={() => setAcknowledgementMessage("")}
-            aria-label="Dismiss acknowledgement"
+            onClick={handleDismissAcknowledgement}
+            aria-label={t("teams.checkIn.aria.dismissAcknowledgement")}
           >
             <CloseIcon className="w-3.5 h-3.5" />
           </button>
@@ -521,24 +564,24 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
       )}
 
       {/* Error Banner */}
-      {(errorMessage || snapshot.lastError) && (
+      {activeSyncError && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs text-red-800 shadow-sm flex items-start justify-between gap-3 dark:bg-red-950/40 dark:border-red-800/60 dark:text-red-200">
           <div className="flex items-start gap-2.5">
             <AlertCircleIcon className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <strong className="block font-bold text-red-900 dark:text-red-100">
-                Check-in Sync Error
+                {t("teams.checkIn.error.syncTitle")}
               </strong>
               <p className="m-0 mt-0.5 leading-relaxed">
-                {errorMessage || snapshot.lastError}
+                {activeSyncError}
               </p>
             </div>
           </div>
           <button
             type="button"
             className="text-red-700 hover:text-red-900 cursor-pointer p-1 shrink-0 dark:text-red-300"
-            onClick={() => setErrorMessage("")}
-            aria-label="Dismiss error"
+            onClick={handleDismissError}
+            aria-label={t("teams.checkIn.aria.dismissError")}
           >
             <CloseIcon className="w-3.5 h-3.5" />
           </button>
@@ -549,10 +592,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
       {showScheduledBanner && (
         <ManagerCheckInScheduledOfferBanner
           settings={settings}
-          onOpenCheckIn={() => {
-            setIsFormOpen(true);
-            setAcknowledgementMessage("");
-          }}
+          onOpenCheckIn={handleOpenForm}
           onDismiss={() => {
             if (activeDueCycleKey) {
               setDismissedCycleKey(activeDueCycleKey);
@@ -568,7 +608,7 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
           visibilityNoticeText={visibilityNoticeText}
           isBusy={busy}
           onSubmit={handleSubmitCheckIn}
-          onCancel={() => setIsFormOpen(false)}
+          onCancel={handleCloseForm}
         />
       )}
 
@@ -583,10 +623,10 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
       <div className="flex flex-col gap-2 pt-2">
         <div className="flex items-center justify-between">
           <span className="font-monoDisplay text-xs font-black uppercase tracking-wider text-slatecopy dark:text-slate-300">
-            Personal Reflection Timeline
+            {t("teams.checkIn.timeline.title")}
           </span>
           <span className="text-[11px] text-slatecopy/80 dark:text-slate-400">
-            Read-only & immutable
+            {t("teams.checkIn.timeline.subtitle")}
           </span>
         </div>
 
@@ -596,17 +636,19 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
             <div className="flex items-start gap-2">
               <AlertCircleIcon className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
               <div>
-                <strong className="font-bold">Failed to load reflection history</strong>
+                <strong className="font-bold">
+                  {t("teams.checkIn.timeline.errorTitle")}
+                </strong>
                 <p className="m-0 text-[11px] mt-0.5 leading-relaxed">{historyError}</p>
               </div>
             </div>
             <button
               type="button"
-              onClick={handleRetryPageZero}
+              onClick={handleRetryHistory}
               className="btn btn-compact btn-secondary text-xs shrink-0"
             >
               <RefreshIcon className="w-3.5 h-3.5 mr-1" />
-              Retry History
+              <span>{t("teams.checkIn.timeline.retryHistory")}</span>
             </button>
           </div>
         )}

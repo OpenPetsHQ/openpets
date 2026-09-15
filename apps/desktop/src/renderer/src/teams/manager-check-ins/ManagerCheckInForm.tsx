@@ -1,5 +1,6 @@
 import type React from "react";
 import { useState } from "react";
+import { useI18n } from "../../i18n.js";
 import {
   FeelingGoodIcon,
   FeelingNeedSupportIcon,
@@ -30,6 +31,21 @@ export type ManagerCheckInFormProps = {
   readonly onCancel?: () => void;
 };
 
+function renderFeelingIcon(code: ManagerCheckInFeelingCode) {
+  switch (code) {
+    case "good":
+      return <FeelingGoodIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
+    case "steady":
+      return <FeelingSteadyIcon className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+    case "stretched":
+      return <FeelingStretchedIcon className="w-5 h-5 text-amber-600 dark:text-amber-400" />;
+    case "struggling":
+      return <FeelingStrugglingIcon className="w-5 h-5 text-orange-600 dark:text-orange-400" />;
+    case "need_support":
+      return <FeelingNeedSupportIcon className="w-5 h-5 text-rose-700 dark:text-rose-300" />;
+  }
+}
+
 export function ManagerCheckInForm({
   settings,
   visibilityNoticeText,
@@ -37,6 +53,7 @@ export function ManagerCheckInForm({
   onSubmit,
   onCancel,
 }: ManagerCheckInFormProps) {
+  const { t } = useI18n();
   const [selectedFeeling, setSelectedFeeling] = useState<ManagerCheckInFeelingCode | null>(null);
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState("");
@@ -55,8 +72,9 @@ export function ManagerCheckInForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!selectedFeeling) {
-      setFormError("Please select how work is feeling for you.");
+      setFormError(t("teams.checkIn.form.errorSelectFeeling"));
       return;
     }
 
@@ -70,38 +88,66 @@ export function ManagerCheckInForm({
       visibilityNoticeText.trim().length > 0;
 
     if (!hasValidRevision || !hasValidNotice) {
-      setFormError("Authoritative organization settings are required before submitting.");
+      setFormError(t("teams.checkIn.form.errorSettingsRequired"));
       return;
     }
 
     setFormError("");
     try {
+      const trimmedNote = note.trim();
       await onSubmit({
         feelingCode: selectedFeeling,
-        note: note.trim() ? note.trim() : null,
+        note: trimmedNote.length > 0 ? trimmedNote : null,
         settingsRevision: settings.revision,
       });
-      // Reset form on success
+
       setSelectedFeeling(null);
       setNote("");
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to submit reflection.");
+      setFormError(
+        err instanceof Error ? err.message : t("teams.checkIn.error.submitFailed"),
+      );
     }
   };
 
-  const getFeelingIcon = (code: ManagerCheckInFeelingCode) => {
-    switch (code) {
-      case "good":
-        return <FeelingGoodIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
-      case "steady":
-        return <FeelingSteadyIcon className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
-      case "stretched":
-        return <FeelingStretchedIcon className="w-5 h-5 text-amber-600 dark:text-amber-400" />;
-      case "struggling":
-        return <FeelingStrugglingIcon className="w-5 h-5 text-orange-600 dark:text-orange-400" />;
-      case "need_support":
-        return <FeelingNeedSupportIcon className="w-5 h-5 text-rose-700 dark:text-rose-300" />;
+  const renderFeelingButton = (code: ManagerCheckInFeelingCode) => {
+    const config = FEELING_CONFIGS[code];
+    const isSelected = selectedFeeling === code;
+    const label = getFeelingLabel(code, settings);
+    const isNeedSupport = code === "need_support";
+
+    let stateClasses = "";
+    if (isSelected) {
+      stateClasses = config.cardActiveClass;
+    } else {
+      const supportFallback = isNeedSupport ? "border-rose-200/70 bg-rose-50/20" : "border-slate-200 bg-white/70";
+      stateClasses = `${supportFallback} text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 ${config.cardHoverClass}`;
     }
+
+    return (
+      <button
+        key={code}
+        type="button"
+        onClick={() => handleFeelingSelect(code)}
+        disabled={isBusy}
+        aria-pressed={isSelected}
+        className={`relative flex flex-col items-center justify-center gap-2 rounded-2xl border p-3 text-center transition-[transform,background-color,border-color,box-shadow] cursor-pointer select-none ${stateClasses}`}
+      >
+        <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/80 shadow-xs dark:bg-slate-800">
+          {renderFeelingIcon(code)}
+        </div>
+
+        <span className="font-monoDisplay text-xs font-black leading-tight">
+          {label}
+        </span>
+
+        {isNeedSupport && (
+          <span className="text-[10px] text-rose-700 dark:text-rose-300 font-semibold leading-none">
+            {t("teams.checkIn.form.supportBadge")}
+          </span>
+        )}
+      </button>
+    );
   };
 
   return (
@@ -114,10 +160,10 @@ export function ManagerCheckInForm({
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 text-brand px-2.5 py-0.5 font-monoDisplay text-[11px] font-black uppercase tracking-wider dark:bg-blue-900/40 dark:text-blue-300">
             <SparklesIcon className="w-3.5 h-3.5" />
-            Check in now
+            <span>{t("teams.checkIn.form.badge")}</span>
           </span>
           <span className="text-[11px] text-slatecopy dark:text-slate-400 font-mono">
-            Revision {settings.revision}
+            {t("teams.checkIn.form.revision", { revision: settings.revision })}
           </span>
         </div>
 
@@ -140,43 +186,14 @@ export function ManagerCheckInForm({
       {/* 5 Fixed Feelings Selection */}
       <div className="flex flex-col gap-2">
         <label className="font-monoDisplay text-xs font-black uppercase tracking-wider text-slatecopy dark:text-slate-300">
-          How are you feeling? <span className="text-red-500">*</span>
+          {t("teams.checkIn.form.feelingQuestion")}{" "}
+          <span className="text-red-500" aria-hidden="true">
+            *
+          </span>
         </label>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-          {managerCheckInFeelingCodes.map((code) => {
-            const config = FEELING_CONFIGS[code];
-            const isSelected = selectedFeeling === code;
-            const label = getFeelingLabel(code, settings);
-
-            return (
-              <button
-                key={code}
-                type="button"
-                onClick={() => handleFeelingSelect(code)}
-                disabled={isBusy}
-                className={`relative flex flex-col items-center justify-center gap-2 rounded-2xl border p-3 text-center transition-[transform,background-color,border-color,box-shadow] cursor-pointer select-none ${
-                  isSelected
-                    ? config.cardActiveClass
-                    : `border-slate-200 bg-white/70 text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 ${config.cardHoverClass}`
-                } ${code === "need_support" && !isSelected ? "border-rose-200/70 bg-rose-50/20" : ""}`}
-              >
-                <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/80 shadow-xs dark:bg-slate-800">
-                  {getFeelingIcon(code)}
-                </div>
-
-                <span className="font-monoDisplay text-xs font-black leading-tight">
-                  {label}
-                </span>
-
-                {code === "need_support" && (
-                  <span className="text-[10px] text-rose-700 dark:text-rose-300 font-semibold leading-none">
-                    Support
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {managerCheckInFeelingCodes.map(renderFeelingButton)}
         </div>
       </div>
 
@@ -187,7 +204,7 @@ export function ManagerCheckInForm({
             htmlFor="manager-check-in-note"
             className="font-monoDisplay text-xs font-black uppercase tracking-wider text-slatecopy dark:text-slate-300"
           >
-            Optional Reflection Note
+            {t("teams.checkIn.form.noteLabel")}
           </label>
           <span className="text-[11px] font-mono text-slatecopy/70 dark:text-slate-400">
             {note.length} / {MAX_NOTE_LENGTH}
@@ -210,9 +227,7 @@ export function ManagerCheckInForm({
         <div className="pt-0.5 text-brand shrink-0 dark:text-blue-400">
           <InfoIcon className="w-3.5 h-3.5" />
         </div>
-        <span>
-          {visibilityNoticeText}
-        </span>
+        <p className="m-0">{visibilityNoticeText}</p>
       </div>
 
       {/* Action Buttons */}
@@ -224,7 +239,7 @@ export function ManagerCheckInForm({
             onClick={onCancel}
             className="btn btn-compact btn-secondary text-xs"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         )}
 
@@ -236,12 +251,12 @@ export function ManagerCheckInForm({
           {isBusy ? (
             <>
               <RefreshIcon className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              Submitting...
+              <span>{t("teams.checkIn.form.submitting")}</span>
             </>
           ) : (
             <>
               <SparklesIcon className="w-3.5 h-3.5 mr-1.5" />
-              Submit Reflection
+              <span>{t("teams.checkIn.form.submit")}</span>
             </>
           )}
         </button>

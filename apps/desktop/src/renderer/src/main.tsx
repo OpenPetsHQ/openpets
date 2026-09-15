@@ -5411,8 +5411,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       <header className="hero">
         <div className="hero-content">
           <p className="eyebrow">{t("app.controlCenter")}</p>
-          <h1>{currentMeta.titleKey === "route.teams.title" && t(currentMeta.titleKey) === currentMeta.titleKey ? "Teams" : t(currentMeta.titleKey)}</h1>
-          <p className="hero-desc">{currentMeta.descKey === "route.teams.description" && t(currentMeta.descKey) === currentMeta.descKey ? "Manage your organization membership, team pets, and deployed companion plugins." : t(currentMeta.descKey)}</p>
+          <h1>{t(currentMeta.titleKey)}</h1>
+          <p className="hero-desc">{t(currentMeta.descKey)}</p>
         </div>
         <div className="hero-logo-container">
           <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />

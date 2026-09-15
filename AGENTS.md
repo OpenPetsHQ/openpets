@@ -59,6 +59,15 @@ regression—not a record of the implementation that happened to be written.
   fix. When reviewing existing tests, delete or rewrite tests that do not
   protect a plausible failure mode.
 
+## Desktop Code Readability
+
+Desktop TypeScript and TSX must be written for human maintenance. Do not compress
+functions, conditionals, validation, object construction, or JSX into dense
+single-line expressions. Use conventional multi-line formatting, named
+intermediate values, focused helpers, and explicit branches when they make the
+state transition or boundary decision clearer. Prefer a readable function over
+a clever expression; do not trade clarity for fewer lines.
+
 ## Catalog Direction
 
 Catalog v2 is legacy and exists only for old app versions/fallback compatibility.

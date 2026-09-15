@@ -126,8 +126,9 @@ if (!gotSingleInstanceLock) {
     },
     stopTeams: () =>
       teamService?.stop() ?? Promise.resolve(),
-    stopManagerCheckIns: () =>
-      managerCheckInService?.stop() ?? Promise.resolve(),
+    stopManagerCheckIns: () => {
+      return managerCheckInService?.stop() ?? Promise.resolve();
+    },
   });
 
   app.whenReady().then(async () => {
@@ -215,12 +216,15 @@ if (!gotSingleInstanceLock) {
       credentialStore: teamService.credentialStore,
       apiClient: teamsApiClient,
       stateOptions: { userDataPath: app.getPath("userData") },
-      log: (level, message, fields) =>
-        level === "error"
-          ? logError("teams", message, fields)
-          : level === "warn"
-            ? warn("teams", message, fields)
-            : info("teams", message, fields),
+      log: (level, message, fields) => {
+        if (level === "error") {
+          logError("teams", message, fields);
+        } else if (level === "warn") {
+          warn("teams", message, fields);
+        } else {
+          info("teams", message, fields);
+        }
+      },
     });
     powerMonitor.on("resume", () => {
       void teamService?.syncNow().catch(() => undefined);
