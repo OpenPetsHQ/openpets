@@ -54,6 +54,7 @@ export interface LeaseManagerOptions {
   readonly getPetDisplayName?: (petId: string, targetKind: LeaseTargetKind) => string;
   readonly onFirstExplicitLease?: (petId: string) => void;
   readonly onLastExplicitLease?: (petId: string) => void;
+  readonly onLeaseReleased?: (lease: PetLease) => void;
   readonly onLog?: (level: "debug" | "info", message: string, fields?: Record<string, unknown>) => void;
   /**
    * Optional seam to re-validate that an explicit target pet is still
@@ -77,6 +78,7 @@ export class LeaseManager {
   readonly #getPetDisplayName: (petId: string, targetKind: LeaseTargetKind) => string;
   readonly #onFirstExplicitLease: (petId: string) => void;
   readonly #onLastExplicitLease: (petId: string) => void;
+  readonly #onLeaseReleased: (lease: PetLease) => void;
   readonly #onLog: (level: "debug" | "info", message: string, fields?: Record<string, unknown>) => void;
   readonly #isPetEligible: ((petId: string) => boolean) | undefined;
 
@@ -88,12 +90,19 @@ export class LeaseManager {
     this.#getPetDisplayName = options.getPetDisplayName ?? ((petId) => petId);
     this.#onFirstExplicitLease = options.onFirstExplicitLease ?? (() => {});
     this.#onLastExplicitLease = options.onLastExplicitLease ?? (() => {});
+    this.#onLeaseReleased = options.onLeaseReleased ?? (() => {});
     this.#onLog = options.onLog ?? (() => {});
     this.#isPetEligible = options.isPetEligible;
   }
 
   acquire(requestedPetId?: string, clientPid?: number, sessionNonce?: string): LeaseSnapshot {
     const now = this.#now();
+
+    // Expired leases must be removed before resolving a fresh target so they
+    // cannot continue occupying a pool slot, regardless of client identity.
+    for (const existing of [...this.#leases.values()]) {
+      if (existing.expiresAt <= now) this.release(existing.leaseId);
+    }
 
     // FIX M1 + FIX 1: Idempotent per-clientPid lease reuse, guarded by sessionNonce.
     // sessionNonce is a stable per-process UUID generated once at MCP startup.
@@ -106,7 +115,6 @@ export class LeaseManager {
       for (const existing of this.#leases.values()) {
         if (existing.clientPid !== clientPid) continue;
         if (existing.sessionNonce !== sessionNonce) continue; // different process — no reuse
-        if (existing.expiresAt <= now) continue; // expired — fall through to fresh acquire
         // For explicit --pet requests, only reuse when the stored requestedPetId
         // matches the incoming requestedPetId; otherwise release old and acquire fresh.
         if (existing.requestedPetId !== requestedPetId) {
@@ -176,9 +184,27 @@ export class LeaseManager {
       return { released: false };
     }
     this.#leases.delete(leaseId);
+    const wasLastExplicitLease = lease.targetKind === "explicit" && this.countExplicitLeases(lease.actualPetId) === 0;
     this.#onLog("info", "released", { leaseId, targetKind: lease.targetKind, actualPetId: lease.actualPetId, remainingExplicitLeases: lease.targetKind === "explicit" ? this.countExplicitLeases(lease.actualPetId) : undefined });
-    if (lease.targetKind === "explicit" && this.countExplicitLeases(lease.actualPetId) === 0) {
-      this.#onLastExplicitLease(lease.actualPetId);
+    if (wasLastExplicitLease) {
+      try {
+        this.#onLastExplicitLease(lease.actualPetId);
+      } catch (error) {
+        try {
+          this.#onLog("info", "last explicit lease callback failed", { leaseId, actualPetId: lease.actualPetId, error: error instanceof Error ? error.message : String(error) });
+        } catch {
+          // Lifecycle logging must not make release observable as a failure.
+        }
+      }
+    }
+    try {
+      this.#onLeaseReleased(lease);
+    } catch (error) {
+      try {
+        this.#onLog("info", "release callback failed", { leaseId, error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Lifecycle logging must not make release observable as a failure.
+      }
     }
     return { released: true };
   }

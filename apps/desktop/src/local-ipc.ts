@@ -33,6 +33,7 @@ const leaseManager = new LeaseManager({
   getPetDisplayName: (petId, targetKind) => targetKind === "default" ? getCurrentDefaultPet().displayName : getPetDisplayName(petId),
   onFirstExplicitLease: showAgentPet,
   onLastExplicitLease: handleLastExplicitLease,
+  onLeaseReleased: (lease) => unsubscribeConfinement(lease.leaseId),
   onLog: (level, message, fields) => level === "debug" ? debug("lease", message, fields) : info("lease", message, fields),
   isPetEligible,
 });
@@ -74,8 +75,8 @@ export async function startLocalIpcServer(): Promise<void> {
   const listeningEndpoint = getListeningEndpoint(server, endpointConfig);
   ipcDiscovery = writeDiscoveryFile(listeningEndpoint, token);
   leaseCleanupTimer = setInterval(() => {
-    cleanupReleasedLeases(leaseManager.cleanupExpired());
-    cleanupReleasedLeases(leaseManager.checkPidLiveness());
+    leaseManager.cleanupExpired();
+    leaseManager.checkPidLiveness();
   }, 5_000);
   leaseCleanupTimer.unref?.();
   info("ipc", "server started", { endpointKind: endpointConfig.bindEndpoint.kind, bindEndpoint: formatEndpoint(endpointConfig.bindEndpoint), advertisedEndpoint: listeningEndpoint, discoveryPath: getDiscoveryFilePath() });
@@ -116,7 +117,7 @@ export function dispatchPoolToggle(enabled: boolean): void {
       if (lease.clientPid && lease.clientPid > 0) {
         suspendedPoolSessions.set(lease.clientPid, rawLease.sessionNonce);
       }
-      releaseExplicitLease(lease.leaseId);
+      leaseManager.release(lease.leaseId);
     }
   } else {
     // Re-enable: spawn pets for suspended sessions whose PIDs are still alive.
@@ -386,11 +387,6 @@ async function handleRequest(request: OpenPetsIpcRequest): Promise<unknown> {
     const params = isRecord(request.params) ? request.params : {};
     const leaseId = validateRequiredLeaseId(params.leaseId);
     debug("ipc", "lease release requested", { requestId: request.id, leaseId });
-    // Clean up confinement subscription for this lease if one exists.
-    const rawLease = leaseManager.getRawLease(leaseId);
-    if (rawLease?.targetKind === "explicit") {
-      return releaseExplicitLease(leaseId);
-    }
     return leaseManager.release(leaseId);
   }
 
@@ -479,19 +475,11 @@ function getLeaseTarget(value: unknown) {
 
 function handleLastExplicitLease(petId: string): void {
   info("ipc", "last explicit lease ended", { petId });
-  clearAgentPetLeaseState(petId);
-  clearConfinementState(petId);
-}
-
-function cleanupReleasedLeases(leases: readonly { readonly leaseId: string; readonly targetKind: string }[]): void {
-  for (const lease of leases) {
-    if (lease.targetKind === "explicit") unsubscribeConfinement(lease.leaseId);
+  try {
+    clearAgentPetLeaseState(petId);
+  } finally {
+    clearConfinementState(petId);
   }
-}
-
-function releaseExplicitLease(leaseId: string): { readonly released: boolean } {
-  unsubscribeConfinement(leaseId);
-  return leaseManager.release(leaseId);
 }
 
 async function resolveTerminalIdentity(leaseId: string, clientPid: number): Promise<void> {
@@ -532,6 +520,12 @@ async function resolveTerminalIdentity(leaseId: string, clientPid: number): Prom
     applyUpdate: (termInfo) => applyConfinementUpdate(petId, termInfo),
     isAlive: () => !!leaseManager.getRawLease(leaseId),
     onDead: () => unsubscribeConfinement(leaseId),
+    reportError: (error) => {
+      info("ipc", "confinement poller resilience failure", {
+        leaseId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
     // Phase 2: Screen Recording permission — macOS only.
     // On Windows and Linux there is no SR permission concept; window enumeration
     // is available without it, so we treat the status as always "granted".
@@ -583,7 +577,12 @@ function applyConfinementUpdate(petId: string, info: TerminalWindowInfo): void {
 
 function unsubscribeConfinement(leaseId: string): void {
   const unsub = confinementUnsubscribers.get(leaseId);
-  if (unsub) { unsub(); confinementUnsubscribers.delete(leaseId); }
+  if (!unsub) return;
+  try {
+    unsub();
+  } finally {
+    confinementUnsubscribers.delete(leaseId);
+  }
 }
 
 function writeResponse(socket: net.Socket, response: unknown): void {

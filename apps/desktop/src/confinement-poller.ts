@@ -50,6 +50,8 @@ export interface ConfinementPollerDeps {
   notifyScreenPermission: (onAction: () => void) => void;
   /** Phase 2: opens the macOS Screen Recording System Settings pane. */
   promptScreenPermission: () => void;
+  /** Reports contained resilience failures on a best-effort basis. */
+  reportError?: (error: unknown) => void;
   /**
    * FF1: schedule a one-shot callback after `delayMs` milliseconds.
    * Returns a cancellation function.
@@ -117,6 +119,61 @@ export async function resolveAndSubscribe(
   // Double-subscribe guard: never subscribe twice for the same lease.
   if (subscribed.has(leaseId)) return null;
 
+  let cancelled = false;
+  let cancelRetry: (() => void) | null = null;
+  let currentUnsub: (() => void) | null = null;
+  let retryGeneration = 0;
+
+  function reportError(error: unknown): void {
+    try {
+      deps.reportError?.(error);
+    } catch {
+      // Diagnostics must never affect containment or cleanup.
+    }
+  }
+
+  function cancelScheduledRetry(): void {
+    const cancel = cancelRetry;
+    cancelRetry = null;
+    retryGeneration++;
+    try {
+      cancel?.();
+    } catch (error) {
+      // Cleanup and cancellation must remain best-effort.
+      reportError(error);
+    }
+  }
+
+  function cleanup(): void {
+    cancelled = true;
+    cancelScheduledRetry();
+    const unsub = currentUnsub;
+    currentUnsub = null;
+    try {
+      unsub?.();
+    } catch (error) {
+      // Continue removing the reservation even if the tracker throws.
+      reportError(error);
+    } finally {
+      if (subscribed.get(leaseId) === cleanup) subscribed.delete(leaseId);
+    }
+  }
+
+  function handleDead(): void {
+    cleanup();
+    try {
+      deps.onDead();
+    } catch (error) {
+      // A dead lease must not make a tracker callback or timer throw.
+      reportError(error);
+    }
+  }
+
+  // Reserve the external cleanup slot before the first await. This makes the
+  // reservation visible to concurrent callers and lets lease release cancel a
+  // lookup that has not resolved yet.
+  subscribed.set(leaseId, cleanup);
+
   // Resolve production scheduleRetry default.
   const scheduleRetry = deps.scheduleRetry ?? ((delayMs, fn) => {
     const timer = setTimeout(fn, delayMs);
@@ -127,85 +184,216 @@ export async function resolveAndSubscribe(
   let termInfo: TerminalWindowInfo | null;
   try {
     termInfo = await deps.findTerminal(clientPid);
-  } catch {
+  } catch (error) {
+    reportError(error);
     termInfo = null;
   }
 
-  if (termInfo) {
-    deps.setIdentity(termInfo);
-    deps.applyUpdate(termInfo);
-  } else {
-    handleNullResolve(deps);
+  try {
+    if (cancelled) return null;
+
+    if (!deps.isAlive()) {
+      handleDead();
+      return null;
+    }
+
+    if (termInfo) {
+      deps.setIdentity(termInfo);
+      if (cancelled) return null;
+      if (!deps.isAlive()) {
+        handleDead();
+        return null;
+      }
+      deps.applyUpdate(termInfo);
+    } else {
+      if (cancelled) return null;
+      handleNullResolve(deps);
+      if (cancelled) return null;
+    }
+  } catch (error) {
+    cleanup();
+    throw error;
   }
 
   // Mutable backoff state — lives in the closure for this lease.
   // nullCount starts at 1 when the initial resolve was null (already one miss).
   let nullCount = termInfo ? 0 : 1;
-  let cancelRetry: (() => void) | null = null;
-  let currentUnsub: (() => void) | null = null;
-
-  function cleanup(): void {
-    cancelRetry?.();
-    cancelRetry = null;
-    currentUnsub?.();
-    currentUnsub = null;
-    subscribed.delete(leaseId);
-  }
 
   function resubscribe(): void {
+    if (cancelled) return;
+    if (!deps.isAlive()) {
+      handleDead();
+      return;
+    }
+
     // Subscribe to the 500ms poller for ongoing tracking.
-    // Do NOT check isAlive here — the callbacks below handle it so tests that
-    // flip isAlive after subscribing can still exercise the dead-lease path.
-    currentUnsub = deps.subscribe(
+    let removeSubscription: (() => void) | null = null;
+    let removeRequested = false;
+    let unsubscribed = false;
+    const stopSubscription = (): void => {
+      if (removeSubscription === null) {
+        removeRequested = true;
+      } else {
+        removeSubscription();
+      }
+    };
+
+    let setupError: unknown;
+    let setupFailed = false;
+    let subscribing = true;
+    const handleSetupError = (error: unknown): void => {
+      if (subscribing) {
+        setupFailed = true;
+        setupError = error;
+        return;
+      }
+
+      reportError(error);
+
+      // An established callback can fail transiently while updating the
+      // window state. Keep the outer reservation, replace this subscription,
+      // and let the existing backoff path retry it without escaping the
+      // tracker callback.
+      if (cancelled) return;
+      try {
+        if (!deps.isAlive()) {
+          handleDead();
+          return;
+        }
+      } catch (livenessError) {
+        cleanup();
+        reportError(livenessError);
+        return;
+      }
+
+      try {
+        stopSubscription();
+      } catch (unsubscribeError) {
+        // A failed unsubscribe must not prevent the retry from being queued.
+        reportError(unsubscribeError);
+      }
+      currentUnsub = null;
+      if (cancelled) return;
+
+      try {
+        if (!deps.isAlive()) {
+          handleDead();
+          return;
+        }
+        const generation = ++retryGeneration;
+        cancelRetry = scheduleRetry(computeBackoffDelayMs(nullCount), () => {
+          try {
+            if (generation !== retryGeneration) return;
+            cancelRetry = null;
+            if (cancelled) return;
+            if (!deps.isAlive()) {
+              handleDead();
+              return;
+            }
+            resubscribe();
+          } catch (error) {
+            cleanup();
+            reportError(error);
+          }
+        });
+      } catch (retryError) {
+        cleanup();
+        reportError(retryError);
+      }
+    };
+    const unsubscribe = deps.subscribe(
       leaseId,
       clientPid,
       (updated) => {
-        // Terminal FOUND: reset backoff, apply update.
-        nullCount = 0;
-        cancelRetry?.(); cancelRetry = null;
-
-        if (!deps.isAlive()) {
-          cleanup();
-          deps.onDead();
-          return;
-        }
-        deps.setIdentity(updated);
-        deps.applyUpdate(updated);
-      },
-      () => {
-        // Terminal NOT FOUND this tick: back off, unsubscribe, retry later.
-        // NOTE: do NOT call subscribed.delete(leaseId) here. The map entry must
-        // remain live during the backoff window so an external unsubscribeConfinement
-        // can still reach cleanup() and cancel the pending timer. cleanup() owns
-        // the sole subscribed.delete(leaseId) call.
-        nullCount++;
-        handleNullResolve(deps);
-
-        // Tear down only the current 500ms subscription; do NOT remove the
-        // outer cleanup from subscribed — it stays reachable for external cancel.
-        currentUnsub?.(); currentUnsub = null;
-
-        if (!deps.isAlive()) {
-          deps.onDead();
-          return;
-        }
-
-        const delay = computeBackoffDelayMs(nullCount);
-        cancelRetry = scheduleRetry(delay, () => {
-          cancelRetry = null;
+        try {
+          // Terminal FOUND: reset backoff, apply update.
+          if (cancelled) return;
           if (!deps.isAlive()) {
-            deps.onDead();
+            handleDead();
             return;
           }
-          resubscribe();
-        });
+          nullCount = 0;
+          cancelScheduledRetry();
+          deps.setIdentity(updated);
+          if (cancelled) return;
+          if (!deps.isAlive()) {
+            handleDead();
+            return;
+          }
+          deps.applyUpdate(updated);
+        } catch (error) {
+          handleSetupError(error);
+        }
+      },
+      () => {
+        try {
+          // Terminal NOT FOUND this tick: back off, unsubscribe, retry later.
+          // NOTE: do NOT call subscribed.delete(leaseId) here. The map entry must
+          // remain live during the backoff window so an external unsubscribeConfinement
+          // can still reach cleanup() and cancel the pending timer. cleanup() owns
+          // the sole subscribed.delete(leaseId) call.
+          if (cancelled) return;
+          if (!deps.isAlive()) {
+            handleDead();
+            return;
+          }
+          nullCount++;
+          handleNullResolve(deps);
+          if (cancelled) return;
+
+          // Tear down only the current 500ms subscription; do NOT remove the
+          // outer cleanup from subscribed — it stays reachable for external cancel.
+          stopSubscription();
+          currentUnsub = null;
+
+          if (!deps.isAlive()) {
+            handleDead();
+            return;
+          }
+
+          const delay = computeBackoffDelayMs(nullCount);
+          const generation = ++retryGeneration;
+          cancelRetry = scheduleRetry(delay, () => {
+            try {
+              if (generation !== retryGeneration) return;
+              cancelRetry = null;
+              if (cancelled) return;
+              if (!deps.isAlive()) {
+                handleDead();
+                return;
+              }
+              resubscribe();
+            } catch (error) {
+              cleanup();
+              reportError(error);
+            }
+          });
+        } catch (error) {
+          handleSetupError(error);
+        }
       },
     );
+    subscribing = false;
 
-    subscribed.set(leaseId, cleanup);
+    removeSubscription = () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+      unsubscribe();
+    };
+    if (cancelled || removeRequested) {
+      removeSubscription();
+    } else {
+      currentUnsub = removeSubscription;
+    }
+    if (setupFailed) throw setupError;
   }
 
-  resubscribe();
+  try {
+    resubscribe();
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 
   return cleanup;
 }

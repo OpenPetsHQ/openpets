@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-import { LeaseManager } from "../src/lease-manager.js";
+import { LeaseManager, type PetLease } from "../src/lease-manager.js";
 
 // ---------------------------------------------------------------------------
 // T1: Fix 1/M1 — same clientPid + same nonce re-acquires same lease
@@ -226,6 +226,144 @@ console.log("T3 (routing guard): SKIPPED — covered by local-ipc-confinement.te
 }
 
 // ---------------------------------------------------------------------------
+// T-W4: expired matching PID + nonce is released before fresh acquisition
+// ---------------------------------------------------------------------------
+{
+  let now = 1_000;
+  const nonce = randomUUID();
+  const events: string[] = [];
+  let resolveCount = 0;
+  let lastExplicitCount = 0;
+  const manager = new LeaseManager({
+    ttlMs: 100,
+    now: () => now,
+    resolveTarget: (petId) => {
+      events.push(`resolve:${++resolveCount}`);
+      return petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" };
+    },
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+    onLeaseReleased: () => events.push("released"),
+    onLastExplicitLease: () => {
+      lastExplicitCount++;
+      events.push("last-explicit");
+    },
+  });
+
+  const oldLease = manager.acquire("expired", 321, nonce);
+  now += 100;
+  const freshLease = manager.acquire("expired", 321, nonce);
+
+  assert.notEqual(freshLease.leaseId, oldLease.leaseId, "T-W4 expired reuse: acquire should create a fresh lease");
+  assert.equal(events.join(","), "resolve:1,last-explicit,released,resolve:2", "T-W4 expired reuse: release lifecycle must finish before fresh resolution");
+  assert.equal(lastExplicitCount, 1, "T-W4 expired reuse: last explicit lifecycle should fire once");
+}
+
+// ---------------------------------------------------------------------------
+// T-W4: re-entrant acquisition cannot move a final explicit cleanup past the
+// acquisition's first-explicit transition.
+// ---------------------------------------------------------------------------
+{
+  const events: string[] = [];
+  let releasedLeaseId: string | undefined;
+  let reacquiredLeaseId: string | undefined;
+  const manager = new LeaseManager({
+    resolveTarget: (petId) => ({ targetKind: "explicit", actualPetId: petId ?? "reentrant" }),
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+    onFirstExplicitLease: () => events.push("first-explicit"),
+    onLastExplicitLease: () => events.push("last-explicit"),
+    onLeaseReleased: (lease) => {
+      events.push("released");
+      if (lease.leaseId === releasedLeaseId) {
+        reacquiredLeaseId = manager.acquire("reentrant").leaseId;
+      }
+    },
+  });
+
+  const oldLease = manager.acquire("reentrant");
+  releasedLeaseId = oldLease.leaseId;
+  events.length = 0;
+
+  assert.deepEqual(manager.release(oldLease.leaseId), { released: true }, "T-W4 re-entry: release should succeed");
+  assert.equal(events.join(","), "last-explicit,released,first-explicit", "T-W4 re-entry: final cleanup must precede re-acquisition");
+  assert.ok(reacquiredLeaseId, "T-W4 re-entry: callback should acquire a replacement lease");
+  assert.equal(manager.getRawLease(oldLease.leaseId), null, "T-W4 re-entry: released lease must stay deleted");
+  assert.equal(manager.countExplicitLeases("reentrant"), 1, "T-W4 re-entry: replacement lease state should be valid");
+  const reacquiredLease = manager.getRawLease(reacquiredLeaseId);
+  assert.equal(reacquiredLease?.actualPetId, "reentrant", "T-W4 re-entry: replacement should target the requested pet");
+}
+
+// ---------------------------------------------------------------------------
+// T-W4: a throwing release callback cannot block last-explicit cleanup
+// ---------------------------------------------------------------------------
+{
+  let lastExplicitCount = 0;
+  const manager = new LeaseManager({
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+    onLeaseReleased: () => { throw new Error("dispose failed"); },
+    onLastExplicitLease: () => { lastExplicitCount++; },
+  });
+  const lease = manager.acquire("throwing-release");
+
+  assert.deepEqual(manager.release(lease.leaseId), { released: true }, "T-W4 throwing callback: release should still succeed");
+  assert.equal(lastExplicitCount, 1, "T-W4 throwing callback: last explicit cleanup should fire once");
+}
+
+// ---------------------------------------------------------------------------
+// T-W4: a throwing last-explicit callback cannot skip lease disposal
+// ---------------------------------------------------------------------------
+{
+  const onLastError = new Error("last explicit cleanup failed");
+  let releasedCount = 0;
+  const logMessages: string[] = [];
+  const manager = new LeaseManager({
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+    onLastExplicitLease: () => { throw onLastError; },
+    onLeaseReleased: () => { releasedCount++; },
+    onLog: (_level, message) => { logMessages.push(message); },
+  });
+  const lease = manager.acquire("throwing-last-explicit");
+
+  assert.deepEqual(manager.release(lease.leaseId), { released: true }, "T-W4 throwing last-explicit: release should not propagate callback errors");
+  assert.equal(releasedCount, 1, "T-W4 throwing last-explicit: release callback should fire once");
+  assert.equal(manager.getRawLease(lease.leaseId), null, "T-W4 throwing last-explicit: lease should remain deleted");
+  assert.ok(logMessages.includes("last explicit lease callback failed"), "T-W4 throwing last-explicit: callback failure should be logged");
+}
+
+// ---------------------------------------------------------------------------
+// T-W4: an expired pool lease is released before a different nonce resolves
+// a fresh pool assignment
+// ---------------------------------------------------------------------------
+{
+  let now = 1_000;
+  const nonce1 = randomUUID();
+  const nonce2 = randomUUID();
+  let manager!: LeaseManager;
+  manager = new LeaseManager({
+    ttlMs: 100,
+    now: () => now,
+    resolveTarget: () => manager.countExplicitLeases("pool-pet") === 0
+      ? { targetKind: "explicit", actualPetId: "pool-pet" }
+      : { targetKind: "default", actualPetId: "builtin" },
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+  });
+
+  const expired = manager.acquire(undefined, 321, nonce1);
+  now += 100;
+  const fresh = manager.acquire(undefined, 321, nonce2);
+
+  assert.equal(fresh.targetKind, "explicit", "T-W4 different nonce expired pool: fresh acquire should reclaim the pool pet");
+  assert.equal(fresh.actualTargetPetId, "pool-pet", "T-W4 different nonce expired pool: fresh acquire should resolve the reclaimed pool pet");
+  assert.equal(manager.getRawLease(expired.leaseId), null, "T-W4 different nonce expired pool: expired lease should be removed");
+}
+
+// ---------------------------------------------------------------------------
 // T-L1b: default lease — isPetEligible NOT called (by-design behavior preserved)
 // ---------------------------------------------------------------------------
 {
@@ -315,5 +453,153 @@ console.log("T3 (routing guard): SKIPPED — covered by local-ipc-confinement.te
 
   console.log("T5 (Fix 4 — heartbeat does not defeat owner-death): PASS");
 }
+
+// ---------------------------------------------------------------------------
+// T-W4: every successful release route invokes onLeaseReleased exactly once
+// ---------------------------------------------------------------------------
+function createReleaseManager(options: {
+  now: () => number;
+  resolveTarget: (requestedPetId: string | undefined) => { targetKind: "default" | "explicit"; actualPetId: string; fallbackReason?: "pet_not_installed" };
+  onLeaseReleased: (lease: PetLease) => void;
+  isPetEligible?: (petId: string) => boolean;
+}): LeaseManager {
+  return new LeaseManager({
+    ttlMs: 100,
+    now: options.now,
+    resolveTarget: options.resolveTarget,
+    getDefaultPetId: () => "builtin",
+    getPetDisplayName: (petId) => petId,
+    onLeaseReleased: options.onLeaseReleased,
+    isPetEligible: options.isPetEligible,
+  });
+}
+
+{
+  let now = 1_000;
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => now,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const lease = manager.acquire("direct");
+
+  assert.deepEqual(manager.release(lease.leaseId), { released: true }, "T-W4 direct: release should succeed");
+  assert.equal(released.length, 1, "T-W4 direct: callback should fire once");
+  assert.equal(released[0].leaseId, lease.leaseId, "T-W4 direct: callback should receive released lease");
+  assert.deepEqual(manager.release(lease.leaseId), { released: false }, "T-W4 unknown after direct: release should be rejected");
+  assert.equal(released.length, 1, "T-W4 unknown after direct: callback should not fire");
+}
+
+{
+  let now = 1_000;
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => now,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const lease = manager.acquire("heartbeat");
+  now += 100;
+
+  assert.throws(() => manager.heartbeat(lease.leaseId), "T-W4 heartbeat expiry: expired heartbeat should fail");
+  assert.equal(released.length, 1, "T-W4 heartbeat expiry: callback should fire once");
+  assert.equal(released[0].leaseId, lease.leaseId, "T-W4 heartbeat expiry: callback should receive released lease");
+}
+
+{
+  let now = 1_000;
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => now,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const lease = manager.acquire("get-expiry");
+  now += 100;
+
+  assert.equal(manager.get(lease.leaseId), null, "T-W4 get expiry: expired lease should be absent");
+  assert.equal(released.length, 1, "T-W4 get expiry: callback should fire once");
+  assert.equal(released[0].leaseId, lease.leaseId, "T-W4 get expiry: callback should receive released lease");
+}
+
+{
+  let now = 1_000;
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => now,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const lease = manager.acquire("cleanup-expiry");
+  now += 100;
+
+  assert.equal(manager.cleanupExpired().length, 1, "T-W4 cleanup expiry: one lease should expire");
+  assert.equal(released.length, 1, "T-W4 cleanup expiry: callback should fire once");
+  assert.equal(released[0].leaseId, lease.leaseId, "T-W4 cleanup expiry: callback should receive released lease");
+}
+
+{
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => 1_000,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const lease = manager.acquire("dead-pid", 999_999_999);
+
+  assert.equal(manager.checkPidLiveness().length, 1, "T-W4 dead PID: dead lease should be released");
+  assert.equal(released.length, 1, "T-W4 dead PID: callback should fire once");
+  assert.equal(released[0].leaseId, lease.leaseId, "T-W4 dead PID: callback should receive released lease");
+}
+
+{
+  const released: PetLease[] = [];
+  const nonce = randomUUID();
+  const manager = createReleaseManager({
+    now: () => 1_000,
+    resolveTarget: (petId) => petId ? { targetKind: "explicit", actualPetId: petId } : { targetKind: "default", actualPetId: "builtin" },
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+  const oldLease = manager.acquire("requested-old", 123, nonce);
+  const newLease = manager.acquire("requested-new", 123, nonce);
+
+  assert.notEqual(newLease.leaseId, oldLease.leaseId, "T-W4 requested replacement: acquire should replace the old lease");
+  assert.equal(released.length, 1, "T-W4 requested replacement: callback should fire once");
+  assert.equal(released[0].leaseId, oldLease.leaseId, "T-W4 requested replacement: callback should receive replaced lease");
+}
+
+{
+  let eligible = true;
+  const released: PetLease[] = [];
+  const nonce = randomUUID();
+  const manager = createReleaseManager({
+    now: () => 1_000,
+    resolveTarget: () => ({ targetKind: "explicit", actualPetId: "ineligible" }),
+    onLeaseReleased: (lease) => released.push(lease),
+    isPetEligible: () => eligible,
+  });
+  const oldLease = manager.acquire("ineligible", 456, nonce);
+  eligible = false;
+  const newLease = manager.acquire("ineligible", 456, nonce);
+
+  assert.notEqual(newLease.leaseId, oldLease.leaseId, "T-W4 eligibility replacement: acquire should replace the old lease");
+  assert.equal(released.length, 1, "T-W4 eligibility replacement: callback should fire once");
+  assert.equal(released[0].leaseId, oldLease.leaseId, "T-W4 eligibility replacement: callback should receive replaced lease");
+}
+
+{
+  const released: PetLease[] = [];
+  const manager = createReleaseManager({
+    now: () => 1_000,
+    resolveTarget: () => ({ targetKind: "default", actualPetId: "builtin" }),
+    onLeaseReleased: (lease) => released.push(lease),
+  });
+
+  assert.deepEqual(manager.release("never-acquired"), { released: false }, "T-W4 unknown: release should be rejected");
+  assert.equal(released.length, 0, "T-W4 unknown: callback should not fire");
+}
+
+console.log("T-W4 (release callback ownership): PASS");
 
 console.log("\nAll lease-manager-fixes tests passed.");
