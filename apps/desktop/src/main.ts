@@ -6,6 +6,8 @@ import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock } fr
 import { createAppIcon } from "./assets.js";
 import { summarizeLegacyCodexV2MigrationSkips } from "./codex-pet-migration.js";
 import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
+import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
+import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
 import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, installDefaultPetDisplayHandlers, isDefaultPetVisible, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
@@ -147,6 +149,10 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
+    await recoverPetInstallTransactions({
+      petsRoot: getPetsRoot(),
+      onWarning: ({ message, petId }) => warn("state", message, petId ? { petId } : undefined),
+    });
     try {
       app.setAsDefaultProtocolClient("openpets");
     } catch (error) {

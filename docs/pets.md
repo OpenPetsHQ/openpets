@@ -228,6 +228,34 @@ Two install paths exist; they share the same safety rules.
 4. Extraction is atomic (temp dir → rename) into `userData/pets/{id}/`, and
    `installPetState()` records it in app state.
 
+The final promotion has a private per-pet journal under
+`userData/pets/.openpets-pet-transactions/`. Journal records are written to a
+private temporary marker and renamed into place. On process interruption,
+startup recovery verifies the actual canonical final/candidate/backup
+topology before either restoring the pre-install assets or cleaning a proven
+committed install; it does not trust a stale phase by itself. A state-mutating
+record whose relationship to app state cannot be proven is retained, warned
+about, and fences operations for that same pet while other pet IDs continue to
+work. Explicitly uncertain state callbacks likewise preserve the assets for
+manual/retry recovery. Transaction directory names carry a trusted pet ID, so
+malformed, contradictory, or duplicate same-pet transaction artifacts are
+preserved and fence only that pet; another ID can still recover. Pre-metadata
+staging candidates have a private ownership marker established before their
+directory is created. Recovery removes only candidates validated by that
+marker, leaving legacy or unmarked dot directories untouched. The marker is
+handed off to the per-ID journal before it is deleted, so an interruption
+cannot leave a staged candidate without an owner. A trusted empty transaction
+directory is treated as completed cleanup, while directories with unknown
+entries are preserved. This journal protocol does not fsync files or directory
+metadata, so it does not claim power-loss durability; it only provides
+process-interruption recovery and protection when cross-resource state proof is
+missing.
+The state mutation callback must return synchronously. A returned thenable is
+recorded as an explicit uncertain outcome, and recovery never assumes it can
+undo asynchronous state side effects. ZIP imports use a separate private
+pre-metadata staging name, so the valid pet ID `local` remains independently
+fenced when it is the actual imported pet.
+
 Local pet packages can also be installed through the running app via the CLI:
 - `openpets install --from-zip <path-to-zip>`
 - `openpets install --from-folder <path-to-folder>`
