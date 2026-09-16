@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { homedir } from "node:os";
 
@@ -201,7 +201,9 @@ function assertSafeParentDirectory(path: string): OpenCodeConfigError | { readon
 function nearestExistingParent(path: string): string {
   let current = path;
   while (!pathHasEntry(current)) current = dirname(current);
-  if (!statSync(current).isDirectory()) current = dirname(current);
+  const stat = lstatIfExists(current);
+  if (stat?.isSymbolicLink()) return current;
+  if (!stat || !stat.isDirectory()) current = dirname(current);
   return current;
 }
 

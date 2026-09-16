@@ -358,6 +358,45 @@ try {
   assert.equal(lstatSync(danglingInstruction).isSymbolicLink(), true, "dangling instruction symlink must not be replaced");
   assert.equal(hasCheckEntry(danglingInstructionTarget), false, "no instruction contents may be created through the link");
 
+  // A dangling config directory symlink is reported as a symlink, not a
+  // missing directory, by both setup and doctor.
+  const danglingDirTarget = join(root, "missing-config-target");
+  const danglingDirLink = join(root, "global-dangling-dir");
+  symlinkSync(danglingDirTarget, danglingDirLink);
+  let danglingDirError = "";
+  try {
+    prepareOpenCodeGlobalSetup({ configDir: danglingDirLink, petId: "fixer", cliVersion: "0.0.0" });
+  } catch (error) {
+    danglingDirError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(danglingDirError, new RegExp(escapeCheckRegExp(danglingDirLink)));
+  assert.match(danglingDirError, /symlink/);
+  assert.match(danglingDirError, new RegExp(escapeCheckRegExp(danglingDirTarget)));
+  const danglingDirDoctor = doctorOpenCodeGlobalSetup(danglingDirLink);
+  assert.equal(danglingDirDoctor.status, "error");
+  assert.match(danglingDirDoctor.message, new RegExp(escapeCheckRegExp(danglingDirLink)));
+  assert.equal(lstatSync(danglingDirLink).isSymbolicLink(), true, "dangling config dir symlink must not be replaced");
+  assert.equal(hasCheckEntry(danglingDirTarget), false);
+
+  // A config directory nested under a dangling ancestor reports the
+  // offending ancestor instead of a raw ENOENT from following the link.
+  const danglingAncestorTarget = join(root, "missing-ancestor-target");
+  const danglingAncestorLink = join(root, "ancestor-link");
+  symlinkSync(danglingAncestorTarget, danglingAncestorLink);
+  const nestedConfigDir = join(danglingAncestorLink, "opencode");
+  let nestedAncestorError = "";
+  try {
+    prepareOpenCodeGlobalSetup({ configDir: nestedConfigDir, petId: "fixer", cliVersion: "0.0.0" });
+  } catch (error) {
+    nestedAncestorError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(nestedAncestorError, new RegExp(escapeCheckRegExp(danglingAncestorLink)));
+  assert.match(nestedAncestorError, /symlink/);
+  assert.match(nestedAncestorError, new RegExp(escapeCheckRegExp(danglingAncestorTarget)));
+  assert.doesNotMatch(nestedAncestorError, /ENOENT/);
+  assert.equal(lstatSync(danglingAncestorLink).isSymbolicLink(), true);
+  assert.equal(hasCheckEntry(nestedConfigDir), false, "no config may be created through the dangling ancestor");
+
   // Dangling project config symlinks are rejected at plan time.
   const danglingProjectDir = join(root, "project-dangling");
   mkdirSync(danglingProjectDir);
@@ -371,6 +410,24 @@ try {
   assert.match(danglingProjectMessage, /symlink/);
   assert.equal(lstatSync(danglingProjectConfig).isSymbolicLink(), true, "dangling project symlink must not be replaced");
   assert.equal(hasCheckEntry(danglingProjectTarget), false);
+
+  // A dangling parent directory symlink in a project is recognized as a
+  // symlink — not a missing directory — during config planning.
+  const danglingParentProject = join(root, "project-dangling-parent");
+  mkdirSync(danglingParentProject);
+  const danglingParentTarget = join(danglingParentProject, "missing-dir");
+  const danglingParentLink = join(danglingParentProject, ".opencode");
+  symlinkSync(danglingParentTarget, danglingParentLink);
+  const danglingParentPlan = planOpenCodeConfigWrite(danglingParentProject, join(danglingParentLink, "opencode.jsonc"), "{}\n");
+  assert.equal("ok" in danglingParentPlan && !danglingParentPlan.ok, true);
+  const danglingParentPlanMessage = "ok" in danglingParentPlan && !danglingParentPlan.ok ? danglingParentPlan.message : "";
+  assert.match(danglingParentPlanMessage, new RegExp(escapeCheckRegExp(danglingParentLink)));
+  assert.match(danglingParentPlanMessage, /symlink/);
+  assert.match(danglingParentPlanMessage, /was not modified/);
+  assert.match(danglingParentPlanMessage, new RegExp(escapeCheckRegExp(danglingParentTarget)));
+  assert.doesNotMatch(danglingParentPlanMessage, /ENOENT/);
+  assert.equal(lstatSync(danglingParentLink).isSymbolicLink(), true, "dangling parent symlink must not be replaced");
+  assert.equal(hasCheckEntry(danglingParentTarget), false);
 
   // Unsafe parent-directory symlinks remain rejected with the offending path.
   const unsafeParentMessage = "ok" in linkParentPlan && !linkParentPlan.ok ? linkParentPlan.message : "";

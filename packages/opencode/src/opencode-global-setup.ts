@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -354,9 +354,9 @@ function assertSafeNearestExistingRoot(root: string): void {
   if (!isAbsolute(root)) throw new Error(`OpenCode global config directory ${root} must be absolute and was not modified.`);
   let current = root;
   while (!pathHasEntry(current)) current = dirname(current);
-  const stat = statSync(current);
-  if (!stat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode global config parent", current));
-  if (lstatSync(current).isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode global config parent", current));
+  const stat = lstatIfExists(current);
+  if (stat?.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode global config parent", current));
+  if (!stat || !stat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode global config parent", current));
 }
 
 function escapeRegExp(value: string): string {
