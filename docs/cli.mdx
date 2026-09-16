@@ -19,7 +19,8 @@ npx @open-pets/cli --help
 
 | Command | Purpose |
 | --- | --- |
-| `openpets configure` | Configure Claude Code, OpenCode, or Cursor for a project, or ensure the global OpenClaw plugin is installed and enabled. |
+| `openpets configure` | Configure Claude Code, OpenCode, or Cursor for a project, OpenCode globally with `--global`, or ensure the global OpenClaw plugin is installed and enabled. |
+| `openpets doctor` | Read-only diagnostics for Claude hooks, Cursor project MCP, global OpenCode setup, and app reachability. |
 | `openpets status` | Check whether the desktop app is reachable. |
 | `openpets pets` | List installed pets from the desktop app. |
 | `openpets react <reaction>` | Send a reaction to the current pet. |
@@ -34,9 +35,13 @@ npx @open-pets/cli --help
 npx @open-pets/cli configure
 ```
 
-The configure command can set up Claude Code hooks/MCP, OpenCode project or
-global config, Cursor MCP/rules, or the global OpenClaw native plugin depending
-on the selected target. For OpenClaw, use:
+The configure command can set up Claude Code hooks/MCP, OpenCode project-local
+config by default or shared global config with `--global`, Cursor MCP/rules,
+or the global OpenClaw native plugin depending on the selected target.
+`--global` is only supported with `--agent opencode` and cannot be combined
+with an explicit `--cwd`. Both CLI global setup and desktop setup resolve the
+shared config directory through the same `getGlobalOpenCodeConfigDir()` logic.
+For OpenClaw, use:
 
 ```bash
 npx @open-pets/cli configure --agent openclaw --yes

@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 
+import { formatEscapesRootError, formatNotRegularFileConfigError, formatSymlinkConfigError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError } from "./opencode-path-safety.js";
+
 export interface OpenCodeConfigPaths {
   readonly candidates: readonly string[];
   readonly defaultCreatePath: string;
@@ -106,7 +108,7 @@ export function updateOpenCodeConfigText(text: string, updates: readonly { reado
 export function planOpenCodeConfigWrite(rootPath: string, targetPath: string, content: string): PlannedWrite | OpenCodeConfigError {
   const root = assertSafeProjectRoot(rootPath);
   const rel = relative(root, targetPath);
-  if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: "OpenCode config target must stay inside the validated root." };
+  if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: formatEscapesRootError("OpenCode config", targetPath, root) };
   const parent = dirname(targetPath);
   const parentSafety = assertSafeParentDirectory(parent);
   if (!parentSafety.ok) return parentSafety;
@@ -159,34 +161,36 @@ export function executePlannedWrite(plan: PlannedWrite): void {
 }
 
 export function assertSafeProjectRoot(projectDir: string): string {
-  if (!isAbsolute(projectDir)) throw new Error("OpenCode project path must be absolute.");
-  if (!existsSync(projectDir)) throw new Error("OpenCode project path does not exist.");
+  if (!isAbsolute(projectDir)) throw new Error(`OpenCode project path ${projectDir} must be absolute and was not modified.`);
+  if (!existsSync(projectDir)) throw new Error(`OpenCode project path ${projectDir} does not exist and was not modified.`);
   const stat = lstatSync(projectDir);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("OpenCode project path must be a safe directory.");
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode project path", projectDir));
   return projectDir;
 }
 
 function assertSafeExistingConfigFile(path: string, allowMissing = false): OpenCodeConfigError | { readonly ok: true } {
-  if (!existsSync(path)) return allowMissing ? { ok: true } : { ok: false, message: "OpenCode config does not exist." };
+  if (!existsSync(path)) return allowMissing ? { ok: true } : { ok: false, message: `OpenCode config ${path} does not exist and was not modified.` };
   const stat = lstatSync(path);
-  if (stat.isSymbolicLink() || !stat.isFile()) return { ok: false, message: "OpenCode config path must be a regular file." };
-  if (stat.size > maxOpenCodeConfigBytes) return { ok: false, message: "OpenCode config is too large." };
+  if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkConfigError(path) };
+  if (!stat.isFile()) return { ok: false, message: formatNotRegularFileConfigError(path) };
+  if (stat.size > maxOpenCodeConfigBytes) return { ok: false, message: `OpenCode config ${path} is too large and was not modified.` };
   return { ok: true };
 }
 
 function assertSafeParentDirectory(path: string): OpenCodeConfigError | { readonly ok: true } {
   const existing = nearestExistingParent(path);
   const rel = relative(existing, path);
-  if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: "OpenCode config parent escapes target directory." };
+  if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: formatEscapesRootError("OpenCode config parent", path, existing) };
   let current = existing;
   while (current !== dirname(current)) {
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return { ok: false, message: "OpenCode config parent must not be a symlink." };
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", current) };
     if (current === path) break;
     current = dirname(current);
   }
   if (existsSync(path)) {
     const stat = lstatSync(path);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) return { ok: false, message: "OpenCode config parent must be a safe directory." };
+    if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", path) };
+    if (!stat.isDirectory()) return { ok: false, message: formatUnsafeParentError("OpenCode config", path) };
   }
   return { ok: true };
 }

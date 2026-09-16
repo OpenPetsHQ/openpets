@@ -270,6 +270,59 @@ try {
   symlinkSync(globalOutside, globalSymlink);
   assert.equal(doctorOpenCodeGlobalSetup(globalSymlink).status, "error");
 
+  // Issue #188: symlinked global opencode.json must be rejected with an
+  // actionable error that names the path and target without mutating it.
+  const symlinkFileDir = join(root, "global-symlink-file");
+  const symlinkFileTargetDir = join(root, "global-symlink-file-target");
+  mkdirSync(symlinkFileDir);
+  mkdirSync(symlinkFileTargetDir);
+  const symlinkTargetFile = join(symlinkFileTargetDir, "opencode.json");
+  writeFileSync(symlinkTargetFile, JSON.stringify({ theme: "dotfiles" }, null, 2), "utf8");
+  const symlinkedConfig = join(symlinkFileDir, "opencode.json");
+  symlinkSync(symlinkTargetFile, symlinkedConfig);
+  const targetBefore = readFileSync(symlinkTargetFile, "utf8");
+  let symlinkFileError = "";
+  try {
+    prepareOpenCodeGlobalSetup({ configDir: symlinkFileDir, petId: "fixer", cliVersion: "0.0.0" });
+  } catch (error) {
+    symlinkFileError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(symlinkFileError, new RegExp(escapeCheckRegExp(symlinkedConfig)));
+  assert.match(symlinkFileError, /symlink/);
+  assert.match(symlinkFileError, new RegExp(escapeCheckRegExp(symlinkTargetFile)));
+  assert.match(symlinkFileError, /was not modified/);
+  assert.match(symlinkFileError, /atomic-write/);
+  assert.equal(readFileSync(symlinkTargetFile, "utf8"), targetBefore, "symlink target must remain untouched");
+  assert.equal(readFileSync(symlinkedConfig, "utf8"), targetBefore);
+  const symlinkFileDoctor = doctorOpenCodeGlobalSetup(symlinkFileDir);
+  assert.equal(symlinkFileDoctor.status, "error");
+  assert.match(symlinkFileDoctor.message, new RegExp(escapeCheckRegExp(symlinkedConfig)));
+  assert.match(symlinkFileDoctor.message, /symlink/);
+  assert.equal(readFileSync(symlinkTargetFile, "utf8"), targetBefore, "doctor must remain read-only");
+  assert.equal(existsSync(join(symlinkFileDir, "openpets.md")), false, "doctor must not create instruction files");
+
+  // Unsafe parent-directory symlinks remain rejected with the offending path.
+  const unsafeParentMessage = "ok" in linkParentPlan && !linkParentPlan.ok ? linkParentPlan.message : "";
+  assert.match(unsafeParentMessage, /was not modified/);
+  assert.match(unsafeParentMessage, new RegExp(escapeCheckRegExp(join(root, "link-parent"))));
+
+  // Regular-file global setup still works with atomic backup/write behavior.
+  const regularGlobalDir = join(root, "global-regular-backup");
+  mkdirSync(regularGlobalDir);
+  writeFileSync(join(regularGlobalDir, "opencode.json"), JSON.stringify({ theme: "keep" }, null, 2), "utf8");
+  const firstRegular = prepareOpenCodeGlobalSetup({ configDir: regularGlobalDir, petId: "fixer", cliVersion: "0.0.0" });
+  writePreparedOpenCodeGlobalSetup(firstRegular);
+  assert.equal(doctorOpenCodeGlobalSetup(regularGlobalDir).status, "installed");
+  const configBeforeSecond = readFileSync(firstRegular.configPath, "utf8");
+  const secondRegular = prepareOpenCodeGlobalSetup({ configDir: regularGlobalDir, petId: "fixer", cliVersion: "0.0.0" });
+  assert.ok(secondRegular.configWrite.backupPath, "second global write must plan a backup");
+  writePreparedOpenCodeGlobalSetup(secondRegular);
+  const backups = (await import("node:fs")).readdirSync(regularGlobalDir).filter((name) => name.includes("openpets-backup"));
+  assert.ok(backups.length >= 1, "atomic backup must be written");
+  assert.match(readFileSync(join(regularGlobalDir, backups[0]!), "utf8"), /theme/);
+  assert.match(readFileSync(firstRegular.configPath, "utf8"), /@open-pets\/opencode/);
+  assert.ok(configBeforeSecond.includes("@open-pets/opencode"));
+
   for (const [category, messages] of Object.entries(hookSpeechPools) as Array<[string, readonly string[]]>) {
     for (const message of messages) {
       assert.match(message, /^[A-Z]/, `${category} hook speech must start uppercase`);
@@ -278,6 +331,10 @@ try {
   }
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+function escapeCheckRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 console.error("OpenCode foundation validation passed.");

@@ -32,6 +32,13 @@ assert.throws(() => parseConfigureArgs(["--agent", "openclaw", "--cwd", process.
 assert.throws(() => parseConfigureArgs(["--agent", "openclaw", `--cwd=${process.cwd()}`]));
 assert.throws(() => parseConfigureArgs(["--agent", "openclaw", "--pet", "fixer"]));
 assert.throws(() => parseConfigureArgs(["--agent", "openclaw", "--local-dev"]));
+assert.equal(parseConfigureArgs(["--agent", "opencode", "--global", "--pet", "fixer"]).global, true);
+assert.equal(parseConfigureArgs(["--agent", "opencode", "--pet", "fixer"]).global ?? false, false);
+assert.throws(() => parseConfigureArgs(["--agent", "opencode", "--global", "--cwd", process.cwd()]));
+assert.throws(() => parseConfigureArgs(["--agent", "opencode", "--global", `--cwd=${process.cwd()}`]));
+assert.throws(() => parseConfigureArgs(["--agent", "claude", "--global"]));
+assert.throws(() => parseConfigureArgs(["--agent", "cursor", "--global"]));
+assert.throws(() => parseConfigureArgs(["--agent", "zed", "--global"]));
 assert.throws(() => parseConfigureArgs(["--agent", "cursor", "--with-rules", "--rules-only"]));
 assert.throws(() => parseConfigureArgs(["--agent", "claude", "--rules-only"]));
 assert.throws(() => parseConfigureArgs(["--pet", "bad/pet"]));
@@ -294,6 +301,33 @@ process.exit(0);
   symlinkSync(outsideOpenCode, join(symlinkOpenCodeProject, ".opencode"));
   await assert.rejects(() => configureProject({ agent: "opencode", petId: "fixer", cwd: symlinkOpenCodeProject, yes: true, force: false, localDev: false }));
 
+  // Issue #188: global OpenCode configure uses the existing global setup path.
+  // Project-local behaviour above remains the default and is unchanged.
+  await assert.rejects(() => configureProject({ agent: "opencode", petId: "fixer", cwd: opencodeProject, yes: true, force: false, localDev: false, global: true, cwdProvided: true }));
+  await assert.rejects(() => configureProject({ agent: "claude", petId: "fixer", cwd: opencodeProject, yes: true, force: false, localDev: false, global: true }));
+  const previousOpenCodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  const opencodeGlobalDir = join(dir, "opencode-global-cli");
+  process.env.OPENCODE_CONFIG_DIR = opencodeGlobalDir;
+  const originalGlobalStdout = process.stdout.write;
+  let globalOutput = "";
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => { globalOutput += String(chunk); return true; }) as typeof process.stdout.write;
+  try {
+    await configureProject({ agent: "opencode", petId: "fixer", cwd: process.cwd(), yes: true, force: false, localDev: false, global: true });
+  } finally {
+    process.stdout.write = originalGlobalStdout;
+    if (previousOpenCodeConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+    else process.env.OPENCODE_CONFIG_DIR = previousOpenCodeConfigDir;
+  }
+  const globalConfigPath = join(opencodeGlobalDir, "opencode.jsonc");
+  const globalInstructionPath = join(opencodeGlobalDir, "openpets.md");
+  assert.equal(existsSync(globalConfigPath), true);
+  assert.match(readFileSync(globalConfigPath, "utf8"), /@open-pets\/opencode/);
+  assert.match(readFileSync(globalInstructionPath, "utf8"), /OPENPETS:START/);
+  assert.match(globalOutput, /global/i);
+  assert.match(globalOutput, new RegExp(globalConfigPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  // Project files must not be created by the global path.
+  assert.equal(existsSync(join(opencodeProject, ".opencode", "opencode.jsonc")), true, "project setup from earlier assertions must remain intact");
+
   const zedRoot = join(dir, "zed-global");
   mkdirSync(zedRoot);
   const zedEnvKeys = process.platform === "win32" ? ["APPDATA"] : ["FLATPAK_XDG_CONFIG_HOME", "XDG_CONFIG_HOME"];
@@ -410,12 +444,30 @@ async function captureDoctorJson(cwd: string): Promise<Record<string, unknown>> 
   let captured = "";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   process.stdout.write = ((chunk: any) => { captured += typeof chunk === "string" ? chunk : String(chunk); return true; }) as typeof process.stdout.write;
+  const previousExitCode = process.exitCode;
   try {
     await runDoctor({ cwd, json: true });
   } finally {
     process.stdout.write = originalWrite;
+    process.exitCode = previousExitCode;
   }
   return JSON.parse(captured) as Record<string, unknown>;
+}
+
+async function captureDoctorText(cwd: string): Promise<{ readonly text: string; readonly exitCode: number | undefined }> {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  let captured = "";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  process.stdout.write = ((chunk: any) => { captured += typeof chunk === "string" ? chunk : String(chunk); return true; }) as typeof process.stdout.write;
+  const previousExitCode = process.exitCode;
+  process.exitCode = undefined;
+  try {
+    await runDoctor({ cwd, json: false });
+    return { text: captured, exitCode: process.exitCode };
+  } finally {
+    process.stdout.write = originalWrite;
+    process.exitCode = previousExitCode;
+  }
 }
 
 const doctorInstalledProject = mkdtempSync(join(tmpdir(), "openpets-doctor-installed-"));
@@ -427,12 +479,60 @@ writeFileSync(
 );
 const doctorInstalledReport = await captureDoctorJson(doctorInstalledProject);
 assert.equal((doctorInstalledReport.cursor as { status?: string }).status, "installed");
+assert.ok("opencode" in doctorInstalledReport, "doctor --json must report OpenCode");
+assert.ok("claude" in doctorInstalledReport && "cursor" in doctorInstalledReport && "app" in doctorInstalledReport, "doctor --json must preserve existing fields");
 rmSync(doctorInstalledProject, { recursive: true, force: true });
 
 const doctorMissingProject = mkdtempSync(join(tmpdir(), "openpets-doctor-missing-"));
 const doctorMissingReport = await captureDoctorJson(doctorMissingProject);
 assert.equal((doctorMissingReport.cursor as { status?: string }).status, "missing");
+assert.ok("opencode" in doctorMissingReport, "doctor --json must report OpenCode even when Cursor is missing");
+const doctorMissingText = await captureDoctorText(doctorMissingProject);
+assert.match(doctorMissingText.text, /OpenCode/);
+assert.match(doctorMissingText.text, /Claude hooks:/);
+assert.match(doctorMissingText.text, /Cursor MCP:/);
 rmSync(doctorMissingProject, { recursive: true, force: true });
+
+// Issue #188: doctor must surface a symlinked global config as a useful
+// diagnostic error without mutating anything.
+const doctorSymlinkGlobalDir = mkdtempSync(join(tmpdir(), "openpets-doctor-opencode-symlink-"));
+const doctorSymlinkTargetDir = mkdtempSync(join(tmpdir(), "openpets-doctor-opencode-target-"));
+const doctorSymlinkTargetFile = join(doctorSymlinkTargetDir, "opencode.json");
+writeFileSync(doctorSymlinkTargetFile, JSON.stringify({ theme: "dotfiles" }, null, 2), "utf8");
+mkdirSync(join(doctorSymlinkGlobalDir, "opencode-home"));
+const doctorSymlinkedConfig = join(doctorSymlinkGlobalDir, "opencode-home", "opencode.json");
+mkdirSync(join(doctorSymlinkGlobalDir, "opencode-home"), { recursive: true });
+symlinkSync(doctorSymlinkTargetFile, doctorSymlinkedConfig);
+const previousDoctorEnv = process.env.OPENCODE_CONFIG_DIR;
+process.env.OPENCODE_CONFIG_DIR = join(doctorSymlinkGlobalDir, "opencode-home");
+const doctorSymlinkTargetBefore = readFileSync(doctorSymlinkTargetFile, "utf8");
+let doctorSymlinkReport: Record<string, unknown>;
+try {
+  doctorSymlinkReport = await captureDoctorJson(doctorMissingProject);
+} finally {
+  if (previousDoctorEnv === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+  else process.env.OPENCODE_CONFIG_DIR = previousDoctorEnv;
+}
+const doctorOpencode = doctorSymlinkReport.opencode as { status?: string; message?: string; configDir?: string };
+assert.equal(doctorOpencode.status, "error");
+assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkedConfig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(doctorOpencode.message ?? "", /symlink/);
+assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkTargetFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.equal(readFileSync(doctorSymlinkTargetFile, "utf8"), doctorSymlinkTargetBefore, "doctor must not modify symlink targets");
+assert.equal(existsSync(join(doctorSymlinkGlobalDir, "opencode-home", "openpets.md")), false, "doctor must remain read-only");
+process.env.OPENCODE_CONFIG_DIR = join(doctorSymlinkGlobalDir, "opencode-home");
+let doctorSymlinkText: { readonly text: string; readonly exitCode: number | undefined };
+try {
+  doctorSymlinkText = await captureDoctorText(doctorMissingProject);
+} finally {
+  if (previousDoctorEnv === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+  else process.env.OPENCODE_CONFIG_DIR = previousDoctorEnv;
+}
+assert.match(doctorSymlinkText.text, /OpenCode/);
+assert.match(doctorSymlinkText.text, /symlink/);
+assert.equal(doctorSymlinkText.exitCode, 1, "genuine OpenCode diagnostic errors must set non-zero exit");
+rmSync(doctorSymlinkGlobalDir, { recursive: true, force: true });
+rmSync(doctorSymlinkTargetDir, { recursive: true, force: true });
 
 const invalidHook = spawnSync(process.execPath, [new URL("./index.js", import.meta.url).pathname, "hook", "--openpets-managed", "--pet", "bad/pet"], { input: JSON.stringify({ hook_event_name: "Notification" }), encoding: "utf8" });
 assert.equal(invalidHook.status, 1);

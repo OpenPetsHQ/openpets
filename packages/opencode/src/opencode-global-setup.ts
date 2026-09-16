@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { parseOpenCodeConfig, readOpenCodeConfigFile, updateOpenCodeConfigText, type OpenCodeConfigPaths, type PlannedWrite } from "./opencode-config.js";
+import { formatEscapesRootError, formatNotRegularFileConfigError, formatNotRegularFileInstructionError, formatSymlinkConfigError, formatSymlinkInstructionError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError } from "./opencode-path-safety.js";
 import { buildOpenCodeInstructionPath, buildOpenCodeMcpEntry, buildOpenCodePluginPreview, validateOpenPetsPetArg, type OpenCodeCommandMode } from "./opencode-previews.js";
 import { classifyOpenCodeInstructionsStatus, classifyOpenCodeMcpStatus, classifyOpenCodePluginStatus, isManagedOpenPetsMcpEntry, isManagedOpenPetsPluginEntry, isOpenPetsLikePluginEntry } from "./opencode-status.js";
 import { createOpenPetsInstructionBlock } from "./opencode-project-setup.js";
@@ -232,8 +233,9 @@ function planTextWrite(root: string, targetPath: string, content: string): Globa
   assertSafeGlobalPath(root, targetPath, "OpenCode instruction");
   if (existsSync(targetPath)) {
     const stat = lstatSync(targetPath);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-    if (stat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(targetPath));
+    if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(targetPath));
+    if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${targetPath} is too large and was not modified.`);
   }
   const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
   return { targetPath, backupPath: existsSync(targetPath) ? `${targetPath}.openpets-backup-${stamp}.md` : undefined, tempPath: join(dirname(targetPath), `.openpets-${stamp}.tmp`), content };
@@ -243,12 +245,14 @@ function executeTextWrite(plan: GlobalPlannedTextWrite): void {
   const parent = dirname(plan.targetPath);
   if (existsSync(parent)) {
     const parentStat = lstatSync(parent);
-    if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) throw new Error("OpenCode instruction directory is unsafe.");
+    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
+    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
   }
   if (existsSync(plan.targetPath)) {
     const targetStat = lstatSync(plan.targetPath);
-    if (targetStat.isSymbolicLink() || !targetStat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-    if (targetStat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(plan.targetPath));
+    if (!targetStat.isFile()) throw new Error(formatNotRegularFileInstructionError(plan.targetPath));
+    if (targetStat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${plan.targetPath} is too large and was not modified.`);
   }
   if (plan.backupPath && dirname(plan.backupPath) !== parent) throw new Error("OpenCode instruction backup path is unsafe.");
   if (dirname(plan.tempPath) !== parent) throw new Error("OpenCode instruction temp path is unsafe.");
@@ -276,7 +280,8 @@ function executeGlobalConfigWrite(plan: PlannedWrite): void {
   assertSafeGlobalPath(plan.rootPath, plan.targetPath, "OpenCode config");
   if (existsSync(plan.targetPath)) {
     const targetStat = lstatSync(plan.targetPath);
-    if (targetStat.isSymbolicLink() || !targetStat.isFile()) throw new Error("OpenCode config path must be a safe regular file.");
+    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkConfigError(plan.targetPath));
+    if (!targetStat.isFile()) throw new Error(formatNotRegularFileConfigError(plan.targetPath));
   }
   if (plan.backupPath && (dirname(plan.backupPath) !== parent || existsSync(plan.backupPath))) throw new Error("OpenCode config backup path is unsafe.");
   if (dirname(plan.tempPath) !== parent || existsSync(plan.tempPath)) throw new Error("OpenCode config temp path is unsafe.");
@@ -295,8 +300,9 @@ function executeGlobalConfigWrite(plan: PlannedWrite): void {
 
 function readSafeInstructionFile(path: string): string {
   const stat = lstatSync(path);
-  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-  if (stat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+  if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(path));
+  if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(path));
+  if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${path} is too large and was not modified.`);
   return readFileSync(path, "utf8");
 }
 
@@ -315,35 +321,36 @@ function hasManagedInstructionBlock(value: string): boolean {
 }
 
 function assertSafeDirectoryRoot(root: string, allowMissing: boolean): void {
-  if (!isAbsolute(root)) throw new Error("OpenCode global config directory must be absolute.");
+  if (!isAbsolute(root)) throw new Error(`OpenCode global config directory ${root} must be absolute and was not modified.`);
   if (!existsSync(root)) {
     if (allowMissing) return;
-    throw new Error("OpenCode global config directory does not exist.");
+    throw new Error(`OpenCode global config directory ${root} does not exist and was not modified.`);
   }
   const stat = lstatSync(root);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("OpenCode global config directory is unsafe.");
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode global config directory", root));
 }
 
 function assertSafeGlobalPath(root: string, targetPath: string, label: string): void {
   assertSafeNearestExistingRoot(root);
   const rel = relative(root, targetPath);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${label} path escapes global config directory.`);
+  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(formatEscapesRootError(label, targetPath, root));
   let current = root;
   for (const part of rel.split(/[\\/]+/).filter(Boolean).slice(0, -1)) {
     current = join(current, part);
     if (!existsSync(current)) continue;
     const stat = lstatSync(current);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`${label} parent directory is unsafe.`);
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError(label, current));
+    if (!stat.isDirectory()) throw new Error(formatUnsafeParentError(label, current));
   }
 }
 
 function assertSafeNearestExistingRoot(root: string): void {
-  if (!isAbsolute(root)) throw new Error("OpenCode global config directory must be absolute.");
+  if (!isAbsolute(root)) throw new Error(`OpenCode global config directory ${root} must be absolute and was not modified.`);
   let current = root;
   while (!existsSync(current)) current = dirname(current);
   const stat = statSync(current);
-  if (!stat.isDirectory()) throw new Error("OpenCode global config parent is unsafe.");
-  if (lstatSync(current).isSymbolicLink()) throw new Error("OpenCode global config parent must not be a symlink.");
+  if (!stat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode global config parent", current));
+  if (lstatSync(current).isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode global config parent", current));
 }
 
 function escapeRegExp(value: string): string {

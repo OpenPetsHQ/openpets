@@ -28,7 +28,7 @@ Main developer CLI tool for OpenPets agent configuration and plugin/pet asset ma
 
 **Editor Configuration Actions**:
 - **Claude**: Appends OpenPets hooks command hooks to global/project setting files and configures Claude's MCP configuration.
-- **OpenCode**: Modifies local instruction entries and links client plugins via `@open-pets/opencode`.
+- **OpenCode**: Modifies project-local instruction entries by default and links client plugins via `@open-pets/opencode`; `--global` writes the shared global config through the desktop global preparation path. `doctor` reports global OpenCode status read-only.
 - **Cursor**: Generates MCP definitions in `.cursor/mcp.json` and updates MDC rule files (`.cursor/rules/openpets.mdc`).
 - **OpenClaw**: Runs the global native plugin ensure flow through `@open-pets/openclaw/management`; it has no project, pet, force, or local-dev mode.
 - **Zed**: Updates the global JSONC settings file's managed `context_servers.openpets` entry.

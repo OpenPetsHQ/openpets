@@ -10,7 +10,8 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 
 **Commands:**
 - `install <pet-id>` - Install pet via running desktop app
-- `configure` - Interactive project setup for Claude, OpenCode, or Cursor, plus global Zed MCP setup
+- `configure` - Interactive project setup for Claude, OpenCode, or Cursor, plus global Zed MCP setup and OpenCode `--global` setup
+- `doctor` - Read-only diagnostics for Claude hooks, Cursor project MCP, global OpenCode setup, and app reachability
 - `status` - Check OpenPets desktop app connectivity
 - `pets` - List installed pets
 - `react <reaction>` - Send reaction to desktop app
@@ -21,9 +22,10 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 - `plugin new <name> --template <blank|reminder|ambient|ai-chat|tamagotchi|calendar>` - Scaffold an SDK v3 plugin package
 
 **Configuration Flow:**
-- `configureProject()` - Main entry for project setup
+- `configureProject()` - Main entry for project/global setup with `--global` routing
 - `configureCursorProject()` - Cursor MCP + rules configuration
-- `configureOpenCodeProject()` - OpenCode config setup
+- `configureOpenCodeProject()` - OpenCode project-local config setup (default)
+- `configureOpenCodeGlobal()` - OpenCode shared global setup via existing global preparation path
 - `configureZedGlobal()` - Zed global JSONC settings setup
 - Claude: Hook settings + MCP via `claude mcp add-json`
 
@@ -87,6 +89,8 @@ Contract validation and integration checks. Runtime assertions for CLI behavior.
 - OpenCode: Top-level vs `.opencode/` config precedence
 - OpenCode: Existing config preservation
 - OpenCode: Custom MCP conflict detection
+- OpenCode: Global `--global` setup through the shared global path with project default preserved
+- OpenCode: Symlinked global config rejection plus read-only doctor diagnostics
 - Cursor: MCP config installation
 - Cursor: Rules-only and remove-rules modes
 - Cursor: Conflict detection with --force

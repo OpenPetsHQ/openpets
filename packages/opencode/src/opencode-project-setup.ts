@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { executePlannedWrite, getProjectOpenCodeConfigPaths, parseOpenCodeConfig, planOpenCodeConfigWrite, readOpenCodeConfigFile, updateOpenCodeConfigText, type PlannedWrite } from "./opencode-config.js";
+import { formatEscapesRootError, formatNotRegularFileInstructionError, formatSymlinkInstructionError, formatSymlinkParentError, formatUnsafeParentError } from "./opencode-path-safety.js";
 import { buildOpenCodeInstructionPath, buildOpenCodeMcpEntry, buildOpenCodePluginPreview, validateOpenPetsPetArg, type OpenCodeCommandMode } from "./opencode-previews.js";
 import { classifyOpenCodeInstructionsStatus, classifyOpenCodeMcpStatus, classifyOpenCodePluginStatus, isManagedOpenPetsMcpEntry, isManagedOpenPetsPluginEntry } from "./opencode-status.js";
 
@@ -105,13 +106,15 @@ function planInstructionWrite(projectDir: string, targetPath: string, content: s
   assertSafeProjectLocalPath(projectDir, targetPath, "OpenCode instruction");
   if (existsSync(targetPath)) {
     const stat = lstatSync(targetPath);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-    if (stat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(targetPath));
+    if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(targetPath));
+    if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${targetPath} is too large and was not modified.`);
   }
   const parent = dirname(targetPath);
   if (existsSync(parent)) {
     const stat = lstatSync(parent);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("OpenCode instruction directory is unsafe.");
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
+    if (!stat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
   }
   const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
   return { targetPath, backupPath: existsSync(targetPath) ? `${targetPath}.openpets-backup-${stamp}.md` : undefined, tempPath: join(parent, `.openpets-${stamp}.tmp`), content };
@@ -121,12 +124,14 @@ function executeTextWrite(plan: PlannedTextWrite): void {
   const parent = dirname(plan.targetPath);
   if (existsSync(parent)) {
     const parentStat = lstatSync(parent);
-    if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) throw new Error("OpenCode instruction directory is unsafe.");
+    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
+    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
   }
   if (existsSync(plan.targetPath)) {
     const targetStat = lstatSync(plan.targetPath);
-    if (targetStat.isSymbolicLink() || !targetStat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-    if (targetStat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(plan.targetPath));
+    if (!targetStat.isFile()) throw new Error(formatNotRegularFileInstructionError(plan.targetPath));
+    if (targetStat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${plan.targetPath} is too large and was not modified.`);
   }
   if (plan.backupPath && dirname(plan.backupPath) !== parent) throw new Error("OpenCode instruction backup path is unsafe.");
   if (dirname(plan.tempPath) !== parent) throw new Error("OpenCode instruction temp path is unsafe.");
@@ -143,21 +148,23 @@ function executeTextWrite(plan: PlannedTextWrite): void {
 
 function readSafeInstructionFile(path: string): string {
   const stat = lstatSync(path);
-  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("OpenCode instruction path must be a safe regular file.");
-  if (stat.size > maxInstructionBytes) throw new Error("OpenCode instruction file is too large.");
+  if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(path));
+  if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(path));
+  if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${path} is too large and was not modified.`);
   return readFileSync(path, "utf8");
 }
 
 function assertSafeProjectLocalPath(projectDir: string, targetPath: string, label: string): void {
   const rel = relative(projectDir, targetPath);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${label} path escapes the project.`);
+  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(formatEscapesRootError(label, targetPath, projectDir));
   const parts = rel.split(/[\\/]+/).filter(Boolean);
   let current = projectDir;
   for (let index = 0; index < parts.length - 1; index += 1) {
     current = join(current, parts[index] ?? "");
     if (!existsSync(current)) continue;
     const stat = lstatSync(current);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`${label} parent directory is unsafe.`);
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError(label, current));
+    if (!stat.isDirectory()) throw new Error(formatUnsafeParentError(label, current));
   }
 }
 
