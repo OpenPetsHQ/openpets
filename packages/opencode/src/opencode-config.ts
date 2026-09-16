@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 
-import { formatEscapesRootError, formatNotRegularFileConfigError, formatSymlinkConfigError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError, lstatIfExists, pathHasEntry } from "./opencode-path-safety.js";
+import { formatEscapesRootError, formatNotRegularFileConfigError, formatSymlinkConfigError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError, lstatIfExists, pathHasEntry, type OpenCodePathScope } from "./opencode-path-safety.js";
 
 export interface OpenCodeConfigPaths {
   readonly candidates: readonly string[];
@@ -77,8 +77,8 @@ export function createOpenCodeExecutableDetection(input: Partial<OpenCodeExecuta
   };
 }
 
-export function readOpenCodeConfigFile(path: string): ParsedOpenCodeConfig | OpenCodeConfigError {
-  const safety = assertSafeExistingConfigFile(path);
+export function readOpenCodeConfigFile(path: string, scope: OpenCodePathScope = "global"): ParsedOpenCodeConfig | OpenCodeConfigError {
+  const safety = assertSafeExistingConfigFile(path, false, scope);
   if (!safety.ok) return safety;
   return parseOpenCodeConfig(readFileSync(path, "utf8"));
 }
@@ -110,9 +110,9 @@ export function planOpenCodeConfigWrite(rootPath: string, targetPath: string, co
   const rel = relative(root, targetPath);
   if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: formatEscapesRootError("OpenCode config", targetPath, root) };
   const parent = dirname(targetPath);
-  const parentSafety = assertSafeParentDirectory(parent);
+  const parentSafety = assertSafeParentDirectory(parent, "project");
   if (!parentSafety.ok) return parentSafety;
-  const existing = assertSafeExistingConfigFile(targetPath, true);
+  const existing = assertSafeExistingConfigFile(targetPath, true, "project");
   if (!existing.ok) return existing;
   const parsed = parseOpenCodeConfig(content);
   if (!parsed.ok) return parsed;
@@ -135,9 +135,9 @@ export function executePlannedWrite(plan: PlannedWrite): void {
     if (pathRel.startsWith("..") || isAbsolute(pathRel)) throw new Error("OpenCode write support path escaped validated root.");
     if (dirname(path) !== dirname(plan.targetPath)) throw new Error("OpenCode write support path must stay next to target.");
   }
-  const parentSafety = assertSafeParentDirectory(dirname(plan.targetPath));
+  const parentSafety = assertSafeParentDirectory(dirname(plan.targetPath), "project");
   if (!parentSafety.ok) throw new Error(parentSafety.message);
-  const targetSafety = assertSafeExistingConfigFile(plan.targetPath, true);
+  const targetSafety = assertSafeExistingConfigFile(plan.targetPath, true, "project");
   if (!targetSafety.ok) throw new Error(targetSafety.message);
   const parsed = parseOpenCodeConfig(plan.content);
   if (!parsed.ok) throw new Error(parsed.message);
@@ -166,34 +166,34 @@ export function assertSafeProjectRoot(projectDir: string): string {
   if (!isAbsolute(projectDir)) throw new Error(`OpenCode project path ${projectDir} must be absolute and was not modified.`);
   const stat = lstatIfExists(projectDir);
   if (!stat) throw new Error(`OpenCode project path ${projectDir} does not exist and was not modified.`);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode project path", projectDir));
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode project path", projectDir, "project"));
   return projectDir;
 }
 
-function assertSafeExistingConfigFile(path: string, allowMissing = false): OpenCodeConfigError | { readonly ok: true } {
+function assertSafeExistingConfigFile(path: string, allowMissing = false, scope: OpenCodePathScope = "global"): OpenCodeConfigError | { readonly ok: true } {
   const stat = lstatIfExists(path);
   if (!stat) return allowMissing ? { ok: true } : { ok: false, message: `OpenCode config ${path} does not exist and was not modified.` };
-  if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkConfigError(path) };
-  if (!stat.isFile()) return { ok: false, message: formatNotRegularFileConfigError(path) };
+  if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkConfigError(path, scope) };
+  if (!stat.isFile()) return { ok: false, message: formatNotRegularFileConfigError(path, scope) };
   if (stat.size > maxOpenCodeConfigBytes) return { ok: false, message: `OpenCode config ${path} is too large and was not modified.` };
   return { ok: true };
 }
 
-function assertSafeParentDirectory(path: string): OpenCodeConfigError | { readonly ok: true } {
+function assertSafeParentDirectory(path: string, scope: OpenCodePathScope = "global"): OpenCodeConfigError | { readonly ok: true } {
   const existing = nearestExistingParent(path);
   const rel = relative(existing, path);
   if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: formatEscapesRootError("OpenCode config parent", path, existing) };
   let current = existing;
   while (current !== dirname(current)) {
     const currentStat = lstatIfExists(current);
-    if (currentStat?.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", current) };
+    if (currentStat?.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", current, scope) };
     if (current === path) break;
     current = dirname(current);
   }
   const parentStat = lstatIfExists(path);
   if (parentStat) {
-    if (parentStat.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", path) };
-    if (!parentStat.isDirectory()) return { ok: false, message: formatUnsafeParentError("OpenCode config", path) };
+    if (parentStat.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", path, scope) };
+    if (!parentStat.isDirectory()) return { ok: false, message: formatUnsafeParentError("OpenCode config", path, scope) };
   }
   return { ok: true };
 }

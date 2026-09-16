@@ -31,8 +31,11 @@ Provides comprehensive OpenCode editor integration including: MCP server configu
 **Path Safety** (`opencode-path-safety.ts`):
 - Shared symlink/parent/escape message builders naming the offending path,
   resolved target when safely obtainable, non-modification, atomic-write
-  rationale, and project-local remediation
-- Used by project/global setup and config planning without leaking file contents
+  rationale, and scope-aware remediation (global may suggest project-local
+  setup; project suggests materializing and rerunning project setup)
+- lstat-based existence helpers plus full-ancestor symlink rejection for
+  global roots, used by project/global setup and config planning without
+  leaking file contents
 
 **Project Setup** (`opencode-project-setup.ts`):
 - Status classification: `not_installed`, `installed`, `needs_update`, `custom`, `conflict`, `error`

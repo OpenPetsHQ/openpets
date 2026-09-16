@@ -143,7 +143,10 @@ const mcpJson = JSON.parse(mcpArgs[3] ?? "{}") as { readonly command?: string; r
 assert.equal(mcpJson.command, "npx");
 assert.deepEqual(mcpJson.args, ["-y", `${cliPackageName}@1.2.3`, "mcp", "--pet", "fixer"]);
 
-const dir = mkdtempSync(join(tmpdir(), "openpets-cli-"));
+// Canonicalize sandbox roots that feed OPENCODE_CONFIG_DIR: platform temp dirs
+// can sit beneath system symlinks (e.g. /var on macOS) that ancestor
+// validation must reject. Validation itself never canonicalizes.
+const dir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-cli-"));
 try {
   const project = join(dir, "project");
   const settingsDir = join(project, ".claude");
@@ -315,6 +318,7 @@ process.exit(0);
   }
   assert.match(danglingProjectError, /symlink/);
   assert.match(danglingProjectError, new RegExp(danglingProjectConfig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(danglingProjectError, /use project-local/, "project errors must not suggest switching to project-local setup");
   assert.equal(lstatSync(danglingProjectConfig).isSymbolicLink(), true, "dangling project symlink must not be replaced");
   assert.equal(hasCliCheckEntry(danglingProjectTarget), false, "no contents may be created through the dangling link");
 
@@ -523,8 +527,8 @@ rmSync(doctorMissingProject, { recursive: true, force: true });
 
 // Issue #188: doctor must surface a symlinked global config as a useful
 // diagnostic error without mutating anything.
-const doctorSymlinkGlobalDir = mkdtempSync(join(tmpdir(), "openpets-doctor-opencode-symlink-"));
-const doctorSymlinkTargetDir = mkdtempSync(join(tmpdir(), "openpets-doctor-opencode-target-"));
+const doctorSymlinkGlobalDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-doctor-opencode-symlink-"));
+const doctorSymlinkTargetDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-doctor-opencode-target-"));
 const doctorSymlinkTargetFile = join(doctorSymlinkTargetDir, "opencode.json");
 writeFileSync(doctorSymlinkTargetFile, JSON.stringify({ theme: "dotfiles" }, null, 2), "utf8");
 mkdirSync(join(doctorSymlinkGlobalDir, "opencode-home"));
@@ -546,6 +550,7 @@ assert.equal(doctorOpencode.status, "error");
 assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkedConfig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 assert.match(doctorOpencode.message ?? "", /symlink/);
 assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkTargetFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(doctorOpencode.message ?? "", /project-local/, "global doctor errors suggest project-local setup as a fallback");
 assert.equal(readFileSync(doctorSymlinkTargetFile, "utf8"), doctorSymlinkTargetBefore, "doctor must not modify symlink targets");
 assert.equal(hasCliCheckEntry(join(doctorSymlinkGlobalDir, "opencode-home", "openpets.md")), false, "doctor must remain read-only");
 process.env.OPENCODE_CONFIG_DIR = join(doctorSymlinkGlobalDir, "opencode-home");
@@ -563,7 +568,7 @@ rmSync(doctorSymlinkGlobalDir, { recursive: true, force: true });
 rmSync(doctorSymlinkTargetDir, { recursive: true, force: true });
 
 // Dangling global symlinks must surface as doctor errors without mutation.
-const doctorDanglingDir = mkdtempSync(join(tmpdir(), "openpets-doctor-dangling-"));
+const doctorDanglingDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-doctor-dangling-"));
 const doctorDanglingTarget = join(doctorDanglingDir, "missing-target.json");
 const doctorDanglingConfig = join(doctorDanglingDir, "opencode.json");
 symlinkSync(doctorDanglingTarget, doctorDanglingConfig);

@@ -42,7 +42,7 @@ export function prepareOpenCodeProjectSetup(options: PrepareOpenCodeProjectSetup
   const existingConfigs = paths.candidates.flatMap((path) => {
     if (!lstatIfExists(path)) return [];
     assertSafeProjectLocalPath(options.projectDir, path, "OpenCode config");
-    const parsed = readOpenCodeConfigFile(path);
+    const parsed = readOpenCodeConfigFile(path, "project");
     if (!parsed.ok) throw new Error(parsed.message);
     return [{ path, config: parsed.value }];
   });
@@ -60,8 +60,8 @@ export function prepareOpenCodeProjectSetup(options: PrepareOpenCodeProjectSetup
 
   const selectedPath = selectWriteTarget(paths.candidates, existingConfigs, paths.defaultCreatePath);
   const selectedStat = lstatIfExists(selectedPath);
-  if (selectedStat?.isSymbolicLink()) throw new Error(formatSymlinkConfigError(selectedPath));
-  if (selectedStat && !selectedStat.isFile()) throw new Error(formatNotRegularFileConfigError(selectedPath));
+  if (selectedStat?.isSymbolicLink()) throw new Error(formatSymlinkConfigError(selectedPath, "project"));
+  if (selectedStat && !selectedStat.isFile()) throw new Error(formatNotRegularFileConfigError(selectedPath, "project"));
   const selectedText = selectedStat ? readFileSync(selectedPath, "utf8") : "{}\n";
   const parsedSelected = parseOpenCodeConfig(selectedText);
   if (!parsedSelected.ok) throw new Error(parsedSelected.message);
@@ -109,15 +109,15 @@ function planInstructionWrite(projectDir: string, targetPath: string, content: s
   assertSafeProjectLocalPath(projectDir, targetPath, "OpenCode instruction");
   const stat = lstatIfExists(targetPath);
   if (stat) {
-    if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(targetPath));
-    if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(targetPath));
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(targetPath, "project"));
+    if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(targetPath, "project"));
     if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${targetPath} is too large and was not modified.`);
   }
   const parent = dirname(targetPath);
   const parentStat = lstatIfExists(parent);
   if (parentStat) {
-    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
-    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
+    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent, "project"));
+    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent, "project"));
   }
   const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
   return { targetPath, backupPath: stat ? `${targetPath}.openpets-backup-${stamp}.md` : undefined, tempPath: join(parent, `.openpets-${stamp}.tmp`), content };
@@ -127,13 +127,13 @@ function executeTextWrite(plan: PlannedTextWrite): void {
   const parent = dirname(plan.targetPath);
   const parentStat = lstatIfExists(parent);
   if (parentStat) {
-    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
-    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
+    if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent, "project"));
+    if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent, "project"));
   }
   const targetStat = lstatIfExists(plan.targetPath);
   if (targetStat) {
-    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(plan.targetPath));
-    if (!targetStat.isFile()) throw new Error(formatNotRegularFileInstructionError(plan.targetPath));
+    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(plan.targetPath, "project"));
+    if (!targetStat.isFile()) throw new Error(formatNotRegularFileInstructionError(plan.targetPath, "project"));
     if (targetStat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${plan.targetPath} is too large and was not modified.`);
   }
   if (plan.backupPath && dirname(plan.backupPath) !== parent) throw new Error("OpenCode instruction backup path is unsafe.");
@@ -153,8 +153,8 @@ function executeTextWrite(plan: PlannedTextWrite): void {
 
 function readSafeInstructionFile(path: string): string {
   const stat = lstatSync(path);
-  if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(path));
-  if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(path));
+  if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(path, "project"));
+  if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(path, "project"));
   if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${path} is too large and was not modified.`);
   return readFileSync(path, "utf8");
 }
@@ -168,8 +168,8 @@ function assertSafeProjectLocalPath(projectDir: string, targetPath: string, labe
     current = join(current, parts[index] ?? "");
     const stat = lstatIfExists(current);
     if (!stat) continue;
-    if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError(label, current));
-    if (!stat.isDirectory()) throw new Error(formatUnsafeParentError(label, current));
+    if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError(label, current, "project"));
+    if (!stat.isDirectory()) throw new Error(formatUnsafeParentError(label, current, "project"));
   }
 }
 

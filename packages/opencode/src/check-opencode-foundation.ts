@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -10,7 +10,10 @@ import { buildOpenCodeInstructionPath, buildOpenCodeMcpEntry, buildOpenCodePlugi
 import { doctorOpenCodeGlobalSetup, prepareOpenCodeGlobalRemove, prepareOpenCodeGlobalSetup, writePreparedOpenCodeGlobalRemove, writePreparedOpenCodeGlobalSetup } from "./opencode-global-setup.js";
 import { classifyOpenCodeInstructionsStatus, classifyOpenCodeMcpStatus, classifyOpenCodePluginStatus } from "./opencode-status.js";
 
-const root = mkdtempSync(join(tmpdir(), "openpets-opencode-"));
+// Canonicalize only the sandbox location: platform temp dirs can sit beneath
+// system symlinks (e.g. /var on macOS), which ancestor validation must reject.
+// Validation itself never canonicalizes the paths under test.
+const root = mkdtempSync(join(realpathSync(tmpdir()), "openpets-opencode-"));
 try {
   const project = join(root, "project");
   mkdirSync(project);
@@ -292,6 +295,7 @@ try {
   assert.match(symlinkFileError, new RegExp(escapeCheckRegExp(symlinkTargetFile)));
   assert.match(symlinkFileError, /was not modified/);
   assert.match(symlinkFileError, /atomic-write/);
+  assert.match(symlinkFileError, /use project-local OpenCode setup/, "global errors suggest project-local setup as a fallback");
   assert.equal(readFileSync(symlinkTargetFile, "utf8"), targetBefore, "symlink target must remain untouched");
   assert.equal(readFileSync(symlinkedConfig, "utf8"), targetBefore);
   const symlinkFileDoctor = doctorOpenCodeGlobalSetup(symlinkFileDir);
@@ -318,6 +322,7 @@ try {
   assert.match(danglingConfigError, /symlink/);
   assert.match(danglingConfigError, /was not modified/);
   assert.match(danglingConfigError, new RegExp(escapeCheckRegExp(danglingTarget)));
+  assert.match(danglingConfigError, /use project-local OpenCode setup/, "global errors suggest project-local setup as a fallback");
   assert.equal(lstatSync(danglingConfig).isSymbolicLink(), true, "dangling symlink itself must not be replaced");
   assert.equal(hasCheckEntry(danglingTarget), false, "no contents may be created through the dangling link");
   const danglingDoctor = doctorOpenCodeGlobalSetup(danglingGlobalDir);
@@ -397,6 +402,57 @@ try {
   assert.equal(lstatSync(danglingAncestorLink).isSymbolicLink(), true);
   assert.equal(hasCheckEntry(nestedConfigDir), false, "no config may be created through the dangling ancestor");
 
+  // A valid ancestor directory symlink is rejected before any read or
+  // write, even though the configured root itself looks like a directory.
+  const ancestorRealDir = join(root, "ancestor-real");
+  mkdirSync(ancestorRealDir);
+  const ancestorLink = join(root, "ancestor-link-valid");
+  symlinkSync(ancestorRealDir, ancestorLink);
+  const nestedValidConfigDir = join(ancestorLink, "opencode");
+  let ancestorValidError = "";
+  try {
+    prepareOpenCodeGlobalSetup({ configDir: nestedValidConfigDir, petId: "fixer", cliVersion: "0.0.0" });
+  } catch (error) {
+    ancestorValidError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(ancestorValidError, new RegExp(escapeCheckRegExp(ancestorLink)));
+  assert.match(ancestorValidError, /symlink/);
+  assert.match(ancestorValidError, /was not modified/);
+  assert.match(ancestorValidError, new RegExp(escapeCheckRegExp(ancestorRealDir)));
+  assert.match(ancestorValidError, /use project-local OpenCode setup/);
+  assert.equal(lstatSync(ancestorLink).isSymbolicLink(), true, "ancestor symlink must not be followed");
+  assert.equal(hasCheckEntry(join(ancestorRealDir, "opencode.jsonc")), false, "no config may be written through the ancestor symlink");
+  assert.equal(hasCheckEntry(join(ancestorRealDir, "openpets.md")), false, "no instructions may be written through the ancestor symlink");
+  const ancestorValidDoctor = doctorOpenCodeGlobalSetup(nestedValidConfigDir);
+  assert.equal(ancestorValidDoctor.status, "error");
+  assert.match(ancestorValidDoctor.message, new RegExp(escapeCheckRegExp(ancestorLink)));
+  assert.match(ancestorValidDoctor.message, /symlink/);
+  assert.equal(hasCheckEntry(join(ancestorRealDir, "opencode.jsonc")), false, "doctor must remain read-only");
+
+  // A dangling ancestor symlink is likewise rejected with the offending
+  // ancestor path and its fallback target, not a raw ENOENT.
+  const ancestorDanglingTarget = join(root, "missing-ancestor-dir");
+  const ancestorDanglingLink = join(root, "ancestor-link-dangling");
+  symlinkSync(ancestorDanglingTarget, ancestorDanglingLink);
+  const nestedDanglingConfigDir = join(ancestorDanglingLink, "opencode");
+  let ancestorDanglingError = "";
+  try {
+    prepareOpenCodeGlobalSetup({ configDir: nestedDanglingConfigDir, petId: "fixer", cliVersion: "0.0.0" });
+  } catch (error) {
+    ancestorDanglingError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(ancestorDanglingError, new RegExp(escapeCheckRegExp(ancestorDanglingLink)));
+  assert.match(ancestorDanglingError, /symlink/);
+  assert.match(ancestorDanglingError, /was not modified/);
+  assert.match(ancestorDanglingError, new RegExp(escapeCheckRegExp(ancestorDanglingTarget)));
+  assert.doesNotMatch(ancestorDanglingError, /ENOENT/);
+  assert.equal(lstatSync(ancestorDanglingLink).isSymbolicLink(), true);
+  assert.equal(hasCheckEntry(ancestorDanglingTarget), false);
+  const ancestorDanglingDoctor = doctorOpenCodeGlobalSetup(nestedDanglingConfigDir);
+  assert.equal(ancestorDanglingDoctor.status, "error");
+  assert.match(ancestorDanglingDoctor.message, new RegExp(escapeCheckRegExp(ancestorDanglingLink)));
+  assert.equal(hasCheckEntry(join(nestedDanglingConfigDir, "openpets.md")), false, "doctor must remain read-only");
+
   // Dangling project config symlinks are rejected at plan time.
   const danglingProjectDir = join(root, "project-dangling");
   mkdirSync(danglingProjectDir);
@@ -408,6 +464,7 @@ try {
   const danglingProjectMessage = "ok" in danglingProjectPlan && !danglingProjectPlan.ok ? danglingProjectPlan.message : "";
   assert.match(danglingProjectMessage, new RegExp(escapeCheckRegExp(danglingProjectConfig)));
   assert.match(danglingProjectMessage, /symlink/);
+  assert.doesNotMatch(danglingProjectMessage, /use project-local/, "project errors must not suggest switching to project-local setup");
   assert.equal(lstatSync(danglingProjectConfig).isSymbolicLink(), true, "dangling project symlink must not be replaced");
   assert.equal(hasCheckEntry(danglingProjectTarget), false);
 
@@ -426,6 +483,7 @@ try {
   assert.match(danglingParentPlanMessage, /was not modified/);
   assert.match(danglingParentPlanMessage, new RegExp(escapeCheckRegExp(danglingParentTarget)));
   assert.doesNotMatch(danglingParentPlanMessage, /ENOENT/);
+  assert.doesNotMatch(danglingParentPlanMessage, /use project-local/, "project errors must not suggest switching to project-local setup");
   assert.equal(lstatSync(danglingParentLink).isSymbolicLink(), true, "dangling parent symlink must not be replaced");
   assert.equal(hasCheckEntry(danglingParentTarget), false);
 
