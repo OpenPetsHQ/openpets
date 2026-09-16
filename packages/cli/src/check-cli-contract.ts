@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -301,6 +301,34 @@ process.exit(0);
   symlinkSync(outsideOpenCode, join(symlinkOpenCodeProject, ".opencode"));
   await assert.rejects(() => configureProject({ agent: "opencode", petId: "fixer", cwd: symlinkOpenCodeProject, yes: true, force: false, localDev: false }));
 
+  // Dangling project config symlinks must be rejected without replacement.
+  const danglingProject = join(dir, "opencode-dangling-project");
+  mkdirSync(danglingProject);
+  const danglingProjectTarget = join(danglingProject, "missing.jsonc");
+  const danglingProjectConfig = join(danglingProject, "opencode.jsonc");
+  symlinkSync(danglingProjectTarget, danglingProjectConfig);
+  let danglingProjectError = "";
+  try {
+    await configureProject({ agent: "opencode", petId: "fixer", cwd: danglingProject, yes: true, force: false, localDev: false });
+  } catch (error) {
+    danglingProjectError = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(danglingProjectError, /symlink/);
+  assert.match(danglingProjectError, new RegExp(danglingProjectConfig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(lstatSync(danglingProjectConfig).isSymbolicLink(), true, "dangling project symlink must not be replaced");
+  assert.equal(hasCliCheckEntry(danglingProjectTarget), false, "no contents may be created through the dangling link");
+
+  // Dangling project instruction symlinks must be rejected without replacement.
+  const danglingInstructionProject = join(dir, "opencode-dangling-instruction");
+  mkdirSync(join(danglingInstructionProject, ".opencode"), { recursive: true });
+  writeFileSync(join(danglingInstructionProject, "opencode.jsonc"), "{}\n", "utf8");
+  const danglingInstructionTarget = join(danglingInstructionProject, ".opencode", "missing-target.md");
+  const danglingInstruction = join(danglingInstructionProject, ".opencode", "openpets.md");
+  symlinkSync(danglingInstructionTarget, danglingInstruction);
+  await assert.rejects(() => configureProject({ agent: "opencode", petId: "fixer", cwd: danglingInstructionProject, yes: true, force: false, localDev: false }));
+  assert.equal(lstatSync(danglingInstruction).isSymbolicLink(), true, "dangling instruction symlink must not be replaced");
+  assert.equal(hasCliCheckEntry(danglingInstructionTarget), false);
+
   // Issue #188: global OpenCode configure uses the existing global setup path.
   // Project-local behaviour above remains the default and is unchanged.
   await assert.rejects(() => configureProject({ agent: "opencode", petId: "fixer", cwd: opencodeProject, yes: true, force: false, localDev: false, global: true, cwdProvided: true }));
@@ -519,7 +547,7 @@ assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkedConfig.repl
 assert.match(doctorOpencode.message ?? "", /symlink/);
 assert.match(doctorOpencode.message ?? "", new RegExp(doctorSymlinkTargetFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 assert.equal(readFileSync(doctorSymlinkTargetFile, "utf8"), doctorSymlinkTargetBefore, "doctor must not modify symlink targets");
-assert.equal(existsSync(join(doctorSymlinkGlobalDir, "opencode-home", "openpets.md")), false, "doctor must remain read-only");
+assert.equal(hasCliCheckEntry(join(doctorSymlinkGlobalDir, "opencode-home", "openpets.md")), false, "doctor must remain read-only");
 process.env.OPENCODE_CONFIG_DIR = join(doctorSymlinkGlobalDir, "opencode-home");
 let doctorSymlinkText: { readonly text: string; readonly exitCode: number | undefined };
 try {
@@ -533,6 +561,39 @@ assert.match(doctorSymlinkText.text, /symlink/);
 assert.equal(doctorSymlinkText.exitCode, 1, "genuine OpenCode diagnostic errors must set non-zero exit");
 rmSync(doctorSymlinkGlobalDir, { recursive: true, force: true });
 rmSync(doctorSymlinkTargetDir, { recursive: true, force: true });
+
+// Dangling global symlinks must surface as doctor errors without mutation.
+const doctorDanglingDir = mkdtempSync(join(tmpdir(), "openpets-doctor-dangling-"));
+const doctorDanglingTarget = join(doctorDanglingDir, "missing-target.json");
+const doctorDanglingConfig = join(doctorDanglingDir, "opencode.json");
+symlinkSync(doctorDanglingTarget, doctorDanglingConfig);
+const previousDanglingEnv = process.env.OPENCODE_CONFIG_DIR;
+process.env.OPENCODE_CONFIG_DIR = doctorDanglingDir;
+let doctorDanglingReport: Record<string, unknown>;
+try {
+  doctorDanglingReport = await captureDoctorJson(doctorMissingProject);
+} finally {
+  if (previousDanglingEnv === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+  else process.env.OPENCODE_CONFIG_DIR = previousDanglingEnv;
+}
+const doctorDangling = doctorDanglingReport.opencode as { status?: string; message?: string };
+assert.equal(doctorDangling.status, "error");
+assert.match(doctorDangling.message ?? "", new RegExp(doctorDanglingConfig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(doctorDangling.message ?? "", /symlink/);
+assert.equal(lstatSync(doctorDanglingConfig).isSymbolicLink(), true, "doctor must not replace the dangling symlink");
+assert.equal(hasCliCheckEntry(doctorDanglingTarget), false, "no contents may be created through the dangling link");
+assert.equal(hasCliCheckEntry(join(doctorDanglingDir, "openpets.md")), false, "doctor must remain read-only");
+rmSync(doctorDanglingDir, { recursive: true, force: true });
+
+function hasCliCheckEntry(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 const invalidHook = spawnSync(process.execPath, [new URL("./index.js", import.meta.url).pathname, "hook", "--openpets-managed", "--pet", "bad/pet"], { input: JSON.stringify({ hook_event_name: "Notification" }), encoding: "utf8" });
 assert.equal(invalidHook.status, 1);

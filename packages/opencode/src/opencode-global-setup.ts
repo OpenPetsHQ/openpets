@@ -1,9 +1,9 @@
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { parseOpenCodeConfig, readOpenCodeConfigFile, updateOpenCodeConfigText, type OpenCodeConfigPaths, type PlannedWrite } from "./opencode-config.js";
-import { formatEscapesRootError, formatNotRegularFileConfigError, formatNotRegularFileInstructionError, formatSymlinkConfigError, formatSymlinkInstructionError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError } from "./opencode-path-safety.js";
+import { formatEscapesRootError, formatNotRegularFileConfigError, formatNotRegularFileInstructionError, formatSymlinkConfigError, formatSymlinkInstructionError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError, lstatIfExists, pathHasEntry } from "./opencode-path-safety.js";
 import { buildOpenCodeInstructionPath, buildOpenCodeMcpEntry, buildOpenCodePluginPreview, validateOpenPetsPetArg, type OpenCodeCommandMode } from "./opencode-previews.js";
 import { classifyOpenCodeInstructionsStatus, classifyOpenCodeMcpStatus, classifyOpenCodePluginStatus, isManagedOpenPetsMcpEntry, isManagedOpenPetsPluginEntry, isOpenPetsLikePluginEntry } from "./opencode-status.js";
 import { createOpenPetsInstructionBlock } from "./opencode-project-setup.js";
@@ -56,7 +56,7 @@ export function prepareOpenCodeGlobalSetup(options: PrepareOpenCodeGlobalSetupOp
   const configs = existingConfigs.map((entry) => entry.config);
   const instructionPath = buildOpenCodeInstructionPath("global", options.configDir);
   assertSafeGlobalPath(options.configDir, instructionPath, "OpenCode instruction");
-  const instructionContent = existsSync(instructionPath) ? readSafeInstructionFile(instructionPath) : "";
+  const instructionContent = lstatIfExists(instructionPath) ? readSafeInstructionFile(instructionPath) : "";
   const mcpStatus = classifyOpenCodeMcpStatus(configs, { cliVersion: options.cliVersion, petId, commandMode: options.commandMode, cliEntryPath: options.cliEntryPath });
   const instructionStatus = classifyOpenCodeInstructionsStatus(configs, "global", options.configDir, { [instructionPath]: instructionContent });
   const pluginStatus = classifyOpenCodePluginStatus(configs, petId, options.pluginVersion ?? options.cliVersion, options.excludeReactions);
@@ -64,7 +64,10 @@ export function prepareOpenCodeGlobalSetup(options: PrepareOpenCodeGlobalSetupOp
     if (status.status === "custom" || status.status === "conflict" || status.status === "error") throw new Error(`${status.message} Edit or remove the custom OpenPets OpenCode entry, then rerun setup.`);
   }
   const selectedPath = selectWriteTarget(options.configDir, paths.candidates, existingConfigs, paths.defaultCreatePath);
-  const selectedText = existsSync(selectedPath) ? readFileSync(selectedPath, "utf8") : "{}\n";
+  const selectedStat = lstatIfExists(selectedPath);
+  if (selectedStat?.isSymbolicLink()) throw new Error(formatSymlinkConfigError(selectedPath));
+  if (selectedStat && !selectedStat.isFile()) throw new Error(formatNotRegularFileConfigError(selectedPath));
+  const selectedText = selectedStat ? readFileSync(selectedPath, "utf8") : "{}\n";
   const parsed = parseOpenCodeConfig(selectedText);
   if (!parsed.ok) throw new Error(parsed.message);
   const nextConfig = buildNextGlobalConfig(parsed.value, petId, options);
@@ -106,7 +109,7 @@ export function prepareOpenCodeGlobalRemove(configDir: string): { readonly confi
   if (typeof nextText !== "string") throw new Error(nextText.message);
   const configWrite = planGlobalConfigWrite(configDir, owner.path, nextText);
   const instructionPath = buildOpenCodeInstructionPath("global", configDir);
-  const instructionContent = existsSync(instructionPath) ? readSafeInstructionFile(instructionPath) : "";
+  const instructionContent = lstatIfExists(instructionPath) ? readSafeInstructionFile(instructionPath) : "";
   const instructionWrite = hasManagedInstructionBlock(instructionContent) ? planTextWrite(configDir, instructionPath, removeOpenPetsBlock(instructionContent)) : undefined;
   return { configWrites: [configWrite], instructionWrite };
 }
@@ -127,7 +130,7 @@ export function doctorOpenCodeGlobalSetup(configDir: string): OpenCodeGlobalStat
 
 function readExistingGlobalConfigs(configDir: string, candidates: readonly string[]): Array<{ readonly path: string; readonly config: Record<string, unknown> }> {
   return candidates.flatMap((path) => {
-    if (!existsSync(path)) return [];
+    if (!lstatIfExists(path)) return [];
     assertSafeGlobalPath(configDir, path, "OpenCode config");
     const parsed = readOpenCodeConfigFile(path);
     if (!parsed.ok) throw new Error(parsed.message);
@@ -231,33 +234,35 @@ function classifyGlobalState(configDir: string, existing: readonly { readonly pa
 
 function planTextWrite(root: string, targetPath: string, content: string): GlobalPlannedTextWrite {
   assertSafeGlobalPath(root, targetPath, "OpenCode instruction");
-  if (existsSync(targetPath)) {
-    const stat = lstatSync(targetPath);
+  const stat = lstatIfExists(targetPath);
+  if (stat) {
     if (stat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(targetPath));
     if (!stat.isFile()) throw new Error(formatNotRegularFileInstructionError(targetPath));
     if (stat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${targetPath} is too large and was not modified.`);
   }
   const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
-  return { targetPath, backupPath: existsSync(targetPath) ? `${targetPath}.openpets-backup-${stamp}.md` : undefined, tempPath: join(dirname(targetPath), `.openpets-${stamp}.tmp`), content };
+  return { targetPath, backupPath: stat ? `${targetPath}.openpets-backup-${stamp}.md` : undefined, tempPath: join(dirname(targetPath), `.openpets-${stamp}.tmp`), content };
 }
 
 function executeTextWrite(plan: GlobalPlannedTextWrite): void {
   const parent = dirname(plan.targetPath);
-  if (existsSync(parent)) {
-    const parentStat = lstatSync(parent);
+  const parentStat = lstatIfExists(parent);
+  if (parentStat) {
     if (parentStat.isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode instruction", parent));
     if (!parentStat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode instruction", parent));
   }
-  if (existsSync(plan.targetPath)) {
-    const targetStat = lstatSync(plan.targetPath);
+  const targetStat = lstatIfExists(plan.targetPath);
+  if (targetStat) {
     if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkInstructionError(plan.targetPath));
     if (!targetStat.isFile()) throw new Error(formatNotRegularFileInstructionError(plan.targetPath));
     if (targetStat.size > maxInstructionBytes) throw new Error(`OpenCode instruction ${plan.targetPath} is too large and was not modified.`);
   }
   if (plan.backupPath && dirname(plan.backupPath) !== parent) throw new Error("OpenCode instruction backup path is unsafe.");
   if (dirname(plan.tempPath) !== parent) throw new Error("OpenCode instruction temp path is unsafe.");
+  if (pathHasEntry(plan.tempPath)) throw new Error("OpenCode instruction temp path is unsafe.");
+  if (plan.backupPath && pathHasEntry(plan.backupPath)) throw new Error("OpenCode instruction backup path is unsafe.");
   mkdirSync(dirname(plan.targetPath), { recursive: true, mode: 0o700 });
-  if (plan.backupPath && existsSync(plan.targetPath)) {
+  if (plan.backupPath && pathHasEntry(plan.targetPath)) {
     const backup = openSync(plan.backupPath, "wx", 0o600);
     try { writeFileSync(backup, readFileSync(plan.targetPath)); } finally { closeSync(backup); }
   }
@@ -269,26 +274,27 @@ function executeTextWrite(plan: GlobalPlannedTextWrite): void {
 
 function planGlobalConfigWrite(rootPath: string, targetPath: string, content: string): PlannedWrite {
   assertSafeGlobalPath(rootPath, targetPath, "OpenCode config");
+  const existing = lstatIfExists(targetPath);
+  if (existing?.isSymbolicLink()) throw new Error(formatSymlinkConfigError(targetPath));
+  if (existing && !existing.isFile()) throw new Error(formatNotRegularFileConfigError(targetPath));
   const parsed = parseOpenCodeConfig(content);
   if (!parsed.ok) throw new Error(parsed.message);
   const stamp = `${process.pid}-${Date.now()}-${randomUUID()}`;
-  return { rootPath, targetPath, backupPath: existsSync(targetPath) ? `${targetPath}.openpets-backup-${stamp}.json` : undefined, tempPath: join(dirname(targetPath), `.openpets-${stamp}.tmp`), content };
+  return { rootPath, targetPath, backupPath: existing ? `${targetPath}.openpets-backup-${stamp}.json` : undefined, tempPath: join(dirname(targetPath), `.openpets-${stamp}.tmp`), content };
 }
 
 function executeGlobalConfigWrite(plan: PlannedWrite): void {
   const parent = dirname(plan.targetPath);
   assertSafeGlobalPath(plan.rootPath, plan.targetPath, "OpenCode config");
-  if (existsSync(plan.targetPath)) {
-    const targetStat = lstatSync(plan.targetPath);
-    if (targetStat.isSymbolicLink()) throw new Error(formatSymlinkConfigError(plan.targetPath));
-    if (!targetStat.isFile()) throw new Error(formatNotRegularFileConfigError(plan.targetPath));
-  }
-  if (plan.backupPath && (dirname(plan.backupPath) !== parent || existsSync(plan.backupPath))) throw new Error("OpenCode config backup path is unsafe.");
-  if (dirname(plan.tempPath) !== parent || existsSync(plan.tempPath)) throw new Error("OpenCode config temp path is unsafe.");
+  const targetStat = lstatIfExists(plan.targetPath);
+  if (targetStat?.isSymbolicLink()) throw new Error(formatSymlinkConfigError(plan.targetPath));
+  if (targetStat && !targetStat.isFile()) throw new Error(formatNotRegularFileConfigError(plan.targetPath));
+  if (plan.backupPath && (dirname(plan.backupPath) !== parent || pathHasEntry(plan.backupPath))) throw new Error("OpenCode config backup path is unsafe.");
+  if (dirname(plan.tempPath) !== parent || pathHasEntry(plan.tempPath)) throw new Error("OpenCode config temp path is unsafe.");
   const parsed = parseOpenCodeConfig(plan.content);
   if (!parsed.ok) throw new Error(parsed.message);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
-  if (plan.backupPath && existsSync(plan.targetPath)) {
+  if (plan.backupPath && pathHasEntry(plan.targetPath)) {
     const backup = openSync(plan.backupPath, "wx", 0o600);
     try { writeFileSync(backup, readFileSync(plan.targetPath)); } finally { closeSync(backup); }
   }
@@ -322,11 +328,11 @@ function hasManagedInstructionBlock(value: string): boolean {
 
 function assertSafeDirectoryRoot(root: string, allowMissing: boolean): void {
   if (!isAbsolute(root)) throw new Error(`OpenCode global config directory ${root} must be absolute and was not modified.`);
-  if (!existsSync(root)) {
+  const stat = lstatIfExists(root);
+  if (!stat) {
     if (allowMissing) return;
     throw new Error(`OpenCode global config directory ${root} does not exist and was not modified.`);
   }
-  const stat = lstatSync(root);
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode global config directory", root));
 }
 
@@ -337,8 +343,8 @@ function assertSafeGlobalPath(root: string, targetPath: string, label: string): 
   let current = root;
   for (const part of rel.split(/[\\/]+/).filter(Boolean).slice(0, -1)) {
     current = join(current, part);
-    if (!existsSync(current)) continue;
-    const stat = lstatSync(current);
+    const stat = lstatIfExists(current);
+    if (!stat) continue;
     if (stat.isSymbolicLink()) throw new Error(formatSymlinkParentError(label, current));
     if (!stat.isDirectory()) throw new Error(formatUnsafeParentError(label, current));
   }
@@ -347,7 +353,7 @@ function assertSafeGlobalPath(root: string, targetPath: string, label: string): 
 function assertSafeNearestExistingRoot(root: string): void {
   if (!isAbsolute(root)) throw new Error(`OpenCode global config directory ${root} must be absolute and was not modified.`);
   let current = root;
-  while (!existsSync(current)) current = dirname(current);
+  while (!pathHasEntry(current)) current = dirname(current);
   const stat = statSync(current);
   if (!stat.isDirectory()) throw new Error(formatUnsafeParentError("OpenCode global config parent", current));
   if (lstatSync(current).isSymbolicLink()) throw new Error(formatSymlinkParentError("OpenCode global config parent", current));

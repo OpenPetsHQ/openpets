@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { homedir } from "node:os";
 
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 
-import { formatEscapesRootError, formatNotRegularFileConfigError, formatSymlinkConfigError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError } from "./opencode-path-safety.js";
+import { formatEscapesRootError, formatNotRegularFileConfigError, formatSymlinkConfigError, formatSymlinkParentError, formatUnsafeDirectoryError, formatUnsafeParentError, lstatIfExists, pathHasEntry } from "./opencode-path-safety.js";
 
 export interface OpenCodeConfigPaths {
   readonly candidates: readonly string[];
@@ -50,7 +50,7 @@ export function getProjectOpenCodeConfigPaths(projectDir: string): OpenCodeConfi
 
 export function selectProjectOpenCodeConfigPath(projectDir: string): string {
   const paths = getProjectOpenCodeConfigPaths(projectDir);
-  return paths.candidates.find((candidate) => existsSync(candidate)) ?? paths.defaultCreatePath;
+  return paths.candidates.find((candidate) => pathHasEntry(candidate)) ?? paths.defaultCreatePath;
 }
 
 export function getGlobalOpenCodeConfigDir(env: NodeJS.ProcessEnv = process.env, homeDir = homedir(), _platform = process.platform): string {
@@ -120,7 +120,7 @@ export function planOpenCodeConfigWrite(rootPath: string, targetPath: string, co
   return {
     rootPath: root,
     targetPath,
-    backupPath: existsSync(targetPath) ? uniquePath(`${targetPath}.openpets-backup-${stamp}.json`) : undefined,
+    backupPath: pathHasEntry(targetPath) ? uniquePath(`${targetPath}.openpets-backup-${stamp}.json`) : undefined,
     tempPath: uniquePath(join(parent, `.openpets-${stamp}.tmp`)),
     content,
   };
@@ -141,8 +141,10 @@ export function executePlannedWrite(plan: PlannedWrite): void {
   if (!targetSafety.ok) throw new Error(targetSafety.message);
   const parsed = parseOpenCodeConfig(plan.content);
   if (!parsed.ok) throw new Error(parsed.message);
+  if (pathHasEntry(plan.tempPath)) throw new Error("OpenCode write temp path is unsafe.");
+  if (plan.backupPath && pathHasEntry(plan.backupPath)) throw new Error("OpenCode config backup path is unsafe.");
   mkdirSync(dirname(plan.targetPath), { recursive: true, mode: 0o700 });
-  if (plan.backupPath && existsSync(plan.targetPath)) {
+  if (plan.backupPath && pathHasEntry(plan.targetPath)) {
     const backupFd = openSync(plan.backupPath, "wx", 0o600);
     try {
       writeFileSync(backupFd, readFileSync(plan.targetPath));
@@ -162,15 +164,15 @@ export function executePlannedWrite(plan: PlannedWrite): void {
 
 export function assertSafeProjectRoot(projectDir: string): string {
   if (!isAbsolute(projectDir)) throw new Error(`OpenCode project path ${projectDir} must be absolute and was not modified.`);
-  if (!existsSync(projectDir)) throw new Error(`OpenCode project path ${projectDir} does not exist and was not modified.`);
-  const stat = lstatSync(projectDir);
+  const stat = lstatIfExists(projectDir);
+  if (!stat) throw new Error(`OpenCode project path ${projectDir} does not exist and was not modified.`);
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(formatUnsafeDirectoryError("OpenCode project path", projectDir));
   return projectDir;
 }
 
 function assertSafeExistingConfigFile(path: string, allowMissing = false): OpenCodeConfigError | { readonly ok: true } {
-  if (!existsSync(path)) return allowMissing ? { ok: true } : { ok: false, message: `OpenCode config ${path} does not exist and was not modified.` };
-  const stat = lstatSync(path);
+  const stat = lstatIfExists(path);
+  if (!stat) return allowMissing ? { ok: true } : { ok: false, message: `OpenCode config ${path} does not exist and was not modified.` };
   if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkConfigError(path) };
   if (!stat.isFile()) return { ok: false, message: formatNotRegularFileConfigError(path) };
   if (stat.size > maxOpenCodeConfigBytes) return { ok: false, message: `OpenCode config ${path} is too large and was not modified.` };
@@ -183,21 +185,22 @@ function assertSafeParentDirectory(path: string): OpenCodeConfigError | { readon
   if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, message: formatEscapesRootError("OpenCode config parent", path, existing) };
   let current = existing;
   while (current !== dirname(current)) {
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", current) };
+    const currentStat = lstatIfExists(current);
+    if (currentStat?.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", current) };
     if (current === path) break;
     current = dirname(current);
   }
-  if (existsSync(path)) {
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", path) };
-    if (!stat.isDirectory()) return { ok: false, message: formatUnsafeParentError("OpenCode config", path) };
+  const parentStat = lstatIfExists(path);
+  if (parentStat) {
+    if (parentStat.isSymbolicLink()) return { ok: false, message: formatSymlinkParentError("OpenCode config", path) };
+    if (!parentStat.isDirectory()) return { ok: false, message: formatUnsafeParentError("OpenCode config", path) };
   }
   return { ok: true };
 }
 
 function nearestExistingParent(path: string): string {
   let current = path;
-  while (!existsSync(current)) current = dirname(current);
+  while (!pathHasEntry(current)) current = dirname(current);
   if (!statSync(current).isDirectory()) current = dirname(current);
   return current;
 }
@@ -211,10 +214,10 @@ function validateKnownFieldTypes(config: Record<string, unknown>): OpenCodeConfi
 }
 
 function uniquePath(path: string): string {
-  if (!existsSync(path)) return path;
+  if (!pathHasEntry(path)) return path;
   for (let index = 1; index < 1000; index += 1) {
     const candidate = `${path}.${index}`;
-    if (!existsSync(candidate)) return candidate;
+    if (!pathHasEntry(candidate)) return candidate;
   }
   throw new Error("Unable to allocate unique OpenCode temp path.");
 }
