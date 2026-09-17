@@ -168,6 +168,18 @@ Ships both a config manager and a runtime plugin.
   prepare/write/remove/doctor lifecycle. OpenCode uses the XDG-style
   `~/.config/opencode/` location on Windows as well; it does not use
   `%APPDATA%\opencode`.
+- **Path safety** (`opencode-path-safety.ts`): OpenPets never follows or
+  overwrites symlinks when writing OpenCode config or instruction files.
+  Atomic temp-file + rename writes stay inside the validated root with backups,
+  and symlink/parent rejections name the offending path, its resolved target
+  when safely obtainable, and the project-local remediation. To fix a symlinked
+  global config, materialize the symlink as a regular file or use project-local
+  setup instead.
+- **CLI surfaces**: `openpets configure --agent opencode` writes project-local
+  `.opencode/` files by default; `openpets configure --agent opencode --global`
+  writes the shared global config through the same preparation path as desktop
+  setup. `openpets doctor` reports global OpenCode status read-only and exits
+  non-zero on genuine diagnostic errors.
 - **Runtime** (`opencode-plugin-runtime.ts`, plugin id `open-pets-opencode`):
   hooks `event`, `chat.message`, `tool.execute.before/after`, classifies them to
   reactions/speech, manages a lease (renew with a 2s buffer), and applies the
@@ -369,7 +381,8 @@ others. Commands:
 
 | Command | Does |
 |---------|------|
-| `configure` | Configure Claude / OpenCode / Cursor for a project, Zed globally, or ensure the global OpenClaw plugin is installed and enabled |
+| `configure` | Configure Claude / OpenCode / Cursor for a project, OpenCode globally with `--global`, Zed globally, or ensure the global OpenClaw plugin is installed and enabled |
+| `doctor` | Read-only diagnostics for Claude hooks, Cursor project MCP, global OpenCode setup, and app reachability (human and `--json` output) |
 | `install <pet-id>` | Install a pet via the client |
 | `status` | Print app/pet status JSON over IPC |
 | `pets` | List installed pets |

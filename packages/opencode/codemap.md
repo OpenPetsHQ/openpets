@@ -26,7 +26,16 @@ Provides comprehensive OpenCode editor integration including: MCP server configu
 - Config path resolution (project: `.opencode/`, global: `~/.config/opencode/`)
 - Safe file operations: atomic writes, backups, permission checks (0o600/0o700)
 - Path traversal prevention (relative path validation)
-- Symlink detection and rejection
+- Symlink detection and rejection with actionable path/target diagnostics
+
+**Path Safety** (`opencode-path-safety.ts`):
+- Shared symlink/parent/escape message builders naming the offending path,
+  resolved target when safely obtainable, non-modification, atomic-write
+  rationale, and scope-aware remediation (global may suggest project-local
+  setup; project suggests materializing and rerunning project setup)
+- lstat-based existence helpers plus full-ancestor symlink rejection for
+  global roots, used by project/global setup and config planning without
+  leaking file contents
 
 **Project Setup** (`opencode-project-setup.ts`):
 - Status classification: `not_installed`, `installed`, `needs_update`, `custom`, `conflict`, `error`
@@ -89,7 +98,10 @@ writePreparedOpenCodeProjectSetup() → Execute writes atomically
 - Server export (`./server`): OpenCode plugin default export from `dist/plugin.js`
 
 **Consumers**:
-- `@open-pets/cli` - `configure` command for OpenCode projects
+- `@open-pets/cli` - `configure` command for OpenCode projects plus
+  `configure --agent opencode --global` and read-only `doctor` global diagnostics
+- Desktop Control Center - global setup/remove preview through the same
+  `getGlobalOpenCodeConfigDir()` location logic as the CLI
 
 **Exports**:
 - `plugin.ts` - Default plugin export for OpenCode
