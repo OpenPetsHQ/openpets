@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { TextModelClient } from "../src/text-model-client.js";
-import { initializePluginPlatformSettings, updateProviderProfile } from "../src/plugin-platform-settings.js";
+import { initializePluginPlatformSettings, providerPresets, updateProviderProfile } from "../src/plugin-platform-settings.js";
 import { configureProvider } from "./provider-test-helpers.js";
 import type { PluginSecretsStore } from "../src/plugin-secrets.js";
 
@@ -90,6 +90,27 @@ try {
 
   const timedOut = new TextModelClient(secrets, { timeoutMs: 5, fetchImpl: async () => new Promise<Response>(() => undefined) });
   await assert.rejects(() => timedOut.generate({ messages: [{ role: "user", content: "start" }], tools: [] }, new AbortController().signal), /timed out/);
+
+  const atlasPreset = providerPresets.find((preset) => preset.id === "atlascloud");
+  assert.ok(atlasPreset);
+  configureProvider({ ...atlasPreset, id: "atlas-text", secretRef: "atlas-test" }, "text");
+  const atlasRequest = { messages: [{ role: "user" as const, content: "hello" }], tools: [] };
+  let atlasRequests = 0;
+  const atlasFetch: typeof fetch = async (input, init) => {
+    atlasRequests += 1;
+    assert.equal(String(input), "https://api.atlascloud.ai/v1/chat/completions");
+    assert.equal(init?.method, "POST");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer test-key");
+    assert.equal(JSON.parse(String(init?.body)).model, "openai/gpt-4.1-mini");
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Hello." } }] }), { status: 200 });
+  };
+  const noCredential = { get: async () => undefined } as unknown as PluginSecretsStore;
+  const atlasWithoutKey = new TextModelClient(noCredential, { fetchImpl: atlasFetch });
+  await assert.rejects(() => atlasWithoutKey.generate(atlasRequest, new AbortController().signal), /no credential/);
+  assert.equal(atlasRequests, 0, "missing Atlas credentials must fail before fetching");
+  const atlas = new TextModelClient(secrets, { fetchImpl: atlasFetch });
+  assert.deepEqual(await atlas.generate(atlasRequest, new AbortController().signal), { type: "text", text: "Hello." });
+  assert.equal(atlasRequests, 1);
 } finally {
   rmSync(userDataPath, { recursive: true, force: true });
 }

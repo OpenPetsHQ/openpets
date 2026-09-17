@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), "openpets-provider-profiles-"));
 try {
   initializePluginPlatformSettings(dir);
   const presetModes = Object.fromEntries(providerPresets.map((preset) => [preset.id, preset.credentialMode]));
-  assert.deepEqual(presetModes, { openai: "required", anthropic: "required", ollama: "none", "lm-studio": "none", vllm: "none", "minimax-chat": "required", whisper: "required", elevenlabs: "required", "system-tts": "none" });
+  assert.deepEqual(presetModes, { openai: "required", anthropic: "required", ollama: "none", "lm-studio": "none", vllm: "none", "minimax-chat": "required", atlascloud: "required", whisper: "required", elevenlabs: "required", "system-tts": "none" });
   createProviderProfile({ id: "text-local", label: "Local text", adapter: "openai-compatible-text", model: "llama", baseUrl: "http://127.0.0.1:11434/v1", headers: [{ name: "X-Client", value: "openpets" }] });
   createProviderProfile({ id: "stt-cloud", label: "Whisper", adapter: "openai-compatible-transcription", model: "whisper-1", baseUrl: "https://stt.example/v1", secretRef: "stt" });
   createProviderProfile({ id: "system-voice", label: "System", adapter: "system-tts", model: "" });
@@ -50,6 +50,23 @@ try {
   deleteProviderProfile("shared-secret-a");
   assert.equal(getPluginPlatformSettings().profiles["shared-secret-b"]?.secretRef, "shared", "deleting a sibling profile must not remove its shared credential reference");
   assert.equal(isProviderSecretRefReferenced(getPluginPlatformSettings(), "shared"), true);
+
+  const atlasPreset = snapshot.presets.find((preset) => preset.id === "atlascloud");
+  assert.ok(atlasPreset, "Atlas Cloud must be available through the Control Center presets");
+  const selectionsBeforeCreate = getPluginPlatformSettings().selections;
+  createProviderProfile({ ...atlasPreset, id: "atlas-text", secretRef: "atlas-credential" });
+  assert.deepEqual(getPluginPlatformSettings().selections, selectionsBeforeCreate, "adding a preset must not change selected providers");
+  selectProviderProfile("text", "atlas-text");
+  const missingCredential = buildProviderControlCenterSnapshot(getPluginPlatformSettings(), () => false);
+  assert.equal(missingCredential.statuses.text.state, "missing-secret");
+  assert.equal(missingCredential.statuses.realtime.state, "unsupported");
+  assert.throws(() => selectProviderProfile("stt", "atlas-text"), /does not support/);
+  assert.throws(() => selectProviderProfile("tts", "atlas-text"), /does not support/);
+
+  updateProviderProfile("atlas-text", { model: "anthropic/claude-sonnet-4.6" });
+  initializePluginPlatformSettings(dir);
+  assert.equal(getPluginPlatformSettings().profiles["atlas-text"]?.model, "anthropic/claude-sonnet-4.6", "a user-selected namespaced model survives reload");
+  assert.deepEqual(getPluginPlatformSettings().selections, { ...selectionsBeforeCreate, text: "atlas-text" });
 } finally { rmSync(dir, { recursive: true, force: true }); }
 
 console.log("provider profile validation tests passed.");

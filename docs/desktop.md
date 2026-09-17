@@ -231,6 +231,14 @@ Provider updates use sparse patches: omitted fields preserve current values,
 `null` clears `baseUrl`, `secretRef`, or `auth`, omitted `headers` preserves the
 redacted header list, and `headers: []` intentionally clears it.
 
+The **Atlas Cloud** Quick Add preset uses the existing OpenAI-compatible text
+adapter with `https://api.atlascloud.ai/v1` and `openai/gpt-4.1-mini`. Supply an
+Atlas Cloud API key through the profile credential field, then explicitly
+select the profile for text. The model remains editable; use the full model ID
+from the Atlas Cloud catalog, including its provider prefix. Adding the preset
+does not replace any selected provider. It does not enable native Realtime,
+transcription, or speech synthesis; those roles require separate profiles.
+
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).

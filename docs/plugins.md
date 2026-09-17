@@ -244,8 +244,8 @@ it does not add a public voice conversation API or make Realtime part of the
 plugin contract.
 
 Generic `openai-compatible-text` is the codec for OpenAI, Ollama, LM Studio,
-vLLM, MiniMax chat, and cloud gateways. Anthropic remains native because its
-messages/tool wire format differs. STT is an explicit
+vLLM, MiniMax chat, Atlas Cloud, and cloud gateways. Anthropic remains native
+because its messages/tool wire format differs. STT is an explicit
 `openai-compatible-transcription` profile; Ollama is never inferred to support
 audio. TTS is explicit system voice, MiniMax hex audio, ElevenLabs audio, or a
 bounded OpenAI-compatible speech profile. An external TTS error is surfaced and
