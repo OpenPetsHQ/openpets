@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +23,18 @@ function assertMatch(actual, pattern, label) {
 
 function assertDoesNotMatch(actual, pattern, label) {
   if (pattern.test(actual)) throw new Error(`${label} mismatch: ${pattern} unexpectedly matched:\n${actual}`);
+}
+
+function readStagePlan(extraArgs) {
+  const result = spawnSync(process.execPath, [join(scriptsDir, "release-local.mjs"), ...extraArgs, "--status"], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`release-local --status failed:\n${result.stderr || result.stdout}`);
+  const stages = [];
+  for (const line of String(result.stdout).split("\n")) {
+    const match = line.match(/^\s*\d+\.\s+(pending|done|stale|always)\s+(\S+)\s+—/);
+    if (match) stages.push({ status: match[1], id: match[2] });
+  }
+  if (stages.length === 0) throw new Error(`no stages found in release-local --status output:\n${result.stdout}`);
+  return stages;
 }
 
 function assertThrowsWith(fn, patterns, label) {
@@ -112,10 +125,27 @@ async function main() {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 
-  // Gate: all published passes and is repeatable (resume-safe).
+  // Gate: all published passes.
   const passed = verifyPackagedNpmIntegrations({ repoRoot, probe: publishedProbe() });
   assertEqual(passed.length, 2, "gate pass count");
-  verifyPackagedNpmIntegrations({ repoRoot, probe: publishedProbe() });
+
+  // Wiring: the release plan verifies npm specs early on every --yes run and
+  // again immediately before the tag and publish boundaries. --status performs
+  // no network access and no writes; only the local plan is inspected.
+  const yesPlan = readStagePlan(["--yes"]);
+  const yesIds = yesPlan.map((stage) => stage.id);
+  assertEqual(yesIds[0], "verify:npm-integrations", "early gate runs before expensive builds");
+  assertEqual(yesPlan[0].status, "always", "early gate re-runs on every invocation, never checkpoint-skipped");
+  assertEqual(yesIds[yesIds.indexOf("tag") - 1], "verify:npm-pre-tag", "revalidation precedes tag creation");
+  assertEqual(yesPlan[yesIds.indexOf("tag") - 1].status, "always", "pre-tag revalidation is never checkpoint-skipped");
+  assertEqual(yesIds[yesIds.indexOf("release:publish") - 1], "verify:npm-pre-publish", "revalidation precedes release publication");
+  assertEqual(yesPlan[yesIds.indexOf("release:publish") - 1].status, "always", "pre-publish revalidation is never checkpoint-skipped");
+
+  // Wiring: non-release invocations carry no npm gate stages.
+  const plainPlan = readStagePlan([]);
+  for (const id of ["verify:npm-integrations", "verify:npm-pre-tag", "verify:npm-pre-publish"]) {
+    assertEqual(plainPlan.some((stage) => stage.id === id), false, `${id} stays on the release path`);
+  }
 
   // Gate: confirmed E404 fails naming package/version with publish guidance.
   assertThrowsWith(

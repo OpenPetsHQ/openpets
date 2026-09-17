@@ -23,15 +23,16 @@ Resolve dist-electron path → Validate path components → rmSync recursive
 Load/validate checkpoint in .release-state/v<version>.json (discarded when HEAD or version moves)
 → Preflight checks (git clean, remote sync, version validity, tag/release expectations)
 → Capture previous release tag before any new tag
-→ Run the stage plan, skipping stages already checkpointed with intact outputs:
+→ Run the stage plan, skipping stages already checkpointed with intact outputs
+   (the always-run npm verification stages re-run on every invocation):
    (with --yes) verify:npm-integrations → checks → clean → build:mac-dmg → build:mac-zip → build:linux-appimage
    → build:linux-deb → build:linux-rpm → build:linux-targz
    → (with --linux-package-dir) stage:linux-packages instead of local DEB/RPM
    → verify:local (working tree + pre-signing artifact set)
    → (dry-run) preview:checksums and stop
-   → tag → sign:dispatch (records the run id) → sign:collect (re-attaches on resume)
+   → verify:npm-pre-tag → tag → sign:dispatch (records the run id) → sign:collect (re-attaches on resume)
    → verify:final (signed artifact set + SHA256SUMS)
-   → release:draft → release:upload (skips assets already on the draft) → release:publish
+   → release:draft → release:upload (skips assets already on the draft) → verify:npm-pre-publish → release:publish
 → On failure, the completed stages stay checkpointed and the same command resumes
 ```
 

@@ -149,6 +149,7 @@ function createStagePlan(context, state) {
     stages.push({
       id: "verify:npm-integrations",
       title: "Verify published npm versions for exact integration specs",
+      alwaysRun: true,
       run: () => {
         verifyPackagedNpmIntegrations({ repoRoot });
         return [];
@@ -229,6 +230,16 @@ function createStagePlan(context, state) {
   }
 
   if (!yes) return stages;
+
+  stages.push({
+    id: "verify:npm-pre-tag",
+    title: "Re-verify published npm versions before creating the tag",
+    alwaysRun: true,
+    run: () => {
+      verifyPackagedNpmIntegrations({ repoRoot });
+      return [];
+    },
+  });
 
   stages.push({
     id: "tag",
@@ -312,6 +323,16 @@ function createStagePlan(context, state) {
     alwaysRun: true,
     run: () => {
       uploadReleaseAssets(context.uploadArtifacts);
+      return [];
+    },
+  });
+
+  stages.push({
+    id: "verify:npm-pre-publish",
+    title: "Re-verify published npm versions before publishing the release",
+    alwaysRun: true,
+    run: () => {
+      verifyPackagedNpmIntegrations({ repoRoot });
       return [];
     },
   });
@@ -1002,12 +1023,14 @@ Stages (default plan):
   build:linux-rpm         Linux RPM x64
   build:linux-targz       Linux tar.gz x64
   verify:local            working-tree check + pre-signing artifact set
+  verify:npm-pre-tag      re-verify exact npm specs before tagging (--yes only)
   tag                     create and push the annotated v<version> tag
   sign:dispatch           dispatch the SignPath workflow, record its run id
   sign:collect            wait for that run, download and verify the signed installer
   verify:final            validate the signed artifact set, write SHA256SUMS
   release:draft           create or refresh the draft GitHub release
   release:upload          upload only the assets GitHub is missing, then verify
+  verify:npm-pre-publish  re-verify exact npm specs before publishing (--yes only)
   release:publish         publish the verified draft
 
 The Windows x64 installer is never built locally; it is produced by SignPath.
