@@ -87,7 +87,7 @@ function createFakeCommand(name, source) {
 
 function fakeGitSource() {
   return `
-import { cpSync, mkdirSync, realpathSync, rmSync, appendFileSync } from "node:fs";
+const { cpSync, mkdirSync, realpathSync, rmSync, appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 const fixtureRoot = process.env.OPENPETS_RELEASE_FIXTURE_ROOT;
 const logPath = process.env.OPENPETS_RELEASE_LOG;
@@ -118,7 +118,7 @@ else if (args[0] === "worktree" && args[1] === "add") {
 
 function fakePnpmSource() {
   return `
-import { appendFileSync } from "node:fs";
+const { appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(process.env.OPENPETS_RELEASE_LOG, \`pnpm|\${process.cwd()}|\${args.join(" ")}\\n\`);
 if (args[0] === "--version") process.stdout.write("11.0.8\\n");
@@ -131,7 +131,7 @@ else if (args[0] !== "publish" && args[0] !== "install") {
 
 function fakeNpmSource() {
   return `
-import { appendFileSync } from "node:fs";
+const { appendFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(process.env.OPENPETS_RELEASE_LOG, \`npm|\${process.cwd()}|\${args.join(" ")}\\n\`);
 if (args[0] === "--version") process.stdout.write("11.0.0\\n");
