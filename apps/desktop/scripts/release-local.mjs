@@ -6,7 +6,8 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { verifyPackagedNpmIntegrations } from "../../../scripts/npm-exact-version-probe.mjs";
+import { getDesktopNpmGateMode, getDesktopNpmGateSpecs, verifyExactNpmVersions } from "../../../scripts/npm-exact-version-probe.mjs";
+import { discoverPublicWorkspacePackages } from "../../../scripts/npm-workspace-release.mjs";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptsDir, "..");
@@ -80,6 +81,8 @@ if (dryRun && yes) throw new Error("--dry-run cannot be combined with --yes; it 
 const desktopPackageJson = readJson(join(desktopDir, "package.json"));
 const version = desktopPackageJson.version;
 const tag = `v${version}`;
+const publicNpmPackages = discoverPublicWorkspacePackages(repoRoot);
+const npmGateMode = getDesktopNpmGateMode({ desktopVersion: version, publicPackages: publicNpmPackages });
 const statePath = join(stateDir, `${tag}.json`);
 const expectedWindowsInstaller = `OpenPets-${version}-win-x64-setup.exe`;
 const requiredPreSigningArtifactNames = new Set([
@@ -148,10 +151,10 @@ function createStagePlan(context, state) {
   if (yes) {
     stages.push({
       id: "verify:npm-integrations",
-      title: "Verify published npm versions for exact integration specs",
+      title: `Verify published npm versions (${npmGateMode === "full" ? "all public packages" : "desktop integrations"})`,
       alwaysRun: true,
       run: () => {
-        verifyPackagedNpmIntegrations({ repoRoot });
+        verifyDesktopNpmGate();
         return [];
       },
     });
@@ -236,7 +239,7 @@ function createStagePlan(context, state) {
     title: "Re-verify published npm versions before creating the tag",
     alwaysRun: true,
     run: () => {
-      verifyPackagedNpmIntegrations({ repoRoot });
+      verifyDesktopNpmGate();
       return [];
     },
   });
@@ -332,7 +335,7 @@ function createStagePlan(context, state) {
     title: "Re-verify published npm versions before publishing the release",
     alwaysRun: true,
     run: () => {
-      verifyPackagedNpmIntegrations({ repoRoot });
+      verifyDesktopNpmGate();
       return [];
     },
   });
@@ -349,6 +352,10 @@ function createStagePlan(context, state) {
   });
 
   return stages;
+}
+
+function verifyDesktopNpmGate() {
+  verifyExactNpmVersions({ specs: getDesktopNpmGateSpecs({ repoRoot, desktopVersion: version, publicPackages: publicNpmPackages }), repoRoot });
 }
 
 function runStages(stages, state) {
@@ -535,9 +542,9 @@ function preflight(state) {
   if (status) throw new Error(`Git working tree must be clean before release.\n${status}`);
 
   run("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
+  run("git", ["fetch", "--tags", "origin"], { cwd: repoRoot });
   const upstream = commandOutput("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd: repoRoot }).trim();
   if (!upstream) throw new Error("Release branch must have an upstream remote branch.");
-  run("git", ["fetch", "--tags", "origin"], { cwd: repoRoot });
   const localHead = commandOutput("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).trim();
   const remoteHead = commandOutput("git", ["rev-parse", upstream], { cwd: repoRoot }).trim();
   if (localHead !== remoteHead) throw new Error(`HEAD must be pushed to ${upstream} before release.`);
