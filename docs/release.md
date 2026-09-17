@@ -147,6 +147,35 @@ Before running `pnpm release:npm`, align every publishable package in
 `scripts/release-npm.mjs` to one shared version. The release script rejects mixed
 publishable package versions.
 
+## Exact npm integration versions gate desktop releases
+
+Packaged Desktop emits exact npm specs for its npm-backed integrations:
+OpenCode plugin entries pin `@open-pets/opencode@<version>` and OpenClaw
+install/update commands pin `@open-pets/openclaw@<version>`, where each version
+is the current workspace package version. The invariant is: if Desktop emits an
+exact npm version, release tooling guarantees that version exists.
+
+Consequences:
+
+- A desktop-only release is allowed only while those npm-backed integrations
+  remain compatible with what is already published. If packaged Desktop would
+  emit a new exact npm package version, that version must already be published
+  before the desktop release is published.
+- When the `@open-pets/opencode` or `@open-pets/openclaw` versions changed, run
+  `pnpm release:npm -- --yes` first, then the desktop release.
+- The desktop release enforces this with `--yes` verification stages that probe
+  `https://registry.npmjs.org` for both exact specs. The early
+  `verify:npm-integrations` stage runs before any artifact is built and re-runs
+  on every `--yes` invocation instead of trusting an old checkpoint, because a
+  published version can later be unpublished. The same specs are revalidated
+  immediately before the irreversible boundaries: `verify:npm-pre-tag` runs
+  before the tag is created, and `verify:npm-pre-publish` runs before the draft
+  becomes published. A confirmed E404 aborts naming the missing spec; a
+  registry/network/timeout failure also aborts, reported as a registry-check
+  failure rather than as unpublished. A failed revalidation leaves staged
+  artifacts and checkpoints in place so the release can be retried once npm is
+  available.
+
 ## Staged desktop releases
 
 `pnpm release:desktop -- --yes` runs preflight once, then executes an ordered
@@ -163,6 +192,7 @@ The checkpoint is gitignored and belongs to one version at one `HEAD` commit.
 
 | Stage | What it does |
 | --- | --- |
+| `verify:npm-integrations` | confirms exact `@open-pets/opencode` + `@open-pets/openclaw` versions exist on npm (`--yes` only, before any build; re-runs on every invocation, never checkpoint-skipped) |
 | `checks` | `pnpm build` and `pnpm --filter @open-pets/desktop check` |
 | `clean` | cleans `apps/desktop/dist-electron` (runs only once per checkpoint) |
 | `build:mac-dmg` | macOS DMG x64 + arm64 |
@@ -173,12 +203,14 @@ The checkpoint is gitignored and belongs to one version at one `HEAD` commit.
 | `build:linux-targz` | Linux tar.gz x64 |
 | `stage:linux-packages` | only with `--linux-package-dir`; copies validated Ubuntu DEB/RPM |
 | `verify:local` | working-tree check plus the complete pre-signing artifact set |
+| `verify:npm-pre-tag` | re-verifies the exact npm specs immediately before tagging (`--yes` only, never checkpoint-skipped) |
 | `tag` | creates and pushes the annotated `v<version>` tag at `HEAD` |
 | `sign:dispatch` | dispatches the SignPath workflow and records its run id |
 | `sign:collect` | waits for that recorded run, downloads and verifies the signed installer |
 | `verify:final` | validates the signed artifact set and writes `SHA256SUMS` |
 | `release:draft` | creates or refreshes the **draft** GitHub Release |
 | `release:upload` | uploads only the assets GitHub is missing, then verifies the exact asset set |
+| `verify:npm-pre-publish` | re-verifies the exact npm specs immediately before publication (`--yes` only, never checkpoint-skipped) |
 | `release:publish` | publishes the verified draft |
 
 Preflight still enforces macOS, `pnpm`/`gh` availability, GitHub CLI auth, an

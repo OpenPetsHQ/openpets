@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 
+import { classifyNpmViewResult } from "./npm-exact-version-probe.mjs";
+
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptsDir, "..");
 const repository = "alvinunreal/openpets";
@@ -164,24 +166,10 @@ async function npmPackageIsPublished(pkg) {
 
   if (result.status === 0) return true;
   const output = `${result.stderr || ""}\n${result.stdout || ""}`.trim();
-  if (isUnpublishedNpmPackage(pkg, result)) return false;
+  if (classifyNpmViewResult({ name: pkg.name, version: pkg.version, status: result.status, stdout: result.stdout, stderr: result.stderr }).outcome === "missing") return false;
 
   const reason = `exited with code ${result.status ?? "unknown"}`;
   throw new Error(`npm registry probe failed for ${pkg.name}@${pkg.version}: ${command} ${reason}. Check npm registry connectivity and authentication, then retry.${output ? `\n${output}` : ""}`);
-}
-
-function isUnpublishedNpmPackage(pkg, result) {
-  if (result.status !== 1) return false;
-  let error;
-  try {
-    ({ error } = JSON.parse(result.stdout));
-  } catch {
-    return false;
-  }
-  const packageVersion = `${pkg.name}@${pkg.version}`;
-  return error?.code === "E404"
-    && error.summary === `No match found for version ${pkg.version}`
-    && error.detail?.startsWith(`The requested resource '${packageVersion}' could not be found`);
 }
 
 function runNpmRegistryProbe(args) {

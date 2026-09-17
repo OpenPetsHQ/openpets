@@ -6,6 +6,8 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { verifyPackagedNpmIntegrations } from "../../../scripts/npm-exact-version-probe.mjs";
+
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptsDir, "..");
 const repoRoot = resolve(desktopDir, "../..");
@@ -143,6 +145,18 @@ function createStagePlan(context, state) {
   const stages = [];
   const artifactPath = (name) => join(outputDir, name);
 
+  if (yes) {
+    stages.push({
+      id: "verify:npm-integrations",
+      title: "Verify published npm versions for exact integration specs",
+      alwaysRun: true,
+      run: () => {
+        verifyPackagedNpmIntegrations({ repoRoot });
+        return [];
+      },
+    });
+  }
+
   if (!skipChecks) {
     stages.push({
       id: "checks",
@@ -216,6 +230,16 @@ function createStagePlan(context, state) {
   }
 
   if (!yes) return stages;
+
+  stages.push({
+    id: "verify:npm-pre-tag",
+    title: "Re-verify published npm versions before creating the tag",
+    alwaysRun: true,
+    run: () => {
+      verifyPackagedNpmIntegrations({ repoRoot });
+      return [];
+    },
+  });
 
   stages.push({
     id: "tag",
@@ -299,6 +323,16 @@ function createStagePlan(context, state) {
     alwaysRun: true,
     run: () => {
       uploadReleaseAssets(context.uploadArtifacts);
+      return [];
+    },
+  });
+
+  stages.push({
+    id: "verify:npm-pre-publish",
+    title: "Re-verify published npm versions before publishing the release",
+    alwaysRun: true,
+    run: () => {
+      verifyPackagedNpmIntegrations({ repoRoot });
       return [];
     },
   });
@@ -979,6 +1013,7 @@ run is retried by re-running the same command: completed stages are skipped and
 work resumes at the stage that failed.
 
 Stages (default plan):
+  verify:npm-integrations verify exact @open-pets/opencode + @open-pets/openclaw versions exist on npm (--yes only)
   checks                  pnpm build + desktop check
   clean                   clean apps/desktop/dist-electron
   build:mac-dmg           macOS DMG x64 + arm64
@@ -988,12 +1023,14 @@ Stages (default plan):
   build:linux-rpm         Linux RPM x64
   build:linux-targz       Linux tar.gz x64
   verify:local            working-tree check + pre-signing artifact set
+  verify:npm-pre-tag      re-verify exact npm specs before tagging (--yes only)
   tag                     create and push the annotated v<version> tag
   sign:dispatch           dispatch the SignPath workflow, record its run id
   sign:collect            wait for that run, download and verify the signed installer
   verify:final            validate the signed artifact set, write SHA256SUMS
   release:draft           create or refresh the draft GitHub release
   release:upload          upload only the assets GitHub is missing, then verify
+  verify:npm-pre-publish  re-verify exact npm specs before publishing (--yes only)
   release:publish         publish the verified draft
 
 The Windows x64 installer is never built locally; it is produced by SignPath.

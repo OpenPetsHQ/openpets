@@ -67,6 +67,9 @@ async function main() {
   console.log("\n[preflight] Checking test discovery invariants...");
   await run("node", ["scripts/test-discovery.test.mjs"]);
 
+  console.log("\n[preflight] Checking npm release gate invariants...");
+  await run("node", ["scripts/npm-release-gate.test.mjs"]);
+
   const { behaviorTests, contractTests, distChecks } = await discoverArtifacts(rootDir);
   await rm(join(rootDir, ".test-dist"), { force: true, recursive: true });
   logDiscoveredArtifacts("behavior tests", behaviorTests);
