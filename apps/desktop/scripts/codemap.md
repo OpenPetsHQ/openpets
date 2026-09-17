@@ -24,7 +24,7 @@ Load/validate checkpoint in .release-state/v<version>.json (discarded when HEAD 
 → Preflight checks (git clean, remote sync, version validity, tag/release expectations)
 → Capture previous release tag before any new tag
 → Run the stage plan, skipping stages already checkpointed with intact outputs:
-   checks → clean → build:mac-dmg → build:mac-zip → build:linux-appimage
+   (with --yes) verify:npm-integrations → checks → clean → build:mac-dmg → build:mac-zip → build:linux-appimage
    → build:linux-deb → build:linux-rpm → build:linux-targz
    → (with --linux-package-dir) stage:linux-packages instead of local DEB/RPM
    → verify:local (working tree + pre-signing artifact set)

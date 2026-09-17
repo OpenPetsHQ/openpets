@@ -147,6 +147,28 @@ Before running `pnpm release:npm`, align every publishable package in
 `scripts/release-npm.mjs` to one shared version. The release script rejects mixed
 publishable package versions.
 
+## Exact npm integration versions gate desktop releases
+
+Packaged Desktop emits exact npm specs for its npm-backed integrations:
+OpenCode plugin entries pin `@open-pets/opencode@<version>` and OpenClaw
+install/update commands pin `@open-pets/openclaw@<version>`, where each version
+is the current workspace package version. The invariant is: if Desktop emits an
+exact npm version, release tooling guarantees that version exists.
+
+Consequences:
+
+- A desktop-only release is allowed only while those npm-backed integrations
+  remain compatible with what is already published. If packaged Desktop would
+  emit a new exact npm package version, that version must already be published
+  before the desktop release is published.
+- When the `@open-pets/opencode` or `@open-pets/openclaw` versions changed, run
+  `pnpm release:npm -- --yes` first, then the desktop release.
+- The desktop release enforces this with its first `--yes` stage,
+  `verify:npm-integrations`, which probes `https://registry.npmjs.org` for both
+  exact specs before any tag is created or artifact is built. A confirmed E404
+  aborts naming the missing spec; a registry/network/timeout failure also
+  aborts, reported as a registry-check failure rather than as unpublished.
+
 ## Staged desktop releases
 
 `pnpm release:desktop -- --yes` runs preflight once, then executes an ordered
@@ -163,6 +185,7 @@ The checkpoint is gitignored and belongs to one version at one `HEAD` commit.
 
 | Stage | What it does |
 | --- | --- |
+| `verify:npm-integrations` | confirms exact `@open-pets/opencode` + `@open-pets/openclaw` versions exist on npm (`--yes` only, before any build) |
 | `checks` | `pnpm build` and `pnpm --filter @open-pets/desktop check` |
 | `clean` | cleans `apps/desktop/dist-electron` (runs only once per checkpoint) |
 | `build:mac-dmg` | macOS DMG x64 + arm64 |

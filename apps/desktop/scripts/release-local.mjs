@@ -6,6 +6,8 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { verifyPackagedNpmIntegrations } from "../../../scripts/npm-exact-version-probe.mjs";
+
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptsDir, "..");
 const repoRoot = resolve(desktopDir, "../..");
@@ -142,6 +144,17 @@ function main() {
 function createStagePlan(context, state) {
   const stages = [];
   const artifactPath = (name) => join(outputDir, name);
+
+  if (yes) {
+    stages.push({
+      id: "verify:npm-integrations",
+      title: "Verify published npm versions for exact integration specs",
+      run: () => {
+        verifyPackagedNpmIntegrations({ repoRoot });
+        return [];
+      },
+    });
+  }
 
   if (!skipChecks) {
     stages.push({
@@ -979,6 +992,7 @@ run is retried by re-running the same command: completed stages are skipped and
 work resumes at the stage that failed.
 
 Stages (default plan):
+  verify:npm-integrations verify exact @open-pets/opencode + @open-pets/openclaw versions exist on npm (--yes only)
   checks                  pnpm build + desktop check
   clean                   clean apps/desktop/dist-electron
   build:mac-dmg           macOS DMG x64 + arm64
