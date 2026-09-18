@@ -17,7 +17,7 @@ import { debug, error as logError, info, warn } from "./logger.js";
 import { executeDefaultPetPluginCommand, executeDefaultPetPluginMenuSelect, getDefaultPetPluginCommands, getDefaultPetPluginMenuItems } from "./plugin-service.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
-import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, motionToSpriteState, resolveReactionSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, motionToSpriteState, resolveEffectiveSpriteState, resolveReactionSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
 import { isFocusActionAvailable } from "./capabilities.js";
 import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForwardedMouseEvents } from "./mouse-forwarding.js";
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
@@ -1186,7 +1186,7 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned);
-  const reactionState = getReactionSpriteState(display?.reaction);
+  const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
@@ -1287,7 +1287,7 @@ async function createInstalledPetRender(
   const imageUrl = pathToFileURL(spritesheetPath).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned);
-  const reactionState = getReactionSpriteState(display?.reaction);
+  const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
@@ -1593,6 +1593,10 @@ function createSpriteRule(selector: string, state: UniversalSpriteState, stateRo
 
 function getReactionSpriteState(reaction: OpenPetsReaction | undefined): UniversalSpriteState {
   return resolveReactionSpriteState(reaction, getAppStateSnapshot().preferences.reactionAnimationOverrides);
+}
+
+function getEffectiveReactionSpriteState(displayReaction: OpenPetsReaction | undefined, badge: PetStatusBadgeReaction | null): UniversalSpriteState {
+  return resolveEffectiveSpriteState(displayReaction, badge ?? undefined, getAppStateSnapshot().preferences.reactionAnimationOverrides);
 }
 
 const namedHostIconGlyphs: Record<string, string> = {
