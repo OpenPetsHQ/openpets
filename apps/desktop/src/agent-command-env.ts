@@ -31,7 +31,8 @@ export function resolveCommandMode(value: unknown, isPackaged: boolean): OpenPet
  * Extra PATH entries so the Electron main process can resolve CLIs that are
  * normally only visible after shell profile evaluation. GUI apps launched
  * from Finder/Explorer never evaluate profiles (fnm/nvm shims, Homebrew),
- * so detection wrongly reports "not detected" even though the user's
+ * and Windows GUI processes can miss the npm global shim directory, so
+ * detection wrongly reports "not detected" even though the user's
  * terminal resolves the same command fine. Only directories that exist on
  * disk are returned.
  */
@@ -64,6 +65,9 @@ export function buildExtraCommandPaths(options: CommandPathProbeOptions): readon
     );
   }
   candidates.push(...buildFnmCommandPaths(homeDir, env, platform));
+  if (platform === "win32") {
+    candidates.push(...buildWindowsNpmGlobalPaths(homeDir, env));
+  }
   return filterExistingPaths(candidates);
 }
 
@@ -90,6 +94,18 @@ function buildFnmCommandPaths(homeDir: string, env: NodeJS.ProcessEnv, platform:
   }
   const macRoots = platform === "darwin" ? [join(homeDir, "Library", "Application Support", "fnm")] : [];
   return [...roots, ...macRoots].map((root) => (root ? join(root, "aliases", "default", "bin") : undefined));
+}
+
+/**
+ * Standard Windows npm global shim directory for globally installed CLIs
+ * such as Claude (`%APPDATA%\npm`). Only existing directories survive the
+ * caller-side existence filter.
+ */
+function buildWindowsNpmGlobalPaths(homeDir: string, env: NodeJS.ProcessEnv): readonly (string | undefined)[] {
+  return [
+    env.APPDATA ? join(env.APPDATA, "npm") : undefined,
+    join(homeDir, "AppData", "Roaming", "npm"),
+  ];
 }
 
 function filterExistingPaths(paths: readonly (string | undefined)[]): readonly string[] {

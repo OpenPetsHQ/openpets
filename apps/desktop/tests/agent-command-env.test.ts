@@ -83,17 +83,36 @@ describe("buildExtraCommandPaths", () => {
     }
   });
 
-  it("finds fnm aliases on Windows without returning Unix entries", () => {
+  it("finds Windows npm global shims and fnm aliases without Unix entries", () => {
     const home = makeHome();
+    const multishell = makeHome();
     try {
-      const aliasDir = makeBin(home, "AppData", "Roaming", "fnm", "aliases", "default");
+      const npmGlobal = makeBin(home, "AppData", "Roaming", "npm");
+      const fnmAlias = makeBin(home, "AppData", "Roaming", "fnm", "aliases", "default");
+      const multishellBin = makeBin(multishell, "bin");
       const paths = buildExtraCommandPaths({
         homeDir: home,
-        env: { APPDATA: join(home, "AppData", "Roaming") },
+        env: { APPDATA: join(home, "AppData", "Roaming"), FNM_MULTISHELL_PATH: multishell },
         platform: "win32",
       });
-      assert.ok(paths.includes(aliasDir), "Windows fnm default alias must be on the probe PATH");
+      assert.ok(paths.includes(npmGlobal), "%APPDATA%\\npm must be on the probe PATH");
+      assert.ok(paths.includes(fnmAlias), "Windows fnm default alias must remain on the probe PATH");
       assert.ok(!paths.includes("/opt/homebrew/bin"), "Unix entries must stay off the Windows probe PATH");
+      assert.ok(!paths.includes(multishell), "transient multishell roots must never be probed");
+      assert.ok(!paths.includes(multishellBin), "transient multishell bins must never be probed");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(multishell, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the home-directory npm global shim path", () => {
+    const home = makeHome();
+    try {
+      const npmGlobal = makeBin(home, "AppData", "Roaming", "npm");
+      const paths = buildExtraCommandPaths({ homeDir: home, env: {}, platform: "win32" });
+      assert.ok(paths.includes(npmGlobal), "home-directory npm global shims must be on the probe PATH when APPDATA is unset");
+      assert.ok(!paths.some((entry) => entry.includes("fnm")), "no fnm entry may appear when nothing is installed");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

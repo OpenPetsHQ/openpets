@@ -109,8 +109,9 @@ The deepest integration, because Claude Code has a rich hook system.
   (`npx -y @open-pets/mcp`), `local`, `bundled` (ASAR-unpacked path). Paths are
   validated to stay within expected directories. Packaged builds default to
   `bundled` but honor an explicit `published` choice, and command probing
-  includes fnm default-alias directories so version-manager installs resolve
-  without shell profile evaluation.
+  includes fnm default-alias directories plus the standard Windows npm
+  global shim directory, so version-manager installs and globally
+  installed CLIs resolve without shell profile evaluation.
 - **Hooks** (`hook-settings.ts` + `hooks.ts`): installs command hooks into
   `~/.claude/settings.json` for the lifecycle events `UserPromptSubmit`,
   `PreToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`. Each
