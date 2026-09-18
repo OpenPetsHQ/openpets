@@ -112,7 +112,13 @@ reaction into something visible:
    active locale (see [Internationalization](/i18n)).
 3. `pet-window.ts` renders the chosen animation via CSS sprite animation, and
    shows speech bubbles, alert indicators, pinned HUDs, and status badges as
-   requested.
+   requested. The transient display (bubble) expires after a few seconds while
+   a busy status badge (`thinking`/`working`/`editing`/`running`/`testing`/
+   `waiting`) survives much longer; when the display reaction is gone, a badge
+   that resolves to a looping animation (`resolveEffectiveSpriteState`) keeps
+   the pet visibly animated, while a badge that resolves to a finite one-shot
+   (`waving`/`success`/`error`/`celebrating`) falls back to idle so terminal
+   reactions stay bounded.
 
 The waiting animation cycle is a global preference in Control Center → Settings
 → Reactions. **Normal** keeps the default `1010` ms cycle and **Relaxed** uses

@@ -124,6 +124,41 @@ export function resolveReactionSpriteState(reaction: OpenPetsReaction | undefine
   return overrides?.[reaction] ?? defaultReactionToSpriteState[reaction] ?? "idle";
 }
 
+export function isLoopingSpriteState(state: UniversalSpriteState, states: Record<UniversalSpriteState, SpriteStateDefinition> = defaultPetSprite.states): boolean {
+  const row = states[state];
+  const iterations = row && "iterations" in row ? row.iterations : "infinite";
+  return typeof iterations !== "number";
+}
+
+/**
+ * Render decision for the visible sprite.
+ *
+ * The transient display (bubble) expires after a few seconds while a busy
+ * status badge (thinking/working/editing/running/testing/waiting) survives
+ * much longer. When the display reaction is gone, a badge that resolves to a
+ * looping animation keeps the pet visibly animated; a badge that resolves to
+ * a finite one-shot (success/error/waving/celebrating, or a user override to
+ * one) falls back to idle so terminal reactions stay bounded.
+ */
+export function resolveEffectiveSpriteState(
+  displayReaction: OpenPetsReaction | undefined,
+  badgeReaction: OpenPetsReaction | undefined,
+  overrides?: ReactionAnimationOverrides,
+  states: Record<UniversalSpriteState, SpriteStateDefinition> = defaultPetSprite.states,
+): UserSelectableAnimationState {
+  if (displayReaction) {
+    return resolveReactionSpriteState(displayReaction, overrides);
+  }
+  if (!badgeReaction || badgeReaction === "idle") {
+    return "idle";
+  }
+  const badgeState = resolveReactionSpriteState(badgeReaction, overrides);
+  if (badgeState === "idle" || !isLoopingSpriteState(badgeState, states)) {
+    return "idle";
+  }
+  return badgeState;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
