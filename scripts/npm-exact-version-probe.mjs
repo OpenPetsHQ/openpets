@@ -31,6 +31,17 @@ export const PACKAGED_NPM_INTEGRATIONS = [
   { packageDir: "packages/openclaw", name: "@open-pets/openclaw" },
 ];
 
+export function getDesktopNpmGateMode({ desktopVersion, publicPackages }) {
+  return publicPackages.length > 0 && publicPackages.every((pkg) => pkg.version === desktopVersion) ? "full" : "desktop-only";
+}
+
+export function getDesktopNpmGateSpecs({ repoRoot, desktopVersion, publicPackages }) {
+  if (getDesktopNpmGateMode({ desktopVersion, publicPackages }) === "full") {
+    return publicPackages.map((pkg) => ({ name: pkg.name, version: pkg.version }));
+  }
+  return getPackagedNpmIntegrationSpecs(repoRoot);
+}
+
 /**
  * Classify one `npm view <name>@<version> version --json` result.
  * Pure function over the completed subprocess result; safe to unit test
@@ -38,7 +49,7 @@ export const PACKAGED_NPM_INTEGRATIONS = [
  */
 export function classifyNpmViewResult({ name, version, status, stdout, stderr }) {
   if (status === 0) return { outcome: "published", detail: `${name}@${version} exists on npm.` };
-  if (status === 1 && isConfirmedMissingVersion({ name, version, stdout })) {
+  if (status === 1 && isConfirmedMissingVersion({ name, version, stdout, stderr })) {
     return { outcome: "missing", detail: `npm reports no match for version ${version}.` };
   }
   const output = `${stderr || ""}\n${stdout || ""}`.trim();
@@ -48,18 +59,29 @@ export function classifyNpmViewResult({ name, version, status, stdout, stderr })
   };
 }
 
-function isConfirmedMissingVersion({ name, version, stdout }) {
-  let error;
-  try {
-    ({ error } = JSON.parse(stdout));
-  } catch {
-    return false;
-  }
+function isConfirmedMissingVersion({ name, version, stdout, stderr }) {
+  const parsed = parseStructuredNpmError(stdout) || parseStructuredNpmError(stderr);
+  const error = parsed?.error;
+  if (!error || error.code !== "E404") return false;
   const packageVersion = `${name}@${version}`;
-  return error?.code === "E404"
-    && error.summary === `No match found for version ${version}`
-    && typeof error.detail === "string"
-    && error.detail.startsWith(`The requested resource '${packageVersion}' could not be found`);
+  const encodedName = name.replace("/", "%2f");
+  const text = `${error.summary || ""}\n${error.detail || ""}`;
+  const normalizedText = text.toLowerCase();
+  if (/version\s+\S+/i.test(text) && !normalizedText.includes(`version ${version.toLowerCase()}`)) return false;
+  return text.includes(name)
+    || text.includes(encodedName)
+    || text.includes(packageVersion)
+    || error.summary === `No match found for version ${version}`;
+}
+
+function parseStructuredNpmError(output) {
+  if (!output) return null;
+  try {
+    const parsed = JSON.parse(output);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -106,6 +128,11 @@ export function getPackagedNpmIntegrationSpecs(repoRoot) {
  */
 export function verifyPackagedNpmIntegrations({ repoRoot, probe = (spec) => probeNpmExactVersionSync(spec.name, spec.version, { cwd: repoRoot }) } = {}) {
   const specs = getPackagedNpmIntegrationSpecs(repoRoot);
+  return verifyExactNpmVersions({ specs, probe });
+}
+
+/** Verify an arbitrary exact npm spec set using the same safe classifications. */
+export function verifyExactNpmVersions({ specs, repoRoot, probe = (spec) => probeNpmExactVersionSync(spec.name, spec.version, { cwd: repoRoot }) }) {
   const missing = [];
   const unverifiable = [];
   for (const spec of specs) {

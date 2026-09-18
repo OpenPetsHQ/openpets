@@ -100,17 +100,36 @@ repo convention (`AGENTS.md`), not optional polish.
 
 ### npm packages
 
-`pnpm release:npm` (`scripts/release-npm.mjs`) orchestrates publishing the
-workspace packages. Packages must build and pass `check`/`test` first.
+`pnpm release:npm` (`scripts/release-npm.mjs`) determines the current public
+package set and publishes it in dependency order. Treat its printed dry-run plan
+as authoritative; do not maintain a hardcoded package list in documentation.
+For a live package release, the package gate (`pnpm check` and `pnpm test`) must
+pass first. A partial publish is retryable: re-run the same `--yes` command and
+already published versions are skipped. Never use `--skip-checks` for a live
+release.
+
+For historical recovery from an existing release tag, use the tagged source
+explicitly:
+
+```bash
+pnpm release:npm -- --yes --ref vX.Y.Z
+```
 
 ### Desktop app
 
 `pnpm release:desktop -- --yes` (`apps/desktop/scripts/release-local.mjs`) does a
-macOS-local build + packaging, creates and pushes the release tag, dispatches
-the production SignPath Windows workflow, waits for its signed artifact, and
-only then creates a draft GitHub release, verifies its complete asset set, and
-publishes it. The local Windows installer is disposable; macOS and Linux
-artifacts remain unsigned.
+macOS-local build + packaging, reaches the staged tag-promotion boundary,
+dispatches the production SignPath Windows workflow, waits for its signed
+artifact, and only then creates a draft GitHub release, verifies its complete
+asset set, and publishes it. The local Windows installer is disposable; macOS
+and Linux artifacts remain unsigned.
+
+Desktop-only releases do not publish npm packages unless Desktop emits a new
+exact npm integration version; that version must be published and verified first.
+For a full shared-version release, publish and verify the complete npm plan
+before promoting the desktop tag. The Desktop gate is the desktop `check` and
+`test` pair (with the workspace build required by the release flow). Never use
+`--skip-checks` on a live desktop release.
 
 The release runs as checkpointed stages recorded in
 `apps/desktop/.release-state/v<version>.json`. If an attempt is interrupted,

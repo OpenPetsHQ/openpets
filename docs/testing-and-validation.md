@@ -190,6 +190,33 @@ Before shipping, the relevant gate must be green:
 - **Linux-specific behavior** → validated on the Ubuntu VM
   ([Development](/development)).
 
+## Release gates and ordering
+
+Release commands do not replace the quality gates:
+
+- **Package gate** → `pnpm check` and `pnpm test` pass for the workspace and the
+  current public package plan.
+- **Desktop gate** → `pnpm --filter @open-pets/desktop check` and
+  `pnpm --filter @open-pets/desktop test` pass, with the workspace build required
+  by the desktop release flow.
+
+For a full shared-version release, publish the complete dynamic package plan
+with `pnpm release:npm -- --yes`, verify every planned package/version on the
+public npm registry, and only then promote the desktop tag. The npm helper's
+printed plan is authoritative; this document must not become a stale package
+inventory. A partial npm publish is recoverable by rerunning the same command;
+already published versions are skipped.
+
+A desktop-only release uses the Desktop gate and does not publish npm packages,
+unless it introduces a new exact npm integration version. In that case, publish
+and verify that version before the desktop tag is promoted. Never use
+`--skip-checks` on a live npm or desktop release. For historical npm recovery,
+use the tagged source explicitly:
+
+```bash
+pnpm release:npm -- --yes --ref vX.Y.Z
+```
+
 If a gate is skipped, say so explicitly rather than implying coverage. Contract
 and validator failures are signal, not noise - they encode the ways this product
 has broken in production before.
