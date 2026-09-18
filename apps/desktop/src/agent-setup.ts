@@ -12,6 +12,7 @@ import { doctorOpenCodeGlobalSetup, getGlobalOpenCodeConfigDir, parseOpenCodeCon
 import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, isValidZedNodeCommand, planZedMcpInstall, planZedMcpRemove, planZedMcpReplace, readZedSettings, type ZedMcpEntry, type ZedMcpPreviewOptions, type ZedMcpStatusResult } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
+import { buildExtraCommandPaths, resolveCommandMode } from "./agent-command-env.js";
 import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaudeOpenPetsMemory, type ClaudeOpenPetsMemoryStatus } from "./claude-memory.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 
@@ -1008,8 +1009,7 @@ function validateSelectedPetId(value: unknown): string | undefined {
 }
 
 function validateCommandMode(value: unknown): OpenPetsCommandMode {
-  if (app.isPackaged) return "bundled";
-  return value === "local" ? "local" : "published";
+  return resolveCommandMode(value, app.isPackaged);
 }
 
 function getPetOptions(): readonly AgentSetupPetOption[] {
@@ -1138,34 +1138,7 @@ function createCommandEnv(): NodeJS.ProcessEnv {
 }
 
 function getExtraCommandPaths(): readonly string[] {
-  if (process.platform === "win32") return [];
-  const home = app.getPath("home");
-  const env = process.env;
-  return filterExistingPaths([
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/bin",
-    "/usr/local/sbin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-    join(home, "bin"),
-    join(home, ".local", "bin"),
-    join(home, ".opencode", "bin"),
-    join(env.VOLTA_HOME || join(home, ".volta"), "bin"),
-    join(env.BUN_INSTALL || join(home, ".bun"), "bin"),
-    join(env.MISE_DATA_DIR || join(home, ".local", "share", "mise"), "shims"),
-    join(env.ASDF_DATA_DIR || join(home, ".asdf"), "shims"),
-    env.PNPM_HOME,
-    join(home, ".local", "share", "pnpm"),
-    join(home, "Library", "pnpm"),
-    join(env.NVM_DIR || join(home, ".nvm"), "current", "bin"),
-  ]);
-}
-
-function filterExistingPaths(paths: readonly (string | undefined)[]): readonly string[] {
-  return paths.filter((path): path is string => Boolean(path && existsSync(path)));
+  return buildExtraCommandPaths({ homeDir: app.getPath("home"), env: process.env, platform: process.platform });
 }
 
 function dedupePathEntries(paths: readonly string[], separator: string): readonly string[] {
