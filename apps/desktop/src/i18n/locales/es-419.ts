@@ -130,7 +130,7 @@ export const es419: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "Buscar mascotas...",
   "pets.import": "Importar mascota",
-  "pets.gallery": "Galería",
+  "pets.gallery": "Galería web",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Predeterminada",

@@ -130,7 +130,7 @@ export const zhHant: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "搜尋寵物...",
   "pets.import": "匯入寵物",
-  "pets.gallery": "藝廊",
+  "pets.gallery": "網頁藝廊",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "預設",

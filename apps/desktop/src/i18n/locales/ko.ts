@@ -130,7 +130,7 @@ export const ko: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "펫 검색...",
   "pets.import": "펫 가져오기",
-  "pets.gallery": "갤러리",
+  "pets.gallery": "웹 갤러리",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "기본",

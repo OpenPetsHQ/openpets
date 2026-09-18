@@ -142,7 +142,7 @@ export const en = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "Search pets...",
   "pets.import": "Import pet",
-  "pets.gallery": "Gallery",
+  "pets.gallery": "Web Gallery",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Default",

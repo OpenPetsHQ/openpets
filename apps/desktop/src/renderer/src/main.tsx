@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider, useI18n, type I18nSnapshot } from "./i18n";
 import "./styles.css";
-import openPetsLogoUrl from "../../../assets/openpets.webp";
+import openPetsLogoUrl from "../../../assets/openpets-logo.webp";
 import defaultThumbUrl from "../../../assets/default-pet-thumbnail.png";
 import { ConversationView } from "./conversation/ConversationView.js";
 import { TeamsView } from "./teams/TeamsView.js";
@@ -1001,6 +1001,7 @@ const buttonVariantClass = {
   danger: "btn-danger",
   success: "btn-success",
   warning: "btn-warning",
+  accent: "btn-accent",
 } as const;
 
 const statusPillToneClass = {
@@ -1047,7 +1048,7 @@ function Button({
   type = "button",
 }: {
   children: React.ReactNode;
-  variant?: "primary" | "secondary" | "danger" | "success" | "warning";
+  variant?: "primary" | "secondary" | "danger" | "success" | "warning" | "accent";
   size?: "normal" | "compact";
   onClick?: () => void;
   disabled?: boolean;
@@ -1075,7 +1076,10 @@ function Button({
 }
 function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) { return <section className={`glass ${className}`}>{children}</section>; }
 function StatusPill({ children, tone = "blue" }: { children: React.ReactNode; tone?: keyof typeof statusPillToneClass }) { return <span className={`pill ${statusPillToneClass[tone]}`}>{children}</span>; }
-function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) { const { t } = useI18n(); return <input className="search" placeholder={t("pets.search.placeholder")} {...props} />; }
+function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const { t } = useI18n();
+  return <input className="search" placeholder={t("pets.search.placeholder")} {...props} />;
+}
 
 function isAllowedCatalogPreview(value: string | undefined): value is string {
   if (!value) return false;
@@ -5409,27 +5413,30 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   return (
     <main className="app-shell">
       <header className="hero">
+        <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />
         <div className="hero-content">
           <p className="eyebrow">{t("app.controlCenter")}</p>
           <h1>{t(currentMeta.titleKey)}</h1>
-          <p className="hero-desc">{t(currentMeta.descKey)}</p>
         </div>
-        <div className="hero-logo-container">
-          <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />
-        </div>
+        <p className="hero-desc">{t(currentMeta.descKey)}</p>
       </header>
 
       <nav className="nav-bar">
-        {navTabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
-            onClick={() => setCurrentRoute(tab.id)}
-          >
-            {tab.icon}
-            <span>{tab.labelKey === "nav.teams" && t(tab.labelKey) === tab.labelKey ? "Teams" : t(tab.labelKey)}</span>
-          </button>
-        ))}
+        {navTabs.map((tab) => {
+          const translated = t(tab.labelKey);
+          // "nav.teams" may be missing from some locales; fall back to English.
+          const label = tab.labelKey === "nav.teams" && translated === tab.labelKey ? "Teams" : translated;
+          return (
+            <button
+              key={tab.id}
+              className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
+              onClick={() => setCurrentRoute(tab.id)}
+            >
+              {tab.icon}
+              <span>{label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {error && <div className="error">{error}</div>}
@@ -5466,7 +5473,14 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
               </div>
               <div className="filter-actions">
                 <Button variant="secondary" size="compact" icon={<FolderPlusIcon />} disabled={!!busy} onClick={() => void act(t("pets.busy.importing"), () => api.installLocalPet())}>{t("pets.import")}</Button>
-                <Button variant="secondary" size="compact" icon={<HeartIcon />} onClick={() => void api.openGallery().catch((err) => setError(String(err?.message ?? err)))}>{t("pets.gallery")}</Button>
+                <Button
+                  variant="accent"
+                  size="compact"
+                  icon={<HeartIcon />}
+                  onClick={() => void api.openGallery().catch((err) => setError(String(err?.message ?? err)))}
+                >
+                  {t("pets.gallery")}
+                </Button>
               </div>
             </div>
             <div className="pets-grid">{pets.map((pet) => {

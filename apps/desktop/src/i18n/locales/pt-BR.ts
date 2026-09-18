@@ -130,7 +130,7 @@ export const ptBR: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "Buscar pets...",
   "pets.import": "Importar pet",
-  "pets.gallery": "Galeria",
+  "pets.gallery": "Galeria web",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Padrão",

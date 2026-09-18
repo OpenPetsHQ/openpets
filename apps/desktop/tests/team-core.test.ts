@@ -176,23 +176,21 @@ test("Teams API client pins requests to the configured origin and validates pack
   assert.throws(() => new TeamApiClient({ baseUrl: "http://insecure.example.test" }));
 });
 
-test("Teams enrollment crosses the boundary with only an intent and desktop proof", async () => {
+test("Teams enrollment previews identity and completes in one desktop request", async () => {
   const requestBodies: Record<string, Record<string, unknown>> = {};
   const expiresAt = new Date(Date.now() + 3_000).toISOString();
-  let requestedProof = "";
-  let browserConfirmed = false;
+  const requestedProof = "desktop-proof";
   const client = new TeamApiClient({
     baseUrl: "https://teams.example.test/",
     fetchImpl: async (url, init) => {
       const path = new URL(String(url)).pathname;
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       requestBodies[path] = body;
-      if (path.endsWith("/request")) {
-        requestedProof = String(body.desktopProof);
-        return new Response(
+       if (path.endsWith("/preview")) {
+         return new Response(
           JSON.stringify({
             intentId: "intent-1",
-            status: "awaiting_confirmation",
+             status: "started",
             organization: { id: "org-1", name: "Acme" },
             displayName: "Alice desktop",
             expiresAt,
@@ -205,12 +203,6 @@ test("Teams enrollment crosses the boundary with only an intent and desktop proo
           return new Response(
             JSON.stringify({ error: "invalid proof" }),
             { status: 401 },
-          );
-        }
-        if (!browserConfirmed) {
-          return new Response(
-            JSON.stringify({ error: "not confirmed" }),
-            { status: 409 },
           );
         }
         return new Response(
@@ -227,37 +219,33 @@ test("Teams enrollment crosses the boundary with only an intent and desktop proo
     },
   });
 
-  await client.requestEnrollment(
-    "intent-1",
-    "desktop-proof",
-    "desktop-installation",
-    "Alice desktop",
-  );
-  assert.deepEqual(
-    requestBodies["/v1/enrollment/intents/intent-1/request"],
-    {
-      desktopProof: "desktop-proof",
-      deviceInstallationId: "desktop-installation",
-      displayName: "Alice desktop",
-    },
-  );
-  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/request"], false);
-  await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", expiresAt), /HTTP 401/);
+   const preview = await client.getEnrollmentPreview("intent-1");
+   assert.equal(preview.organization.name, "Acme");
+   assert.deepEqual(
+     requestBodies["/v1/enrollment/intents/intent-1/preview"],
+     {},
+   );
+   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/preview"], false);
+  await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", "desktop-installation", "Alice desktop", expiresAt), /HTTP 401/);
 
-  const confirmation = setTimeout(() => {
-    browserConfirmed = true;
-  }, 10);
-  const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", expiresAt);
-  clearTimeout(confirmation);
+  const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt);
   assert.equal(enrollment.deviceId, "device-1");
   assert.equal(
     requestBodies["/v1/enrollment/intents/intent-1/complete"].desktopProof,
     "desktop-proof",
   );
-  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
+  const replay = await client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt);
+  assert.equal(replay.deviceId, enrollment.deviceId);
+  assert.equal(replay.deviceCredential, enrollment.deviceCredential);
+   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
+   assert.deepEqual(requestBodies["/v1/enrollment/intents/intent-1/complete"], {
+     desktopProof: "desktop-proof",
+     deviceInstallationId: "desktop-installation",
+     displayName: "Alice desktop",
+   });
 });
 
-test("Teams enrollment request retries a lost response with the same proof and stops at the API window", async () => {
+test("Teams enrollment completion retries a lost response with the same proof", async () => {
   let calls = 0;
   const proof = "desktop-proof";
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -270,25 +258,21 @@ test("Teams enrollment request retries a lost response with the same proof and s
         proof,
       );
       if (calls === 1) throw new TypeError("response connection lost");
-      return new Response(
-        JSON.stringify({
-          intentId: "intent-1",
-          status: "confirmed",
-          organization: { id: "org-1", name: "Acme" },
-          displayName: "Alice desktop",
-          expiresAt,
-        }),
-        { status: 200 },
-      );
-    },
-  });
-  const result = await client.requestEnrollment(
-    "intent-1",
-    proof,
-    "desktop-installation",
-    "Alice desktop",
-  );
-  assert.equal(result.status, "confirmed");
+       return new Response(
+         JSON.stringify({
+           deviceId: "device-1",
+           organization: { id: "org-1", name: "Acme" },
+           deviceCredential: "credential_" + "a".repeat(32),
+           packRevision: 4,
+         }),
+         { status: 201 },
+       );
+     },
+   });
+   const result = await client.completeEnrollment(
+     "intent-1", proof, "desktop-installation", "Alice desktop", expiresAt,
+   );
+   assert.equal(result.deviceId, "device-1");
   assert.equal(calls, 2);
 });
 
@@ -299,15 +283,15 @@ test("Teams enrollment completion respects the server-provided bounded window", 
     fetchImpl: async () => {
       calls += 1;
       return new Response(
-        JSON.stringify({ error: "not confirmed" }),
+         JSON.stringify({ error: { code: "enrollment_completion_in_progress" } }),
         { status: 409 },
       );
     },
   });
   const expiresAt = new Date(Date.now() + 20).toISOString();
   await assert.rejects(
-    () => client.completeEnrollment("intent-1", "desktop-proof", expiresAt),
-    /confirmation timed out/,
+    () => client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt),
+    /completion timed out/,
   );
   assert.ok(calls <= 2);
 });
@@ -499,7 +483,7 @@ test("TeamService cancels an in-flight sync before leave and never resurrects ol
       },
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -575,7 +559,7 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -676,7 +660,7 @@ test("TeamService clears stale pending approval when the same revision replaces 
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -722,13 +706,12 @@ test("TeamService enrollment returns the snapshot produced by its initial sync",
     const zip = createPluginZip("team-plugin", "1.0.0");
     const pack = createPluginPack("1.0.0", "artifact-one");
     const api = {
-      requestEnrollment: async () => ({
-        intentId: "intent-1",
-        status: "awaiting_confirmation" as const,
-        organization: { id: "org-one", name: "One" },
-        displayName: "Alice",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      }),
+       getEnrollmentPreview: async () => ({
+         intentId: "intent-1",
+         status: "started" as const,
+         organization: { id: "org-one", name: "One" },
+         expiresAt: new Date(Date.now() + 60_000).toISOString(),
+       }),
       completeEnrollment: async () => ({
         deviceId: "device-1",
         organization: { id: "org-one", name: "One" },
@@ -791,7 +774,7 @@ test("TeamService uses persisted pet ownership to reject a personal collision", 
       downloadArtifact: async () => createPetZip("same-id"),
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -871,7 +854,7 @@ test("TeamService does not make a failed revision current when an earlier plugin
       downloadArtifact: async (_credential: string, versionId: string) => zips.get(versionId)!,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {

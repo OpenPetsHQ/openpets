@@ -130,7 +130,7 @@ export const ja: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "ペットを検索...",
   "pets.import": "ペットをインポート",
-  "pets.gallery": "ギャラリー",
+  "pets.gallery": "ウェブギャラリー",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "デフォルト",

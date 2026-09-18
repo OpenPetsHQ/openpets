@@ -6,7 +6,6 @@ import {
 export const defaultTeamsApiBaseUrl = "https://openpets-teams-api.tokozedg793.workers.dev";
 const maxResponseBytes = 512 * 1024;
 const maxArtifactBytes = 50 * 1024 * 1024;
-const enrollmentRequestWindowMs = 15 * 60 * 1000;
 const enrollmentPollIntervalMs = 1_000;
 export const managerCheckInFeelingCodes = [
   "good",
@@ -84,14 +83,14 @@ export type TeamEnrollmentResult = {
   readonly deviceCredential: string;
   readonly packRevision: number;
 };
-export type TeamEnrollmentRequest = {
+export type TeamEnrollmentPreview = {
   readonly intentId: string;
-  readonly status: "awaiting_confirmation" | "confirmed";
+  readonly status: "started" | "requested" | "completed";
   readonly organization: {
     readonly id: string;
     readonly name: string;
   };
-  readonly displayName: string;
+  readonly displayName?: string;
   readonly expiresAt: string;
 };
 
@@ -192,43 +191,26 @@ export class TeamApiClient {
     return Buffer.from(artifact.raw);
   }
 
-  async requestEnrollment(
+  async getEnrollmentPreview(
     intentId: string,
-    desktopProof: string,
-    installationId: string,
-    displayName: string,
     signal?: AbortSignal,
-  ): Promise<TeamEnrollmentRequest> {
-    validateEnrollmentValues(intentId, desktopProof, installationId, displayName);
-    const deadline = Date.now() + enrollmentRequestWindowMs;
-    for (;;) {
-      try {
-        const response = await this.request(
-          `/v1/enrollment/intents/${encodeURIComponent(intentId)}/request`,
-          {
-            method: "POST",
-            body: {
-              desktopProof,
-              deviceInstallationId: installationId,
-              displayName,
-            },
-            signal,
-          },
-        );
-        return validateEnrollmentStatus(response.body, intentId);
-      } catch (error) {
-        if (!isRetryableEnrollmentTransportError(error) || Date.now() >= deadline) throw error;
-        await waitForEnrollmentRetry(deadline, signal);
-      }
-    }
+  ): Promise<TeamEnrollmentPreview> {
+    validateEnrollmentIntentId(intentId);
+    const response = await this.request(
+      `/v1/enrollment/intents/${encodeURIComponent(intentId)}/preview`,
+      { signal },
+    );
+    return validateEnrollmentPreview(response.body, intentId);
   }
   async completeEnrollment(
     intentId: string,
     desktopProof: string,
+    installationId: string,
+    displayName: string,
     expiresAt: string,
     signal?: AbortSignal,
   ): Promise<TeamEnrollmentResult> {
-    validateEnrollmentProof(intentId, desktopProof);
+    validateEnrollmentValues(intentId, desktopProof, installationId, displayName);
     const deadline = parseEnrollmentDeadline(expiresAt);
     for (;;) {
       try {
@@ -236,7 +218,11 @@ export class TeamApiClient {
           `/v1/enrollment/intents/${encodeURIComponent(intentId)}/complete`,
           {
             method: "POST",
-            body: { desktopProof },
+            body: {
+              desktopProof,
+              deviceInstallationId: installationId,
+              displayName: displayName.trim(),
+            },
             signal,
           },
         );
@@ -247,7 +233,7 @@ export class TeamApiClient {
           || Date.now() >= deadline
         ) throw enrollmentDeadlineError(error);
         await waitForEnrollmentRetry(deadline, signal);
-        if (Date.now() >= deadline) throw new Error("Teams enrollment confirmation timed out.");
+        if (Date.now() >= deadline) throw new Error("Teams enrollment completion timed out.");
       }
     }
   }
@@ -430,13 +416,13 @@ export class TeamApiClient {
   }
 }
 
-function validateEnrollmentStatus(
+function validateEnrollmentPreview(
   body: unknown,
   intentId: string,
-): TeamEnrollmentRequest {
+): TeamEnrollmentPreview {
   if (
     !isRecord(body)
-    || (body.status !== "awaiting_confirmation" && body.status !== "confirmed")
+    || (body.status !== "started" && body.status !== "requested" && body.status !== "completed")
     || body.intentId !== intentId
     || typeof body.intentId !== "string"
     || !/^[A-Za-z0-9_-]{1,128}$/.test(body.intentId)
@@ -498,7 +484,8 @@ function validateEnrollmentValues(
   installationId: string,
   displayName: string,
 ): void {
-  validateEnrollmentProof(intentId, desktopProof);
+  validateEnrollmentIntentId(intentId);
+  validateEnrollmentProofValue(desktopProof);
   if (
     !/^[A-Za-z0-9._:-]{1,160}$/.test(installationId)
     || displayName.trim().length === 0
@@ -506,11 +493,16 @@ function validateEnrollmentValues(
   ) throw new Error("Teams enrollment input is invalid.");
 }
 
-function validateEnrollmentProof(intentId: string, desktopProof: string): void {
-  if (
-    !/^[A-Za-z0-9_-]{1,128}$/.test(intentId)
-    || !/^[A-Za-z0-9_-]{1,128}$/.test(desktopProof)
-  ) throw new Error("Teams enrollment proof is invalid.");
+function validateEnrollmentIntentId(intentId: string): void {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(intentId)) {
+    throw new Error("Teams enrollment intent is invalid.");
+  }
+}
+
+function validateEnrollmentProofValue(desktopProof: string): void {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(desktopProof)) {
+    throw new Error("Teams enrollment proof is invalid.");
+  }
 }
 
 function requireString(body: unknown, key: string, max: number): string {
@@ -550,7 +542,9 @@ function isRetryableEnrollmentTransportError(error: unknown): boolean {
 
 function isRetryableEnrollmentCompletionError(error: unknown): boolean {
   return isRetryableEnrollmentTransportError(error)
-    || error instanceof Error && /HTTP 409\./.test(error.message);
+    || error instanceof TeamApiError
+      && error.status === 409
+      && error.code === "enrollment_completion_in_progress";
 }
 
 async function waitForEnrollmentRetry(
@@ -559,7 +553,7 @@ async function waitForEnrollmentRetry(
 ): Promise<void> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) {
-    throw new Error("Teams enrollment confirmation timed out.");
+    throw new Error("Teams enrollment completion timed out.");
   }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -585,10 +579,11 @@ function enrollmentDeadlineError(error: unknown): Error {
     error instanceof Error
     && /HTTP (400|401|403|404)\./.test(error.message)
   ) return error;
+  if (error instanceof TeamApiError) return error;
   return error instanceof Error
     && /Teams enrollment window has expired\./.test(error.message)
     ? error
-    : new Error("Teams enrollment confirmation timed out.");
+    : new Error("Teams enrollment completion timed out.");
 }
 
 async function readBytes(

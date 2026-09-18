@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, planZedMcpInstall, planZedMcpRemove, planZedMcpReplace, readZedSettings } from "@open-pets/zed";
 
-const root = mkdtempSync(join(tmpdir(), "openpets-zed-desktop-"));
+// macOS tmpdir() lives under /var, a symlink to /private/var, which the Zed
+// settings-path symlink guard rightfully rejects; resolve to the real path.
+const root = mkdtempSync(join(realpathSync(tmpdir()), "openpets-zed-desktop-"));
 
 try {
   const appData = join(root, "appdata");

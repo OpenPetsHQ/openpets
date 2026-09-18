@@ -17,7 +17,7 @@ import { debug, error as logError, info, warn } from "./logger.js";
 import { executeDefaultPetPluginCommand, executeDefaultPetPluginMenuSelect, getDefaultPetPluginCommands, getDefaultPetPluginMenuItems } from "./plugin-service.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
-import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, motionToSpriteState, resolveEffectiveSpriteState, resolveReactionSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, mirrorDirectionalSpriteState, motionToSpriteState, resolveEffectiveSpriteState, resolveReactionSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
 import { isFocusActionAvailable } from "./capabilities.js";
 import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForwardedMouseEvents } from "./mouse-forwarding.js";
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
@@ -1567,10 +1567,25 @@ function createSpriteStateCss(selector: ".sprite" | ".installed-sprite", stateRo
   columns: defaultPetSprite.columns,
   rows: defaultPetSprite.rows,
 }): string {
-  const reactionRules = Object.keys(stateRows).map((state) => createSpriteRule(`html[data-reaction-state="${state}"] ${selector}`, state as UniversalSpriteState, stateRows, layout, state === "idle" ? layout.neutralPose : undefined));
+  // A flipped pet is mirrored with scaleX(-1), which visually reverses the
+  // directional run rows; emit a flip-specific variant that plays the
+  // opposite row so the on-screen direction stays correct.
+  const rulesFor = (attributeClause: string, state: UniversalSpriteState, neutralPose?: { readonly row: number; readonly column: number }): string => {
+    const mirrored = mirrorDirectionalSpriteState(state);
+    if (mirrored === state) {
+      return createSpriteRule(`html${attributeClause} ${selector}`, state, stateRows, layout, neutralPose);
+    }
+    return [
+      createSpriteRule(`html:not([data-flip-x="true"])${attributeClause} ${selector}`, state, stateRows, layout, neutralPose),
+      createSpriteRule(`html[data-flip-x="true"]${attributeClause} ${selector}`, mirrored, stateRows, layout, neutralPose),
+    ].join("\n");
+  };
+
+  const reactionRules = Object.keys(stateRows).map((state) =>
+    rulesFor(`[data-reaction-state="${state}"]`, state as UniversalSpriteState, state === "idle" ? layout.neutralPose : undefined));
   const motionRules = (Object.entries(motionToSpriteState) as Array<[PetMotionState, UniversalSpriteState]>)
     .filter(([motion]) => motion !== "idle")
-    .map(([motion, state]) => createSpriteRule(`html[data-motion-state="${motion}"] ${selector}`, state, stateRows, layout));
+    .map(([motion, state]) => rulesFor(`[data-motion-state="${motion}"]`, state));
   return [...reactionRules, ...motionRules].join("\n");
 }
 

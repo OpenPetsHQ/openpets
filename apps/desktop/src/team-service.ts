@@ -15,7 +15,7 @@ import type {
   TeamPluginOwnership,
 } from "./plugin-state.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
-import { TeamApiClient } from "./team-api-client.js";
+import { TeamApiClient, type TeamEnrollmentPreview } from "./team-api-client.js";
 import {
   activateTeamArtifact,
   discardStagedTeamArtifact,
@@ -48,6 +48,9 @@ export type TeamServiceSnapshot = {
   readonly organizationId: string | null;
   readonly organizationName: string | null;
   readonly pendingEnrollment: boolean;
+  readonly pendingOrganizationId: string | null;
+  readonly pendingOrganizationName: string | null;
+  readonly pendingEnrollmentExpiresAt: string | null;
   readonly installationId: string | null;
   readonly pendingRevision: number;
   readonly appliedRevision: number;
@@ -88,8 +91,8 @@ export type TeamServiceOptions = {
 
 type TeamApiClientAdapter = Pick<
   TeamApiClient,
-  | "requestEnrollment"
   | "completeEnrollment"
+  | "getEnrollmentPreview"
   | "getTeamPack"
   | "downloadArtifact"
   | "reportDeployment"
@@ -139,6 +142,7 @@ export class TeamService {
     proof: string;
   } | null = null;
   #enrollmentDone: Promise<void> | null = null;
+  #enrollmentPreview: TeamEnrollmentPreview | null = null;
 
   constructor(options: TeamServiceOptions) {
     this.#userDataPath = options.userDataPath;
@@ -157,7 +161,13 @@ export class TeamService {
   async start(): Promise<void> {
     this.#started = true;
     this.stateStore.initialize();
-    if (!this.stateStore.snapshot()?.organizationId) return;
+    const initialState = this.stateStore.snapshot();
+    if (!initialState?.organizationId) {
+      if (initialState?.pendingIntent) {
+        await this.#refreshEnrollmentPreview(initialState.pendingIntent.intentId).catch(() => undefined);
+      }
+      return;
+    }
 
     try {
       if (!this.credentialStore.load()) {
@@ -188,10 +198,11 @@ export class TeamService {
     void this.#enqueueOperation(async () => {
       if (this.#leaveQueued) return;
       this.stateStore.setPendingIntent(link);
+      await this.#refreshEnrollmentPreview(link.intentId);
       this.#log("info", "Teams enrollment link received", {});
     }).catch((error) => this.#log(
       "error",
-      "Teams enrollment link could not be stored",
+      "Teams enrollment link preview could not be loaded",
       {
         reason: error instanceof Error
           ? error.message.slice(0, 160)
@@ -227,17 +238,21 @@ export class TeamService {
     };
     this.#enrollmentSession = session;
     const work = (async () => {
-      const requested = await this.apiClient.requestEnrollment(
+      const preview = this.#enrollmentPreview?.intentId === pending.intentId
+        ? this.#enrollmentPreview
+        : await this.apiClient.getEnrollmentPreview(
+          pending.intentId,
+          session.controller.signal,
+        );
+      if (!preview || preview.status === "completed") {
+        throw new Error("This Teams enrollment link is no longer available.");
+      }
+      const enrollment = await this.apiClient.completeEnrollment(
         pending.intentId,
         session.proof,
         installationId,
         displayName.trim(),
-        session.controller.signal,
-      );
-      const enrollment = await this.apiClient.completeEnrollment(
-        pending.intentId,
-        session.proof,
-        requested.expiresAt,
+        preview.expiresAt,
         session.controller.signal,
       );
       await this.#enqueueOperation(async () => {
@@ -245,6 +260,7 @@ export class TeamService {
           throw new Error("Teams enrollment was cancelled.");
         }
         session.proof = "";
+        this.#enrollmentPreview = null;
         this.credentialStore.save(enrollment.deviceCredential);
         this.stateStore.enroll({
           organizationId: enrollment.organization.id,
@@ -259,7 +275,7 @@ export class TeamService {
         );
         return this.getSnapshot();
       });
-      return await this.syncNow();
+      return await this.syncNow().catch(() => this.getSnapshot());
     })();
     this.#enrollmentDone = work.then(() => undefined, () => undefined);
     try {
@@ -309,6 +325,7 @@ export class TeamService {
         this.#log("info", "Teams enrollment left", {});
         return this.getSnapshot();
       } finally {
+        this.#enrollmentPreview = null;
         this.#leaveQueued = false;
       }
     });
@@ -466,6 +483,9 @@ export class TeamService {
       organizationId: state?.organizationId || null,
       organizationName: state?.organizationName ?? null,
       pendingEnrollment: Boolean(state?.pendingIntent),
+      pendingOrganizationId: this.#enrollmentPreview?.organization.id ?? null,
+      pendingOrganizationName: this.#enrollmentPreview?.organization.name ?? null,
+      pendingEnrollmentExpiresAt: this.#enrollmentPreview?.expiresAt ?? null,
       installationId: state?.organizationId ? state.installationId : null,
       pendingRevision: state?.pendingRevision ?? 0,
       appliedRevision: state?.appliedRevision ?? 0,
@@ -856,6 +876,13 @@ export class TeamService {
     if (!session) return;
     session.proof = "";
     session.controller.abort();
+  }
+
+  async #refreshEnrollmentPreview(intentId: string): Promise<TeamEnrollmentPreview> {
+    const preview = await this.apiClient.getEnrollmentPreview(intentId);
+    const pending = this.stateStore.snapshot()?.pendingIntent;
+    if (pending?.intentId === intentId) this.#enrollmentPreview = preview;
+    return preview;
   }
 
   #hasPendingApprovals(organizationId: string): boolean {

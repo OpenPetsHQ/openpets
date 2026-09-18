@@ -21,6 +21,18 @@ export const motionToSpriteState = {
   "run-left": "running-left",
 } as const satisfies Record<PetMotionState, UniversalSpriteState>;
 
+/**
+ * Directional sprite rows are authored in unflipped space. When a pet is
+ * mirrored with scaleX(-1), a directional row plays visually reversed, so a
+ * flipped pet must use the opposite row to keep its on-screen direction
+ * (e.g. dragging left should still show a left-facing run).
+ */
+export function mirrorDirectionalSpriteState(state: UniversalSpriteState): UniversalSpriteState {
+  if (state === "running-left") return "running-right";
+  if (state === "running-right") return "running-left";
+  return state;
+}
+
 export const defaultReactionToSpriteState = {
   idle: "idle",
   thinking: "review",

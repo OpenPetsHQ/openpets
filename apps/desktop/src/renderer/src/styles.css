@@ -302,17 +302,35 @@ body.theme-dark .plugin-config-backdrop {
 }
 @layer components {
   .app-shell { @apply mx-auto flex h-screen max-w-[1160px] flex-col p-6; }
-  .hero { @apply mb-6 flex items-center justify-between gap-6; }
-  .hero-content { @apply flex flex-col justify-center; }
-  .hero h1 { @apply m-0 font-monoDisplay text-5xl font-black tracking-tight text-navy leading-none; }
-  .hero-desc { @apply m-0 mt-1.5 min-h-10 max-w-md text-sm font-medium leading-5 text-slatecopy; }
-  .hero-logo-container { @apply flex shrink-0 items-center justify-end; }
-  .hero-brand-logo { @apply h-28 w-auto max-w-[480px] object-contain select-none; filter: drop-shadow(0 6px 12px rgba(61, 99, 160, 0.10)); }
+  .hero {
+    @apply mb-3 flex items-center gap-4;
+  }
+  .hero-content {
+    @apply flex min-w-0 flex-col justify-center;
+  }
+  .hero h1 {
+    @apply m-0 truncate font-monoDisplay text-2xl font-black leading-tight tracking-tight text-navy;
+  }
+  .hero .eyebrow {
+    @apply mb-0 text-[10px] tracking-[.16em];
+  }
+  .hero-desc {
+    @apply m-0 ml-auto max-w-sm text-right text-xs font-medium leading-4 text-slatecopy line-clamp-2;
+  }
+  .hero-brand-logo {
+    @apply h-12 w-auto shrink-0 object-contain select-none;
+    filter: drop-shadow(0 3px 6px rgba(61, 99, 160, 0.10));
+  }
   .eyebrow { @apply mb-1.5 font-monoDisplay text-xs font-black uppercase tracking-[.18em] text-brand; }
   .layout { @apply grid min-h-0 flex-1 grid-cols-1 gap-5; }
   .glass { @apply rounded-[28px] border border-[rgba(126,161,210,.48)] p-5 shadow-glass backdrop-blur-xl; background: rgba(255, 255, 255, 0.76); box-shadow: inset 0 1px 0 rgba(255,255,255,.96), 0 24px 60px rgba(61,99,160,.15); }
   .gallery { @apply flex min-h-0 flex-col overflow-hidden; }
-  .toolbar { @apply flex items-center gap-3; } .search { @apply min-w-0 flex-1 rounded-2xl border border-blue-300/80 bg-white/80 px-4 py-3 text-navy outline-none shadow-inner transition-shadow duration-150 focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand/15; }
+  .toolbar {
+    @apply flex items-center gap-3;
+  }
+  .search {
+    @apply h-9 min-w-0 flex-1 rounded-xl border border-blue-300/80 bg-white/80 px-3.5 py-1.5 text-sm text-navy shadow-inner outline-none transition-shadow duration-150 focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand/15;
+  }
   .filter-row { @apply my-3 flex flex-wrap items-center justify-between gap-2; }
   .filters { @apply flex flex-wrap gap-1.5; } 
   .filter-actions { @apply ml-auto flex flex-wrap items-center justify-end gap-1.5; }
@@ -368,19 +386,52 @@ body.theme-dark .plugin-config-backdrop {
   .btn-success:hover:not(:disabled) { background: linear-gradient(180deg, #6ee7b7, #059669); }
   .btn-warning { border: 1px solid rgba(217, 119, 6, 0.32); background: linear-gradient(180deg, #fbbf24, #d97706); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.38), 0 2px 4px rgba(61,99,160,0.10); }
   .btn-warning:hover:not(:disabled) { background: linear-gradient(180deg, #fcd34d, #d97706); }
+  /* Brand cyan, matching the paw in the logo; kept off pet cards and filters. */
+  .btn-accent {
+    border: 1px solid rgba(8, 145, 178, 0.32);
+    background: linear-gradient(180deg, #22d3ee, #0891b2);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.38), 0 2px 4px rgba(61,99,160,0.10);
+  }
+  .btn-accent:hover:not(:disabled) {
+    background: linear-gradient(180deg, #67e8f9, #0891b2);
+  }
 
   .btn-icon-wrapper { @apply flex items-center justify-center shrink-0; }
   .btn-icon { @apply h-4 w-4 stroke-[2.5]; }
   .pager-text { @apply text-xs font-bold uppercase tracking-wider text-slatecopy/80; }
   .error { @apply mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700; }
 
-  .nav-bar { @apply mb-5 flex items-center gap-1.5 border-b border-blue-200/30 pb-3.5 flex-wrap; }
-  .nav-tab { @apply rounded-xl border px-3.5 py-2 font-monoDisplay text-xs font-black uppercase tracking-wider text-slate-600 active:scale-[0.96] transition-[transform,background-color,border-color,box-shadow] duration-150 flex items-center gap-2 cursor-pointer select-none h-9 shadow-sm; border-color: rgba(126, 161, 210, 0.25); background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(241, 245, 249, 0.8) 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 2px 4px rgba(61,99,160,0.04); }
-  .nav-tab:hover:not(.active) { @apply text-brand; border-color: rgba(37, 99, 235, 0.3); background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(239, 246, 255, 0.8) 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 2px 4px rgba(61,99,160,0.06); }
-  .nav-tab.active { @apply text-white; border-color: rgba(29, 78, 216, 0.5); background: linear-gradient(180deg, #3b96ff 0%, #176df2 100%); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.35), 0 2px 4px rgba(61,99,160,0.10); }
-  .nav-tab.active:hover { background: linear-gradient(180deg, #55a6ff 0%, #176df2 100%); }
-  .nav-icon { @apply h-3.5 w-3.5 stroke-[2.5] opacity-75 shrink-0; }
-  .nav-tab.active .nav-icon { @apply opacity-100; }
+  .nav-bar {
+    @apply mb-4 flex flex-wrap items-center gap-1.5 border-b border-blue-200/30 pb-2.5;
+  }
+  .nav-tab {
+    @apply flex h-8 cursor-pointer select-none items-center gap-2 rounded-xl border px-3 py-1.5 font-monoDisplay text-xs font-black uppercase tracking-wider text-slate-600 shadow-sm transition-[transform,background-color,border-color,box-shadow] duration-150 active:scale-[0.96];
+    border-color: rgba(126, 161, 210, 0.25);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(241, 245, 249, 0.8) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 2px 4px rgba(61,99,160,0.04);
+  }
+  .nav-tab:hover:not(.active) {
+    @apply text-brand;
+    border-color: rgba(37, 99, 235, 0.3);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(239, 246, 255, 0.8) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 2px 4px rgba(61,99,160,0.06);
+  }
+  .nav-tab.active {
+    @apply text-white;
+    border-color: rgba(29, 78, 216, 0.5);
+    background: linear-gradient(180deg, #3b96ff 0%, #176df2 100%);
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.35), 0 2px 4px rgba(61,99,160,0.10);
+  }
+  .nav-tab.active:hover {
+    background: linear-gradient(180deg, #55a6ff 0%, #176df2 100%);
+  }
+  .nav-icon {
+    @apply h-3.5 w-3.5 shrink-0 stroke-[2.5] opacity-75;
+  }
+  .nav-tab.active .nav-icon {
+    @apply opacity-100;
+  }
 
   .settings-layout { @apply relative flex flex-col gap-6 overflow-y-auto pr-2 h-full; overscroll-behavior: contain; }
   .settings-container { @apply grid grid-cols-[280px_1fr] gap-6 min-h-0 flex-1; }

@@ -130,7 +130,7 @@ export const zhHans: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "搜索宠物...",
   "pets.import": "导入宠物",
-  "pets.gallery": "图库",
+  "pets.gallery": "网页图库",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "默认",

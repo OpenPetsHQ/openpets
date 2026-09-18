@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type OpenDialogOptions } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
@@ -937,6 +937,10 @@ export function installInternalUiProtocol(): void {
   });
 }
 
+// The renderer layout reads slightly oversized at native scale; zoom the whole
+// control center out a notch so more content fits without restyling every view.
+const controlCenterZoomFactor = 0.9;
+
 export function openControlCenterWindow(route: ControlCenterRoute = "dashboard"): void {
   const safeRoute = normalizeControlCenterRoute(route);
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
@@ -948,10 +952,13 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
     return;
   }
 
+  // Near-square shape reads best for the control center; clamp to the work
+  // area so the window never spawns larger than small laptop screens.
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
     title: "OpenPets — Control Center",
-    width: 1180,
-    height: 820,
+    width: Math.min(1020, Math.floor(workAreaSize.width * 0.9)),
+    height: Math.min(1000, Math.floor(workAreaSize.height * 0.9)),
     minWidth: 820,
     minHeight: 620,
     show: false,
@@ -962,6 +969,7 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
       contextIsolation: true,
       sandbox: true,
       preload: getControlCenterPreloadPath(),
+      zoomFactor: controlCenterZoomFactor,
     },
   });
 
@@ -991,7 +999,12 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
   window.on("closed", () => { clearConversationSubscription(windowWebContentsId); clearVoiceAssistantSubscription(windowWebContentsId); controlCenterWindow = null; syncDockVisibilityForInternalUi(); });
   window.once("ready-to-show", () => { window.show(); window.focus(); });
   pendingControlCenterRoute = safeRoute;
-  window.webContents.on("did-finish-load", () => flushPendingControlCenterRoute(window));
+  window.webContents.on("did-finish-load", () => {
+    // Chromium remembers per-host zoom, which can override the initial
+    // webPreferences value after reloads; pin it on every load.
+    window.webContents.setZoomFactor(controlCenterZoomFactor);
+    flushPendingControlCenterRoute(window);
+  });
 
   const devUrl = getSafeControlCenterDevUrl();
   const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeRoute)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: { route: safeRoute } });

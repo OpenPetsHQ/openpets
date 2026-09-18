@@ -73,8 +73,10 @@ dist checks. Three buckets:
 Teams behavior tests cover exact enrollment-link decoding, strict Team Pack
 payload validation, one-organization state, stable installation metadata,
 personal/Team ownership isolation, staged reconciliation failure, and Team
-removal behavior. Fake API tests use bounded responses and never persist or
-assert on bearer credentials.
+removal behavior. Enrollment contract tests cover authoritative preview,
+desktop completion without browser confirmation, same-proof idempotency,
+incorrect-proof rejection, active device conflicts, and bounded retry. Fake API
+tests use bounded responses and never persist or assert on bearer credentials.
 
 ## Package tests & contracts
 
