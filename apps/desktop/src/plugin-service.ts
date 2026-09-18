@@ -82,7 +82,7 @@ export type PluginServiceOptions = {
   readonly onLocalPluginSourceRemoved?: (sourcePath: string) => void;
 };
 
-export const bundledOfficialPluginIds = ["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy", "openpets.virtual-pet"] as const;
+export const bundledOfficialPluginIds = ["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy", "openpets.virtual-pet", "openpets.system-resources"] as const;
 const bundledEnabledByDefault = new Set<string>(["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy"]);
 const staleBundledPluginIds = ["openpets.daily-reminders", "openpets.pomodoro", "openpets.ambient-companion", "openpets.break-buddy", "openpets.focus-buddy", "openpets.github-notifications", "openpets.pet-pal", "openpets.quick-reminders", "openpets.wander-buddy"] as const;
 

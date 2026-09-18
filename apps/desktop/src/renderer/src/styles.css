@@ -150,6 +150,10 @@ body.theme-dark .settings-nav-item {
   color: #7f8ea6;
 }
 
+body.theme-dark .settings-nav-group-label {
+  color: #64748b;
+}
+
 body.theme-dark .search,
 body.theme-dark .settings-select,
 body.theme-dark .plugin-input,
@@ -435,7 +439,15 @@ body.theme-dark .plugin-config-backdrop {
 
   .settings-layout { @apply relative flex flex-col gap-6 overflow-y-auto pr-2 h-full; overscroll-behavior: contain; }
   .settings-container { @apply grid grid-cols-[280px_1fr] gap-6 min-h-0 flex-1; }
-  .settings-sidebar { @apply flex flex-col gap-2; }
+  .settings-sidebar {
+    @apply flex flex-col gap-4;
+  }
+  .settings-nav-group {
+    @apply flex flex-col gap-1;
+  }
+  .settings-nav-group-label {
+    @apply m-0 mb-0.5 px-4 font-monoDisplay text-[10px] font-black uppercase tracking-[.16em] text-slatecopy/60 select-none;
+  }
   .settings-content { @apply flex min-w-0 flex-col gap-6 overflow-y-auto pr-2 pb-8; overscroll-behavior: contain; }
   .settings-nav-item { @apply flex items-center gap-3 px-4 py-3 rounded-2xl border border-transparent text-sm font-bold text-slatecopy transition-[transform,background-color,border-color,box-shadow,color] duration-150 cursor-pointer select-none; }
   .settings-nav-item:hover { @apply bg-white/50 text-brand border-blue-100/50; }
@@ -697,7 +709,9 @@ body.theme-dark .plugin-config-backdrop {
     .plugin-developer-body { @apply flex-col items-stretch; }
     .plugin-actions-section { @apply grid-cols-1; }
     .settings-container { @apply grid-cols-1; }
-    .settings-sidebar { @apply flex-row overflow-x-auto pb-1; scrollbar-width: thin; }
+    .settings-sidebar { @apply flex-row overflow-x-auto gap-2 pb-1; scrollbar-width: thin; }
+    .settings-nav-group { @apply flex-row shrink-0; }
+    .settings-nav-group-label { @apply hidden; }
     .settings-nav-item { @apply shrink-0; }
     .settings-content { @apply overflow-visible pr-0; }
     .settings-row { @apply items-start; }

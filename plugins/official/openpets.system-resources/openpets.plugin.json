@@ -3,7 +3,7 @@
   "id": "openpets.system-resources",
   "name": "$t:plugin.name",
   "description": "$t:plugin.description",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "runtime": "javascript",
   "icon": "plugin",
   "sdkVersion": "3.0.0",
@@ -14,39 +14,20 @@
       "cpu": "assets/cpu.svg",
       "ram": "assets/ram.svg",
       "gpu": "assets/gpu.svg",
-      "ssd": "assets/ssd.svg"
+      "disk": "assets/disk.svg"
     }
   },
   "permissions": [
     "pet:speak",
     "pet:reaction",
     "pet:pin",
-    "pet:interact",
-    "pet:move",
-    "pet:animate",
-    "pets:read",
-    "pets:manage",
     "schedule",
     "storage",
     "commands",
     "status",
-    "events",
     "system:metrics"
   ],
   "configSchema": {
-    "language": {
-      "type": "select",
-      "default": "auto",
-      "label": "$t:config.language.label",
-      "description": "$t:config.language.description",
-      "options": [
-        { "value": "auto", "label": "$t:config.language.auto" },
-        { "value": "nl", "label": "$t:config.language.nl" },
-        { "value": "en", "label": "$t:config.language.en" },
-        { "value": "fr", "label": "$t:config.language.fr" },
-        { "value": "de", "label": "$t:config.language.de" }
-      ]
-    },
     "showHud": {
       "type": "boolean",
       "default": true,

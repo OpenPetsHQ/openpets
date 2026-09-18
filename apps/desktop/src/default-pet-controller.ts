@@ -344,13 +344,6 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
     pluginBubbles: getDefaultPetPluginBubbles(),
     onPositionChanged: handlePositionChanged,
     onHideRequested: hideDefaultPet,
-    onTalkRequested: () => {
-      void import("./voice-assistant-host.js").then(({ toggleVoiceAssistant }) => toggleVoiceAssistant()).catch((error: unknown) => debug("pet.default", "talk toggle failed", { reason: error instanceof Error ? error.message : String(error) }));
-    },
-    onTalkLabelRequested: async () => {
-      const { getVoiceAssistantSnapshot } = await import("./voice-assistant-host.js");
-      return getVoiceAssistantSnapshot().status === "ended" ? t("pet.menu.talk") : t("tray.endTalk");
-    },
     onBubbleDismissed: handleBubbleDismissed,
     onBubbleAction: (token, actionId) => defaultPetBubbleArbiter.handleAction(token, actionId),
     onBubbleSubmit: (token, values) => defaultPetBubbleArbiter.handleSubmit(token, values),

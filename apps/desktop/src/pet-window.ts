@@ -39,8 +39,6 @@ export interface DefaultPetWindowOptions extends PetWindowInteractionHooks {
   readonly pluginBubbles?: PetPluginBubbles | null;
   readonly onPositionChanged: (position: Point) => void;
   readonly onHideRequested: () => void;
-  readonly onTalkRequested?: () => void;
-  readonly onTalkLabelRequested?: () => Promise<string>;
   /** Called when an asynchronous layer-shell failure rebuilds this pet as a normal window. */
   readonly onWindowReplaced?: (window: BrowserWindow) => void;
 }
