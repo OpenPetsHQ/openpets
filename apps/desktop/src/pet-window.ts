@@ -2361,12 +2361,12 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .chat-header-left {
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 6px;
       min-width: 0;
     }
     .chat-avatar {
-      width: 24px;
-      height: 24px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       display: flex;
       align-items: center;
