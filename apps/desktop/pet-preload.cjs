@@ -708,6 +708,21 @@ const installDefaultPetChat = () => {
 
   document.body.appendChild(panelEl);
 
+  if (typeof ResizeObserver !== "undefined") {
+    const panelResizeObserver = new ResizeObserver((entries) => {
+      if (!isExpanded) return;
+      for (const entry of entries) {
+        if (entry.target === panelEl) {
+          const height = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect?.height ?? panelEl.offsetHeight);
+          if (height > 0) {
+            ipcRenderer.send("openpets:default-pet-chat-panel-resize", height);
+          }
+        }
+      }
+    });
+    panelResizeObserver.observe(panelEl);
+  }
+
   // --- Helper & State Updaters ---
   const showErrorToast = (msg) => {
     errorToastMessage = msg;
@@ -1179,6 +1194,7 @@ const installDefaultPetChat = () => {
 
   // --- Expansion Changed Listener ---
   ipcRenderer.on("openpets:default-pet-chat-expansion-changed", (_event, expanded) => {
+    const wasExpanded = isExpanded;
     isExpanded = Boolean(expanded);
     document.documentElement.dataset.chatExpanded = isExpanded ? "true" : "false";
     if (isExpanded) {
@@ -1189,7 +1205,13 @@ const installDefaultPetChat = () => {
       autoResizeCompactInput();
       renderAll();
       setTimeout(() => input.focus(), 60);
+      if (panelEl && typeof panelEl.offsetHeight === "number" && panelEl.offsetHeight > 0) {
+        ipcRenderer.send("openpets:default-pet-chat-panel-resize", Math.round(panelEl.offsetHeight));
+      }
     } else {
+      if (wasExpanded && input) {
+        preservedDraft = input.value;
+      }
       renderAll();
     }
   });

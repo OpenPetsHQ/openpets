@@ -255,13 +255,24 @@ rendering directly to the pet speech bubble.
 
 When full history is explicitly opened via the transcript affordance, the carrier window expands to
 420×640 using bijective coordinate transforms from `default-pet-chat-geometry.ts` that
-preserve the pet's on-screen anchor point. The attached chat panel and pet move as a single
-native unit, remaining interactive during motion and dragging. Preserved draft input is
-synchronized across the compact composer and expanded chat views.
+preserve the pet's on-screen anchor point. The attached chat panel is anchored directly above
+the scaled pet sprite with a 10px gap, growing upward from 220px to 500px as content changes
+while the pet remains stationary at the bottom. Non-pinned floating speech bubbles and quick
+launcher buttons are suppressed while full chat is open; pinned HUD bubbles remain visible and
+lift the bottom anchor cleanly.
+
+Assistant turn feedback routes operational context (header state, tool cards, turn status) inside
+the expanded chat. Duplicate speech bubbles are suppressed while chat is open, while pet reaction
+and activity animations (`thinking`, `working`, `error`) continue to play on the sprite.
+Closing the chat never replays closed conversation turns; normal ambient speech bubbles resume
+cleanly for subsequent turns. Draft text is preserved across open/close lifecycles, whether
+triggered by Escape, the close button, launcher toggles, or carrier collapse.
 
 On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed,
 compact-composer, and expanded carrier states, keeping mouse passthrough and focus
-semantics correct under X11 and Wayland. Compact open/close is owned by the main
+semantics correct under X11 and Wayland. For expanded chat, the mask aligns with the
+bottom-anchored panel bounds, tracking dynamic panel height reported from the renderer via
+`ResizeObserver`. Compact open/close is owned by the main
 process alongside expansion: opening makes the carrier focusable and adds the
 composer rectangle to the input shape; closing restores the passive pet shape and
 focus policy. The compact composer has one shared maximum geometry contract: its

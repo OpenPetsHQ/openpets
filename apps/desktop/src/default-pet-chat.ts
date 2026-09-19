@@ -17,6 +17,7 @@ import {
 import {
   calculateCollapsedCarrierBounds,
   calculateExpandedCarrierBounds,
+  defaultPetChatPanelLayout,
   expandedPetWindowSize,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetWindowSize, type Point } from "./display.js";
@@ -24,6 +25,7 @@ import { defaultPetWindowSize, type Point } from "./display.js";
 let defaultPetWindowRef: BrowserWindow | null = null;
 let isChatExpanded = false;
 let isChatCompactOpen = false;
+let activeChatPanelHeight: number | undefined;
 let handlersInstalled = false;
 let conversationUnsubscribe: (() => void) | null = null;
 let voiceUnsubscribe: (() => void) | null = null;
@@ -34,6 +36,10 @@ export function isDefaultPetChatExpanded(): boolean {
 
 export function isDefaultPetChatCompactOpen(): boolean {
   return isChatCompactOpen;
+}
+
+export function getActiveChatPanelHeight(): number | undefined {
+  return isChatExpanded ? activeChatPanelHeight : undefined;
 }
 
 export function bindDefaultPetChatWindow(window: BrowserWindow): void {
@@ -115,6 +121,7 @@ export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): v
     window.setFocusable(true);
     window.focus();
   } else {
+    activeChatPanelHeight = undefined;
     const nextBounds = calculateCollapsedCarrierBounds(currentPos, expandedPetWindowSize, defaultPetWindowSize, workArea);
     debug("pet.chat", "collapsing carrier window", { currentPos, nextBounds, windowId: window.id });
     window.setBounds(nextBounds, false);
@@ -122,7 +129,7 @@ export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): v
 
   // Refresh Linux shape and focus policy if needed
   void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion, refreshDefaultPetFocusPolicy }) => {
-    applyLinuxPetWindowShapeWithExpansion(window, expanded, isChatCompactOpen);
+    applyLinuxPetWindowShapeWithExpansion(window, expanded, isChatCompactOpen, activeChatPanelHeight);
     refreshDefaultPetFocusPolicy(window);
   }).catch(() => {});
 
@@ -164,6 +171,24 @@ export function installDefaultPetChatIpcHandlers(): void {
   ipcMain.on("openpets:default-pet-chat-compact-close", (event) => {
     if (!isAuthorizedDefaultPetSender(event.sender.id)) return;
     setDefaultPetChatCompactOpen(false);
+  });
+
+  ipcMain.on("openpets:default-pet-chat-panel-resize", (event, rawHeight: unknown) => {
+    if (!isAuthorizedDefaultPetSender(event.sender.id)) return;
+    if (typeof rawHeight !== "number" || !Number.isFinite(rawHeight) || rawHeight <= 0) return;
+    const height = Math.min(
+      defaultPetChatPanelLayout.maxHeight,
+      Math.max(defaultPetChatPanelLayout.minHeight, Math.round(rawHeight)),
+    );
+    if (activeChatPanelHeight === height) return;
+    activeChatPanelHeight = height;
+    if (isChatExpanded && defaultPetWindowRef && !defaultPetWindowRef.isDestroyed()) {
+      const win = defaultPetWindowRef;
+      void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion }) => {
+        if (win.isDestroyed()) return;
+        applyLinuxPetWindowShapeWithExpansion(win, isChatExpanded, isChatCompactOpen, activeChatPanelHeight);
+      }).catch(() => {});
+    }
   });
 
   handleChat("openpets:default-pet-chat-get-snapshot", () => {

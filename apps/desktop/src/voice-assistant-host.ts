@@ -1,4 +1,5 @@
 import { applyExternalPetReaction, applyExternalPetSay, applyExternalPetStatusReaction, getDefaultPetWindowForPlugins, setDefaultPetVoiceActivity, setDefaultPetVoiceTerminalFeedback } from "./default-pet-controller.js";
+import { isDefaultPetChatExpanded } from "./default-pet-chat.js";
 import { info, warn } from "./logger.js";
 import type { PetAssistantService } from "./pet-assistant-service.js";
 import { getPetAssistantConversationController, getPetAssistantModalityCoordinator } from "./pet-assistant-host.js";
@@ -272,10 +273,11 @@ const defaultPetFeedbackTarget = {
   setActivity: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => setDefaultPetVoiceActivity(reaction),
   showReaction: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null, message?: string) => {
     if (message) applyExternalPetSay(message, reaction ?? undefined);
-    else if (reaction) applyExternalPetReaction(reaction);
+    else if (reaction) applyExternalPetReaction(reaction, { showMessage: false });
     setDefaultPetVoiceTerminalFeedback(reaction);
   },
   setStatus: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => applyExternalPetStatusReaction(reaction),
+  isChatExpanded: () => isDefaultPetChatExpanded(),
 };
 
 class PetWindowVoicePlayer implements VoiceAssistantPlayer {

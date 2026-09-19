@@ -1,3 +1,9 @@
+import {
+  calculateChatPanelBottom,
+  calculateChatPanelY,
+  defaultPetChatPanelLayout,
+} from "./default-pet-chat-geometry.js";
+
 export type PetShapeRectangle = {
   readonly x: number;
   readonly y: number;
@@ -19,6 +25,7 @@ export type PetInteractiveShapeOptions = {
   readonly panelWidth?: number;
   readonly panelHeight?: number;
   readonly panelTop?: number;
+  readonly panelBottom?: number;
 };
 
 export type PetInteractiveShape = {
@@ -100,10 +107,13 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   if (options.isExpanded) {
     const width = options.panelWidth ?? defaultPanelWidth;
     const height = options.panelHeight ?? defaultPanelHeight;
-    const top = options.panelTop ?? defaultPanelTop;
+    const panelBottom = options.panelBottom ?? calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap, pinnedLift);
+    const y = options.panelTop !== undefined
+      ? options.panelTop
+      : calculateChatPanelY(options.windowHeight, height, panelBottom);
     chatPanel = {
       x: Math.round((options.windowWidth - width) / 2),
-      y: top,
+      y,
       width,
       height,
     };

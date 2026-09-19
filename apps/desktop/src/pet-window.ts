@@ -24,8 +24,8 @@ import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPet
 import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayland-layer-backend.js";
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
 import { calculatePetInteractiveShape, compactComposerGeometry } from "./pet-window-shape.js";
-import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
-import { isDefaultPetChatCompactOpen, isDefaultPetChatExpanded } from "./default-pet-chat.js";
+import { calculateChatPanelBottom, defaultPetChatPanelLayout, toCollapsedPosition } from "./default-pet-chat-geometry.js";
+import { getActiveChatPanelHeight, isDefaultPetChatCompactOpen, isDefaultPetChatExpanded } from "./default-pet-chat.js";
 
 export interface PetWindowInteractionHooks {
   readonly onBubbleDismissed?: (dismissToken: string) => void;
@@ -1499,6 +1499,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
+    panelHeight: isExpanded ? getActiveChatPanelHeight() : undefined,
   });
 
   // setShape's rects are undocumented as to units, but empirically the window's
@@ -1523,7 +1524,12 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
   }
 }
 
-export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isExpanded: boolean, isCompactOpen = isDefaultPetChatCompactOpen()): void {
+export function applyLinuxPetWindowShapeWithExpansion(
+  window: BrowserWindow,
+  isExpanded: boolean,
+  isCompactOpen = isDefaultPetChatCompactOpen(),
+  panelHeight = isExpanded ? getActiveChatPanelHeight() : undefined,
+): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
   const state = getAppStateSnapshot();
@@ -1540,6 +1546,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
     hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isCompactOpen,
+    panelHeight,
   });
 
   const scaleFactor = screen.getDisplayMatching(bounds).scaleFactor;
@@ -1819,6 +1826,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
   const petBottom = 22;
   const hitPadding = 28;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
+  const chatPanelBottom = calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap);
   // The pet and transient bubbles are lifted above the pinned plugin bubble
   // (HUD); the lift grows with the HUD's own scale so they never overlap.
   const pinnedLift = Math.round(28 * hudScale);
@@ -1983,6 +1991,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
     .stage.has-pinned .openpets-compact-composer { bottom: ${bubbleBottom + pinnedLift}px; }
+    .stage.has-pinned .openpets-chat-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
     .bubble.is-plugin.accent-green { background: linear-gradient(135deg, rgba(220, 252, 231, 0.97), rgba(187, 247, 208, 0.94)); }
@@ -2116,7 +2125,8 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       opacity: 1;
       animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1) forwards;
     }
-    html[data-compact-composer-open="true"]:not([data-chat-expanded="true"]) .bubble:not(.is-pinned) {
+    html[data-compact-composer-open="true"] .bubble:not(.is-pinned),
+    html[data-chat-expanded="true"] .bubble:not(.is-pinned) {
       display: none !important;
     }
     .compact-composer-header {
@@ -2271,11 +2281,14 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     /* --- In-Pet Attached Chat Panel --- */
     .openpets-chat-panel {
       position: absolute;
-      top: 14px;
+      bottom: ${chatPanelBottom}px;
       left: 50%;
       transform: translateX(-50%);
-      width: 390px;
-      height: 500px;
+      transform-origin: 50% 100%;
+      width: ${defaultPetChatPanelLayout.width}px;
+      min-height: ${defaultPetChatPanelLayout.minHeight}px;
+      max-height: ${defaultPetChatPanelLayout.maxHeight}px;
+      height: fit-content;
       z-index: 100;
       box-sizing: border-box;
       display: none;
@@ -2286,7 +2299,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       border-radius: 20px;
       box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 1);
       backdrop-filter: blur(20px);
-      overflow: hidden;
+      overflow: visible;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       pointer-events: auto;
       -webkit-app-region: no-drag;
@@ -2311,6 +2324,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       border-bottom-right-radius: 3px;
       transform: translateX(-50%) rotate(45deg);
       box-shadow: 3px 3px 6px rgba(15, 23, 42, 0.08);
+      z-index: 1;
     }
     .chat-header {
       height: 46px;
@@ -2319,6 +2333,8 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+      border-top-left-radius: 19px;
+      border-top-right-radius: 19px;
       background: rgba(248, 250, 252, 0.8);
       flex-shrink: 0;
       user-select: none;
@@ -2500,7 +2516,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       background: #fecaca;
     }
     .chat-transcript {
-      flex: 1 1 0;
+      flex: 1 1 auto;
       overflow-y: auto;
       padding: 12px 14px;
       display: flex;
@@ -2724,6 +2740,8 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .chat-composer {
       padding: 10px 14px 14px;
       border-top: 1px solid rgba(226, 232, 240, 0.9);
+      border-bottom-left-radius: 19px;
+      border-bottom-right-radius: 19px;
       background: rgba(248, 250, 252, 0.85);
       display: flex;
       align-items: flex-end;

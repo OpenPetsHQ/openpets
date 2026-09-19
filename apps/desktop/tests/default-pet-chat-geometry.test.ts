@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 
 import {
+  calculateChatPanelBottom,
+  calculateChatPanelY,
   calculateCollapsedCarrierBounds,
   calculateExpandedCarrierBounds,
   defaultPetChatPanelLayout,
@@ -70,9 +72,41 @@ import { defaultPetWindowSize } from "../src/display.js";
 {
   assert.ok(defaultPetChatPanelLayout.width > 0);
   assert.ok(defaultPetChatPanelLayout.height > 0);
+  assert.ok(defaultPetChatPanelLayout.minHeight > 0);
+  assert.ok(defaultPetChatPanelLayout.maxHeight >= defaultPetChatPanelLayout.minHeight);
+  assert.equal(defaultPetChatPanelLayout.gap, 10);
   assert.ok(defaultPetChatPanelLayout.width <= expandedPetWindowSize.width);
   assert.ok(defaultPetChatPanelLayout.height <= expandedPetWindowSize.height);
   assert.equal(defaultPetChatPanelLayout.insetX, Math.round((expandedPetWindowSize.width - defaultPetChatPanelLayout.width) / 2));
+}
+
+// --- Bottom-relative panel geometry & upward growth -------------------------
+
+{
+  const scaledSpriteHeight = 96; // 32px frame at 3x scale
+  const petBottom = 22;
+  const gap = 10;
+  const panelBottom = calculateChatPanelBottom(scaledSpriteHeight, petBottom, gap);
+
+  // Panel bottom edge is petBottom + scaledSpriteHeight + gap
+  assert.equal(panelBottom, 22 + 96 + 10);
+
+  // When panel height varies (e.g. 220px compact vs 500px maximum), bottom edge remains invariant
+  const heights = [220, 300, 420, 500];
+  const windowHeight = expandedPetWindowSize.height;
+
+  for (const height of heights) {
+    const y = calculateChatPanelY(windowHeight, height, panelBottom);
+    // Invariant: The bottom edge of the panel inside the window (y + height) is always windowHeight - panelBottom
+    assert.equal(y + height, windowHeight - panelBottom);
+    // Panel top moves upward as height increases
+    assert.equal(y, windowHeight - panelBottom - height);
+  }
+
+  // Pinned lift offsets panel bottom while preserving the exact 10px gap above the lifted pet
+  const pinnedLift = 39; // e.g. HUD scale 1.4
+  const panelBottomWithPinned = calculateChatPanelBottom(scaledSpriteHeight, petBottom, gap, pinnedLift);
+  assert.equal(panelBottomWithPinned, panelBottom + pinnedLift);
 }
 
 console.log("default-pet-chat-geometry tests passed.");

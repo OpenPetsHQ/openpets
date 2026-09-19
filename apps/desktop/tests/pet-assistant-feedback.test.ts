@@ -107,4 +107,64 @@ voiceReducer.applyVoiceEvent({ type: "turn-settled", sequence: 6, turnId: "voice
 voiceReducer.applyVoiceEvent({ type: "snapshot", sequence: 7, snapshot: { status: "active", activity: "listening", muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 1, turnId: "voice-turn-1", userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null } });
 assert.deepEqual(voiceDeferred.filter((entry) => entry.startsWith("reaction:")), ["reaction:null:Voice answer."], "playback settlement does not show the response a second time");
 
+// --- Expanded chat: bubble suppression & animation-without-duplicate-feedback ---
+{
+  let chatExpanded = true;
+  const expandedEvents: string[] = [];
+  const expandedReducer = new PetAssistantFeedbackReducer({
+    setActivity: (reaction) => expandedEvents.push(`activity:${reaction}`),
+    setStatus: (reaction) => expandedEvents.push(`status:${reaction}`),
+    showReaction: (reaction, message) => expandedEvents.push(`reaction:${reaction}:${message}`),
+    isChatExpanded: () => chatExpanded,
+  });
+
+  // 1. Activity animation during expanded chat: pet animates thinking and working
+  expandedReducer.applyAssistantEvent({ type: "activity", sequence: 1, conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "exp-1", activity: "thinking" });
+  assert.deepEqual(expandedEvents, ["activity:thinking"], "pet must receive thinking animation while chat is open");
+  expandedEvents.length = 0;
+
+  expandedReducer.applyAssistantEvent({ type: "activity", sequence: 2, conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "exp-1", activity: "acting" });
+  assert.deepEqual(expandedEvents, ["activity:working"], "pet must receive working animation while chat is open");
+  expandedEvents.length = 0;
+
+  // 2. Terminal success with message: no duplicate speech bubble text emitted
+  expandedReducer.applyAssistantEvent({
+    type: "terminal",
+    sequence: 3,
+    result: { conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "exp-1", status: "completed", response: "Here is the answer in chat." },
+  });
+  assert.deepEqual(expandedEvents, ["activity:null", "status:null"], "successful turn must not emit duplicate speech bubble when chat is open");
+  expandedEvents.length = 0;
+
+  // 3. Terminal failure with error: pet receives reaction animation, but message text is suppressed
+  expandedReducer.applyAssistantEvent({
+    type: "terminal",
+    sequence: 4,
+    result: { conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "exp-2", status: "failed", response: "Tool call failed." },
+  });
+  assert.deepEqual(expandedEvents, [
+    "activity:null",
+    "status:error",
+    "reaction:error:undefined",
+  ], "pet must receive error animation without duplicate message bubble when chat is open");
+  expandedEvents.length = 0;
+
+  // 4. On collapse: ambient bubbles resume for new turns, past closed messages are not replayed
+  chatExpanded = false;
+  // No events should be emitted merely by collapsing (no replaying closed turns)
+  assert.deepEqual(expandedEvents, [], "no past conversation messages replayed on collapse");
+
+  // A new turn while collapsed produces normal ambient bubble
+  expandedReducer.applyAssistantEvent({
+    type: "terminal",
+    sequence: 5,
+    result: { conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "col-1", status: "completed", response: "Ambient speech bubble." },
+  });
+  assert.deepEqual(expandedEvents, [
+    "activity:null",
+    "status:null",
+    "reaction:null:Ambient speech bubble.",
+  ], "ambient speech bubble resumes normally after collapse");
+}
+
 console.log("Pet assistant feedback mapping verified.");
