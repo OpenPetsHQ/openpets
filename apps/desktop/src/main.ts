@@ -30,6 +30,7 @@ import { checkForGitHubReleaseUpdate } from "./update-checker.js";
 import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterManagerCheckInForm, openControlCenterWindow } from "./windows.js";
 import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
+import { initializeChatShortcut } from "./chat-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
 import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
@@ -182,6 +183,13 @@ if (!gotSingleInstanceLock) {
     initializeVoiceAssistantShortcut(globalShortcut, () => {
       void import("./voice-assistant-host.js").then(({ toggleVoiceAssistant }) => toggleVoiceAssistant()).catch((error: unknown) => logError("app", "voice shortcut toggle failed", error));
     }, getAppStateSnapshot().preferences.voiceAssistantShortcut);
+    initializeChatShortcut(globalShortcut, () => {
+      void import("./default-pet-chat.js").then(({ isDefaultPetChatExpanded, isDefaultPetChatCompactOpen, setDefaultPetChatCompactOpen }) => {
+        // With full chat history open the composer is already available.
+        if (isDefaultPetChatExpanded()) return;
+        setDefaultPetChatCompactOpen(!isDefaultPetChatCompactOpen());
+      }).catch((error: unknown) => logError("app", "chat shortcut toggle failed", error));
+    }, getAppStateSnapshot().preferences.chatShortcut);
     // Resolve the UI language before any window or the tray is built.
     setLocaleFromPreference(getAppStateSnapshot().preferences.locale);
     initializeLanController();

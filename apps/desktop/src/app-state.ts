@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 
-import { defaultAppearanceTheme, defaultHudScale, defaultPetScale, defaultWaitingAnimationDurationMs, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeOnboardingCompleted, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { defaultAppearanceTheme, defaultHudScale, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
 import type { Point } from "./display.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
@@ -91,6 +91,16 @@ export interface OpenPetsStateV1 {
     readonly personality: PetAssistantPersonality;
     /** Canonical Electron accelerator used to start the bounded Talk session. */
     readonly voiceAssistantShortcut: string;
+    /** Canonical Electron accelerator that toggles the compact pet chat composer; empty disables it. */
+    readonly chatShortcut: string;
+    /** Show the chat launcher button on the default pet. */
+    readonly showChatButton: boolean;
+    /** Show the talk (voice) button on the default pet. */
+    readonly showTalkButton: boolean;
+    /** Which top corner of the pet the assistant buttons sit in. */
+    readonly petButtonsPosition: PetButtonsPosition;
+    /** Render size of the assistant buttons. */
+    readonly petButtonsSize: PetButtonsSize;
     /** Per-pet horizontal flip (mirroring) state. Persisted per pet ID. */
     readonly petHorizontalFlip?: Readonly<Record<string, boolean>>;
   };
@@ -122,7 +132,7 @@ export type OpenPetsActivityRecord =
   | { readonly kind: "say"; readonly reaction?: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" }
   | { readonly kind: "react"; readonly reaction: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" };
 
-export { defaultAppearanceTheme, defaultHudScale, defaultPetScale, defaultWaitingAnimationDurationMs, normalizeAppearanceTheme, normalizeHudScale, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetScaleValue, type WaitingAnimationDurationMs };
+export { defaultAppearanceTheme, defaultHudScale, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
 export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 
 export type OpenPetsPreferencePatch = Omit<Partial<OpenPetsStateV1["preferences"]>, "personality"> & {
@@ -624,6 +634,11 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petGravityEnabled: normalizePetGravityEnabled(value.petGravityEnabled, defaultState.preferences.petGravityEnabled),
     personality: normalizePetAssistantPersonality(value.personality),
     voiceAssistantShortcut: isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+    chatShortcut: isCanonicalVoiceAssistantShortcut(value.chatShortcut) ? value.chatShortcut : "",
+    showChatButton: typeof value.showChatButton === "boolean" ? value.showChatButton : true,
+    showTalkButton: typeof value.showTalkButton === "boolean" ? value.showTalkButton : true,
+    petButtonsPosition: normalizePetButtonsPosition(value.petButtonsPosition),
+    petButtonsSize: normalizePetButtonsSize(value.petButtonsSize),
     petHorizontalFlip: normalizePetHorizontalFlip(value.petHorizontalFlip),
   };
 }
@@ -720,6 +735,11 @@ function createDefaultState(): OpenPetsStateV1 {
       petGravityEnabled: false,
       personality: defaultPetAssistantPersonality,
       voiceAssistantShortcut: DEFAULT_VOICE_ASSISTANT_SHORTCUT,
+      chatShortcut: "",
+      showChatButton: true,
+      showTalkButton: true,
+      petButtonsPosition: defaultPetButtonsPosition,
+      petButtonsSize: defaultPetButtonsSize,
       petHorizontalFlip: undefined,
     },
     pets: {

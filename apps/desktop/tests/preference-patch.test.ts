@@ -162,10 +162,13 @@ for (const { key, errMsg } of booleanKeys) {
 // hudScale — only listed HUD scale values are accepted
 // ---------------------------------------------------------------------------
 {
-  assert.equal(validatePreferencePatch({ hudScale: 1 }).hudScale, 1);
-  assert.equal(validatePreferencePatch({ hudScale: 1.5 }).hudScale, 1.5);
+  assert.equal(validatePreferencePatch({ hudScale: 1.4 }).hudScale, 1.4);
+  assert.equal(validatePreferencePatch({ hudScale: 2 }).hudScale, 2);
+  assert.equal(validatePreferencePatch({ hudScale: 0.85 }).hudScale, 0.85);
+  assert.equal(validatePreferencePatch({ hudScale: 1.1 }).hudScale, 1.1);
+  assert.equal(validatePreferencePatch({ hudScale: 1.7 }).hudScale, 1.7);
 
-  for (const value of [null, "1", true, 0, 2, Number.NaN]) {
+  for (const value of [null, "1", true, 0, 3, Number.NaN]) {
     assert.throws(
       () => validatePreferencePatch({ hudScale: value }),
       /Invalid HUD scale value\./,

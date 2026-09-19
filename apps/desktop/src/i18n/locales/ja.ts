@@ -35,6 +35,7 @@ export const ja: Partial<Messages> = {
   "pet.status.hi": "こんにちは",
   "pet.menu.hidePet": "ペットを隠す",
   "pet.menu.closePet": "ペットを閉じる",
+  "pet.menu.size": "サイズ",
   "pet.menu.flipHorizontally": "左右反転",
   "pet.menu.openControlCenter": "コントロールセンターを開く",
   "pet.menu.focusSessionWindow": "セッションウィンドウにフォーカス",

@@ -35,6 +35,7 @@ export const ptBR: Partial<Messages> = {
   "pet.status.hi": "Oi",
   "pet.menu.hidePet": "Ocultar pet",
   "pet.menu.closePet": "Fechar pet",
+  "pet.menu.size": "Tamanho",
   "pet.menu.flipHorizontally": "Inverter horizontalmente",
   "pet.menu.openControlCenter": "Abrir Central de controle",
   "pet.menu.focusSessionWindow": "Focar janela da sessão",

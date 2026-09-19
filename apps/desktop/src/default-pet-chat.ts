@@ -11,6 +11,7 @@ import {
   onVoiceAssistantEvent,
   retryVoiceAssistant,
   startVoiceAssistant,
+  toggleVoiceAssistant,
   unmuteVoiceAssistant,
 } from "./voice-assistant-host.js";
 import {
@@ -196,6 +197,11 @@ export function installDefaultPetChatIpcHandlers(): void {
 
   handleChat("openpets:default-pet-chat-voice-start", () => {
     return startVoiceAssistant();
+  });
+
+  // Talk button on the pet: one click starts a session, one click ends it.
+  handleChat("openpets:default-pet-chat-voice-toggle", () => {
+    return toggleVoiceAssistant();
   });
 
   handleChat("openpets:default-pet-chat-voice-retry", () => {

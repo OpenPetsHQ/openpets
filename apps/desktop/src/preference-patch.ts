@@ -5,7 +5,7 @@
  * without an Electron process context.
  */
 
-import { normalizeAppearanceTheme, normalizeHudScale, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type PetButtonsPosition, type PetButtonsSize, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
 import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -25,6 +25,12 @@ export type PreferencePatch = {
   petGravityEnabled?: boolean;
   personality?: PetAssistantPersonalityPatch;
   voiceAssistantShortcut?: string;
+  /** Empty string disables the chat shortcut; otherwise a canonical accelerator. */
+  chatShortcut?: string;
+  showChatButton?: boolean;
+  showTalkButton?: boolean;
+  petButtonsPosition?: PetButtonsPosition;
+  petButtonsSize?: PetButtonsSize;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -107,6 +113,35 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
 
   if ("voiceAssistantShortcut" in value) {
     patch.voiceAssistantShortcut = validateVoiceAssistantShortcut(value.voiceAssistantShortcut);
+  }
+
+  if ("chatShortcut" in value) {
+    // Unlike the Talk shortcut, the chat shortcut can be cleared entirely.
+    patch.chatShortcut = value.chatShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.chatShortcut);
+  }
+
+  if ("showChatButton" in value) {
+    if (typeof value.showChatButton !== "boolean") throw new Error("Invalid chat button visibility value.");
+    patch.showChatButton = value.showChatButton;
+  }
+
+  if ("showTalkButton" in value) {
+    if (typeof value.showTalkButton !== "boolean") throw new Error("Invalid talk button visibility value.");
+    patch.showTalkButton = value.showTalkButton;
+  }
+
+  if ("petButtonsPosition" in value) {
+    const position = normalizePetButtonsPosition(value.petButtonsPosition);
+    if (position !== value.petButtonsPosition) throw new Error("Invalid pet buttons position value.");
+    patch.petButtonsPosition = position;
+  }
+
+  if ("petButtonsSize" in value) {
+    const size = normalizePetButtonsSize(value.petButtonsSize);
+    if (size !== value.petButtonsSize) throw new Error("Invalid pet buttons size value.");
+    patch.petButtonsSize = size;
   }
 
   return patch;

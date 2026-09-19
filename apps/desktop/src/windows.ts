@@ -39,6 +39,7 @@ import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } f
 import { deleteProviderCredentialForProfile } from "./provider-service.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
+import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
 import { getTeamService } from "./team-service.js";
 import { getManagerCheckInService } from "./manager-check-in-service.js";
 import { managerCheckInFeelingCodes } from "./team-api-client.js";
@@ -137,12 +138,13 @@ async function getPetsStateSnapshot(): Promise<{
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
   hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
+  chatShortcutStatus: ReturnType<typeof getChatShortcutSnapshot>;
 } {
   const state = getAppStateSnapshot();
   return {
@@ -160,6 +162,11 @@ function getSettingsStateSnapshot(): {
       petGravityEnabled: state.preferences.petGravityEnabled,
       personality: state.preferences.personality,
       voiceAssistantShortcut: state.preferences.voiceAssistantShortcut,
+      chatShortcut: state.preferences.chatShortcut,
+      showChatButton: state.preferences.showChatButton,
+      showTalkButton: state.preferences.showTalkButton,
+      petButtonsPosition: state.preferences.petButtonsPosition,
+      petButtonsSize: state.preferences.petButtonsSize,
     },
     petScaleOptions,
     hudScaleOptions,
@@ -167,6 +174,7 @@ function getSettingsStateSnapshot(): {
       .filter((p) => !p.builtIn && !p.broken && p.id !== state.preferences.defaultPetId)
       .map(({ id, displayName }) => ({ id, displayName })),
     voiceAssistantShortcutStatus: getVoiceAssistantShortcutSnapshot(),
+    chatShortcutStatus: getChatShortcutSnapshot(),
   };
 }
 
@@ -492,13 +500,22 @@ export function installInternalUiHandlers(): void {
     const shortcutSnapshot = validatedPatch.voiceAssistantShortcut
       ? configureVoiceAssistantShortcut(validatedPatch.voiceAssistantShortcut)
       : null;
-    const effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut
+    let effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut
       ? { ...validatedPatch, voiceAssistantShortcut: resolveVoiceAssistantShortcutPreference(currentShortcut, validatedPatch.voiceAssistantShortcut, shortcutSnapshot) }
       : validatedPatch;
+    if (validatedPatch.chatShortcut !== undefined) {
+      const currentChatShortcut = getAppStateSnapshot().preferences.chatShortcut;
+      const chatSnapshot = configureChatShortcut(validatedPatch.chatShortcut);
+      effectivePatch = { ...effectivePatch, chatShortcut: resolveChatShortcutPreference(currentChatShortcut, validatedPatch.chatShortcut, chatSnapshot) };
+    }
     const state = updatePreferences(effectivePatch);
     if (validatedPatch.personality) debug("ui", "Pet Assistant personality preferences updated", { fields: Object.keys(validatedPatch.personality) });
     const nextOverrides = JSON.stringify(state.preferences.reactionAnimationOverrides ?? {});
-    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides) {
+    const petButtonPrefsChanged = validatedPatch.showChatButton !== undefined
+      || validatedPatch.showTalkButton !== undefined
+      || validatedPatch.petButtonsPosition !== undefined
+      || validatedPatch.petButtonsSize !== undefined;
+    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
     }

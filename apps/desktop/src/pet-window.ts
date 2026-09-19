@@ -4,7 +4,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, togglePetHorizontalFlip, type HudScaleValue, type PetScaleValue } from "./app-state.js";
+import { getAppStateSnapshot, getHudScaleForPetScale, hudScaleOptions, isPetFlippedHorizontally, markPetBroken, petScaleOptions, togglePetHorizontalFlip, updatePreferences, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
@@ -318,13 +318,47 @@ function handlePetHorizontalFlipToggle(petId: string): void {
   });
 }
 
+export function handlePetScaleChange(scale: PetScaleValue): void {
+  const previousPreferences = getAppStateSnapshot().preferences;
+  const hudScale = getHudScaleForPetScale(scale);
+  if (scale === previousPreferences.petScale && hudScale === previousPreferences.hudScale) return;
+
+  updatePreferences({ petScale: scale, hudScale });
+  info("pet.window", "pet and HUD scale changed from context menu", {
+    petScale: scale,
+    hudScale,
+    previousPetScale: previousPreferences.petScale,
+    previousHudScale: previousPreferences.hudScale,
+  });
+  void import("./default-pet-controller.js").then(({ refreshDefaultPetContent }) => refreshDefaultPetContent()).catch((error) => {
+    logError("pet.window", "refresh default pet on scale change failed", error instanceof Error ? error : { error });
+  });
+  void import("./agent-pet-controller.js").then(({ refreshAgentPetContent }) => refreshAgentPetContent()).catch((error) => {
+    logError("pet.window", "refresh agent pet on scale change failed", error instanceof Error ? error : { error });
+  });
+}
+
 function petFlipCacheToken(petId: string): string {
   return isPetFlippedHorizontally(petId) ? "flipx" : "noflip";
 }
 
-async function buildPetContextMenuTemplate(action: { readonly label: string; readonly click: () => void; readonly defaultPet?: boolean; readonly petId?: string; readonly focusSessionWindow?: () => void }): Promise<Electron.MenuItemConstructorOptions[]> {
+export async function buildPetContextMenuTemplate(action: { readonly label: string; readonly click: () => void; readonly defaultPet?: boolean; readonly petId?: string; readonly focusSessionWindow?: () => void }): Promise<Electron.MenuItemConstructorOptions[]> {
   const currentPetId = action.petId ?? getAppStateSnapshot().preferences.defaultPetId;
   const isFlipped = isPetFlippedHorizontally(currentPetId);
+  const currentScale = getAppStateSnapshot().preferences.petScale;
+
+  const sizeMenuItem: Electron.MenuItemConstructorOptions = {
+    label: t("pet.menu.size"),
+    submenu: petScaleOptions.map((option) => ({
+      label: option.label,
+      type: "checkbox",
+      checked: currentScale === option.value,
+      click: () => {
+        handlePetScaleChange(option.value);
+      },
+    })),
+  };
+
   const flipMenuItem: Electron.MenuItemConstructorOptions = {
     label: t("pet.menu.flipHorizontally"),
     type: "checkbox",
@@ -343,7 +377,7 @@ async function buildPetContextMenuTemplate(action: { readonly label: string; rea
         : t("pet.menu.focusSessionWindowNoA11y");
       template.push({ label: focusLabel, click: action.focusSessionWindow }, { type: "separator" });
     }
-    template.push(flipMenuItem, { type: "separator" }, { label: action.label, click: action.click });
+    template.push(sizeMenuItem, flipMenuItem, { type: "separator" }, { label: action.label, click: action.click });
     return template;
   }
   const commands = await getDefaultPetPluginCommands();
@@ -373,6 +407,7 @@ async function buildPetContextMenuTemplate(action: { readonly label: string; rea
   template.push(
     { label: t("tray.plugins"), click: () => openControlCenter("plugins") },
     { label: t("pet.menu.openControlCenter"), click: () => openControlCenter("dashboard") },
+    sizeMenuItem,
     flipMenuItem,
     { type: "separator" },
     { label: action.label, click: action.click },
@@ -948,7 +983,9 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   debug("pet.window", "default content render begin", { windowId: window.id, sequence, paused, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge, hasPluginBubble: Boolean(pluginBubbles?.transient), hasPinned: Boolean(pluginBubbles?.pinned), defaultPetId: getAppStateSnapshot().preferences.defaultPetId });
   applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded() || isDefaultPetChatCompactOpen());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
-  applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || paused || pluginBubbles?.transient || pluginBubbles?.pinned));
+  const hasPinned = Boolean(pluginBubbles?.pinned);
+  const hasBubble = Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || paused || pluginBubbles?.transient);
+  applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, hasBubble, hasPinned);
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
   await loadPetHtmlFile(window, render.html, "default", sequence).then(() => {
     petWindowRenderCache.set(window, render.cacheKey);
@@ -984,7 +1021,9 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
         pet.source?.kind === "team" ? "team" : "personal",
         "agent",
       );
-    applyLinuxPetWindowShape(window, scale, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient || pluginBubbles?.pinned));
+    const hasPinned = Boolean(pluginBubbles?.pinned);
+    const hasBubble = Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient);
+    applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned);
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
     petWindowRenderCache.set(window, render.cacheKey);
@@ -1128,11 +1167,12 @@ export function readWindowPosition(window: BrowserWindow): Point {
   return clampToVisibleWorkArea(rawPos, defaultPetWindowSize);
 }
 
-function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean): void {
+function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean, hasPinned = false): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
   const isExpanded = isDefaultPetChatExpanded();
   const bounds = window.getBounds();
+  const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
   const { shape } = calculatePetInteractiveShape({
     windowWidth: bounds.width,
     windowHeight: bounds.height,
@@ -1140,6 +1180,8 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     spriteHeight: defaultPetSprite.frameHeight,
     scale,
     hasBubble,
+    hasPinned,
+    hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
   });
@@ -1160,7 +1202,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
 
   try {
     window.setShape(physicalShape);
-    debug("pet.window", "linux window shape applied", { windowId: window.id, scale, hasBubble, scaleFactor, shape: physicalShape });
+    debug("pet.window", "linux window shape applied", { windowId: window.id, scale, hasBubble, hasPinned, hudScale, scaleFactor, shape: physicalShape });
   } catch (error) {
     logError("pet.window", "linux window shape failed", error instanceof Error ? error : { error });
   }
@@ -1171,6 +1213,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
 
   const state = getAppStateSnapshot();
   const scale = state.preferences.petScale as PetScaleValue;
+  const hudScale = state.preferences.hudScale as HudScaleValue;
   const bounds = window.getBounds();
   const { shape } = calculatePetInteractiveShape({
     windowWidth: bounds.width,
@@ -1179,6 +1222,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
     spriteHeight: defaultPetSprite.frameHeight,
     scale,
     hasBubble: false,
+    hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isCompactOpen,
   });
@@ -1379,7 +1423,10 @@ async function createInstalledPetRender(
 
 function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false, petRole: "default" | "agent" = "default"): string {
   const launcherSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  const hasMessageOrBubble = Boolean(bubble.trim() || pinnedBubble.trim() || hasPinned);
+  // Only a transient bubble (which expires) suppresses the chat launcher. A
+  // pinned plugin HUD is persistent — suppressing on it would remove the chat
+  // button for as long as the HUD plugin is enabled.
+  const hasMessageOrBubble = Boolean(bubble.trim());
   const launcherButton = (petRole === "default" && !hasMessageOrBubble)
     ? `<button type="button" class="openpets-companion-launcher" data-openpets-companion-launcher aria-label="Open companion chat" title="Open companion chat">${launcherSvg}</button>`
     : "";
@@ -1420,10 +1467,12 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .openpets-companion-launcher { position: absolute; right: 12px; top: 4px; z-index: 5; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
     .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
     .openpets-companion-launcher:active { transform: scale(0.95); }
-    .stage:has(.bubble) .openpets-companion-launcher,
+    /* Hide the launcher while a transient bubble or the chat UI is showing.
+       A pinned plugin HUD is NOT in this list: it never expires, so hiding on
+       has-pinned would remove the chat button permanently. */
+    .stage:has(.bubble:not(.is-pinned)) .openpets-companion-launcher,
     .stage.has-bubble .openpets-companion-launcher,
-    .stage.has-pinned .openpets-companion-launcher,
-    .bubble ~ .pet-hitbox .openpets-companion-launcher,
+    .bubble:not(.is-pinned) ~ .pet-hitbox .openpets-companion-launcher,
     html[data-compact-composer-open="true"] .openpets-companion-launcher,
     html[data-chat-expanded="true"] .openpets-companion-launcher {
       display: none !important;
@@ -1488,6 +1537,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       bottom: 6px;
       z-index: 4;
       width: 188px;
+      max-width: calc((100% - 16px) / ${hudScale});
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -1501,7 +1551,6 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       backdrop-filter: blur(8px);
       text-align: center;
       max-height: none;
-      max-width: none;
       animation: pinned-bubble-in 200ms cubic-bezier(0.2, 0, 0, 1);
       transform: translateX(-50%) scale(${hudScale});
       transform-origin: bottom center;
@@ -1526,6 +1575,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .bubble.is-pinned.accent-slate { background: linear-gradient(135deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.92)); }
     .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
+    .stage.has-pinned .openpets-compact-composer { bottom: ${bubbleBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
     .bubble.is-plugin.accent-green { background: linear-gradient(135deg, rgba(220, 252, 231, 0.97), rgba(187, 247, 208, 0.94)); }

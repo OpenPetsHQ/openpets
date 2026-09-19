@@ -127,4 +127,26 @@ import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default
   }
 }
 
+// --- Collapsed Pet with Pinned HUD ---
+
+{
+  const shapeWithPinned = calculatePetInteractiveShape({
+    windowWidth: defaultPetWindowSize.width,
+    windowHeight: defaultPetWindowSize.height,
+    spriteWidth: 32,
+    spriteHeight: 32,
+    scale: 1,
+    hasBubble: false,
+    hasPinned: true,
+    hudScale: 1.4,
+    isExpanded: false,
+  });
+
+  assert.equal(shapeWithPinned.shape.length, 2, "pinned HUD adds an interactive HUD region");
+  const hudRect = shapeWithPinned.shape[1];
+  assert.ok(hudRect.width > 0 && hudRect.width <= defaultPetWindowSize.width);
+  assert.ok(hudRect.height > 0);
+  assert.equal(hudRect.y + hudRect.height, defaultPetWindowSize.height);
+}
+
 console.log("pet-window-shape tests passed.");

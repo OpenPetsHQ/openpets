@@ -97,13 +97,18 @@ re-arms forwarding from the main process (`screen.getCursorScreenPoint()`), whic
 keeps working even when forwarding is dead. The platform predicates live in
 `mouse-forwarding.ts`.
 
-Right-clicking any pet offers **Flip horizontally**, a checked menu item that
-mirrors that pet's sprite left/right. Speech bubbles, status badges, controls,
-and the hit area stay unmirrored and readable. The orientation is stored per
-underlying pet ID in app state (`preferences.petHorizontalFlip`) and survives
-restart; toggling one pet updates every live window of that pet (default, agent,
-plugin-spawned, and LAN visitor) and leaves other pets unchanged. There is no
-vertical or upside-down flip.
+Right-clicking any pet offers a **Size** submenu with the same global scale
+choices as Settings. The current size is checked; selecting another size saves
+the global pet and HUD scale preferences and refreshes the default and agent pet
+windows. The HUD starts at its smallest readable size for XS, then grows more
+quickly than the pet at each larger choice. The same
+menu also offers **Flip horizontally**, a checked menu item that mirrors that
+pet's sprite left/right. Speech bubbles, status badges, controls, and the hit
+area stay unmirrored and readable. The orientation is stored per underlying pet
+ID in app state (`preferences.petHorizontalFlip`) and survives restart; toggling
+one pet updates every live window of that pet (default, agent, plugin-spawned,
+and LAN visitor) and leaves other pets unchanged. There is no vertical or
+upside-down flip.
 
 ## Reactions → animations → speech
 
