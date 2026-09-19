@@ -2312,7 +2312,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       box-sizing: border-box;
       display: none;
       flex-direction: column;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 245, 255, 0.96) 55%, rgba(237, 233, 254, 0.95) 100%);
       color: #0f172a;
       border: 1px solid rgba(226, 232, 240, 0.95);
       border-radius: 20px;
@@ -2337,7 +2337,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       bottom: -6px;
       width: 12px;
       height: 12px;
-      background: #f8fafc;
+      background: #ede9fe;
       border-right: 1px solid rgba(226, 232, 240, 0.95);
       border-bottom: 1px solid rgba(226, 232, 240, 0.95);
       border-bottom-right-radius: 3px;
