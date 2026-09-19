@@ -219,6 +219,12 @@ if (!gotSingleInstanceLock) {
             ? warn("teams", message, fields)
             : info("teams", message, fields),
     });
+    teamService.subscribeToEnrollmentPreview(() => {
+      // Reuse the existing route event so an already-running Control Center
+      // refetches the authoritative preview instead of retaining its initial
+      // pending snapshot with null identity and expiry.
+      openControlCenterWindow("teams");
+    });
     managerCheckInService = initializeManagerCheckInService({
       teamStateStore: teamService.stateStore,
       credentialStore: teamService.credentialStore,

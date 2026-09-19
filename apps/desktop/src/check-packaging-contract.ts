@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { allowedReactions } from "./local-ipc-protocol.js";
+import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
 import { pickReactionMessage, reactionMessagePools } from "./reaction-messages.js";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
@@ -91,15 +92,14 @@ assert.ok(existsSync(join(repoRoot, "packages", "opencode", "dist", "plugin.js")
 assert.ok(existsSync(join(repoRoot, "packages", "agent-events", "dist", "index.js")), "@open-pets/agent-events must be built before packaging.");
 
 if (process.argv.includes("--output")) {
-  checkPackageOutput();
+  checkPackageOutput(getOutputDirectoryArgument() ?? join(appDir, "dist-electron"), getPackagingTarget());
 } else {
   checkCleanupHelper();
 }
 
 console.error("Packaging contract validation passed.");
 
-function checkPackageOutput(): void {
-  const outputDir = join(appDir, "dist-electron");
+function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assert.ok(existsSync(outputDir), "dist-electron output must exist after packaging.");
   assertNoForbiddenOutput(outputDir);
   assertNoEscapingSymlinks(outputDir);
@@ -107,24 +107,10 @@ function checkPackageOutput(): void {
   const appResourceDir = findPackagedAppResourceDir(outputDir);
   assert.ok(appResourceDir, "packaged app resources directory was not found.");
   assert.ok(existsSync(join(appResourceDir, "app.asar")), "packaged app.asar is missing.");
-  assertBundledOfficialPlugins(appResourceDir);
+  assertBundledOfficialPlugins(appResourceDir, join(repoRoot, "plugins", "official"));
   const appContents = join(appResourceDir, "app.asar.unpacked");
   assert.ok(existsSync(appContents), "packaged app.asar.unpacked resources are missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "claude", "dist", "index.js")), "packaged @open-pets/claude runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "claude", "dist", "cli.js")), "packaged @open-pets/claude CLI runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "claude", "package.json")), "packaged @open-pets/claude package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "client", "dist", "index.js")), "packaged @open-pets/client runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "client", "package.json")), "packaged @open-pets/client package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "mcp", "dist", "index.js")), "packaged @open-pets/mcp runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "mcp", "package.json")), "packaged @open-pets/mcp package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "cli", "dist", "index.js")), "packaged @open-pets/cli runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js")), "packaged @open-pets/opencode plugin runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "opencode", "package.json")), "packaged @open-pets/opencode package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "cursor", "dist", "index.js")), "packaged @open-pets/cursor runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "cursor", "package.json")), "packaged @open-pets/cursor package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js")), "packaged @open-pets/zed runtime is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "zed", "package.json")), "packaged @open-pets/zed package metadata is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "@open-pets", "agent-events", "dist", "index.js")), "packaged @open-pets/agent-events runtime is missing.");
+  assertUnpackedIntegrationRuntimes(appContents, getRequiredUnpackedRuntimePackageNames(packageJson), join(repoRoot, "packages"));
   assert.ok(existsSync(join(appContents, "node_modules", "@modelcontextprotocol", "sdk")), "packaged MCP SDK runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "zod", "index.cjs")), "packaged zod runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "yauzl", "index.js")), "packaged yauzl runtime dependency is missing.");
@@ -133,7 +119,7 @@ function checkPackageOutput(): void {
   assert.ok(existsSync(join(appContents, "node_modules", "pend", "index.js")), "packaged yauzl transitive dependency pend is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "jsonc-parser", "lib", "umd", "main.js")), "packaged Zed JSONC runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "sharp", "lib", "index.js")), "packaged sharp runtime is missing.");
-  assertPackagedHostSharpNative(appContents);
+  assertTargetSharpNative(appContents, target);
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "mcp", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "cli", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js"));
@@ -223,16 +209,6 @@ function assertNonEmptyFile(path: string, message: string): void {
   assert.ok(stat.size > 0, message);
 }
 
-function assertBundledOfficialPlugins(resourceDir: string): void {
-  for (const id of ["openpets.reminders"]) {
-    const dir = join(resourceDir, "plugins", "official", id);
-    const manifestPath = join(dir, "openpets.plugin.json");
-    assertNonEmptyFile(manifestPath, `packaged bundled plugin manifest is missing: ${id}`);
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { entry?: string };
-    if (manifest.entry) assertNonEmptyFile(join(dir, manifest.entry), `packaged bundled plugin entry is missing: ${id}`);
-  }
-}
-
 function assertSafeBundledSvg(path: string, message: string): void {
   assertNonEmptyFile(path, message);
   const source = readFileSync(path, "utf8");
@@ -240,21 +216,6 @@ function assertSafeBundledSvg(path: string, message: string): void {
   assert.doesNotMatch(source, /\son[a-z]+\s*=/i, `${message}: event attributes are not allowed.`);
   assert.doesNotMatch(source, /(?:href|xlink:href)\s*=\s*["'](?:https?:|file:|javascript:)/i, `${message}: external or script hrefs are not allowed.`);
   assert.doesNotMatch(source.replace(/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/gi, ""), /https?:\/\//i, `${message}: remote references are not allowed.`);
-}
-
-function assertPackagedHostSharpNative(appContents: string): void {
-  const sharpPackage = getHostSharpPackageName();
-  assert.ok(existsSync(join(appContents, "node_modules", "@img", sharpPackage, "lib", `${sharpPackage}.node`)), `packaged host sharp native binary is missing: ${sharpPackage}`);
-}
-
-function getHostSharpPackageName(): string {
-  if (process.platform === "win32" && process.arch === "x64") return "sharp-win32-x64";
-  if (process.platform === "win32" && process.arch === "arm64") return "sharp-win32-arm64";
-  if (process.platform === "darwin" && process.arch === "x64") return "sharp-darwin-x64";
-  if (process.platform === "darwin" && process.arch === "arm64") return "sharp-darwin-arm64";
-  if (process.platform === "linux" && process.arch === "x64") return "sharp-linux-x64";
-  if (process.platform === "linux" && process.arch === "arm64") return "sharp-linux-arm64";
-  throw new Error(`Unsupported packaging platform for sharp native check: ${process.platform}/${process.arch}`);
 }
 
 function assertCommandSmoke(appContents: string): void {
@@ -274,4 +235,27 @@ function assertCommandSmoke(appContents: string): void {
   const opencodePlugin = join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js");
   const plugin = spawnSync(process.execPath, ["--input-type=module", "--eval", `const mod = await import(${JSON.stringify(`file://${opencodePlugin}`)}); if (!mod.default?.server || !mod.default?.id) process.exit(2);`], { encoding: "utf8" });
   assert.equal(plugin.status, 0, `packaged OpenCode plugin smoke failed: ${plugin.stderr || plugin.stdout}`);
+}
+
+function getOutputDirectoryArgument(): string | null {
+  const argument = process.argv.find((value) => value.startsWith("--output-dir="));
+  if (argument) return resolve(argument.slice("--output-dir=".length));
+  const index = process.argv.indexOf("--output-dir");
+  if (index !== -1 && process.argv[index + 1]) return resolve(process.argv[index + 1]);
+  return null;
+}
+
+function getPackagingTarget(): PackagingTarget {
+  const platform = getOptionValue("--platform") ?? process.platform;
+  const arch = getOptionValue("--arch") ?? process.arch;
+  assert.ok(platform === "darwin" || platform === "linux" || platform === "win32", `Unsupported packaging platform: ${platform}`);
+  assert.ok(arch === "x64" || arch === "arm64", `Unsupported packaging architecture: ${arch}`);
+  return { platform: platform as PackagingPlatform, arch: arch as "x64" | "arm64" };
+}
+
+function getOptionValue(name: string): string | null {
+  const inline = process.argv.find((value) => value.startsWith(`${name}=`));
+  if (inline) return inline.slice(name.length + 1);
+  const index = process.argv.indexOf(name);
+  return index !== -1 ? process.argv[index + 1] ?? null : null;
 }

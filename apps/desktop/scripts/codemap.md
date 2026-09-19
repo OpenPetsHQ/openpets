@@ -25,10 +25,10 @@ Load/validate checkpoint in .release-state/v<version>.json (discarded when HEAD 
 → Capture previous release tag before any new tag
 → Run the stage plan, skipping stages already checkpointed with intact outputs
    (the always-run npm verification stages re-run on every invocation):
-   (with --yes) verify:npm-integrations → checks → clean → build:mac-dmg → build:mac-zip → build:linux-appimage
+   (with --yes) verify:npm-integrations → checks → clean → per-target temporary + actual-artifact payload validation → build:mac-dmg/zip → build:linux-appimage
    → build:linux-deb → build:linux-rpm → build:linux-targz
    → (with --linux-package-dir) stage:linux-packages instead of local DEB/RPM
-   → verify:local (working tree + pre-signing artifact set)
+   → verify:local (working tree + pre-signing artifact set; checkpoint outputs carry SHA-256 digests)
    → (dry-run) preview:checksums and stop
    → verify:npm-pre-tag → tag → sign:dispatch (records the run id) → sign:collect (re-attaches on resume)
    → verify:final (signed artifact set + SHA256SUMS)
@@ -52,7 +52,10 @@ Check preload syntax → Compile tests to .test-dist → Run behavior tests → 
 ## Key Scripts
 
 - `clean-package-output.cjs`: Removes `dist-electron` directory with path safety checks
-- `release-local.mjs`: Full release orchestration with preflight validation, multi-platform builds, and GitHub draft creation
+- `release-local.mjs`: Full release orchestration with preflight validation, per-platform/architecture unpacked package validation, multi-platform builds, and GitHub draft creation
+- `package-artifact.mjs`: Extracts DMG/ZIP/AppImage/DEB/RPM/tar.gz payloads for release validation
+- `release-checkpoint.mjs`: Records and verifies checkpoint output sizes plus content digests
+- `release-checkpoint.test.mjs`: Same-size mutation and unchanged-resume checkpoint regression
 - `run-tests.mjs`: Desktop test runner for preload syntax checks, `.test-dist` behavior/contract tests, and remaining runtime checks
 
 ## Build Plan (release-local.mjs)

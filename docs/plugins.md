@@ -219,10 +219,19 @@ values.
 
 Provider profile updates are sparse patches: omitted or `undefined` fields keep
 their existing values; `null` explicitly clears `baseUrl`, `secretRef`, or
-`auth`; and `headers` is preserved when omitted, replaced when provided, or
-cleared with an explicit empty array. Because snapshots expose header names but
-not values, header replacement is an intentional whole-list operation rather
-than a per-header edit.
+`auth`. The Control Center modal submits one host-owned configuration
+transaction that commits the profile, credential, and role selections together.
+Existing static headers are never sent to the renderer: header edits use
+explicit host-applied `add`/`replace`/`delete` operations keyed by header name,
+so untouched values survive redacted snapshots. Direct backend profile updates
+may still replace headers intentionally with a full list or clear them with an
+explicit empty array.
+
+Before that transaction commits, the host validates every existing role selection
+against the complete candidate profile map. Editing a selected profile to an
+adapter that does not support its current role clears that selection atomically,
+even when the renderer supplies no role directive; an incompatible selection is
+never reported as a successful persisted configuration.
 
 The host voice lanes consume these profiles independently: text reasoning,
 final-only STT, and TTS each take their own operation snapshot. The generic voice

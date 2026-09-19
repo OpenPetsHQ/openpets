@@ -63,6 +63,9 @@ importers:
         specifier: 3.3.0
         version: 3.3.0
     devDependencies:
+      7zip-bin:
+        specifier: 5.2.0
+        version: 5.2.0
       '@open-pets/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

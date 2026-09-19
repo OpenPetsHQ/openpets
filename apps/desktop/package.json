@@ -33,6 +33,7 @@
     "package:preflight": "node scripts/check-windows-symlink-privilege.cjs"
   },
   "devDependencies": {
+    "7zip-bin": "5.2.0",
     "@open-pets/plugin-sdk": "workspace:*",
     "@types/node": "^25.6.2",
     "@types/react": "^19.2.15",

@@ -21,6 +21,10 @@ export type TeamsSnapshot = {
   readonly organizationId: string | null;
   readonly organizationName: string | null;
   readonly pendingEnrollment: boolean;
+  readonly pendingOrganizationId?: string | null;
+  readonly pendingOrganizationName?: string | null;
+  readonly pendingEnrollmentStatus?: "started" | "accepted" | "completed" | null;
+  readonly pendingEnrollmentExpiresAt?: string | null;
   readonly installationId: string | null;
   readonly pendingRevision: number;
   readonly appliedRevision: number;
@@ -101,6 +105,7 @@ export type TeamsApi = {
   leaveTeams(): Promise<TeamsSnapshot>;
   approveTeamPluginPermissions?(id: string, approvalToken?: string): Promise<TeamsSnapshot>;
   setTeamPluginEnabled?(id: string, enabled: boolean): Promise<TeamsSnapshot>;
+  onRouteChange?(callback: (route: string) => void): () => void;
   getManagerCheckInsSnapshot?(): Promise<ManagerCheckInSnapshot>;
   syncManagerCheckIns?(): Promise<ManagerCheckInSnapshot>;
   getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;

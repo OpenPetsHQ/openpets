@@ -21,10 +21,14 @@ runInNewContext(source, {
 
 assert.ok(exposed);
 
-// Control Center does not expose pet assistant conversation methods (relocated to pet companion chat)
+// Control Center does not expose pet assistant active conversation events or voice snapshot (relocated to pet companion chat)
 assert.equal(exposed.onConversationEvent, undefined);
-assert.equal(exposed.getConversationHistory, undefined);
 assert.equal(exposed.getVoiceAssistantSnapshot, undefined);
+
+// Conversation archive operations are exposed to Settings in Control Center
+assert.equal(typeof exposed.getConversationHistory, "function");
+assert.equal(typeof exposed.deleteConversationHistoryMessage, "function");
+assert.equal(typeof exposed.clearConversationHistory, "function");
 
 // Verify routing listener registration and cleanup
 const routeCallback = () => {};
@@ -44,11 +48,17 @@ assert.equal(listeners.has("openpets:plugins-refresh"), false);
 await exposed.getPetsState();
 await exposed.getDashboardSnapshot();
 await exposed.getSettingsState();
+await exposed.getConversationHistory();
+await exposed.deleteConversationHistoryMessage("11111111-1111-4111-8111-111111111111");
+await exposed.clearConversationHistory();
 
 assert.deepEqual(invoked.map(({ channel }) => channel), [
   "openpets:get-pets-state",
   "openpets:get-dashboard-snapshot",
   "openpets:get-settings-state",
+  "openpets:get-conversation-history",
+  "openpets:delete-conversation-history-message",
+  "openpets:clear-conversation-history",
 ]);
 
 console.log("control-center preload contract passed.");

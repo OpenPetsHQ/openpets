@@ -15,7 +15,12 @@ import type {
   TeamPluginOwnership,
 } from "./plugin-state.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
-import { TeamApiClient, type TeamEnrollmentPreview } from "./team-api-client.js";
+import {
+  TeamApiClient,
+  TeamApiError,
+  teamDisplayNameMaxLength,
+  type TeamEnrollmentPreview,
+} from "./team-api-client.js";
 import {
   activateTeamArtifact,
   discardStagedTeamArtifact,
@@ -50,6 +55,7 @@ export type TeamServiceSnapshot = {
   readonly pendingEnrollment: boolean;
   readonly pendingOrganizationId: string | null;
   readonly pendingOrganizationName: string | null;
+  readonly pendingEnrollmentStatus: TeamEnrollmentPreview["status"] | null;
   readonly pendingEnrollmentExpiresAt: string | null;
   readonly installationId: string | null;
   readonly pendingRevision: number;
@@ -143,6 +149,9 @@ export class TeamService {
   } | null = null;
   #enrollmentDone: Promise<void> | null = null;
   #enrollmentPreview: TeamEnrollmentPreview | null = null;
+  readonly #enrollmentPreviewListeners = new Set<
+    (snapshot: TeamServiceSnapshot) => void
+  >();
 
   constructor(options: TeamServiceOptions) {
     this.#userDataPath = options.userDataPath;
@@ -163,9 +172,7 @@ export class TeamService {
     this.stateStore.initialize();
     const initialState = this.stateStore.snapshot();
     if (!initialState?.organizationId) {
-      if (initialState?.pendingIntent) {
-        await this.#refreshEnrollmentPreview(initialState.pendingIntent.intentId).catch(() => undefined);
-      }
+      if (initialState?.pendingIntent) await this.syncNow().catch(() => undefined);
       return;
     }
 
@@ -198,7 +205,10 @@ export class TeamService {
     void this.#enqueueOperation(async () => {
       if (this.#leaveQueued) return;
       this.stateStore.setPendingIntent(link);
+      this.#enrollmentPreview = null;
+      this.#notifyEnrollmentPreviewChange();
       await this.#refreshEnrollmentPreview(link.intentId);
+      this.#notifyEnrollmentPreviewChange();
       this.#log("info", "Teams enrollment link received", {});
     }).catch((error) => this.#log(
       "error",
@@ -210,6 +220,15 @@ export class TeamService {
       },
     ));
     return true;
+  }
+
+  subscribeToEnrollmentPreview(
+    listener: (snapshot: TeamServiceSnapshot) => void,
+  ): () => void {
+    this.#enrollmentPreviewListeners.add(listener);
+    return () => {
+      this.#enrollmentPreviewListeners.delete(listener);
+    };
   }
   handleArgv(argv: readonly unknown[]): boolean {
     const link = findTeamEnrollmentLink(argv);
@@ -223,7 +242,7 @@ export class TeamService {
     if (
       typeof displayName !== "string"
       || displayName.trim().length === 0
-      || displayName.length > 120
+      || displayName.length > teamDisplayNameMaxLength
     ) throw new Error("A valid display name is required.");
     if (this.stateStore.snapshot()?.organizationId) {
       throw new Error("Leave the current organization before re-enrolling this desktop.");
@@ -485,6 +504,7 @@ export class TeamService {
       pendingEnrollment: Boolean(state?.pendingIntent),
       pendingOrganizationId: this.#enrollmentPreview?.organization.id ?? null,
       pendingOrganizationName: this.#enrollmentPreview?.organization.name ?? null,
+      pendingEnrollmentStatus: this.#enrollmentPreview?.status ?? null,
       pendingEnrollmentExpiresAt: this.#enrollmentPreview?.expiresAt ?? null,
       installationId: state?.organizationId ? state.installationId : null,
       pendingRevision: state?.pendingRevision ?? 0,
@@ -498,7 +518,19 @@ export class TeamService {
   async #syncNow(): Promise<TeamServiceSnapshot> {
     if (this.#leaveQueued) return this.getSnapshot();
     const state = this.stateStore.snapshot();
-    if (!state?.organizationId) return this.getSnapshot();
+    if (!state?.organizationId) {
+      const pendingIntent = state?.pendingIntent;
+      if (!pendingIntent) return this.getSnapshot();
+      try {
+        await this.#refreshEnrollmentPreview(pendingIntent.intentId);
+      } catch (error) {
+        if (!isUnavailableEnrollmentPreviewError(error)) throw error;
+        this.#enrollmentPreview = null;
+        this.stateStore.leave();
+        this.#log("info", "Teams enrollment intent was discarded after expiry", {});
+      }
+      return this.getSnapshot();
+    }
     const credential = this.credentialStore.load();
     if (!credential) throw new Error("Teams secure credential is unavailable.");
     const syncController = new AbortController();
@@ -878,7 +910,21 @@ export class TeamService {
     session.controller.abort();
   }
 
+  #notifyEnrollmentPreviewChange(): void {
+    const snapshot = this.getSnapshot();
+    for (const listener of [...this.#enrollmentPreviewListeners]) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        this.#log("warn", "Teams enrollment preview listener failed", {
+          reason: error instanceof Error ? error.message.slice(0, 160) : "listener_failed",
+        });
+      }
+    }
+  }
+
   async #refreshEnrollmentPreview(intentId: string): Promise<TeamEnrollmentPreview> {
+    this.#enrollmentPreview = null;
     const preview = await this.apiClient.getEnrollmentPreview(intentId);
     const pending = this.stateStore.snapshot()?.pendingIntent;
     if (pending?.intentId === intentId) this.#enrollmentPreview = preview;
@@ -896,6 +942,10 @@ export class TeamService {
   #enqueueOperation<T>(task: () => Promise<T>): Promise<T> {
     return this.#operationQueue.run(task);
   }
+}
+
+function isUnavailableEnrollmentPreviewError(error: unknown): boolean {
+  return error instanceof TeamApiError && (error.status === 401 || error.status === 404);
 }
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {

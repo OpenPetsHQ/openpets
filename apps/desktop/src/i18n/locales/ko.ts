@@ -196,6 +196,8 @@ export const ko: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "일반",
+  "settings.nav.personality": "성격",
+  "settings.nav.history": "대화 아카이브",
   "settings.nav.reactions": "반응 매핑",
   "settings.nav.plugins": "플러그인 플랫폼",
   "settings.nav.lan": "LAN",
@@ -233,6 +235,25 @@ export const ko: Partial<Messages> = {
   "settings.busy.resetting": "초기화 중",
   "settings.busy.opening": "여는 중",
   "settings.busy.checking": "확인 중",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "대화",
+  "settings.archive.title": "대화 아카이브",
+  "settings.archive.description": "어시스턴트 컨텍스트에 사용되는 로컬 대화 기록을 관리합니다.",
+  "settings.archive.boundary.title": "로컬 전용 대화 아카이브",
+  "settings.archive.boundary.description": "아카이브된 대화는 openpets-conversation-history.json에 로컬 저장됩니다(최대 200개 / 30일 / 512 KiB). 최근 최대 24개 메시지가 다음 턴의 컨텍스트로 제공됩니다. 펫 내 채팅창은 현재 세션의 임시 기록이며, 이 영구 아카이브와 분리되어 있습니다. 이 아카이브를 읽거나 지우는 데 클라우드 동기화나 제공자 호출은 사용되지 않습니다.",
+  "settings.archive.empty.title": "아카이브된 메시지가 없습니다",
+  "settings.archive.empty.description": "동반자 대화의 최종 메시지가 여기에 자동으로 보관됩니다.",
+  "settings.archive.clear": "아카이브 삭제",
+  "settings.archive.clearConfirm.title": "대화 아카이브를 삭제하시겠습니까?",
+  "settings.archive.clearConfirm.description": "디스크에 저장된 대화 기록이 모두 완전히 삭제됩니다. 현재 메모리 세션에는 영향을 주지 않습니다.",
+  "settings.archive.delete": "삭제",
+  "settings.archive.refresh": "새로고침",
+  "settings.archive.searchPlaceholder": "아카이브 메시지 검색...",
+  "settings.archive.user": "사용자",
+  "settings.archive.assistant": "어시스턴트",
+  "settings.archive.toast.deleted": "아카이브된 메시지가 삭제되었습니다.",
+  "settings.archive.toast.cleared": "대화 아카이브가 삭제되었습니다.",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "오피스 펫",

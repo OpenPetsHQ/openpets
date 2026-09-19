@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { buildProviderControlCenterSnapshot, createProviderProfile, deleteProviderProfile, getPluginPlatformSettings, initializePluginPlatformSettings, isProviderSecretRefReferenced, providerPresets, selectProviderProfile, updateProviderProfile, validateProviderBaseUrl, validateProviderHeaders, validateProviderProfile, validateProviderProfilePatch } from "../src/plugin-platform-settings.js";
+import { buildProviderControlCenterSnapshot, createProviderProfile, deleteProviderProfile, getPluginPlatformSettings, initializePluginPlatformSettings, isProviderSecretRefReferenced, providerPresets, saveProviderConfiguration, selectProviderProfile, updateProviderProfile, validateProviderBaseUrl, validateProviderHeaders, validateProviderProfile, validateProviderProfilePatch } from "../src/plugin-platform-settings.js";
 
 const dir = mkdtempSync(join(tmpdir(), "openpets-provider-profiles-"));
 try {
@@ -50,6 +50,57 @@ try {
   deleteProviderProfile("shared-secret-a");
   assert.equal(getPluginPlatformSettings().profiles["shared-secret-b"]?.secretRef, "shared", "deleting a sibling profile must not remove its shared credential reference");
   assert.equal(isProviderSecretRefReferenced(getPluginPlatformSettings(), "shared"), true);
+
+  // Header edits operate on the host-owned values, while the renderer only sees names.
+  createProviderProfile({ id: "redacted-headers", label: "Headers", adapter: "openai-compatible-text", model: "headers", baseUrl: "https://headers.example/v1", headers: [{ name: "X-A", value: "secret-a" }, { name: "X-B", value: "secret-b" }] });
+  const redactedSnapshot = buildProviderControlCenterSnapshot(getPluginPlatformSettings(), () => false);
+  const redactedProfile = redactedSnapshot.profiles.find((profile) => profile.id === "redacted-headers");
+  assert.deepEqual(redactedProfile?.headerNames, ["X-A", "X-B"]);
+  assert.equal(JSON.stringify(redactedProfile).includes("secret-"), false);
+  updateProviderProfile("redacted-headers", { headerPatch: [{ op: "add", name: "X-C", value: "secret-c" }, { op: "delete", name: "X-B" }] });
+  assert.deepEqual(getPluginPlatformSettings().profiles["redacted-headers"]?.headers, [{ name: "X-A", value: "secret-a" }, { name: "X-C", value: "secret-c" }]);
+
+  // A credential failure after candidate profile/role preparation must leave both durable stores untouched.
+  createProviderProfile({ id: "atomic-before", label: "Before", adapter: "openai-compatible-text", model: "before", baseUrl: "https://atomic.example/v1", secretRef: "atomic-old" });
+  selectProviderProfile("text", "atomic-before");
+  const beforeAtomic = getPluginPlatformSettings();
+  const credentials = new Map<string, string>([["atomic-old", "old-secret"]]);
+  const failingCredentials = {
+    get: async (ref: string) => credentials.get(ref),
+    set: async () => { throw new Error("credential write failed"); },
+    delete: async (ref: string) => { credentials.delete(ref); },
+  };
+  await assert.rejects(() => saveProviderConfiguration({
+    isEditing: true,
+    profileId: "atomic-before",
+    payload: { id: "atomic-before", label: "After", model: "after" },
+    credentialValue: "new-secret",
+    activatedRoles: [],
+    deactivatedRoles: ["text"],
+  }, failingCredentials), /credential write failed/);
+  assert.deepEqual(getPluginPlatformSettings(), beforeAtomic);
+  assert.equal(credentials.get("atomic-old"), "old-secret");
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "openpets-plugin-platform.json"), "utf8")), JSON.parse(JSON.stringify(beforeAtomic)));
+
+  // Editing an active text profile to System Voice clears the incompatible role durably,
+  // even when the renderer sends no role directives.
+  createProviderProfile({ id: "role-switch", label: "Role switch", adapter: "openai-compatible-text", model: "model", baseUrl: "https://role-switch.example/v1" });
+  selectProviderProfile("text", "role-switch");
+  await saveProviderConfiguration({
+    isEditing: true,
+    profileId: "role-switch",
+    payload: { id: "role-switch", adapter: "system-tts", model: "", baseUrl: null, secretRef: null, auth: null, headers: [] },
+    activatedRoles: [],
+    deactivatedRoles: [],
+  }, {
+    get: async () => undefined,
+    set: async () => undefined,
+    delete: async () => undefined,
+  });
+  assert.equal(getPluginPlatformSettings().selections.text, null);
+  const reloaded = initializePluginPlatformSettings(dir);
+  assert.equal(reloaded.selections.text, null, "incompatible role selections must not survive reload");
+  assert.equal(reloaded.profiles["role-switch"]?.adapter, "system-tts");
 } finally { rmSync(dir, { recursive: true, force: true }); }
 
 console.log("provider profile validation tests passed.");

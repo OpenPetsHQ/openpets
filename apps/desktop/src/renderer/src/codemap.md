@@ -9,7 +9,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 - **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
 - **Teams**: Modularized under `teams/` to manage organization membership, synchronization, and security controls while strictly isolating personal content:
   - `teams/TeamsView.tsx`: Top-level container component orchestrating snapshot retrieval, synchronization, permission approval actions, optional plugin enable/disable toggling, error banner/toast presentation, and child section rendering.
-  - `teams/TeamEnrollmentSection.tsx`: Presentational view for deep-link invitation enrollment (device display name entry) and un-enrolled onboarding guides with personal isolation assurances.
+  - `teams/TeamEnrollmentSection.tsx`: Presentational view for deep-link invitation enrollment (device display name entry), authoritative preview/expiry gating for acceptance, and un-enrolled onboarding guides with personal isolation assurances.
   - `teams/TeamOverviewSection.tsx`: Organization status banner with applied/pending revisions, manual synchronization trigger, leave action trigger, metadata overview, and pending-approval alert banners.
   - `teams/TeamPetsSection.tsx`: Displays organization-managed companion pets with installed sprite thumbnails and team-managed badges.
   - `teams/TeamPluginsSection.tsx`: Lists organization-provisioned plugins with approval counters and status summaries.
@@ -17,12 +17,16 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/TeamLeaveModal.tsx`: Confirmation modal clarifying the removal of organization assets while guaranteeing personal content safety.
   - `teams/teams-icons.tsx`: Cohesive set of 2px-stroke SVG icons matching Control Center design conventions.
   - `teams/teams-types.ts`: Strong typing for snapshots, pet/plugin entries, approval tokens, and preload bridge API contracts.
-  - `teams/teams-state.ts`: Pure state helpers for snapshot validation, display name validation, error code mapping, and permission tone/label lookup.
+  - `teams/teams-state.ts`: Pure state helpers for snapshot validation, display name validation, authoritative enrollment-action gating, error code mapping, and permission tone/label lookup.
 - **Dashboard**: Reads a narrowed dashboard snapshot for default pet preview, install/catalog counts, plugin health, update status, and activity totals.
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
 - **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
-- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, conversation archive management, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Conversation Archive Settings**: Modularized under `settings/history/` to provide Settings-owned management of the local persisted conversation history:
+  - `settings/history/ConversationArchiveSection.tsx`: Settings-owned archive management view with privacy boundary notice, search filter, message list, turn metadata, single-entry delete, clear-all confirmation modal, and immediate state refresh.
+  - `settings/history/types.ts`: Archive message models and bridge API contracts.
+  - `settings/history/index.ts`: Module entry.
 - **Provider Settings**: Modularized under `settings/providers/` to present a role-first overview with compact saved profile cards and guided configuration modal:
   - `settings/providers/ProvidersSection.tsx`: Top-level orchestrator connecting provider role cards, compact library, guided setup modal, and capability gates.
   - `settings/providers/ProviderRoleOverview.tsx`: Role-first status cards for Pet Brain (Text), Hearing (STT), Speech (TTS), and derived Realtime voice.

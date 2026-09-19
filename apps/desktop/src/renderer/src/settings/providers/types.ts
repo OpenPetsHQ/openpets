@@ -15,6 +15,11 @@ export type ProviderHeader = {
   readonly value: string;
 };
 
+export type ProviderHeaderPatch =
+  | { readonly op: "add"; readonly name: string; readonly value: string }
+  | { readonly op: "replace"; readonly oldName: string; readonly name: string; readonly value: string }
+  | { readonly op: "delete"; readonly name: string };
+
 export type ProviderAuth = {
   readonly headerName: string;
   readonly strategy: "bearer" | "raw";
@@ -101,6 +106,16 @@ export type ProviderProfilePatch = {
   secretRef?: string | null;
   auth?: ProviderAuth | null;
   headers?: ProviderHeader[];
+  headerPatch?: ProviderHeaderPatch[];
+};
+
+export type ProviderConfigurationSaveInput = {
+  readonly isEditing: boolean;
+  readonly profileId: string;
+  readonly payload: ProviderProfileInput | ProviderProfilePatch;
+  readonly credentialValue?: string;
+  readonly activatedRoles: readonly ProviderRole[];
+  readonly deactivatedRoles: readonly ProviderRole[];
 };
 
 export function profileSupportsRole(profile: { adapter: ProviderAdapter }, role: ProviderRole): boolean {

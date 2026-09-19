@@ -7,6 +7,7 @@ export const defaultTeamsApiBaseUrl = "https://openpets-teams-api.tokozedg793.wo
 const maxResponseBytes = 512 * 1024;
 const maxArtifactBytes = 50 * 1024 * 1024;
 const enrollmentPollIntervalMs = 1_000;
+export const teamDisplayNameMaxLength = 80;
 export const managerCheckInFeelingCodes = [
   "good",
   "steady",
@@ -85,7 +86,7 @@ export type TeamEnrollmentResult = {
 };
 export type TeamEnrollmentPreview = {
   readonly intentId: string;
-  readonly status: "started" | "requested" | "completed";
+  readonly status: "started" | "accepted" | "completed";
   readonly organization: {
     readonly id: string;
     readonly name: string;
@@ -422,7 +423,7 @@ function validateEnrollmentPreview(
 ): TeamEnrollmentPreview {
   if (
     !isRecord(body)
-    || (body.status !== "started" && body.status !== "requested" && body.status !== "completed")
+    || (body.status !== "started" && body.status !== "accepted" && body.status !== "completed")
     || body.intentId !== intentId
     || typeof body.intentId !== "string"
     || !/^[A-Za-z0-9_-]{1,128}$/.test(body.intentId)
@@ -433,9 +434,19 @@ function validateEnrollmentPreview(
     || typeof body.organization.name !== "string"
     || body.organization.name.length === 0
     || body.organization.name.length > 200
-    || typeof body.displayName !== "string"
-    || body.displayName.length === 0
-    || body.displayName.length > 120
+    || body.status !== "started"
+      && (
+        typeof body.displayName !== "string"
+        || body.displayName.length === 0
+        || body.displayName.length > teamDisplayNameMaxLength
+      )
+    || body.status === "started"
+      && body.displayName !== undefined
+      && (
+        typeof body.displayName !== "string"
+        || body.displayName.length === 0
+        || body.displayName.length > teamDisplayNameMaxLength
+      )
     || typeof body.expiresAt !== "string"
   ) throw new Error("Teams enrollment response is invalid.");
   parseEnrollmentDeadline(body.expiresAt);
@@ -446,7 +457,7 @@ function validateEnrollmentPreview(
       id: body.organization.id,
       name: body.organization.name,
     },
-    displayName: body.displayName,
+    ...(typeof body.displayName === "string" ? { displayName: body.displayName } : {}),
     expiresAt: body.expiresAt,
   };
 }
@@ -489,7 +500,7 @@ function validateEnrollmentValues(
   if (
     !/^[A-Za-z0-9._:-]{1,160}$/.test(installationId)
     || displayName.trim().length === 0
-    || displayName.length > 120
+    || displayName.length > teamDisplayNameMaxLength
   ) throw new Error("Teams enrollment input is invalid.");
 }
 

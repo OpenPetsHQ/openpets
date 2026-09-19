@@ -335,13 +335,23 @@ const installDefaultPetChat = () => {
     revision: 0,
   };
   let voiceSnapshot = {
-    state: "idle",
-    isMuted: false,
+    sessionId: 0,
+    status: "idle",
+    activity: null,
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 0,
+    turnId: null,
+    userTranscript: null,
+    assistantTranscript: null,
+    interruptionCount: 0,
     error: null,
     shortcut: null,
     shortcutStatus: "unregistered",
     shortcutReason: null,
   };
+  let conversationOrder = { sequence: -1, revision: -1 };
+  let voiceOrder = { sessionId: -1, sequence: -1 };
   let promptSuggestions = [...defaultPromptSuggestions];
   let preservedDraft = "";
   let errorToastMessage = null;
@@ -409,7 +419,7 @@ const installDefaultPetChat = () => {
   const compactInput = document.createElement("textarea");
   compactInput.className = "compact-composer-textarea";
   compactInput.dataset.compactChatInput = "true";
-  compactInput.placeholder = "Ask pet... (Enter to send)";
+  compactInput.placeholder = "Message your pet...";
   compactInput.rows = 1;
 
   const compactSendBtn = document.createElement("button");
@@ -570,7 +580,7 @@ const installDefaultPetChat = () => {
   const input = document.createElement("textarea");
   input.className = "chat-textarea";
   input.dataset.chatInput = "true";
-  input.placeholder = "Ask anything... (Enter to send, Shift+Enter for newline)";
+  input.placeholder = "Message your pet... (Enter to send, Shift+Enter for newline)";
   input.rows = 1;
   inputWrapper.appendChild(input);
 
@@ -628,7 +638,10 @@ const installDefaultPetChat = () => {
   const autoResizeCompactInput = () => {
     if (!compactInput) return;
     compactInput.style.height = "auto";
-    compactInput.style.height = `${Math.min(68, Math.max(28, compactInput.scrollHeight))}px`;
+    // The renderer stylesheet owns the compact geometry contract's max-height;
+    // leave the inline height unconstrained so CSS and the Linux input shape
+    // cannot drift apart when multiline content grows.
+    compactInput.style.height = `${Math.max(28, compactInput.scrollHeight)}px`;
   };
 
   const updateSendButtonState = () => {
@@ -656,7 +669,9 @@ const installDefaultPetChat = () => {
   };
 
   const setCompactOpen = (open) => {
-    isCompactOpen = Boolean(open);
+    const nextOpen = Boolean(open);
+    if (isCompactOpen === nextOpen) return;
+    isCompactOpen = nextOpen;
     document.documentElement.dataset.compactComposerOpen = isCompactOpen ? "true" : "false";
     if (isCompactOpen) {
       compactInput.value = preservedDraft;
@@ -664,6 +679,28 @@ const installDefaultPetChat = () => {
       updateCompactSendButtonState();
       setTimeout(() => compactInput.focus(), 30);
     }
+    ipcRenderer.send(isCompactOpen ? "openpets:default-pet-chat-compact-open" : "openpets:default-pet-chat-compact-close");
+  };
+
+  const applyConversationSnapshot = (snapshot) => {
+    if (!snapshot || typeof snapshot.lastSequence !== "number" || typeof snapshot.revision !== "number") return false;
+    const order = { sequence: snapshot.lastSequence, revision: snapshot.revision };
+    if (order.sequence < conversationOrder.sequence || (order.sequence === conversationOrder.sequence && order.revision <= conversationOrder.revision)) return false;
+    conversationOrder = order;
+    conversationSnapshot = snapshot;
+    if (Array.isArray(snapshot.promptSuggestions)) promptSuggestions = snapshot.promptSuggestions;
+    renderAll();
+    return true;
+  };
+
+  const applyVoiceSnapshot = (snapshot, sequence = 0) => {
+    if (!snapshot || typeof snapshot.sessionId !== "number" || typeof snapshot.status !== "string" || typeof snapshot.muted !== "boolean") return false;
+    const order = { sessionId: snapshot.sessionId, sequence };
+    if (order.sessionId < voiceOrder.sessionId || (order.sessionId === voiceOrder.sessionId && order.sequence <= voiceOrder.sequence)) return false;
+    voiceOrder = order;
+    voiceSnapshot = snapshot;
+    renderAll();
+    return true;
   };
 
   const renderStatus = () => {
@@ -690,52 +727,54 @@ const installDefaultPetChat = () => {
     } else if (act === "responding") {
       statusPill.classList.add("is-responding");
       statusText.textContent = "Responding...";
-    } else if (voiceSnapshot.state !== "idle") {
+    } else if (voiceSnapshot.status !== "idle" && voiceSnapshot.status !== "ended") {
       statusPill.classList.add("is-voice");
-      statusText.textContent = voiceSnapshot.isMuted ? "Muted" : "Voice active";
+      statusText.textContent = voiceSnapshot.muted ? "Muted" : voiceSnapshot.activity === "listening" ? "Listening..." : voiceSnapshot.activity === "thinking" ? "Thinking..." : voiceSnapshot.activity === "acting" ? "Acting..." : voiceSnapshot.activity === "speaking" ? "Speaking..." : "Voice active";
     } else {
       statusText.textContent = "Ready";
     }
   };
 
   const renderVoiceControls = () => {
-    const state = voiceSnapshot.state;
-    const isMuted = voiceSnapshot.isMuted;
+    const status = voiceSnapshot.status;
+    const activity = voiceSnapshot.activity;
+    const isMuted = voiceSnapshot.muted;
+    const isEnded = status === "idle" || status === "ended";
 
     voiceBtn.className = "chat-voice-btn";
-    if (state !== "idle") {
+    if (!isEnded) {
       voiceBtn.classList.add("is-active");
       if (isMuted) voiceBtn.classList.add("is-muted");
     }
 
-    if (state === "idle") {
+    if (isEnded) {
       voiceBtnLabel.textContent = "Talk";
       voiceBanner.style.display = "none";
     } else {
-      voiceBtnLabel.textContent = isMuted ? "Unmute" : state === "listening" ? "Listening" : state === "speaking" ? "Speaking" : "Active";
+      voiceBtnLabel.textContent = status === "paused" ? "Retry" : isMuted ? "Unmute" : activity === "listening" ? "Listening" : activity === "thinking" ? "Thinking" : activity === "acting" ? "Acting" : activity === "speaking" ? "Speaking" : "Active";
       voiceBanner.style.display = "flex";
 
-      if (state === "listening") {
+      if (status === "paused") {
+        voiceBannerText.textContent = voiceSnapshot.error?.message || "Voice paused";
+      } else if (activity === "listening") {
         voiceBannerText.textContent = isMuted ? "Microphone is muted" : "Listening to you...";
-      } else if (state === "thinking") {
+      } else if (activity === "thinking" || activity === "acting") {
         voiceBannerText.textContent = "Thinking...";
-      } else if (state === "speaking") {
+      } else if (activity === "speaking") {
         voiceBannerText.textContent = "Speaking...";
-      } else if (state === "error") {
-        voiceBannerText.textContent = voiceSnapshot.error || "Voice error";
       } else {
         voiceBannerText.textContent = "Voice connected";
       }
 
       voiceBannerActions.innerHTML = "";
-      if (state === "error") {
+      if (status === "paused") {
         const retryBtn = document.createElement("button");
         retryBtn.type = "button";
         retryBtn.className = "chat-voice-action-btn";
         retryBtn.textContent = "Retry";
         retryBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-retry"));
         voiceBannerActions.appendChild(retryBtn);
-      } else {
+      } else if (status !== "ending") {
         const muteBtn = document.createElement("button");
         muteBtn.type = "button";
         muteBtn.className = "chat-voice-action-btn";
@@ -746,7 +785,7 @@ const installDefaultPetChat = () => {
         });
         voiceBannerActions.appendChild(muteBtn);
 
-        if (state === "speaking") {
+        if (activity === "speaking") {
           const interruptBtn = document.createElement("button");
           interruptBtn.type = "button";
           interruptBtn.className = "chat-voice-action-btn";
@@ -756,12 +795,14 @@ const installDefaultPetChat = () => {
         }
       }
 
-      const endBtn = document.createElement("button");
-      endBtn.type = "button";
-      endBtn.className = "chat-voice-action-btn is-end";
-      endBtn.textContent = "End";
-      endBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-end"));
-      voiceBannerActions.appendChild(endBtn);
+      if (status !== "ending") {
+        const endBtn = document.createElement("button");
+        endBtn.type = "button";
+        endBtn.className = "chat-voice-action-btn is-end";
+        endBtn.textContent = "End";
+        endBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-end"));
+        voiceBannerActions.appendChild(endBtn);
+      }
     }
   };
 
@@ -965,11 +1006,13 @@ const installDefaultPetChat = () => {
   });
 
   voiceBtn.addEventListener("click", () => {
-    if (voiceSnapshot.state === "idle") {
+    if (voiceSnapshot.status === "idle" || voiceSnapshot.status === "ended") {
       ipcRenderer.invoke("openpets:default-pet-chat-voice-start").catch((err) => {
         showErrorToast(err && err.message ? err.message : "Failed to start voice");
       });
-    } else if (voiceSnapshot.isMuted) {
+    } else if (voiceSnapshot.status === "paused") {
+      ipcRenderer.invoke("openpets:default-pet-chat-voice-retry").catch(() => {});
+    } else if (voiceSnapshot.muted) {
       ipcRenderer.invoke("openpets:default-pet-chat-voice-unmute").catch(() => {});
     } else {
       ipcRenderer.invoke("openpets:default-pet-chat-voice-mute").catch(() => {});
@@ -1028,15 +1071,24 @@ const installDefaultPetChat = () => {
     }
   });
 
+  ipcRenderer.on("openpets:default-pet-chat-compact-changed", (_event, open) => {
+    const nextOpen = Boolean(open);
+    if (isCompactOpen === nextOpen) return;
+    isCompactOpen = nextOpen;
+    document.documentElement.dataset.compactComposerOpen = nextOpen ? "true" : "false";
+    if (nextOpen) {
+      compactInput.value = preservedDraft;
+      autoResizeCompactInput();
+      updateCompactSendButtonState();
+      setTimeout(() => compactInput.focus(), 30);
+    }
+  });
+
   // --- Conversation Event Listener ---
   ipcRenderer.on("openpets:default-pet-chat-event", (_event, payload) => {
     if (!payload) return;
     if (payload.type === "snapshot" && payload.snapshot) {
-      conversationSnapshot = payload.snapshot;
-      if (payload.snapshot.promptSuggestions) {
-        promptSuggestions = payload.snapshot.promptSuggestions;
-      }
-      renderAll();
+      applyConversationSnapshot(payload.snapshot);
     }
   });
 
@@ -1044,26 +1096,32 @@ const installDefaultPetChat = () => {
   ipcRenderer.on("openpets:default-pet-chat-voice-event", (_event, payload) => {
     if (!payload) return;
     if (payload.type === "snapshot" && payload.snapshot) {
-      voiceSnapshot = payload.snapshot;
-      renderAll();
-    } else if (payload.type === "state-changed") {
-      voiceSnapshot = { ...voiceSnapshot, state: payload.state, isMuted: Boolean(payload.isMuted), error: payload.error ?? null };
-      renderAll();
+      applyVoiceSnapshot(payload.snapshot, typeof payload.sequence === "number" ? payload.sequence : 0);
     }
   });
 
   // --- Initial Snapshots Fetch ---
   ipcRenderer.invoke("openpets:default-pet-chat-get-snapshot").then((snap) => {
     if (snap) {
-      conversationSnapshot = snap;
-      renderAll();
+      applyConversationSnapshot(snap);
     }
   }).catch(() => {});
 
   ipcRenderer.invoke("openpets:default-pet-chat-get-voice-snapshot").then((snap) => {
     if (snap) {
-      voiceSnapshot = snap;
-      renderAll();
+      applyVoiceSnapshot(snap, 0);
+    }
+  }).catch(() => {});
+
+  ipcRenderer.invoke("openpets:default-pet-chat-is-compact-open").then((open) => {
+    if (typeof open === "boolean") {
+      isCompactOpen = open;
+      document.documentElement.dataset.compactComposerOpen = open ? "true" : "false";
+      if (open) {
+        compactInput.value = preservedDraft;
+        autoResizeCompactInput();
+        updateCompactSendButtonState();
+      }
     }
   }).catch(() => {});
 

@@ -21,7 +21,9 @@ import {
   type ProviderControlCenterSnapshot,
   type ProviderProfileInput,
   type ProviderProfilePatch,
+  type ProviderConfigurationSaveInput,
 } from "./settings/providers/index.js";
+import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
 import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
 import { resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 
@@ -165,6 +167,9 @@ type ControlCenterApi = {
   submitManagerCheckIn(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
   setManagerCheckInScheduledOffersPaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
+  getConversationHistory(): Promise<readonly PetAssistantArchivedMessage[]>;
+  deleteConversationHistoryMessage(id: string): Promise<{ deleted: boolean }>;
+  clearConversationHistory(): Promise<{ cleared: true }>;
   getLanStatus(): Promise<LanStatusSnapshot>;
   getI18n(): Promise<I18nSnapshot>;
   updatePreferences(patch: PreferencePatch): Promise<SettingsState>;
@@ -192,6 +197,7 @@ type ControlCenterApi = {
   getProviderProfiles(): Promise<ProviderControlCenterSnapshot>;
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
+  saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   updateProviderGates(patch: ProviderGatesPatch): Promise<ProviderControlCenterSnapshot>;
@@ -555,6 +561,14 @@ const ProvidersIcon = ({ className = "nav-icon" }: { className?: string }) => (
     <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
     <line x1="6" y1="6" x2="6.01" y2="6" />
     <line x1="6" y1="18" x2="6.01" y2="18" />
+  </svg>
+);
+
+const HistoryIcon = ({ className = "nav-icon" }: { className?: string }) => (
+  <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3v5h5" />
+    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+    <path d="M12 7v5l4 2" />
   </svg>
 );
 
@@ -1242,7 +1256,7 @@ function shortcutBadgeClass(status?: VoiceAssistantShortcutStatus): string {
   return "voice-badge-neutral";
 }
 
-type SettingsTab = "general" | "personality" | "reactions" | "providers" | "plugins" | "lan" | "remote";
+type SettingsTab = "general" | "personality" | "history" | "reactions" | "providers" | "plugins" | "lan" | "remote";
 
 const settingsNavGroups: ReadonlyArray<{
   readonly labelKey: string;
@@ -1259,6 +1273,7 @@ const settingsNavGroups: ReadonlyArray<{
     labelKey: "settings.nav.group.assistant",
     items: [
       { id: "personality", labelKey: "settings.nav.personality", icon: <MessageIcon className="settings-nav-icon" /> },
+      { id: "history", labelKey: "settings.nav.history", icon: <HistoryIcon className="settings-nav-icon" /> },
       { id: "providers", labelKey: "settings.nav.providers", icon: <ProvidersIcon className="settings-nav-icon" /> },
     ],
   },
@@ -1757,6 +1772,15 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === "history" && (
+          <ConversationArchiveSection
+            busy={busy}
+            run={run}
+            setMessage={setMessage}
+            setError={setError}
+          />
         )}
 
         {activeTab === "reactions" && (

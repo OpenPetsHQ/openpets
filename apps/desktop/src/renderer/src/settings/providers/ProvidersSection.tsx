@@ -10,12 +10,14 @@ import type {
   ProviderProfilePatch,
   ProviderProfileSummary,
   ProviderRole,
+  ProviderConfigurationSaveInput,
 } from "./types.js";
 
 export type ProvidersSectionApi = {
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
+  saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   setProviderProfileCredential(id: string, value: string): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfileCredential(id: string): Promise<ProviderControlCenterSnapshot>;
@@ -122,56 +124,30 @@ export function ProvidersSection({
     });
   }
 
-  async function handleModalSave({
-    isEditing,
-    profileId,
-    payload,
-    credentialValue,
-    activatedRoles,
-    deactivatedRoles,
-  }: {
-    readonly isEditing: boolean;
-    readonly profileId: string;
-    readonly payload: ProviderProfileInput | ProviderProfilePatch;
-    readonly credentialValue?: string;
-    readonly activatedRoles: readonly ProviderRole[];
-    readonly deactivatedRoles: readonly ProviderRole[];
-  }) {
+  async function handleModalSave(input: ProviderConfigurationSaveInput) {
+    const { isEditing, activatedRoles } = input;
+    let failure: unknown;
+    let failed = false;
     await run(isEditing ? "Updating profile..." : "Creating profile...", async () => {
-      const api = getApi();
-      let nextSnapshot: ProviderControlCenterSnapshot;
-
-      // 1. Create or Update Profile
-      if (isEditing) {
-        nextSnapshot = await api.updateProviderProfile(profileId, payload);
-      } else {
-        nextSnapshot = await api.createProviderProfile(payload as ProviderProfileInput);
+      try {
+        const nextSnapshot = await getApi().saveProviderConfiguration(input);
+        onSnapshotChange(nextSnapshot);
+        setMessage(
+          isEditing
+            ? "Provider profile updated successfully."
+            : activatedRoles.length > 0
+              ? "Provider profile created and activated."
+              : "Provider profile created and saved to library."
+        );
+      } catch (error) {
+        failed = true;
+        failure = error;
+        throw error;
       }
-
-      // 2. Set credential if provided
-      if (credentialValue) {
-        nextSnapshot = await api.setProviderProfileCredential(profileId, credentialValue);
-      }
-
-      // 3. Apply role deactivations
-      for (const role of deactivatedRoles) {
-        nextSnapshot = await api.selectProviderProfile(role, null);
-      }
-
-      // 4. Apply role activations
-      for (const role of activatedRoles) {
-        nextSnapshot = await api.selectProviderProfile(role, profileId);
-      }
-
-      onSnapshotChange(nextSnapshot);
-      setMessage(
-        isEditing
-          ? "Provider profile updated successfully."
-          : activatedRoles.length > 0
-            ? "Provider profile created and activated."
-            : "Provider profile created and saved to library."
-      );
     });
+    // `run` owns the page-level error state and deliberately swallows errors;
+    // reject this modal action as well so the modal remains open and renders it.
+    if (failed) throw failure;
   }
 
   const gates = snapshot?.gates ?? {

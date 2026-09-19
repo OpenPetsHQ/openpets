@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { calculatePetInteractiveShape, isRectangleContained } from "../src/pet-window-shape.js";
+import { calculatePetInteractiveShape, compactComposerGeometry, isRectangleContained } from "../src/pet-window-shape.js";
 import { defaultPetWindowSize } from "../src/display.js";
 import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default-pet-chat-geometry.js";
 
@@ -70,6 +70,61 @@ import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default
 
   // Pet hitbox remains anchored at the bottom
   assert.ok(expandedShapeInfo.petHitbox.y > (expandedShapeInfo.chatPanel?.y ?? 0));
+}
+
+// --- Compact composer input shape ---
+
+{
+  const compactShapeInfo = calculatePetInteractiveShape({
+    windowWidth: defaultPetWindowSize.width,
+    windowHeight: defaultPetWindowSize.height,
+    spriteWidth: 32,
+    spriteHeight: 32,
+    scale: 3,
+    hasBubble: false,
+    isExpanded: false,
+    isCompactOpen: true,
+  });
+
+  assert.equal(compactShapeInfo.shape.length, 2, "open compact chat adds a second input region");
+  assert.notEqual(compactShapeInfo.compactComposer, undefined);
+  const composer = compactShapeInfo.compactComposer!;
+  assert.equal(composer.width, compactComposerGeometry.maxWidth);
+  assert.equal(composer.height, compactComposerGeometry.maxHeight);
+  const expectedComposerY = defaultPetWindowSize.height - Math.ceil(22 + 32 * 3 + 8) - compactComposerGeometry.maxHeight;
+  assert.equal(composer.y, expectedComposerY, "the input mask follows the composer's absolute bottom anchor");
+
+  const contentX = composer.x + compactComposerGeometry.borderWidth;
+  const contentWidth = composer.width - compactComposerGeometry.borderWidth * 2;
+  const header = {
+    x: contentX,
+    y: composer.y + compactComposerGeometry.borderWidth,
+    width: contentWidth,
+    height: compactComposerGeometry.headerHeight,
+  };
+  const error = {
+    x: contentX,
+    y: header.y + header.height + compactComposerGeometry.gap,
+    width: contentWidth,
+    height: compactComposerGeometry.errorMaxHeight,
+  };
+  const form = {
+    x: contentX,
+    y: error.y + error.height + compactComposerGeometry.gap,
+    width: contentWidth,
+    height: compactComposerGeometry.textareaMaxHeight,
+  };
+  const textarea = { ...form, width: form.width - compactComposerGeometry.controlHeight - 5 };
+  const controls = {
+    x: textarea.x + textarea.width + 5,
+    y: form.y + form.height - compactComposerGeometry.controlHeight,
+    width: compactComposerGeometry.controlHeight,
+    height: compactComposerGeometry.controlHeight,
+  };
+
+  for (const [name, part] of Object.entries({ header, error, textarea, controls })) {
+    assert.ok(isRectangleContained(part, composer), `${name} must remain clickable inside the compact shape`);
+  }
 }
 
 console.log("pet-window-shape tests passed.");

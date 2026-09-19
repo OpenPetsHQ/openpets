@@ -209,6 +209,7 @@ export const en = {
   // --- Settings: general (renderer) ---
   "settings.nav.general": "General",
   "settings.nav.personality": "Personality",
+  "settings.nav.history": "Conversation Archive",
   "settings.nav.reactions": "Reaction Mapping",
   "settings.nav.plugins": "Plugin Platform",
   "settings.nav.lan": "LAN",
@@ -283,6 +284,25 @@ export const en = {
   "settings.personality.responseLength.detailed": "Detailed",
   "settings.personality.saveHint": "Changes are stored in the desktop profile and take effect on the next assistant turn.",
   "settings.personality.save": "Save personality",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "Conversation",
+  "settings.archive.title": "Conversation Archive",
+  "settings.archive.description": "Manage the local conversation history persisted on this computer.",
+  "settings.archive.boundary.title": "Local-only conversation archive",
+  "settings.archive.boundary.description": "Archived turns are saved locally in openpets-conversation-history.json (up to 200 messages / 30 days / 512 KiB). Up to 24 recent messages provide context for upcoming turns. The in-pet companion transcript is transient current-session history, separate from this persisted archive. No cloud sync or provider calls are used to read or delete this archive.",
+  "settings.archive.empty.title": "No archived messages",
+  "settings.archive.empty.description": "Terminal user and assistant messages from your companion conversations will be persisted here automatically.",
+  "settings.archive.clear": "Clear Archive",
+  "settings.archive.clearConfirm.title": "Clear conversation archive?",
+  "settings.archive.clearConfirm.description": "This will permanently delete all persisted conversation history from disk. The current in-memory companion session is unaffected.",
+  "settings.archive.delete": "Delete",
+  "settings.archive.refresh": "Refresh",
+  "settings.archive.searchPlaceholder": "Filter archived messages...",
+  "settings.archive.user": "You",
+  "settings.archive.assistant": "Assistant",
+  "settings.archive.toast.deleted": "Archived message deleted.",
+  "settings.archive.toast.cleared": "Conversation archive cleared.",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "Office Pet",

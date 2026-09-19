@@ -74,7 +74,7 @@ pet-window.ts
 │   ├── reaction-animation-mapping.ts (resolveReactionSpriteState)
 │   ├── reaction-messages.ts (pickReactionMessage for bubbles)
 │   ├── i18n/reactions (localized reaction speech pools)
-│   └── Speech bubbles, alert indicators, pinned HUDs, and status reactions
+│   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
 └── pet-preload.cjs (renderer IPC for drag/click-through)
 
 Plugin motion APIs:
@@ -181,6 +181,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `windows.ts` ↔ `app-state.ts`, `agent-setup.ts`, `catalog.ts`, `codex-pets.ts`, `update-checker.ts` for Control Center route snapshots/actions
   - `windows.ts` ↔ `plugin-service.ts` for Control Center plugin UI IPC, plugin commands, and Dashboard plugin health
   - `pet-window.ts` ↔ `default-pet-controller.ts`, `agent-pet-controller.ts`
+  - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
   - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
   - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
@@ -214,11 +215,15 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-assistant-history-ipc.ts`: Pure narrow history list/delete/clear handler helpers, including startup and identifier validation
 - `pet-assistant-conversation.ts`: Host-owned current-session presentation projection, stable typed-chat controller, cancellation seam, and normalized voice-transcript seam
 - `pet-assistant-personality.ts`: Pure personality defaults, bounds, patch validation, and safe deterministic serialization
+- `team-service.ts`: Teams enrollment preview lifecycle, authoritative identity/expiry snapshots, serialized enrollment/sync/leave operations, and preview-change subscriptions used to refresh an already-running Control Center route
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet.default, pet.agent, pet.window, state, tray, ui), log rotation, redaction
+- `bundled-plugins.ts`: Canonical official plugin IDs shared by plugin seeding and packaged-output validation
+- `packaging-contract.ts`: Packaged bundled-plugin manifest/asset/locale and unpacked integration-runtime contract helpers
+- `artifact-payload.ts`: Cross-platform distributable extraction for target-aware packaged payload validation
 
 **UI**:
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
-- `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, and scoped internal protocols
+  - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
@@ -294,7 +299,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-oauth.ts`: Host-mediated OAuth/PKCE flow and token session lifecycle for plugins.
 - `plugin-panels.ts`: Sandboxed plugin panel BrowserWindow coordinator and message bridge.
 - `plugin-pet-registry.ts`: Registry for default and plugin-spawned pets, including lifecycle and SDK targeting.
-- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; no legacy `ai` object is read.
+- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
 - `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, and provider failures remain operation errors rather than plugin health failures.
 - `plugin-secrets.ts`: Plugin-scoped encrypted secret storage backed by Electron safe storage primitives.
 - `plugin-toast.ts`: Host toast/notification routing for plugin UI events.

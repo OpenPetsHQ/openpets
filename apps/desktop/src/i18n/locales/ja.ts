@@ -196,6 +196,8 @@ export const ja: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "一般",
+  "settings.nav.personality": "パーソナリティ",
+  "settings.nav.history": "会話アーカイブ",
   "settings.nav.reactions": "リアクション設定",
   "settings.nav.plugins": "プラグインプラットフォーム",
   "settings.nav.lan": "LAN",
@@ -233,6 +235,25 @@ export const ja: Partial<Messages> = {
   "settings.busy.resetting": "リセット中",
   "settings.busy.opening": "開いています",
   "settings.busy.checking": "確認中",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "会話",
+  "settings.archive.title": "会話アーカイブ",
+  "settings.archive.description": "アシスタントのコンテキストに使用される、このコンピューター上に保持されたローカルの会話履歴を管理します。",
+  "settings.archive.boundary.title": "ローカル限定の会話アーカイブ",
+  "settings.archive.boundary.description": "アーカイブされたターンは openpets-conversation-history.json にローカル保存されます（最大200件 / 30日間 / 512 KiB）。直近の最大24件が次回ターンのコンテキストとして使用されます。ペット内のチャット表示は現在のセッションの一時的な履歴であり、この保存済みアーカイブとは別物です。このアーカイブの読み取りや削除にクラウド同期やプロバイダー呼び出しは使用されません。",
+  "settings.archive.empty.title": "アーカイブされたメッセージはありません",
+  "settings.archive.empty.description": "コンパニオンとの会話のメッセージはここに自動的に保存されます。",
+  "settings.archive.clear": "アーカイブを消去",
+  "settings.archive.clearConfirm.title": "会話アーカイブを消去しますか？",
+  "settings.archive.clearConfirm.description": "ディスク上の保存済み会話履歴がすべて完全に削除されます。現在のメモリ内セッションには影響しません。",
+  "settings.archive.delete": "削除",
+  "settings.archive.refresh": "更新",
+  "settings.archive.searchPlaceholder": "メッセージを検索...",
+  "settings.archive.user": "あなた",
+  "settings.archive.assistant": "アシスタント",
+  "settings.archive.toast.deleted": "アーカイブされたメッセージを削除しました。",
+  "settings.archive.toast.cleared": "会話アーカイブを消去しました。",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "オフィスペット",

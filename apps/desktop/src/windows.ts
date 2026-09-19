@@ -50,12 +50,14 @@ import {
   isProviderSecretRefReferenced,
   isProviderRole,
   selectProviderProfile,
+  saveProviderConfiguration,
   updateProviderProfile,
   updatePluginPlatformSettings,
   validateProviderGatesPatch,
   validateProviderProfilePatch,
   validateProviderProfile,
   type ProviderProfileInput,
+  type ProviderConfigurationSaveInput,
 } from "./plugin-platform-settings.js";
 
 type InternalUiWindowKind = "control-center";
@@ -396,6 +398,17 @@ export function installInternalUiHandlers(): void {
     updateProviderProfile(id, validateProviderProfilePatch(patch));
     const next = getPluginPlatformSettings().profiles[id];
     if (previous?.secretRef && previous.secretRef !== next?.secretRef && !isProviderSecretRefReferenced(getPluginPlatformSettings(), previous.secretRef)) await getProviderCapabilities().secretsStore.delete("__openpets-host", `provider:${previous.secretRef}`);
+    return getProviderControlCenterSnapshot();
+  });
+  ipcMain.handle("openpets:provider-profile-save", async (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    const save = validateProviderConfigurationSaveInput(input);
+    const capabilities = getProviderCapabilities();
+    await saveProviderConfiguration(save, {
+      get: (ref) => capabilities.secretsStore.get("__openpets-host", `provider:${ref}`),
+      set: (ref, value) => capabilities.secretsStore.set("__openpets-host", `provider:${ref}`, value),
+      delete: (ref) => capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`),
+    });
     return getProviderControlCenterSnapshot();
   });
   ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
@@ -980,6 +993,31 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value) as unknown;
   return prototype === Object.prototype || prototype === null;
+}
+
+function validateProviderConfigurationSaveInput(value: unknown): ProviderConfigurationSaveInput {
+  if (!isPlainObject(value)
+    || typeof value.isEditing !== "boolean"
+    || typeof value.profileId !== "string"
+    || !isPlainObject(value.payload)
+    || !Array.isArray(value.activatedRoles)
+    || !Array.isArray(value.deactivatedRoles)) {
+    throw new Error("Invalid provider configuration save.");
+  }
+  if (value.credentialValue !== undefined
+    && (typeof value.credentialValue !== "string"
+      || value.credentialValue.length === 0
+      || Buffer.byteLength(value.credentialValue, "utf8") > 16 * 1024)) {
+    throw new Error("Invalid provider credential.");
+  }
+  return {
+    isEditing: value.isEditing,
+    profileId: value.profileId,
+    payload: value.payload as ProviderConfigurationSaveInput["payload"],
+    ...(value.credentialValue === undefined ? {} : { credentialValue: value.credentialValue }),
+    activatedRoles: value.activatedRoles as ProviderConfigurationSaveInput["activatedRoles"],
+    deactivatedRoles: value.deactivatedRoles as ProviderConfigurationSaveInput["deactivatedRoles"],
+  };
 }
 
 function getControlCenterPreloadPath(): string {

@@ -27,7 +27,8 @@ import {
   profileSupportsRole,
   type ProviderAdapter,
   type ProviderAuth,
-  type ProviderHeader,
+  type ProviderHeaderPatch,
+  type ProviderConfigurationSaveInput,
   type ProviderProfileInput,
   type ProviderProfilePatch,
   type ProviderProfileSummary,
@@ -42,14 +43,15 @@ export type ProviderModalProps = {
   readonly currentSelections: ProviderSelections;
   readonly busy: string;
   readonly onClose: () => void;
-  readonly onSave: (params: {
-    readonly isEditing: boolean;
-    readonly profileId: string;
-    readonly payload: ProviderProfileInput | ProviderProfilePatch;
-    readonly credentialValue?: string;
-    readonly activatedRoles: readonly ProviderRole[];
-    readonly deactivatedRoles: readonly ProviderRole[];
-  }) => Promise<void>;
+  readonly onSave: (params: ProviderConfigurationSaveInput) => Promise<void>;
+};
+
+type HeaderDraft = {
+  readonly key: string;
+  readonly originalName?: string;
+  readonly name: string;
+  readonly value: string;
+  readonly deleted?: boolean;
 };
 
 export function ProviderModal({
@@ -86,7 +88,7 @@ export function ProviderModal({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customAuth, setCustomAuth] = useState<ProviderAuth | null>(null);
   const [authEdited, setAuthEdited] = useState(false);
-  const [headers, setHeaders] = useState<ProviderHeader[]>([]);
+  const [headers, setHeaders] = useState<HeaderDraft[]>([]);
   const [headersEdited, setHeadersEdited] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -103,7 +105,7 @@ export function ProviderModal({
       setSecretRef(editingProfile.secretRef);
       setCustomAuth(editingProfile.auth ?? null);
       setAuthEdited(false);
-      setHeaders([]);
+      setHeaders(editingProfile.headerNames.map((name) => ({ key: `existing-${name}`, originalName: name, name, value: "" })));
       setHeadersEdited(false);
       setInlineKey("");
 
@@ -131,7 +133,7 @@ export function ProviderModal({
     setInlineKey("");
 
     if (preset.suggestedHeaders && preset.suggestedHeaders.length > 0) {
-      setHeaders([...preset.suggestedHeaders]);
+      setHeaders(preset.suggestedHeaders.map((header, index) => ({ ...header, key: `suggested-${index}` })));
       setHeadersEdited(true);
     } else {
       setHeaders([]);
@@ -174,6 +176,25 @@ export function ProviderModal({
       return;
     }
 
+    const headerPatch: ProviderHeaderPatch[] = [];
+    if (isEditing && headersEdited) {
+      for (const header of headers) {
+        if (header.deleted) {
+          if (header.originalName) headerPatch.push({ op: "delete", name: header.originalName });
+          continue;
+        }
+        const name = header.name.trim();
+        const value = header.value.trim();
+        if (header.originalName) {
+          if (name !== header.originalName || value) {
+            headerPatch.push({ op: "replace", oldName: header.originalName, name, value });
+          }
+        } else if (name || value) {
+          headerPatch.push({ op: "add", name, value });
+        }
+      }
+    }
+
     const payload: ProviderProfileInput | ProviderProfilePatch = isEditing
       ? {
           id: trimmedId,
@@ -183,7 +204,11 @@ export function ProviderModal({
           baseUrl: adapter === "system-tts" ? null : trimmedBaseUrl || null,
           secretRef: adapter === "system-tts" ? null : secretRef?.trim() || null,
           auth: adapter === "system-tts" ? null : authEdited ? customAuth : undefined,
-          headers: adapter === "system-tts" ? [] : headersEdited ? headers : undefined,
+          ...(adapter === "system-tts"
+            ? { headers: [] }
+            : headersEdited
+              ? { headerPatch }
+              : {}),
         }
       : {
           id: trimmedId,
@@ -196,7 +221,9 @@ export function ProviderModal({
                 baseUrl: trimmedBaseUrl || undefined,
                 secretRef: secretRef?.trim() || undefined,
                 auth: customAuth ?? undefined,
-                headers: headers.length > 0 ? headers : undefined,
+                headers: headers
+                  .filter((header) => !header.deleted)
+                  .map(({ name, value }) => ({ name, value })),
               }),
         };
 
@@ -654,9 +681,9 @@ export function ProviderModal({
                     <button
                       type="button"
                       className="btn btn-secondary btn-compact text-[11px] flex items-center gap-1"
-                      disabled={isBusy || headers.length >= 16}
+                      disabled={isBusy || headers.filter((header) => !header.deleted).length >= 16}
                       onClick={() => {
-                        setHeaders([...headers, { name: "", value: "" }]);
+                        setHeaders([...headers, { key: `new-${Date.now()}-${headers.length}`, name: "", value: "" }]);
                         setHeadersEdited(true);
                       }}
                     >
@@ -665,8 +692,8 @@ export function ProviderModal({
                     </button>
                   </div>
 
-                  {headers.map((hdr, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
+                  {headers.filter((header) => !header.deleted).map((hdr) => (
+                    <div key={hdr.key} className="flex gap-2 items-center">
                       <input
                         type="text"
                         className="settings-select flex-1 text-xs font-mono"
@@ -674,22 +701,18 @@ export function ProviderModal({
                         value={hdr.name}
                         disabled={isBusy}
                         onChange={(e) => {
-                          const updated = [...headers];
-                          updated[idx] = { ...updated[idx], name: e.target.value };
-                          setHeaders(updated);
+                          setHeaders(headers.map((header) => header.key === hdr.key ? { ...header, name: e.target.value } : header));
                           setHeadersEdited(true);
                         }}
                       />
                       <input
                         type="text"
                         className="settings-select flex-1 text-xs font-mono"
-                        placeholder="Header Value"
+                        placeholder={hdr.originalName ? "Leave blank to keep stored value" : "Header Value"}
                         value={hdr.value}
                         disabled={isBusy}
                         onChange={(e) => {
-                          const updated = [...headers];
-                          updated[idx] = { ...updated[idx], value: e.target.value };
-                          setHeaders(updated);
+                          setHeaders(headers.map((header) => header.key === hdr.key ? { ...header, value: e.target.value } : header));
                           setHeadersEdited(true);
                         }}
                       />
@@ -698,7 +721,9 @@ export function ProviderModal({
                         className="text-slatecopy hover:text-red-600 p-1 cursor-pointer"
                         disabled={isBusy}
                         onClick={() => {
-                          setHeaders(headers.filter((_, i) => i !== idx));
+                          setHeaders(headers
+                            .map((header) => header.key === hdr.key && header.originalName ? { ...header, deleted: true } : header)
+                            .filter((header) => header.key !== hdr.key || Boolean(header.originalName)));
                           setHeadersEdited(true);
                         }}
                       >

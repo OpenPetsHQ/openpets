@@ -196,6 +196,8 @@ export const es419: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "General",
+  "settings.nav.personality": "Personalidad",
+  "settings.nav.history": "Archivo de conversaciones",
   "settings.nav.reactions": "Asignación de reacciones",
   "settings.nav.plugins": "Plataforma de complementos",
   "settings.nav.lan": "LAN",
@@ -233,6 +235,25 @@ export const es419: Partial<Messages> = {
   "settings.busy.resetting": "Restableciendo",
   "settings.busy.opening": "Abriendo",
   "settings.busy.checking": "Verificando",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "Conversación",
+  "settings.archive.title": "Archivo de conversaciones",
+  "settings.archive.description": "Administra el historial de conversaciones local guardado en esta computadora.",
+  "settings.archive.boundary.title": "Archivo de conversaciones solo local",
+  "settings.archive.boundary.description": "Los turnos archivados se guardan localmente en openpets-conversation-history.json (hasta 200 mensajes / 30 días / 512 KiB). Hasta 24 mensajes recientes proporcionan contexto para los próximos turnos. El historial del chat del compañero en la mascota es una sesión temporal en memoria, separada de este archivo persistente. No se utilizan sincronizaciones en la nube ni llamadas a proveedores para leer o eliminar este archivo.",
+  "settings.archive.empty.title": "No hay mensajes archivados",
+  "settings.archive.empty.description": "Los mensajes finales del usuario y del asistente de tus conversaciones con la mascota se guardarán aquí automáticamente.",
+  "settings.archive.clear": "Vaciar archivo",
+  "settings.archive.clearConfirm.title": "¿Vaciar el archivo de conversaciones?",
+  "settings.archive.clearConfirm.description": "Esto eliminará permanentemente todo el historial de conversaciones guardado en el disco. La sesión actual en memoria no se verá afectada.",
+  "settings.archive.delete": "Eliminar",
+  "settings.archive.refresh": "Actualizar",
+  "settings.archive.searchPlaceholder": "Filtrar mensajes archivados...",
+  "settings.archive.user": "Tú",
+  "settings.archive.assistant": "Asistente",
+  "settings.archive.toast.deleted": "Mensaje archivado eliminado.",
+  "settings.archive.toast.cleared": "Archivo de conversaciones vaciado.",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "Mascota de oficina",

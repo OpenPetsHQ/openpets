@@ -23,9 +23,9 @@ import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForw
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
 import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayland-layer-backend.js";
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
-import { calculatePetInteractiveShape } from "./pet-window-shape.js";
+import { calculatePetInteractiveShape, compactComposerGeometry } from "./pet-window-shape.js";
 import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
-import { isDefaultPetChatExpanded } from "./default-pet-chat.js";
+import { isDefaultPetChatCompactOpen, isDefaultPetChatExpanded } from "./default-pet-chat.js";
 
 export interface PetWindowInteractionHooks {
   readonly onBubbleDismissed?: (dismissToken: string) => void;
@@ -946,7 +946,7 @@ function applyPetAlwaysOnTop(window: BrowserWindow): void {
 export async function loadDefaultPetContent(window: BrowserWindow, paused: boolean, display: PetTransientDisplay | null = null, badge: PetStatusBadgeReaction | null = null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<void> {
   const sequence = allocateWindowLoadSequence(window);
   debug("pet.window", "default content render begin", { windowId: window.id, sequence, paused, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge, hasPluginBubble: Boolean(pluginBubbles?.transient), hasPinned: Boolean(pluginBubbles?.pinned), defaultPetId: getAppStateSnapshot().preferences.defaultPetId });
-  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded());
+  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded() || isDefaultPetChatCompactOpen());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
   applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || paused || pluginBubbles?.transient || pluginBubbles?.pinned));
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
@@ -1141,6 +1141,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     scale,
     hasBubble,
     isExpanded,
+    isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
   });
 
   // setShape's rects are undocumented as to units, but empirically the window's
@@ -1165,7 +1166,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
   }
 }
 
-export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isExpanded: boolean): void {
+export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isExpanded: boolean, isCompactOpen = isDefaultPetChatCompactOpen()): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
   const state = getAppStateSnapshot();
@@ -1179,6 +1180,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
     scale,
     hasBubble: false,
     isExpanded,
+    isCompactOpen: !isExpanded && isCompactOpen,
   });
 
   const scaleFactor = screen.getDisplayMatching(bounds).scaleFactor;
@@ -1191,7 +1193,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
 
   try {
     window.setShape(physicalShape);
-    debug("pet.window", "linux window shape applied with expansion", { windowId: window.id, isExpanded, scaleFactor, shape: physicalShape });
+    debug("pet.window", "linux window shape applied with expansion", { windowId: window.id, isExpanded, isCompactOpen, scaleFactor, shape: physicalShape });
   } catch (error) {
     logError("pet.window", "linux window shape with expansion failed", error instanceof Error ? error : { error });
   }
@@ -1200,7 +1202,7 @@ export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isE
 export function refreshDefaultPetFocusPolicy(window: BrowserWindow): void {
   if (window.isDestroyed()) return;
   const expanded = isDefaultPetChatExpanded();
-  applyPetWindowFocusPolicy(window, expanded);
+  applyPetWindowFocusPolicy(window, expanded || isDefaultPetChatCompactOpen());
 }
 
 async function createDefaultPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<PetContentRender> {
@@ -1375,10 +1377,11 @@ async function createInstalledPetRender(
 
 function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false, petRole: "default" | "agent" = "default"): string {
   const launcherSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  const launcherButton = petRole === "default"
+  const hasMessageOrBubble = Boolean(bubble.trim() || pinnedBubble.trim() || hasPinned);
+  const launcherButton = (petRole === "default" && !hasMessageOrBubble)
     ? `<button type="button" class="openpets-companion-launcher" data-openpets-companion-launcher aria-label="Open companion chat" title="Open companion chat">${launcherSvg}</button>`
     : "";
-  return `<div class="stage${hasPinned ? " has-pinned" : ""}" aria-label="${stageLabel}" data-pet-role="${petRole}">
+  return `<div class="stage${hasPinned ? " has-pinned" : ""}${hasMessageOrBubble ? " has-bubble" : ""}" aria-label="${stageLabel}" data-pet-role="${petRole}">
     ${pinnedBubble}
     ${bubble}
     <div class="pet-hitbox" aria-hidden="true">
@@ -1409,9 +1412,17 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
     html { color: #172033; }
     body { -webkit-app-region: no-drag; pointer-events: none; }
     .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; }
-    .openpets-companion-launcher { position: absolute; right: 8px; bottom: 8px; z-index: 5; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(239, 246, 255, 0.92) 100%); color: #2563eb; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16), 0 1px 2px rgba(15, 23, 42, 0.08); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
-    .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12); }
+    .openpets-companion-launcher { position: absolute; right: 12px; top: 4px; z-index: 5; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
+    .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
     .openpets-companion-launcher:active { transform: scale(0.95); }
+    .stage:has(.bubble) .openpets-companion-launcher,
+    .stage.has-bubble .openpets-companion-launcher,
+    .stage.has-pinned .openpets-companion-launcher,
+    .bubble ~ .pet-hitbox .openpets-companion-launcher,
+    html[data-compact-composer-open="true"] .openpets-companion-launcher,
+    html[data-chat-expanded="true"] .openpets-companion-launcher {
+      display: none !important;
+    }
     .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${scaledWidth + hitPadding * 2}px; height: ${scaledHeight + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     .pet-shell { position: relative; width: ${scaledWidth}px; height: ${scaledHeight}px; display: block; opacity: var(--pet-opacity); filter: ${petShellFilter}; transition-property: opacity, filter; transition-duration: 180ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     html[data-flip-x="true"] .pet-shell { transform: scaleX(-1); }
@@ -1601,13 +1612,14 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
       left: 50%;
       bottom: ${bubbleBottom}px;
       transform: translateX(-50%);
-      width: calc(100% - 16px);
-      max-width: 196px;
+       width: calc(100% - ${compactComposerGeometry.horizontalInset * 2}px);
+       max-width: ${compactComposerGeometry.maxWidth}px;
+       max-height: ${compactComposerGeometry.maxHeight}px;
       box-sizing: border-box;
       display: none;
       flex-direction: column;
-      gap: 6px;
-      padding: 8px 10px;
+       gap: ${compactComposerGeometry.gap}px;
+       padding: ${compactComposerGeometry.paddingY}px ${compactComposerGeometry.paddingX}px;
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 245, 255, 0.96) 55%, rgba(237, 233, 254, 0.95) 100%);
       color: #172033;
       border: 1px solid rgba(255, 255, 255, 0.85);
@@ -1715,7 +1727,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
       flex: 1 1 auto;
       min-width: 0;
       min-height: 28px;
-      max-height: 68px;
+       max-height: ${compactComposerGeometry.textareaMaxHeight}px;
       padding: 5px 8px;
       border: 1px solid rgba(203, 213, 225, 0.85);
       border-radius: 9px;
@@ -1780,6 +1792,9 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
       color: #b91c1c;
     }
     .compact-composer-error {
+       box-sizing: border-box;
+       max-height: ${compactComposerGeometry.errorMaxHeight}px;
+       overflow: hidden;
       font-size: 10px;
       font-weight: 600;
       color: #b91c1c;

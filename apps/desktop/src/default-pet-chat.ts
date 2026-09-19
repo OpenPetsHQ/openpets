@@ -22,12 +22,17 @@ import { defaultPetWindowSize, type Point } from "./display.js";
 
 let defaultPetWindowRef: BrowserWindow | null = null;
 let isChatExpanded = false;
+let isChatCompactOpen = false;
 let handlersInstalled = false;
 let conversationUnsubscribe: (() => void) | null = null;
 let voiceUnsubscribe: (() => void) | null = null;
 
 export function isDefaultPetChatExpanded(): boolean {
   return isChatExpanded;
+}
+
+export function isDefaultPetChatCompactOpen(): boolean {
+  return isChatCompactOpen;
 }
 
 export function bindDefaultPetChatWindow(window: BrowserWindow): void {
@@ -47,6 +52,7 @@ export function unbindDefaultPetChatWindow(): void {
   teardownHostSubscriptions();
   defaultPetWindowRef = null;
   isChatExpanded = false;
+  isChatCompactOpen = false;
 }
 
 export function expandDefaultPetChat(): void {
@@ -66,10 +72,35 @@ export function toggleDefaultPetChat(): void {
   setCarrierExpansion(defaultPetWindowRef, !isChatExpanded);
 }
 
+export function setDefaultPetChatCompactOpen(open: boolean): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  if (isChatExpanded) open = false;
+  if (isChatCompactOpen === open) return;
+  isChatCompactOpen = open;
+
+  if (open) {
+    defaultPetWindowRef.setFocusable(true);
+    defaultPetWindowRef.focus();
+  }
+
+  const window = defaultPetWindowRef;
+  void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion, refreshDefaultPetFocusPolicy }) => {
+    if (window.isDestroyed()) return;
+    applyLinuxPetWindowShapeWithExpansion(window, isChatExpanded, isChatCompactOpen);
+    refreshDefaultPetFocusPolicy(window);
+  }).catch(() => {});
+
+  if (!defaultPetWindowRef.webContents.isDestroyed()) {
+    defaultPetWindowRef.webContents.send("openpets:default-pet-chat-compact-changed", open);
+  }
+}
+
 export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): void {
   if (window.isDestroyed()) return;
   if (isChatExpanded === expanded) return;
+  const compactWasOpen = isChatCompactOpen;
   isChatExpanded = expanded;
+  if (expanded) isChatCompactOpen = false;
 
   const currentBounds = window.getBounds();
   const currentPos: Point = { x: currentBounds.x, y: currentBounds.y };
@@ -90,11 +121,14 @@ export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): v
 
   // Refresh Linux shape and focus policy if needed
   void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion, refreshDefaultPetFocusPolicy }) => {
-    applyLinuxPetWindowShapeWithExpansion(window, expanded);
+    applyLinuxPetWindowShapeWithExpansion(window, expanded, isChatCompactOpen);
     refreshDefaultPetFocusPolicy(window);
   }).catch(() => {});
 
   if (!window.webContents.isDestroyed()) {
+    if (compactWasOpen && expanded) {
+      window.webContents.send("openpets:default-pet-chat-compact-changed", false);
+    }
     window.webContents.send("openpets:default-pet-chat-expansion-changed", expanded);
   }
 }
@@ -121,12 +155,26 @@ export function installDefaultPetChatIpcHandlers(): void {
     collapseDefaultPetChat();
   });
 
+  ipcMain.on("openpets:default-pet-chat-compact-open", (event) => {
+    if (!isAuthorizedDefaultPetSender(event.sender.id)) return;
+    setDefaultPetChatCompactOpen(true);
+  });
+
+  ipcMain.on("openpets:default-pet-chat-compact-close", (event) => {
+    if (!isAuthorizedDefaultPetSender(event.sender.id)) return;
+    setDefaultPetChatCompactOpen(false);
+  });
+
   handleChat("openpets:default-pet-chat-get-snapshot", () => {
     return getPetAssistantConversationController()?.getSnapshot() ?? createEmptyPetAssistantConversationSnapshot();
   });
 
   handleChat("openpets:default-pet-chat-is-expanded", () => {
     return isDefaultPetChatExpanded();
+  });
+
+  handleChat("openpets:default-pet-chat-is-compact-open", () => {
+    return isDefaultPetChatCompactOpen();
   });
 
   handleChat("openpets:default-pet-chat-send-message", async (_event, text: unknown) => {

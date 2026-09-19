@@ -1,5 +1,6 @@
 import type React from "react";
 import { BuildingIcon, LaptopIcon, RefreshIcon, ShieldCheckIcon } from "./teams-icons.js";
+import { formatDate, isEnrollmentActionable } from "./teams-state.js";
 import type { TeamsSnapshot } from "./teams-types.js";
 
 export type TeamEnrollmentSectionProps = {
@@ -10,6 +11,7 @@ export type TeamEnrollmentSectionProps = {
   readonly onDisplayNameChange: (value: string) => void;
   readonly onEnrollSubmit: (e?: React.FormEvent) => void;
   readonly onRefreshStatus: () => void;
+  readonly onDiscardEnrollment: () => void;
 };
 
 export function TeamEnrollmentSection({
@@ -20,9 +22,10 @@ export function TeamEnrollmentSection({
   onDisplayNameChange,
   onEnrollSubmit,
   onRefreshStatus,
+  onDiscardEnrollment,
 }: TeamEnrollmentSectionProps) {
   const isBusy = Boolean(busy);
-  const isSubmitDisabled = isBusy || !displayNameInput.trim();
+  const isSubmitDisabled = isBusy || !isEnrollmentActionable(snapshot, displayNameInput);
 
   if (snapshot.pendingEnrollment && !snapshot.enrolled) {
     return (
@@ -42,6 +45,19 @@ export function TeamEnrollmentSection({
               An invitation to join an organization was opened on this computer. Set a friendly
               display name so your organization administrator can identify this device.
             </p>
+            {(snapshot.pendingOrganizationName || snapshot.pendingOrganizationId) && (
+              <p className="m-0 mt-2 text-xs font-semibold text-navy dark:text-slate-100">
+                Organization: {snapshot.pendingOrganizationName || snapshot.pendingOrganizationId}
+                {snapshot.pendingOrganizationName && snapshot.pendingOrganizationId
+                  ? ` (${snapshot.pendingOrganizationId})`
+                  : ""}
+              </p>
+            )}
+            {snapshot.pendingEnrollmentExpiresAt && (
+              <p className="m-0 mt-1 text-xs text-slatecopy">
+                Invitation expires: {formatDate(snapshot.pendingEnrollmentExpiresAt)}
+              </p>
+            )}
           </div>
         </div>
 
@@ -56,13 +72,13 @@ export function TeamEnrollmentSection({
             >
               <span>Device Display Name</span>
               <span className="text-[11px] font-mono text-slatecopy/70">
-                {displayNameInput.length}/120
+                {displayNameInput.length}/80
               </span>
             </label>
             <input
               id="team-device-name"
               type="text"
-              maxLength={120}
+              maxLength={80}
               value={displayNameInput}
               onChange={(e) => onDisplayNameChange(e.target.value)}
               placeholder="e.g., Work Laptop, Devbox, or MacBook Pro"
@@ -77,13 +93,32 @@ export function TeamEnrollmentSection({
               This connects your device to your team’s private catalog. Personal pets and plugins
               remain completely separate.
             </span>
-            <button
-              type="submit"
-              disabled={isSubmitDisabled}
-              className="btn btn-primary px-5 shrink-0"
-            >
-              {busy ? "Enrolling..." : "Accept & Enroll"}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="submit"
+                disabled={isSubmitDisabled}
+                className="btn btn-primary px-5 shrink-0"
+              >
+                {busy ? "Enrolling..." : "Accept & Enroll"}
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={onDiscardEnrollment}
+                className="btn btn-compact btn-secondary text-xs shrink-0"
+              >
+                Discard Invitation
+              </button>
+              <button
+                type="button"
+                disabled={isBusy || loading}
+                onClick={onRefreshStatus}
+                className="btn btn-compact btn-secondary text-xs shrink-0"
+              >
+                <RefreshIcon />
+                Refresh Invitation
+              </button>
+            </div>
           </div>
         </form>
       </section>

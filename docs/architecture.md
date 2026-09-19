@@ -137,7 +137,7 @@ disabled for that session without blocking the Pet Assistant. A most-recent arch
 and 128 KiB may be added to the next assistant prompt; tool definitions/results,
 provider payloads, and personality data never enter that archive window. Owner
 delete-one/delete-all operations are exposed only through a narrow main-process
-bridge to the Control Center for a future Settings presentation; the companion
+bridge to the Control Center Settings conversation archive management section; the companion
 bridge never receives archive-management authority. There is no semantic
 retrieval, summary, preferences, network synchronization, or provider call for
 archive reads/erasure. Provider-profile management is implemented through the

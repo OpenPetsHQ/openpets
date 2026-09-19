@@ -66,7 +66,11 @@ proof is stored in desktop state or included in logs; the proof is cleared after
 terminal completion/failure or app shutdown. The browser token authorizes
 progress/status reads only; it cannot confirm or complete enrollment. The API
 issues a deterministically derived 256-bit credential after the desktop
-completion call. Teams starts after the plugin service, polls with bounded
+completion call. The Teams route keeps **Accept & Enroll** disabled until a
+completed preview supplies the authoritative organization identity and future
+expiry; when a deep link arrives while the Control Center is already running,
+the main process reuses its route event to make the renderer refetch that
+completed preview. Teams starts after the plugin service, polls with bounded
 jitter, and stops before plugin shutdown. Snapshots expose separated Team
 pets/plugins and status, never credentials, enrollment tokens, proofs, or full
 server packs.
@@ -201,9 +205,10 @@ pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
 `control-center-preload.cjs` without a generic patch route: list profiles,
-presets, role status, and derived realtime status; create/update/delete a
-profile; select a profile independently for each role; update platform gates;
-and set/check/delete a profile credential. Responses contain only credential
+presets, role status, and derived realtime status; atomically save a profile,
+credential, and selected roles; create/update/delete a profile; select a
+profile independently for each role; update platform gates; and
+set/check/delete a profile credential. Responses contain only credential
 presence and header names.
 
 ### Pet Assistant In-Pet Attached Chat & Compact Composer
@@ -221,22 +226,33 @@ preserve the pet's on-screen anchor point. The attached chat panel and pet move 
 native unit, remaining interactive during motion and dragging. Preserved draft input is
 synchronized across the compact composer and expanded chat views.
 
-On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed
-and expanded carrier states, keeping mouse passthrough and focus semantics correct
-under X11 and Wayland.
+On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed,
+compact-composer, and expanded carrier states, keeping mouse passthrough and focus
+semantics correct under X11 and Wayland. Compact open/close is owned by the main
+process alongside expansion: opening makes the carrier focusable and adds the
+composer rectangle to the input shape; closing restores the passive pet shape and
+focus policy. The compact composer has one shared maximum geometry contract: its
+multiline textarea is capped at 68px and error feedback at 34px, producing a
+152px maximum envelope used by both CSS and the Linux mask.
 
 The in-pet chat interface exposes the current conversation snapshot, typed turn
-actions, tool invocation cards, prompt suggestions, and Talk actions/events. Archive
-list/delete/clear operations remain host-owned Control Center IPC for Settings presentation
+actions, tool invocation cards, prompt suggestions, and Talk actions/events. The
+renderer consumes the authoritative Talk snapshot (`status`, `activity`, and
+`muted`) and snapshot events only; it does not maintain a parallel voice state.
+Initial and streamed conversation/Talk snapshots are applied by sequence/revision
+ordering so a late initial IPC response cannot replace newer streamed state.
+Archive list/delete/clear operations remain host-owned Control Center IPC for Settings presentation
 and are never exposed to the pet carrier. The local-only atomic archive at
 `userData/openpets-conversation-history.json` remains the persistence/context seam.
 Normalized voice transcript events remain an
 integration seam for #147: their adapter must provide a process-lifetime
 monotonic sequence within the voice source; voice ordering is deliberately
 independent from the canonical assistant event sequence.
-Provider updates use sparse patches: omitted fields preserve current values,
-`null` clears `baseUrl`, `secretRef`, or `auth`, omitted `headers` preserves the
-redacted header list, and `headers: []` intentionally clears it.
+Provider updates use sparse patches: omitted fields preserve current values and
+`null` clears `baseUrl`, `secretRef`, or `auth`. The modal's atomic save uses
+host-owned header `add`/`replace`/`delete` operations against stored values;
+omitted header edits preserve untouched values, while direct `headers: []`
+intentionally clears the list.
 
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
@@ -572,9 +588,13 @@ ZIPs) and runs third-party plugin code, so it is defensive by construction:
 ## Packaging
 
 `electron-builder.yml` configures cross-platform packaging (macOS/Windows/Linux)
-with ASAR. Bundled mode unpacks the integration binaries from ASAR so hooks/MCP
-can spawn them. `scripts/release-local.mjs` automates a macOS-local release with
-a GitHub draft. See [Development](/development) for the release flow.
+with ASAR. Bundled mode unpacks the integration runtimes from ASAR so hooks, MCP,
+editor setup, and the native OpenClaw plugin can spawn them.
+`scripts/release-local.mjs` builds an isolated unpacked package for every
+platform/architecture target and then extracts the actual DMG, ZIP, AppImage,
+DEB, RPM, and tar.gz payloads for target-aware `check-packaging-contract --output`
+validation before copy/tag/publication. See [Development](/development) for the
+release flow.
 
 ## Where to look first
 

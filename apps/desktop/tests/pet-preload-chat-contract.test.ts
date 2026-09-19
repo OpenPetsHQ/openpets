@@ -23,15 +23,19 @@ const source = readFileSync(join(desktopRoot, "pet-preload.cjs"), "utf8");
 const listeners = new Map<string, Function>();
 const sent: Array<{ channel: string; args: unknown[] }> = [];
 const invoked: Array<{ channel: string; args: unknown[] }> = [];
+let resolveInitialConversation!: (snapshot: unknown) => void;
+let resolveInitialVoice!: (snapshot: unknown) => void;
+const initialConversation = new Promise((resolve) => { resolveInitialConversation = resolve; });
+const initialVoice = new Promise((resolve) => { resolveInitialVoice = resolve; });
 
 const ipcRenderer = {
   invoke: async (channel: string, ...args: unknown[]) => {
     invoked.push({ channel, args });
     if (channel === "openpets:default-pet-chat-get-snapshot") {
-      return { conversationId: "pet-assistant", items: [], activity: "idle", lastSequence: 0, revision: 0 };
+      return initialConversation;
     }
     if (channel === "openpets:default-pet-chat-get-voice-snapshot") {
-      return { state: "idle", isMuted: false, error: null, shortcut: null, shortcutStatus: "unregistered", shortcutReason: null };
+      return initialVoice;
     }
     if (channel === "openpets:default-pet-chat-is-expanded") {
       return false;
@@ -76,6 +80,7 @@ class MockElement {
   scrollHeight = 100;
   clientHeight = 100;
   disabled = false;
+  placeholder = "";
 
   constructor(tagName: string) {
     this.tagName = tagName.toUpperCase();
@@ -261,17 +266,24 @@ class MockTemplateElement extends MockElement {
   content = {
     firstElementChild: null as MockElement | null,
   };
-  set innerHTML(_val: string) {
+  set innerHTML(val: string) {
     const newStage = new MockElement("div");
-    newStage.className = "stage";
+    newStage.className = val.includes("has-bubble") ? "stage has-bubble" : "stage";
+    if (val.includes("bubble")) {
+      const bubbleEl = new MockElement("div");
+      bubbleEl.className = "bubble is-message-only";
+      newStage.appendChild(bubbleEl);
+    }
     const newHitbox = new MockElement("div");
     newHitbox.className = "pet-hitbox";
-    const newLauncher = new MockElement("button");
-    newLauncher.className = "openpets-companion-launcher";
-    newLauncher.setAttribute("data-openpets-companion-launcher", "true");
+    if (val.includes("openpets-companion-launcher") && !val.includes("bubble")) {
+      const newLauncher = new MockElement("button");
+      newLauncher.className = "openpets-companion-launcher";
+      newLauncher.setAttribute("data-openpets-companion-launcher", "true");
+      newHitbox.appendChild(newLauncher);
+    }
     const newShell = new MockElement("div");
     newShell.className = "pet-shell";
-    newHitbox.appendChild(newLauncher);
     newHitbox.appendChild(newShell);
     newStage.appendChild(newHitbox);
     this.content.firstElementChild = newStage;
@@ -340,12 +352,16 @@ assert.ok(body.contains(compactComposer), "Compact composer must be attached to 
 const fullPanel = documentElement.querySelector(".openpets-chat-panel");
 assert.ok(fullPanel, "Full chat panel must be present in DOM");
 assert.ok(body.contains(fullPanel), "Full chat panel must be attached to body");
+const voiceBtnLabel = fullPanel!.querySelector("[data-voice-btn-label]") as MockElement;
+assert.ok(voiceBtnLabel, "Talk button label must exist");
 
 const compactInput = compactComposer!.querySelector("[data-compact-chat-input]") as MockElement;
 assert.ok(compactInput, "Compact chat input must exist");
+assert.equal(compactInput.placeholder, "Message your pet...", "Compact composer placeholder must be concise and natural");
 
 const fullInput = fullPanel!.querySelector("[data-chat-input]") as MockElement;
 assert.ok(fullInput, "Full chat input must exist");
+assert.equal(fullInput.placeholder, "Message your pet... (Enter to send, Shift+Enter for newline)", "Full panel placeholder must match message prefix");
 
 const historyBtn = compactComposer!.querySelector("[data-chat-history-btn]") as MockElement;
 assert.ok(historyBtn, "Explicit history/transcript affordance button must exist in compact composer");
@@ -416,6 +432,53 @@ eventListener!({}, {
   },
 });
 
+// A streamed Talk snapshot is authoritative even when the initial invoke is
+// still pending. The late initial response must not roll the renderer back.
+const voiceEventListener = listeners.get("openpets:default-pet-chat-voice-event");
+assert.ok(voiceEventListener);
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 1,
+  snapshot: {
+    sessionId: 1,
+    status: "active",
+    activity: "listening",
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: null,
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.equal(voiceBtnLabel.textContent, "Listening", "authoritative active Talk snapshot should label listening activity");
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 2,
+  snapshot: {
+    sessionId: 1,
+    status: "muted",
+    activity: null,
+    muted: true,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: null,
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.equal(voiceBtnLabel.textContent, "Unmute", "authoritative muted Talk snapshot should offer unmute");
+
 const transcript = fullPanel!.querySelector("[data-chat-transcript]");
 assert.ok(transcript, "Transcript container must exist");
 assert.ok(transcript!.innerHTML.includes("Hello human!"), "Transcript must contain rendered message");
@@ -466,6 +529,21 @@ assert.strictEqual(panelAfterRefresh, fullPanel, "Chat panel reference must be p
 assert.equal(compactInput.value, "Draft before state refresh", "Draft must be preserved across content refreshes");
 assert.equal(fullInput.value, "Draft before state refresh", "Full panel input must retain preserved draft");
 
+// 8b. Mutual exclusion test: response bubble replaces launcher affordance, clearing bubble restores launcher
+contentStateListener!({}, {
+  reactionState: "idle",
+  bodyHtml: `<div class="stage has-bubble" aria-label="OpenPets default pet" data-pet-role="default"><div class="bubble is-message-only"><div class="bubble-body"><span class="bubble-text">Here is the pet reply!</span></div></div><div class="pet-hitbox"><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+});
+assert.ok(documentElement.querySelector(".bubble"), "Response bubble must be present in stage");
+assert.strictEqual(documentElement.querySelector("[data-openpets-companion-launcher]"), null, "Chat launcher must be omitted while response bubble is displayed");
+
+contentStateListener!({}, {
+  reactionState: "idle",
+  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+});
+assert.strictEqual(documentElement.querySelector(".bubble"), null, "Bubble must be absent after clearing");
+assert.ok(documentElement.querySelector("[data-openpets-companion-launcher]"), "Chat launcher must be restored when message bubble clears");
+
 // 9. REGRESSION TEST: Interaction isolation - compact composer & chat panel do NOT reach pet drag/click path
 sent.length = 0;
 const mousedownListeners = documentListeners.get("mousedown") ?? [];
@@ -503,4 +581,25 @@ assert.equal(petBodyToggleSent.length, 0, "Pet body click must NOT toggle or exp
 const petBodyClickSent = sent.find((s) => s.channel === "openpets:pet-event" && s.args[0] === "pet:clicked");
 assert.ok(petBodyClickSent, "Pet body click must send pet:clicked event");
 
-console.log("pet-preload-chat-contract tests passed.");
+resolveInitialConversation({ conversationId: "pet-assistant", items: [], activity: "idle", lastSequence: 0, revision: 0 });
+resolveInitialVoice({
+  sessionId: 1,
+  status: "ended",
+  activity: null,
+  muted: false,
+  conversationId: "pet-assistant",
+  generation: 0,
+  turnId: null,
+  userTranscript: null,
+  assistantTranscript: null,
+  interruptionCount: 0,
+  error: null,
+  shortcut: null,
+  shortcutStatus: "registered",
+  shortcutReason: null,
+});
+setTimeout(() => {
+  assert.ok(transcript!.innerHTML.includes("Hello human!"), "a late initial conversation snapshot must not overwrite streamed state");
+  assert.equal(voiceBtnLabel.textContent, "Unmute", "a late initial Talk snapshot must not overwrite streamed state");
+  console.log("pet-preload-chat-contract tests passed.");
+}, 0);

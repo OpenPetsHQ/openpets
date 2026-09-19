@@ -16,6 +16,11 @@ export type ProviderAdapter =
   | "openai-compatible-speech";
 
 export type ProviderHeader = { readonly name: string; readonly value: string };
+/** A host-applied edit against stored headers. Values from existing headers are never sent to the renderer. */
+export type ProviderHeaderPatch =
+  | { readonly op: "add"; readonly name: string; readonly value: string }
+  | { readonly op: "replace"; readonly oldName: string; readonly name: string; readonly value: string }
+  | { readonly op: "delete"; readonly name: string };
 export type ProviderAuth = { readonly headerName: string; readonly strategy: "bearer" | "raw" };
 export type ProviderProfile = {
   readonly id: string;
@@ -50,7 +55,22 @@ export type ProviderProfilePatch = Partial<Omit<ProviderProfile, "id" | "baseUrl
   readonly secretRef?: string | null;
   /** null explicitly clears custom credential placement; omission preserves it. */
   readonly auth?: ProviderAuth | null;
+  /** Apply edits to stored headers without requiring their values in the renderer. */
+  readonly headerPatch?: readonly ProviderHeaderPatch[];
 };
+export type ProviderConfigurationSaveInput = {
+  readonly isEditing: boolean;
+  readonly profileId: string;
+  readonly payload: ProviderProfileInput | ProviderProfilePatch;
+  readonly credentialValue?: string;
+  readonly activatedRoles: readonly ProviderRole[];
+  readonly deactivatedRoles: readonly ProviderRole[];
+};
+export interface ProviderCredentialStore {
+  get(ref: string): Promise<string | undefined>;
+  set(ref: string, value: string): Promise<void>;
+  delete(ref: string): Promise<void>;
+}
 export type ProviderGatesPatch = Partial<Pick<PluginPlatformSettings, "allowPluginAudio" | "allowDynamicSpeech" | "allowPluginVoice" | "allowMicrophone">> & { readonly quietHours?: Partial<PluginPlatformSettings["quietHours"]> };
 export type ProviderStatusState = "ready" | "disabled" | "invalid" | "missing-secret" | "unsupported";
 export type ProviderStatus = {
@@ -150,7 +170,11 @@ export function updateProviderProfile(id: string, patch: ProviderProfilePatch): 
   const validatedPatch = validateProviderProfilePatch(patch);
   if (validatedPatch.id !== undefined && validatedPatch.id !== id) throw new Error("Provider profile id cannot be changed.");
   const merged: Record<string, unknown> = { ...existing, id };
+  if (validatedPatch.headerPatch !== undefined) {
+    merged.headers = applyProviderHeaderPatches(existing.headers ?? [], validatedPatch.headerPatch);
+  }
   for (const [key, value] of Object.entries(validatedPatch)) {
+    if (key === "headerPatch") continue;
     if (value === undefined) continue;
     if (value === null) delete merged[key];
     else merged[key] = value;
@@ -204,7 +228,7 @@ export function validateProviderProfile(input: unknown): ProviderProfile {
 
 export function validateProviderProfilePatch(value: unknown): ProviderProfilePatch {
   if (!isRecord(value)) throw new Error("Provider profile patch must be an object.");
-  const allowed = new Set(["id", "label", "adapter", "model", "baseUrl", "secretRef", "auth", "headers"]);
+  const allowed = new Set(["id", "label", "adapter", "model", "baseUrl", "secretRef", "auth", "headers", "headerPatch"]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`Provider profile patch field ${key} is not supported.`);
   if (value.id !== undefined) assertProfileId(value.id);
   if (value.label !== undefined) boundedString(value.label, "Provider profile label", MAX_LABEL_BYTES);
@@ -214,7 +238,88 @@ export function validateProviderProfilePatch(value: unknown): ProviderProfilePat
   if (value.secretRef !== undefined && value.secretRef !== null) boundedString(value.secretRef, "Provider secret reference", MAX_SECRET_REF_BYTES);
   if (value.auth !== undefined && value.auth !== null) validateProviderAuth(value.auth, "openai-compatible-text", "patch-secret");
   if (value.headers !== undefined) validateProviderHeaders(value.headers);
+  if (value.headers !== undefined && value.headerPatch !== undefined) throw new Error("Provider profile patch cannot replace and patch headers together.");
+  if (value.headerPatch !== undefined) validateProviderHeaderPatches(value.headerPatch);
   return value as ProviderProfilePatch;
+}
+
+export function validateProviderHeaderPatches(value: unknown): readonly ProviderHeaderPatch[] {
+  if (!Array.isArray(value)) throw new Error("Provider header patch must be an array.");
+  return value.map((patch) => {
+    if (!isRecord(patch) || (patch.op !== "add" && patch.op !== "replace" && patch.op !== "delete")) {
+      throw new Error("Provider header patch operation is invalid.");
+    }
+    if (patch.op === "delete") {
+      boundedString(patch.name, "Provider header name", PROVIDER_MAX_HEADER_NAME_BYTES);
+      return patch as ProviderHeaderPatch;
+    }
+    boundedString(patch.name, "Provider header name", PROVIDER_MAX_HEADER_NAME_BYTES);
+    boundedString(patch.value, "Provider header value", PROVIDER_MAX_HEADER_VALUE_BYTES);
+    if (patch.op === "replace") boundedString(patch.oldName, "Provider header name", PROVIDER_MAX_HEADER_NAME_BYTES);
+    return patch as ProviderHeaderPatch;
+  });
+}
+
+export function applyProviderHeaderPatches(existing: readonly ProviderHeader[], patches: readonly ProviderHeaderPatch[]): readonly ProviderHeader[] {
+  const next = existing.map((header) => ({ ...header }));
+  for (const patch of patches) {
+    if (patch.op === "add") {
+      next.push({ name: patch.name, value: patch.value });
+      continue;
+    }
+    const targetName = patch.op === "replace" ? patch.oldName : patch.name;
+    const index = next.findIndex((header) => header.name.toLowerCase() === targetName.toLowerCase());
+    if (index < 0) throw new Error(`Provider header ${targetName} was not found.`);
+    if (patch.op === "delete") next.splice(index, 1);
+    else next[index] = { name: patch.name, value: patch.value };
+  }
+  return validateProviderHeaders(next);
+}
+
+/**
+ * Persist a profile, credential and role changes as one host-owned operation.
+ * Settings are not committed until credential writes succeed; every touched
+ * secret and the settings file are restored if a later durable write fails.
+ */
+export async function saveProviderConfiguration(input: ProviderConfigurationSaveInput, secrets: ProviderCredentialStore): Promise<PluginPlatformSettings> {
+  const before = cached;
+  const candidate = prepareProviderConfiguration(before, input);
+  const previousProfile = before.profiles[input.profileId];
+  const nextProfile = candidate.profiles[input.profileId];
+  const refs = new Set<string>();
+  if (previousProfile?.secretRef) refs.add(previousProfile.secretRef);
+  if (nextProfile?.secretRef) refs.add(nextProfile.secretRef);
+  const previousSecrets = new Map<string, string | undefined>();
+  for (const ref of refs) previousSecrets.set(ref, await secrets.get(ref));
+
+  let settingsCommitted = false;
+  try {
+    if (input.credentialValue !== undefined) {
+      if (!nextProfile?.secretRef) throw new Error("Provider profile has no credential reference.");
+      await secrets.set(nextProfile.secretRef, input.credentialValue);
+    }
+    persist(candidate);
+    settingsCommitted = true;
+    if (previousProfile?.secretRef && !isProviderSecretRefReferenced(candidate, previousProfile.secretRef)) {
+      await secrets.delete(previousProfile.secretRef);
+    }
+    return candidate;
+  } catch (error) {
+    if (settingsCommitted) {
+      try { persist(before); } catch { cached = before; }
+    } else {
+      cached = before;
+    }
+    for (const [ref, value] of previousSecrets) {
+      try {
+        if (value === undefined) await secrets.delete(ref);
+        else await secrets.set(ref, value);
+      } catch {
+        // Preserve the original failure; the host will report the operation as failed.
+      }
+    }
+    throw error;
+  }
 }
 
 export function profileSupportsRole(profile: ProviderProfile, role: ProviderRole): boolean {
@@ -312,6 +417,56 @@ export function isProviderSecretRefReferenced(settings: PluginPlatformSettings, 
   return Object.values(settings.profiles).some((profile) => profile.secretRef === ref);
 }
 
+function prepareProviderConfiguration(settings: PluginPlatformSettings, input: ProviderConfigurationSaveInput): PluginPlatformSettings {
+  if (typeof input.profileId !== "string" || !input.isEditing && input.profileId !== (input.payload as { id?: unknown }).id) {
+    throw new Error("Provider configuration profile id is invalid.");
+  }
+  if (!Array.isArray(input.activatedRoles) || !Array.isArray(input.deactivatedRoles)) {
+    throw new Error("Provider configuration role changes are invalid.");
+  }
+  const profiles = { ...settings.profiles };
+  if (input.isEditing) {
+    const existing = profiles[input.profileId];
+    if (!existing) throw new Error("Provider profile was not found.");
+    const patch = validateProviderProfilePatch(input.payload);
+    if (patch.id !== undefined && patch.id !== input.profileId) throw new Error("Provider profile id cannot be changed.");
+    const merged: Record<string, unknown> = { ...existing, id: input.profileId };
+    if (patch.headerPatch !== undefined) merged.headers = applyProviderHeaderPatches(existing.headers ?? [], patch.headerPatch);
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === "headerPatch") continue;
+      if (value === undefined) continue;
+      if (value === null) delete merged[key];
+      else merged[key] = value;
+    }
+    profiles[input.profileId] = validateProviderProfile(merged);
+  } else {
+    const profile = validateProviderProfile(input.payload);
+    if (profiles[profile.id]) throw new Error("Provider profile id is already in use.");
+    profiles[profile.id] = profile;
+  }
+
+  const selections: Record<ProviderRole, string | null> = { ...settings.selections };
+  for (const role of ["text", "stt", "tts"] as const) {
+    const profileId = selections[role];
+    const profile = profileId ? profiles[profileId] : undefined;
+    if (profileId && (!profile || !profileSupportsRole(profile, role))) selections[role] = null;
+  }
+  const changedRoles = new Set<ProviderRole>();
+  for (const role of input.deactivatedRoles) {
+    if (!isRole(role) || changedRoles.has(role)) throw new Error("Provider configuration role changes are invalid.");
+    changedRoles.add(role);
+    selections[role] = null;
+  }
+  for (const role of input.activatedRoles) {
+    if (!isRole(role) || changedRoles.has(role)) throw new Error("Provider configuration role changes are invalid.");
+    changedRoles.add(role);
+    const profile = profiles[input.profileId];
+    if (!profile || !profileSupportsRole(profile, role)) throw new Error(`Provider profile does not support ${role}.`);
+    selections[role] = input.profileId;
+  }
+  return { ...settings, profiles, selections };
+}
+
 function normalizeSettings(value: unknown): PluginPlatformSettings {
   const raw = isRecord(value) ? value : {};
   const quiet = isRecord(raw.quietHours) ? raw.quietHours : {};
@@ -321,7 +476,7 @@ function normalizeSettings(value: unknown): PluginPlatformSettings {
   return { allowPluginAudio: raw.allowPluginAudio !== false, allowDynamicSpeech: raw.allowDynamicSpeech === true, allowPluginVoice: raw.allowPluginVoice !== false, allowMicrophone: raw.allowMicrophone === true, quietHours: { enabled: quiet.enabled === true, start: validTime(quiet.start) ? quiet.start as string : "22:00", end: validTime(quiet.end) ? quiet.end as string : "08:00" }, profiles, selections };
 }
 
-function persist(settings: PluginPlatformSettings): PluginPlatformSettings { cached = settings; if (settingsPath) writeSettingsFile(settingsPath, settings); return settings; }
+function persist(settings: PluginPlatformSettings): PluginPlatformSettings { if (settingsPath) writeSettingsFile(settingsPath, settings); cached = settings; return settings; }
 function readSettingsFile(path: string): PluginPlatformSettings { try { if (!existsSync(path)) return defaultPluginPlatformSettings; return normalizeSettings(JSON.parse(readFileSync(path, "utf8"))); } catch { return defaultPluginPlatformSettings; } }
 function writeSettingsFile(path: string, settings: PluginPlatformSettings): void { mkdirSync(dirname(path), { recursive: true }); const tmp = `${path}.${process.pid}.tmp`; writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8"); renameSync(tmp, path); }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === "object" && value !== null && !Array.isArray(value); }

@@ -51,7 +51,9 @@ dist checks. Three buckets:
   persistence/selection, OpenRouter and preset templates, save-and-activate role
   mapping, URL/header boundaries, fake-endpoint routing, native versus compatible
   codecs, operation snapshots, redacted status, and no-fetch unsupported realtime.
-  Tests use fake fetches and no credentials.
+  Tests use fake fetches and no credentials. The provider settings tests also
+  cover atomic save rollback after credential failure and redacted-header
+  add/delete edits.
 - **Contract** (`apps/desktop/contracts/*.contract.ts`): the public boundaries - - `catalog-fixture.contract.ts` - catalog validation against fixture data.
   - `local-ipc-protocol.contract.ts` - IPC request/response parsing
     ([IPC and remote control](/ipc)).
@@ -60,10 +62,12 @@ dist checks. Three buckets:
   - `plugin-manifest.contract.ts` - manifest v1 schema, config refs, permissions,
     deferred features, action validation ([Plugin platform](/plugins)).
 - **Runtime checks** (`apps/desktop/src/check-*.ts`): notably
-  - `check-packaging-contract.ts` - asserts the packaged app includes bundled
-    official plugins as extra resources, every bundled plugin's manifest + entry
-    exist, the pet-window CSP allows the bundled emoji font, etc. This is the
-    guard that a _packaged_ build is actually shippable.
+  - `check-packaging-contract.ts` - asserts the packaged app includes every
+    canonical bundled official plugin as extra resources, each plugin's
+    manifest, entry, declared assets, and locales exist, every unpacked
+    `@open-pets/*` integration runtime entry (including OpenClaw) exists, and
+    the pet-window CSP allows the bundled emoji font, etc. This is the guard
+    that a _packaged_ build is actually shippable.
   - `check-opencode-desktop-setup.ts` - verifies the bundled OpenCode setup
     preview matches expectations.
   - `check-zed-desktop.ts` - verifies desktop Zed path resolution, preview
@@ -72,8 +76,9 @@ dist checks. Three buckets:
 ## Teams desktop behavior tests
 
 Teams behavior tests cover exact enrollment-link decoding, strict Team Pack
-payload validation, one-organization state, stable installation metadata,
-personal/Team ownership isolation, staged reconciliation failure, and Team
+ payload validation, one-organization state, stable installation metadata,
+ delayed-preview acceptance gating, authoritative identity/expiry refresh,
+ personal/Team ownership isolation, staged reconciliation failure, and Team
 removal behavior. Enrollment contract tests cover authoritative preview,
 desktop completion without browser confirmation, same-proof idempotency,
 incorrect-proof rejection, active device conflicts, and bounded retry. Fake API
@@ -192,6 +197,19 @@ Before shipping, the relevant gate must be green:
   after; both validate the relevant v3 ZIP archive contracts.
 - **Linux-specific behavior** → validated on the Ubuntu VM
   ([Development](/development)).
+
+The local desktop release pipeline runs the packaged-output contract against a
+fresh unpacked build for every platform/architecture target and against the
+extracted payload of the actual distributable before it reaches copy, tag, or
+publication stages. Externally staged DEB/RPM payloads are extracted and checked
+before copy. Artifact name, size, and checksum checks do not replace this
+validation; target selection is explicit so Linux packages require the matching
+`sharp-linux-*` native runtime rather than the release host's runtime. The
+focused `packaging-contract.test.ts` fixture regression proves that staged DEB
+and RPM payloads missing `openpets.system-resources` or the target Sharp runtime
+are hard failures. Release checkpoints also persist SHA-256 digests for every
+artifact output; `release-checkpoint.test.mjs` proves that a same-size mutation
+stales the stage while an unchanged checkpoint remains reusable.
 
 ## Release gates and ordering
 

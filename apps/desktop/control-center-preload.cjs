@@ -36,6 +36,9 @@ const api = {
     return ipcRenderer.invoke("openpets:manager-check-ins-set-scheduled-offers-paused", paused);
   },
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
+  getConversationHistory: () => ipcRenderer.invoke("openpets:get-conversation-history"),
+  deleteConversationHistoryMessage: (id) => ipcRenderer.invoke("openpets:delete-conversation-history-message", id),
+  clearConversationHistory: () => ipcRenderer.invoke("openpets:clear-conversation-history"),
   getLanStatus: () => ipcRenderer.invoke("openpets:get-lan-status"),
   getI18n: () => ipcRenderer.invoke("openpets:get-i18n"),
   updatePreferences: (patch) => ipcRenderer.invoke("openpets:update-preferences", patch),
@@ -60,6 +63,7 @@ const api = {
   uninstallPlugin: (id) => ipcRenderer.invoke("openpets:plugins-uninstall", id),
   getPluginInspector: (id) => ipcRenderer.invoke("openpets:plugins-inspector", id),
   getProviderProfiles: () => ipcRenderer.invoke("openpets:provider-profiles-get"),
+  saveProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-save", input),
   createProviderProfile: (profile) => ipcRenderer.invoke("openpets:provider-profile-create", profile),
   updateProviderProfile: (id, patch) => ipcRenderer.invoke("openpets:provider-profile-update", id, patch),
   deleteProviderProfile: (id) => ipcRenderer.invoke("openpets:provider-profile-delete", id),
