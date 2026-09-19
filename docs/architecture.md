@@ -123,10 +123,11 @@ turn start, so a Settings edit applies to the next turn without changing an
 already-running turn. If any structured capability outcome is rejected,
 unavailable, or indeterminate, the terminal user-visible response is a
 deterministic host-generated status summary instead of untrusted model prose;
-turns whose outcomes all complete retain the model response. The Control Center
-Conversation route consumes a host-owned, in-memory current-session projection
-of those canonical events. It is presentation state only and remains distinct
-from the host-owned local archive delivered by #149. The archive is atomic,
+turns whose outcomes all complete retain the model response. The separately-owned
+lazy companion chat renderer consumes a host-owned,
+in-memory current-session projection of those canonical events. It is
+presentation state only and remains distinct from the host-owned local archive
+delivered by #149. The archive is atomic,
 local-only, and stores only terminal user/assistant text from the canonical
 shared voice/chat conversation. It retains at most 200 messages for 30 days and
 512 KiB total, with a 64 KiB per-entry cap and newest entries preserved. Corrupt
@@ -136,11 +137,10 @@ disabled for that session without blocking the Pet Assistant. A most-recent arch
 and 128 KiB may be added to the next assistant prompt; tool definitions/results,
 provider payloads, and personality data never enter that archive window. Owner
 delete-one/delete-all operations are exposed only through a narrow main-process
-bridge to the Control Center's separate local-history list/open/delete panel;
-the panel refreshes after a terminal turn or deletion and never clears active
-context. There is no semantic retrieval, summary, preferences, network
-synchronization, or provider call for archive
-reads/erasure. Provider-profile management is implemented through the
+bridge to the Control Center Settings conversation archive management section; the companion
+bridge never receives archive-management authority. There is no semantic
+retrieval, summary, preferences, network synchronization, or provider call for
+archive reads/erasure. Provider-profile management is implemented through the
 host-owned Control Center bridge.
 
 ### Generic host voice session and Talk controls (#147, #150)

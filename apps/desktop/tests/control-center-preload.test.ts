@@ -20,21 +20,45 @@ runInNewContext(source, {
 });
 
 assert.ok(exposed);
-const callback = () => {};
-const cleanup = exposed.onConversationEvent(callback);
-assert.equal(sent[0]?.channel, "openpets:conversation-subscribe");
-assert.equal(typeof sent[0]?.args[0], "string");
-assert.equal(listeners.has("openpets:conversation-event"), true);
-cleanup();
-assert.equal(sent[1]?.channel, "openpets:conversation-unsubscribe");
-assert.deepEqual(sent[1]?.args, sent[0]?.args);
-assert.equal(listeners.has("openpets:conversation-event"), false);
+
+// Control Center does not expose pet assistant active conversation events or voice snapshot (relocated to pet companion chat)
+assert.equal(exposed.onConversationEvent, undefined);
+assert.equal(exposed.getVoiceAssistantSnapshot, undefined);
+
+// Conversation archive operations are exposed to Settings in Control Center
+assert.equal(typeof exposed.getConversationHistory, "function");
+assert.equal(typeof exposed.deleteConversationHistoryMessage, "function");
+assert.equal(typeof exposed.clearConversationHistory, "function");
+
+// Verify routing listener registration and cleanup
+const routeCallback = () => {};
+const cleanupRoute = exposed.onRouteChange(routeCallback);
+assert.equal(listeners.has("openpets:control-center-route"), true);
+cleanupRoute();
+assert.equal(listeners.has("openpets:control-center-route"), false);
+
+// Verify plugins refresh listener registration and cleanup
+const pluginsCallback = () => {};
+const cleanupPlugins = exposed.onPluginsRefresh(pluginsCallback);
+assert.equal(listeners.has("openpets:plugins-refresh"), true);
+cleanupPlugins();
+assert.equal(listeners.has("openpets:plugins-refresh"), false);
+
+// Verify standard invocations work
+await exposed.getPetsState();
+await exposed.getDashboardSnapshot();
+await exposed.getSettingsState();
 await exposed.getConversationHistory();
-await exposed.deleteConversationHistoryMessage("message-1");
+await exposed.deleteConversationHistoryMessage("11111111-1111-4111-8111-111111111111");
 await exposed.clearConversationHistory();
+
 assert.deepEqual(invoked.map(({ channel }) => channel), [
+  "openpets:get-pets-state",
+  "openpets:get-dashboard-snapshot",
+  "openpets:get-settings-state",
   "openpets:get-conversation-history",
   "openpets:delete-conversation-history-message",
   "openpets:clear-conversation-history",
-], "history actions use narrow invoke bridge methods");
-console.log("control-center preload conversation cleanup passed.");
+]);
+
+console.log("control-center preload contract passed.");

@@ -135,15 +135,26 @@ The release runs as checkpointed stages recorded in
 `apps/desktop/.release-state/v<version>.json`. If an attempt is interrupted,
 re-run the identical command: finished stages are skipped and the release
 resumes where it failed, including re-attaching to the SignPath run that was
-already dispatched. Inspect the plan with `--status`, force a redo with
+already dispatched. Checkpointed artifact outputs include SHA-256 content
+digests, so a same-size replacement becomes stale and is revalidated instead
+of being skipped. Inspect the plan with `--status`, force a redo with
 `--from <stage>`, and discard the checkpoint with `--reset`. Do not warm up with
 `pnpm release:desktop -- --dry-run`; it rebuilds the whole artifact set and
 throws it away, and the checkpoint already makes retries cheap. SignPath may
 pause for manual approval in its dashboard while the release script visibly
 waits.
 `electron-builder` handles cross-platform packaging; bundled mode unpacks the
-integration CLIs and bundles `plugins/official` as extra resources (verified by
-the packaging contract - see [Testing and validation](/testing-and-validation)).
+integration runtimes and bundles `plugins/official` as extra resources. The
+local release script first builds and validates an isolated unpacked package for
+each platform/architecture artifact, then extracts the actual distributable and
+checks its payload. This includes every canonical bundled plugin's manifest,
+entry, assets, locales, every `@open-pets/*` runtime entry (including OpenClaw),
+and the target-specific native Sharp runtime (verified by the packaging contract
+- see [Testing and validation](/testing-and-validation)). Externally staged
+Linux DEB/RPM payloads are inspected before they are copied into release output.
+The SignPath Windows workflow runs the same target-aware contract against its x64
+unpacked app before signing and against the extracted signed installer payload
+before uploading it.
 
 ### Web catalog
 

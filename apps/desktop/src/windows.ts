@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type OpenDialogOptions } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
@@ -27,14 +27,12 @@ import {
   type PluginConfigSoundPickResult,
   type PluginServiceResult,
 } from "./plugin-service.js";
-import { endVoiceAssistant, getVoiceAssistantSnapshot, interruptVoiceAssistant, muteVoiceAssistant, onVoiceAssistantEvent, startVoiceAssistant, unmuteVoiceAssistant } from "./voice-assistant-host.js";
-import { getPetAssistantConversationController, onPetAssistantConversationControllerReady } from "./pet-assistant-host.js";
-import { createEmptyPetAssistantConversationSnapshot, validateConversationMessageInput } from "./pet-assistant-conversation.js";
-import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
 import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
 import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
+import { getPetAssistantConversationController } from "./pet-assistant-host.js";
+import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
 import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
 import { getRemoteControlService } from "./remote-control-service.js";
 import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
@@ -52,18 +50,19 @@ import {
   isProviderSecretRefReferenced,
   isProviderRole,
   selectProviderProfile,
+  saveProviderConfiguration,
   updateProviderProfile,
   updatePluginPlatformSettings,
   validateProviderGatesPatch,
   validateProviderProfilePatch,
   validateProviderProfile,
   type ProviderProfileInput,
+  type ProviderConfigurationSaveInput,
 } from "./plugin-platform-settings.js";
 
 type InternalUiWindowKind = "control-center";
 export type ControlCenterRoute =
   | "dashboard"
-  | "conversation"
   | "pets"
   | "settings"
   | "plugins"
@@ -72,7 +71,6 @@ export type ControlCenterRoute =
 
 const controlCenterRoutes = new Set<ControlCenterRoute>([
   "dashboard",
-  "conversation",
   "pets",
   "settings",
   "plugins",
@@ -81,8 +79,6 @@ const controlCenterRoutes = new Set<ControlCenterRoute>([
 ]);
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
-const conversationSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
-const voiceAssistantSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
 let pendingControlCenterRoute: ControlCenterRoute | null = null;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
@@ -269,151 +265,20 @@ export function installInternalUiHandlers(): void {
     return getI18nSnapshot();
   });
 
-  ipcMain.handle("openpets:get-conversation-snapshot", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetAssistantConversationController()?.getSnapshot() ?? createEmptyPetAssistantConversationSnapshot();
-  });
-
+  // Archive management remains a host-owned Control Center capability. It is
+  // intentionally not part of the companion chat bridge; Settings can own the
+  // presentation in a later phase without giving the pet renderer authority.
   ipcMain.handle("openpets:get-conversation-history", (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getConversationHistory(getPetAssistantConversationController());
   });
-
   ipcMain.handle("openpets:delete-conversation-history-message", (event, id: unknown): { deleted: boolean } => {
     assertAllowedSender(event, ["control-center"]);
     return deleteConversationHistoryMessage(getPetAssistantConversationController(), id);
   });
-
   ipcMain.handle("openpets:clear-conversation-history", (event): { cleared: true } => {
     assertAllowedSender(event, ["control-center"]);
     return clearConversationHistory(getPetAssistantConversationController());
-  });
-
-  ipcMain.handle("openpets:conversation-send-message", async (event, text: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetAssistantConversationController()?.sendTypedMessage(validateConversationMessageInput(text))
-      ?? Promise.reject(new Error("Pet Assistant is still starting."));
-  });
-
-  ipcMain.handle("openpets:conversation-cancel-turn", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return { cancelled: getPetAssistantConversationController()?.cancelTypedTurn() ?? false };
-  });
-
-  ipcMain.handle("openpets:get-voice-assistant-snapshot", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getVoiceAssistantSnapshot();
-  });
-
-  ipcMain.handle("openpets:voice-assistant-start", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return startVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-mute", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return muteVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-unmute", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return unmuteVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-interrupt", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return interruptVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-end", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return endVoiceAssistant();
-  });
-
-  ipcMain.on("openpets:voice-assistant-subscribe", (event, token: unknown) => {
-    try { assertAllowedSender(event, ["control-center"]); } catch { return; }
-    if (typeof token !== "string" || token.length === 0 || token.length > 128) return;
-    clearVoiceAssistantSubscription(event.sender.id);
-    const sender = event.sender;
-    let cleanedUp = false;
-    let cleanup = () => {};
-    const unsubscribe = onVoiceAssistantEvent((voiceEvent) => {
-      if (sender.isDestroyed()) { cleanup(); return; }
-      try { sender.send("openpets:voice-assistant-event", voiceEvent); } catch { cleanup(); }
-    });
-    const onDestroyed = () => clearVoiceAssistantSubscription(sender.id);
-    cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      unsubscribe();
-      sender.removeListener("destroyed", onDestroyed);
-      if (voiceAssistantSubscriptions.get(sender.id)?.cleanup === cleanup) voiceAssistantSubscriptions.delete(sender.id);
-    };
-    voiceAssistantSubscriptions.set(sender.id, { token, cleanup });
-    sender.once("destroyed", onDestroyed);
-  });
-
-  ipcMain.on("openpets:voice-assistant-unsubscribe", (event, token: unknown) => {
-    try { assertAllowedSender(event, ["control-center"]); } catch { return; }
-    if (typeof token === "string") clearVoiceAssistantSubscription(event.sender.id, token);
-  });
-
-  ipcMain.on("openpets:conversation-subscribe", (event, token: unknown) => {
-    try {
-      assertAllowedSender(event, ["control-center"]);
-    } catch (error) {
-      warn("ui", "conversation subscription rejected", { error: error instanceof Error ? error.message : "unexpected sender" });
-      return;
-    }
-    if (typeof token !== "string" || token.length === 0 || token.length > 128) return;
-    clearConversationSubscription(event.sender.id);
-    const sender = event.sender;
-    let unsubscribeController: (() => void) | null = null;
-    let unsubscribeReady: (() => void) | null = null;
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      unsubscribeController?.();
-      unsubscribeReady?.();
-      sender.removeListener("destroyed", onDestroyed);
-      if (conversationSubscriptions.get(sender.id)?.cleanup === cleanup) conversationSubscriptions.delete(sender.id);
-    };
-    const onDestroyed = () => clearConversationSubscription(sender.id);
-    const attach = (controller: NonNullable<ReturnType<typeof getPetAssistantConversationController>>) => {
-      if (cleanedUp || sender.isDestroyed()) {
-        cleanup();
-        return;
-      }
-      unsubscribeController = controller.subscribe((conversationEvent) => {
-        if (sender.isDestroyed()) {
-          cleanup();
-          return;
-        }
-        try {
-          sender.send("openpets:conversation-event", conversationEvent);
-        } catch {
-          cleanup();
-        }
-      });
-      try {
-        const snapshot = controller.getSnapshot();
-        sender.send("openpets:conversation-event", { type: "snapshot", sequence: snapshot.lastSequence, snapshot });
-      } catch {
-        cleanup();
-      }
-    };
-    conversationSubscriptions.set(sender.id, { token, cleanup });
-    sender.once("destroyed", onDestroyed);
-    const controller = getPetAssistantConversationController();
-    if (controller) attach(controller);
-    else unsubscribeReady = onPetAssistantConversationControllerReady(attach);
-  });
-
-  ipcMain.on("openpets:conversation-unsubscribe", (event, token: unknown) => {
-    try {
-      assertAllowedSender(event, ["control-center"]);
-    } catch {
-      return;
-    }
-    if (typeof token !== "string") return;
-    clearConversationSubscription(event.sender.id, token);
   });
 
   ipcMain.handle("openpets:get-dashboard-snapshot", async (event) => {
@@ -533,6 +398,17 @@ export function installInternalUiHandlers(): void {
     updateProviderProfile(id, validateProviderProfilePatch(patch));
     const next = getPluginPlatformSettings().profiles[id];
     if (previous?.secretRef && previous.secretRef !== next?.secretRef && !isProviderSecretRefReferenced(getPluginPlatformSettings(), previous.secretRef)) await getProviderCapabilities().secretsStore.delete("__openpets-host", `provider:${previous.secretRef}`);
+    return getProviderControlCenterSnapshot();
+  });
+  ipcMain.handle("openpets:provider-profile-save", async (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    const save = validateProviderConfigurationSaveInput(input);
+    const capabilities = getProviderCapabilities();
+    await saveProviderConfiguration(save, {
+      get: (ref) => capabilities.secretsStore.get("__openpets-host", `provider:${ref}`),
+      set: (ref, value) => capabilities.secretsStore.set("__openpets-host", `provider:${ref}`, value),
+      delete: (ref) => capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`),
+    });
     return getProviderControlCenterSnapshot();
   });
   ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
@@ -937,6 +813,10 @@ export function installInternalUiProtocol(): void {
   });
 }
 
+// The renderer layout reads slightly oversized at native scale; zoom the whole
+// control center out a notch so more content fits without restyling every view.
+const controlCenterZoomFactor = 0.9;
+
 export function openControlCenterWindow(route: ControlCenterRoute = "dashboard"): void {
   const safeRoute = normalizeControlCenterRoute(route);
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
@@ -948,10 +828,13 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
     return;
   }
 
+  // Near-square shape reads best for the control center; clamp to the work
+  // area so the window never spawns larger than small laptop screens.
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
     title: "OpenPets — Control Center",
-    width: 1180,
-    height: 820,
+    width: Math.min(1020, Math.floor(workAreaSize.width * 0.9)),
+    height: Math.min(1000, Math.floor(workAreaSize.height * 0.9)),
     minWidth: 820,
     minHeight: 620,
     show: false,
@@ -962,11 +845,11 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
       contextIsolation: true,
       sandbox: true,
       preload: getControlCenterPreloadPath(),
+      zoomFactor: controlCenterZoomFactor,
     },
   });
 
   controlCenterWindow = window;
-  const windowWebContentsId = window.webContents.id;
   syncDockVisibilityForInternalUi();
   window.setMenu(null);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -983,15 +866,18 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
     else debug("ui", "control center console", fields);
   });
   window.webContents.on("render-process-gone", (_event, details) => {
-    clearConversationSubscription(window.webContents.id);
-    clearVoiceAssistantSubscription(window.webContents.id);
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
   });
-  window.on("closed", () => { clearConversationSubscription(windowWebContentsId); clearVoiceAssistantSubscription(windowWebContentsId); controlCenterWindow = null; syncDockVisibilityForInternalUi(); });
+  window.on("closed", () => { controlCenterWindow = null; syncDockVisibilityForInternalUi(); });
   window.once("ready-to-show", () => { window.show(); window.focus(); });
   pendingControlCenterRoute = safeRoute;
-  window.webContents.on("did-finish-load", () => flushPendingControlCenterRoute(window));
+  window.webContents.on("did-finish-load", () => {
+    // Chromium remembers per-host zoom, which can override the initial
+    // webPreferences value after reloads; pin it on every load.
+    window.webContents.setZoomFactor(controlCenterZoomFactor);
+    flushPendingControlCenterRoute(window);
+  });
 
   const devUrl = getSafeControlCenterDevUrl();
   const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeRoute)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: { route: safeRoute } });
@@ -1109,6 +995,31 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function validateProviderConfigurationSaveInput(value: unknown): ProviderConfigurationSaveInput {
+  if (!isPlainObject(value)
+    || typeof value.isEditing !== "boolean"
+    || typeof value.profileId !== "string"
+    || !isPlainObject(value.payload)
+    || !Array.isArray(value.activatedRoles)
+    || !Array.isArray(value.deactivatedRoles)) {
+    throw new Error("Invalid provider configuration save.");
+  }
+  if (value.credentialValue !== undefined
+    && (typeof value.credentialValue !== "string"
+      || value.credentialValue.length === 0
+      || Buffer.byteLength(value.credentialValue, "utf8") > 16 * 1024)) {
+    throw new Error("Invalid provider credential.");
+  }
+  return {
+    isEditing: value.isEditing,
+    profileId: value.profileId,
+    payload: value.payload as ProviderConfigurationSaveInput["payload"],
+    ...(value.credentialValue === undefined ? {} : { credentialValue: value.credentialValue }),
+    activatedRoles: value.activatedRoles as ProviderConfigurationSaveInput["activatedRoles"],
+    deactivatedRoles: value.deactivatedRoles as ProviderConfigurationSaveInput["deactivatedRoles"],
+  };
+}
+
 function getControlCenterPreloadPath(): string {
   return join(app.getAppPath(), "control-center-preload.cjs");
 }
@@ -1148,18 +1059,6 @@ function assertAllowedSender(event: { readonly sender: { readonly id: number } }
   if (!actualKind || !allowedKinds.includes(actualKind)) {
     throw new Error("OpenPets internal UI request came from an unexpected window.");
   }
-}
-
-function clearConversationSubscription(webContentsId: number, token?: string): void {
-  const subscription = conversationSubscriptions.get(webContentsId);
-  if (!subscription || token !== undefined && subscription.token !== token) return;
-  subscription.cleanup();
-}
-
-function clearVoiceAssistantSubscription(webContentsId: number, token?: string): void {
-  const subscription = voiceAssistantSubscriptions.get(webContentsId);
-  if (!subscription || token !== undefined && subscription.token !== token) return;
-  subscription.cleanup();
 }
 
 function getInternalUiWindowKindForWebContents(webContentsId: number): InternalUiWindowKind | null {

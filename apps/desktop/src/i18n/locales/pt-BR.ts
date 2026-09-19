@@ -130,7 +130,7 @@ export const ptBR: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "Buscar pets...",
   "pets.import": "Importar pet",
-  "pets.gallery": "Galeria",
+  "pets.gallery": "Galeria web",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Padrão",
@@ -196,10 +196,18 @@ export const ptBR: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "Geral",
+  "settings.nav.personality": "Personalidade",
+  "settings.nav.history": "Arquivo de conversas",
   "settings.nav.reactions": "Mapeamento de reações",
   "settings.nav.plugins": "Plataforma de plugins",
   "settings.nav.lan": "LAN",
+  "settings.nav.group.app": "Aplicativo",
+  "settings.nav.group.assistant": "Assistente",
+  "settings.nav.group.platform": "Plataforma",
+  "settings.nav.group.connectivity": "Conectividade",
+  "settings.nav.providers": "Provedores",
   "settings.nav.remote": "Controle remoto",
+  "settings.petBehavior.title": "Comportamento do pet",
   "settings.general.eyebrow": "Ambiente",
   "settings.general.title": "Configurações gerais",
   "settings.general.showOnLaunch.title": "Mostrar pet ao iniciar",
@@ -227,6 +235,25 @@ export const ptBR: Partial<Messages> = {
   "settings.busy.resetting": "Redefinindo",
   "settings.busy.opening": "Abrindo",
   "settings.busy.checking": "Verificando",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "Conversa",
+  "settings.archive.title": "Arquivo de conversas",
+  "settings.archive.description": "Gerencie o histórico de conversas local mantido neste computador.",
+  "settings.archive.boundary.title": "Arquivo de conversas apenas local",
+  "settings.archive.boundary.description": "Os turnos arquivados são salvos localmente em openpets-conversation-history.json (até 200 mensagens / 30 dias / 512 KiB). Até 24 mensagens recentes fornecem contexto para os próximos turnos. O histórico de chat dentro do pet é uma sessão temporária em memória, separada deste arquivo persistente. Nenhuma sincronização na nuvem ou chamada a provedores é usada para ler ou excluir este arquivo.",
+  "settings.archive.empty.title": "Nenhuma mensagem arquivada",
+  "settings.archive.empty.description": "As mensagens finais do usuário e do assistente das suas conversas com o pet serão arquivadas aqui automaticamente.",
+  "settings.archive.clear": "Limpar arquivo",
+  "settings.archive.clearConfirm.title": "Limpar o arquivo de conversas?",
+  "settings.archive.clearConfirm.description": "Isso excluirá permanentemente todo o histórico de conversas salvo no disco. A sessão atual em memória não será afetada.",
+  "settings.archive.delete": "Excluir",
+  "settings.archive.refresh": "Atualizar",
+  "settings.archive.searchPlaceholder": "Filtrar mensagens arquivadas...",
+  "settings.archive.user": "Você",
+  "settings.archive.assistant": "Assistente",
+  "settings.archive.toast.deleted": "Mensagem arquivada excluída.",
+  "settings.archive.toast.cleared": "Arquivo de conversas limpo.",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "Pet de escritório",

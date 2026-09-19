@@ -18,6 +18,9 @@ import type { PluginAssistantCapability, PluginAssistantCapabilityExecutionOutco
 import { PluginRuntime, type PluginRuntimeOptions, type PluginRuntimeScheduler } from "./plugin-runtime.js";
 import { PluginStateStore, type PluginSource, type PluginStateRecord } from "./plugin-state.js";
 import { getAppStateSnapshot } from "./app-state.js";
+import { bundledOfficialPluginIds } from "./bundled-plugins.js";
+
+export { bundledOfficialPluginIds } from "./bundled-plugins.js";
 
 export type SafePluginRecord = {
   readonly id: string;
@@ -82,7 +85,6 @@ export type PluginServiceOptions = {
   readonly onLocalPluginSourceRemoved?: (sourcePath: string) => void;
 };
 
-export const bundledOfficialPluginIds = ["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy", "openpets.virtual-pet"] as const;
 const bundledEnabledByDefault = new Set<string>(["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy"]);
 const staleBundledPluginIds = ["openpets.daily-reminders", "openpets.pomodoro", "openpets.ambient-companion", "openpets.break-buddy", "openpets.focus-buddy", "openpets.github-notifications", "openpets.pet-pal", "openpets.quick-reminders", "openpets.wander-buddy"] as const;
 

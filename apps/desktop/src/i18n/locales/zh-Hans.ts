@@ -130,7 +130,7 @@ export const zhHans: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "搜索宠物...",
   "pets.import": "导入宠物",
-  "pets.gallery": "图库",
+  "pets.gallery": "网页图库",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "默认",
@@ -196,10 +196,18 @@ export const zhHans: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "常规",
+  "settings.nav.personality": "人设个性",
+  "settings.nav.history": "对话归档",
   "settings.nav.reactions": "反应映射",
   "settings.nav.plugins": "插件平台",
   "settings.nav.lan": "局域网",
+  "settings.nav.group.app": "应用",
+  "settings.nav.group.assistant": "助手",
+  "settings.nav.group.platform": "平台",
+  "settings.nav.group.connectivity": "连接",
+  "settings.nav.providers": "服务提供方",
   "settings.nav.remote": "远程控制",
+  "settings.petBehavior.title": "宠物行为",
   "settings.general.eyebrow": "环境",
   "settings.general.title": "常规设置",
   "settings.general.showOnLaunch.title": "启动时显示宠物",
@@ -227,6 +235,25 @@ export const zhHans: Partial<Messages> = {
   "settings.busy.resetting": "重置中",
   "settings.busy.opening": "打开中",
   "settings.busy.checking": "检查中",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "对话",
+  "settings.archive.title": "对话归档",
+  "settings.archive.description": "管理保存在此电脑上的本地对话历史记录（用于助手上下文）。",
+  "settings.archive.boundary.title": "纯本地对话归档",
+  "settings.archive.boundary.description": "归档的轮次保存在本地 openpets-conversation-history.json 文件中（最多 200 条 / 30 天 / 512 KiB）。最近的最多 24 条消息会作为后续轮次的上下文。宠物内的对话悬浮窗是当前会话的临时历史，与此持久化归档相互独立。读取或清除此归档无需任何云端同步或服务商调用。",
+  "settings.archive.empty.title": "暂无归档消息",
+  "settings.archive.empty.description": "与宠物的对话消息将自动归档并保存在这里。",
+  "settings.archive.clear": "清空归档",
+  "settings.archive.clearConfirm.title": "确定清空对话归档？",
+  "settings.archive.clearConfirm.description": "这将永久删除磁盘上所有已保存的对话历史。当前的内存会话不受影响。",
+  "settings.archive.delete": "删除",
+  "settings.archive.refresh": "刷新",
+  "settings.archive.searchPlaceholder": "搜索归档消息...",
+  "settings.archive.user": "你",
+  "settings.archive.assistant": "助手",
+  "settings.archive.toast.deleted": "已删除归档消息。",
+  "settings.archive.toast.cleared": "已清空对话归档。",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "办公室宠物",

@@ -62,6 +62,13 @@ export function TeamsView({ api }: TeamsViewProps) {
   }, [loadSnapshot]);
 
   useEffect(() => {
+    if (!api.onRouteChange) return undefined;
+    return api.onRouteChange((route) => {
+      if (route === "teams") void loadSnapshot();
+    });
+  }, [api, loadSnapshot]);
+
+  useEffect(() => {
     if (!successMessage) return;
     const timer = window.setTimeout(() => setSuccessMessage(""), 3500);
     return () => window.clearTimeout(timer);
@@ -87,6 +94,35 @@ export function TeamsView({ api }: TeamsViewProps) {
       setActionError(
         err instanceof Error ? err.message : "Failed to complete Teams enrollment.",
       );
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const handleRefreshStatus = async () => {
+    setLoading(true);
+    setActionError("");
+    try {
+      const next = await api.syncTeamsNow();
+      setSnapshot(next);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to refresh Teams status.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDiscardEnrollment = async () => {
+    setBusy("Discarding invitation...");
+    setActionError("");
+    setSuccessMessage("");
+    try {
+      const next = await api.leaveTeams();
+      setSnapshot(next);
+      setDisplayNameInput("");
+      setSuccessMessage("Invitation discarded. Open a new invitation link to continue.");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to discard the invitation.");
     } finally {
       setBusy("");
     }
@@ -293,7 +329,8 @@ export function TeamsView({ api }: TeamsViewProps) {
           displayNameInput={displayNameInput}
           onDisplayNameChange={setDisplayNameInput}
           onEnrollSubmit={(e) => void handleEnrollSubmit(e)}
-          onRefreshStatus={() => void loadSnapshot(true)}
+          onRefreshStatus={() => void handleRefreshStatus()}
+          onDiscardEnrollment={() => void handleDiscardEnrollment()}
         />
       ) : (
         /* Enrolled State (Active Organization) */

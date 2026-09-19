@@ -362,13 +362,23 @@ process.exit(0);
 
   const zedRoot = join(dir, "zed-global");
   mkdirSync(zedRoot);
-  const zedEnvKeys = process.platform === "win32" ? ["APPDATA"] : ["FLATPAK_XDG_CONFIG_HOME", "XDG_CONFIG_HOME"];
+  const zedEnvKeys = process.platform === "win32" ? ["APPDATA"] : ["FLATPAK_XDG_CONFIG_HOME", "XDG_CONFIG_HOME", "HOME"];
   const previousZedEnv = new Map(zedEnvKeys.map((key) => [key, process.env[key]]));
   for (const key of zedEnvKeys) delete process.env[key];
-  process.env[process.platform === "win32" ? "APPDATA" : "XDG_CONFIG_HOME"] = zedRoot;
+  if (process.platform === "win32") {
+    process.env.APPDATA = zedRoot;
+  } else if (process.platform === "darwin") {
+    process.env.HOME = zedRoot;
+  } else {
+    process.env.XDG_CONFIG_HOME = zedRoot;
+  }
   try {
     await configureProject({ agent: "zed", cwd: join(dir, "ignored-project"), yes: true, force: false, localDev: false });
-    const zedSettingsPath = process.platform === "win32" ? join(zedRoot, "Zed", "settings.json") : join(zedRoot, "zed", "settings.json");
+    const zedSettingsPath = process.platform === "win32"
+      ? join(zedRoot, "Zed", "settings.json")
+      : process.platform === "darwin"
+        ? join(zedRoot, ".config", "zed", "settings.json")
+        : join(zedRoot, "zed", "settings.json");
     const zedSettings = JSON.parse(readFileSync(zedSettingsPath, "utf8")) as { readonly context_servers?: Record<string, { readonly command?: string; readonly args?: readonly string[] }>; };
     assert.equal(zedSettings.context_servers?.openpets?.command, "npx");
     assert.deepEqual(zedSettings.context_servers?.openpets?.args, ["-y", `@open-pets/mcp@${packageVersion}`]);
@@ -523,7 +533,6 @@ const doctorMissingText = await captureDoctorText(doctorMissingProject);
 assert.match(doctorMissingText.text, /OpenCode/);
 assert.match(doctorMissingText.text, /Claude hooks:/);
 assert.match(doctorMissingText.text, /Cursor MCP:/);
-rmSync(doctorMissingProject, { recursive: true, force: true });
 
 // Issue #188: doctor must surface a symlinked global config as a useful
 // diagnostic error without mutating anything.
@@ -589,6 +598,7 @@ assert.equal(lstatSync(doctorDanglingConfig).isSymbolicLink(), true, "doctor mus
 assert.equal(hasCliCheckEntry(doctorDanglingTarget), false, "no contents may be created through the dangling link");
 assert.equal(hasCliCheckEntry(join(doctorDanglingDir, "openpets.md")), false, "doctor must remain read-only");
 rmSync(doctorDanglingDir, { recursive: true, force: true });
+rmSync(doctorMissingProject, { recursive: true, force: true });
 
 function hasCliCheckEntry(path: string): boolean {
   try {

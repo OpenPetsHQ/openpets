@@ -1,111 +1,174 @@
 ---
 name: openpets
-description: Use when the user asks to install, configure, verify, troubleshoot, or understand OpenPets; install or select a pet; connect Claude Code, OpenCode, Cursor, Codex, or MCP clients; configure a project to use a specific pet; or debug openpets_status, openpets_react, or openpets_say.
+description: Use whenever the user wants to build, extend, debug, test, validate, locally load, package, or publish an OpenPets plugin; work with the OpenPets Plugin SDK v3, plugin manifest, plugin permissions, sandbox, plugin UI, storage, schedules, assets, or local plugin development. Also use for installing or configuring OpenPets, pets, optional coding-agent integrations, or local MCP controls. Prioritize the local-first plugin authoring experience; agent integrations are optional.
 license: MIT
 ---
 
 # OpenPets
 
-OpenPets is a desktop companion app for coding agents. The desktop app runs locally and exposes pet controls through CLI, MCP, hooks, plugins, and local IPC.
+OpenPets is a local-first desktop companion platform. Its core extension point is
+the sandboxed Plugin SDK v3: plugins describe companion behavior and the desktop
+host owns rendering, state, permissions, and lifecycle. Coding-agent and MCP
+integrations are useful optional adapters, not a prerequisite for using or
+developing plugins.
 
-Use this skill to help users onboard quickly and safely:
+## Choose the right path
 
-- install or verify the OpenPets desktop app
-- install pets from the public catalog
-- configure Claude Code, OpenCode, Cursor, Codex, or another MCP client
-- configure a project to use a specific pet
-- validate `openpets_status`, `openpets_react`, and `openpets_say`
-- explain how OpenPets works
-- troubleshoot setup problems
+- Building, changing, or debugging a plugin: read
+  [Build a plugin](workflows/build-plugin.md), then the relevant SDK references.
+- Loading a work-in-progress plugin into the desktop app: read
+  [Develop locally](workflows/develop-locally.md).
+- Testing, validating, packaging, or publishing a plugin: read
+  [Test and validate](workflows/test-and-validate.md).
+- Installing the app or CLI: read [Install OpenPets](workflows/install-openpets.md).
+- Connecting Claude Code, OpenCode, Cursor, Codex, or MCP: read
+  [Configure a project](workflows/configure-project.md). Treat this as a
+  secondary integration path, not the default answer to plugin work.
+- Diagnosing desktop, CLI, or agent-control problems: read
+  [Troubleshoot](workflows/troubleshoot.md).
+- Explaining runtime topology or optional integrations: read
+  [Explain architecture](workflows/explain-architecture.md).
 
-## CLI rule: install once, then use openpets
+## Plugin-authoring posture
 
-For the cleanest onboarding, install the OpenPets CLI globally first:
+Help the user reach a fast local feedback loop before discussing catalog release
+or agent integrations:
 
-```bash
-npm install -g @open-pets/cli
-```
+1. Scaffold from the closest supported template rather than creating a guessed
+   package shape.
+2. Read the generated manifest and entry point before editing. The manifest and
+   current SDK types, not remembered APIs, define what will run.
+3. Implement the smallest companion behavior that fulfills the request, asking
+   only for permissions it actually needs.
+4. Write deterministic harness tests for behavior, validate the folder, then
+   load it locally in the desktop app.
+5. Use the desktop's Developer Mode watcher to iterate. Publishing is a separate
+   decision and must never be implied by local loading.
 
-Then use the `openpets` command:
+Do not require the user to configure Claude Code, OpenCode, MCP, or any other
+agent to build a plugin. Do not require an OpenPets source checkout when the
+desktop app and CLI are enough.
 
-```bash
-openpets <command>
-```
+## Local development is a first-class workflow
 
-If the user does not want a global install, is in CI, or only needs a one-off command, use this fallback instead:
-
-```bash
-npx -y @open-pets/cli@latest <command>
-```
-
-For MCP server config, prefer the dedicated MCP package:
-
-```bash
-npx -y @open-pets/mcp@latest --pet <pet-id>
-```
-
-Do not imply the desktop app installs a shell command by itself. The `openpets` command comes from the optional npm global CLI install.
-
-## Mental model
-
-```text
-Claude/OpenCode/Codex/Cursor/MCP client
-  -> OpenPets MCP, plugin, hook, or CLI
-  -> @open-pets/client
-  -> local IPC discovery/token
-  -> OpenPets desktop app
-  -> default pet or selected agent pet lease
-```
-
-OpenPets requires the desktop app to be installed and running for live pet control.
-
-## Decision tree
-
-- User asks to install OpenPets: follow `workflows/install-openpets.md`.
-- User asks to install a pet: follow `workflows/install-pet.md`.
-- User asks to configure a project or agent: follow `workflows/configure-project.md`.
-- User asks to verify Claude Code: follow `workflows/verify-claude.md`.
-- User asks to verify OpenCode: follow `workflows/verify-opencode.md`.
-- User asks about MCP or tool availability: follow `workflows/verify-mcp.md`.
-- User reports something broken: follow `workflows/troubleshoot.md`.
-- User asks how OpenPets works: follow `workflows/explain-architecture.md`.
-
-## Safety rules
-
-- Prefer official OpenPets CLI/UI flows over hand-editing integration config.
-- Ask before using `--force` or replacing existing user-managed MCP/plugin/hook config.
-- Confirm the project path before project-local configuration.
-- Confirm the pet id before installing or selecting a pet, and make sure it is installed before configuring a project to use it.
-- Do not put secrets, private logs, private paths, source code, URLs, credentials, or sensitive text into pet speech.
-- Restart Claude Code, OpenCode, or other MCP clients after config changes.
-- Do not promise the desktop app is installed or running; verify it.
-- If setup still fails after normal troubleshooting, encourage the user to report a bug at the OpenPets GitHub repository: https://github.com/alvinunreal/openpets/issues
-
-## Canonical quick commands
+For a standalone plugin folder, OpenPets provides:
 
 ```bash
-npm install -g @open-pets/cli
-openpets status
-openpets pets
-openpets install <pet-id>
-openpets configure --agent claude --pet <pet-id> --cwd <project-path> --yes
-openpets configure --agent opencode --pet <pet-id> --cwd <project-path> --yes
-openpets configure --agent cursor --pet <pet-id> --cwd <project-path> --yes
-openpets mcp --pet <pet-id>
+npm install -g @open-pets/cli@latest
+openpets plugin new <name> --template <blank|reminder|ambient|ai-chat|tamagotchi|calendar>
+openpets plugin validate <plugin-directory>
 ```
 
-One-off fallback: replace `openpets` with `npx -y @open-pets/cli@latest`.
-
-MCP server command:
+The one-off CLI alternative is:
 
 ```bash
-npx -y @open-pets/mcp@latest --pet <pet-id>
+npx -y @open-pets/cli@latest plugin new <name> --template <template>
+npx -y @open-pets/cli@latest plugin validate <plugin-directory>
 ```
 
-## Public resources
+After scaffolding, enter the plugin directory and install its test dependency:
 
-- Website: https://openpets.dev
-- Pet catalog: https://openpets.dev/pets/catalog.v3.json
-- GitHub issues: https://github.com/alvinunreal/openpets/issues
+```bash
+cd <plugin-directory>
+npm install
+npm test
+```
 
-Use the docs on `openpets.dev` as the source of truth when details may have changed.
+If `openpets plugin` is reported as an unknown command, the globally installed
+CLI is older than the SDK v3 plugin tooling. Upgrade it with the first command
+above or use the one-off `npx -y @open-pets/cli@latest` form.
+
+Then, with the desktop app running, use **Plugins → Developer Mode → Load
+unpacked plugin folder**. OpenPets validates and snapshots the folder, remembers
+the source location, watches it, and re-snapshots/reloads after edits. Reloading
+locally does not publish or upload anything.
+
+If the user maintains OpenPets itself, `pnpm dev:desktop:plugins` hot-loads the
+repository's `plugins/official` and `plugins/dev` lanes. Do not tell an external
+plugin author to use maintainer-only environment variables or catalog commands.
+
+## Authoritative references
+
+When the OpenPets checkout is available, use its source and docs as the primary
+reference. Read only the material relevant to the requested capability:
+
+| Need | Read first |
+| --- | --- |
+| Plugin package shape, local loading, manifest, sandbox, release lanes | `docs/plugins.md` |
+| SDK namespaces, permissions, testing harness | `docs/sdk.md`, then `packages/sdk/src/index.ts` or `packages/sdk/src/testing.ts` for an exact signature |
+| Scaffolded templates | `packages/cli/src/plugin-templates.ts` |
+| Exact manifest validation errors | `packages/cli/src/plugin-validate.ts` and `packages/cli/schemas/openpets.plugin.schema.json` |
+| Working patterns | `plugins/official/*/openpets.plugin.json`, `index.js`, and `test.js` |
+| Repository dev modes and commands | `docs/development.md` |
+| Localization | `docs/i18n.md` |
+
+Without a checkout, use the maintained public docs:
+
+- Documentation hub: https://openpets.dev/docs
+- Plugin platform and catalog: https://openpets.dev/plugins
+- Plugin SDK v3 reference: https://openpets.dev/sdk
+- Development guide: https://openpets.dev/development
+- Canonical source repository: https://github.com/OpenPetsHQ/openpets
+- Source documentation index: https://github.com/OpenPetsHQ/openpets/tree/main/docs
+- Exact SDK contract: https://github.com/OpenPetsHQ/openpets/blob/main/packages/sdk/src/index.ts
+- Working first-party examples: https://github.com/OpenPetsHQ/openpets/tree/main/plugins/official
+
+For the maintained navigation map and what each source is authoritative for,
+read [Source references](references/source-docs.md).
+
+The exact public SDK contract lives in `packages/sdk/src/index.ts`. Never invent
+an SDK method, manifest field, permission, or UI capability because it seems
+plausible. Inspect the current contract or explain what needs verification.
+
+## Design for the host, not around it
+
+- Plugins describe behavior through `ctx`; they do not inject arbitrary UI into
+  pet windows or take ownership of window placement/lifecycle.
+- Match each SDK namespace to a declared manifest permission. A call missing an
+  approved permission is denied at runtime.
+- Keep permissions narrow. In particular, network access requires declared and
+  approved exact hosts; local network access and non-GET requests are separate
+  permissions.
+- Persist durable plugin state with `ctx.storage`; make scheduled work safe to
+  reconcile after restart or sleep.
+- Declare every visual or sound asset in the manifest. Do not use ad-hoc local
+  paths as asset references.
+- Ship `locales/en.json` and use `$t:` / `ctx.t()` when a plugin has user-facing
+  strings that need localization.
+- Keep behavior companion-first: useful, calm, and stateful rather than a
+  generic floating app. Prefer host-rendered descriptors such as commands,
+  alerts, bubbles, panels, status, and deliveries over custom rendering.
+- Treat the deterministic SDK harness as the default test surface. Assert
+  observable descriptors and state transitions, not Electron internals.
+
+## Boundaries worth preserving
+
+- The desktop app must be running to load and observe a local plugin.
+- Local load is for iteration; catalog packaging/publishing is for maintainers
+  and reviewed release lanes.
+- `ctx.assistant.registerCapability(...)` can make an explicit plugin operation
+  available to the host Pet Assistant, but it grants no permission or access by
+  itself.
+- One-shot `ctx.voice.listen()` is host-owned and visible; it is never ambient
+  microphone access.
+- The host controls approval, quotas, sandboxing, and teardown. Design plugins
+  to handle rejected calls and reloads gracefully instead of bypassing those
+  boundaries.
+
+## Optional coding-agent integrations
+
+Use the integration workflows only when a user specifically wants an agent to
+react through a pet, control a pet over local IPC/MCP, or configure a project.
+They are not needed to author, test, locally load, or share an OpenPets plugin.
+
+## Safety and change discipline
+
+- Confirm before replacing user-managed agent, MCP, hook, or plugin
+  configuration, or before using `--force`.
+- Do not put source code, secrets, credentials, URLs, private paths, or private
+  logs into pet speech.
+- Verify the current desktop/CLI state rather than promising that it is installed
+  or running.
+- For source-repo changes, preserve the SDK contract: an SDK surface change must
+  update the published types, desktop bridge, test harness, and conformance
+  check together.

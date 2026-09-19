@@ -1,30 +1,40 @@
-# Source Docs
+# OpenPets Source References
 
-Treat the public docs as canonical when details may have changed.
+Use this map when the user needs official documentation, the exact current
+contract, source examples, or the source repository without cloning it.
 
-Recommended public references:
+## Public documentation
 
-```text
-https://openpets.dev
-https://openpets.dev/pets/catalog.v3.json
-```
+| Need | Official source |
+| --- | --- |
+| Documentation starting point | https://openpets.dev/docs |
+| Plugin platform and reviewed catalog | https://openpets.dev/plugins |
+| Plugin SDK v3 author guide | https://openpets.dev/sdk |
+| Repository development guide | https://openpets.dev/development |
+| Pet catalog data | https://openpets.dev/pets/catalog.v3.json |
 
-Repository docs/source pages to keep this skill synced with:
+Use the docs to understand a feature. When an exact method signature, manifest
+field, permission, or runtime behavior matters, confirm it against the source
+contract below rather than extrapolating from prose.
 
-```text
-web/content/en/docs/install.md
-web/content/en/docs/quickstart.md
-web/content/en/docs/pets.md
-web/content/en/docs/cli.md
-web/content/en/docs/mcp.md
-web/content/en/docs/troubleshooting.md
-web/content/en/docs/files-and-config.md
-web/content/en/integrations/claude.md
-web/content/en/integrations/opencode.md
-```
+## Source of truth and examples
 
-Bug reports:
+| Need | Canonical source |
+| --- | --- |
+| Repository and release links | https://github.com/OpenPetsHQ/openpets |
+| Maintained documentation tree | https://github.com/OpenPetsHQ/openpets/tree/main/docs |
+| SDK types and public API signatures | https://github.com/OpenPetsHQ/openpets/blob/main/packages/sdk/src/index.ts |
+| Deterministic plugin test harness | https://github.com/OpenPetsHQ/openpets/blob/main/packages/sdk/src/testing.ts |
+| CLI scaffolding templates | https://github.com/OpenPetsHQ/openpets/blob/main/packages/cli/src/plugin-templates.ts |
+| CLI folder validator | https://github.com/OpenPetsHQ/openpets/blob/main/packages/cli/src/plugin-validate.ts |
+| First-party plugin examples | https://github.com/OpenPetsHQ/openpets/tree/main/plugins/official |
 
-```text
-https://github.com/alvinunreal/openpets/issues
-```
+Read the nearest first-party plugin's manifest, entry, and test when composing
+several capabilities. Adapt its pattern; do not blindly copy its entire product
+behavior or permission set.
+
+## Support
+
+Report reproducible product or tooling bugs at:
+
+https://github.com/OpenPetsHQ/openpets/issues

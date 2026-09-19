@@ -25,7 +25,7 @@ see [Plugin platform](/plugins). For the author-facing API, see
 ## Current catalog lineup
 
 The public plugin catalog is `web/public/plugins/catalog.v2.json`. The current
-catalog contains ten official plugins and three community plugins.
+catalog contains eleven official plugins and five community plugins.
 
 | Plugin | Type | What it does |
 | --- | --- | --- |
@@ -39,9 +39,12 @@ catalog contains ten official plugins and three community plugins.
 | Quick Reminders | Official | Creates reminders with due/missed alerts, snooze, done, status, optional notifications, and sound. |
 | Virtual Pet | Official | Adds Tamagotchi-style state, actions, and a pinned HUD. |
 | Water Reminder | Official | Runs hydration reminders on a configurable cadence. |
+| System Resources | Official | Reports host CPU and RAM, with optional GPU and system-volume Disk metrics, in a pinned HUD. |
+| Vocabulary Drag & Drop | Community | Drag words to see definitions and translations in a natively scrollable HUD card. |
 | Higgsfield Watch | Community | Catalog-listed community plugin. |
 | Spotify Buddy | Community | Catalog-listed community plugin. |
 | Walkabout | Community | Lets the pet roam, follow the cursor, or patrol. |
+| Usage Buddy | Community | Reflects live Claude and Codex usage from a local usage monitor endpoint. |
 
 Official plugin source lives under `plugins/official/`. Community catalog
 plugins are labeled `publisherType: "community"` and are never bundled or
@@ -54,9 +57,9 @@ Those defaults are defined in `apps/desktop/src/plugin-service.ts`.
 
 | Default | Plugins |
 | --- | --- |
-| Bundled with the app | Quick Reminders, Focus Buddy, Launch Buddy, Virtual Pet |
+| Bundled with the app | Quick Reminders, Focus Buddy, Launch Buddy, Virtual Pet, System Resources |
 | Enabled by default | Quick Reminders, Focus Buddy, Launch Buddy |
-| Bundled but disabled by default | Virtual Pet |
+| Bundled but disabled by default | Virtual Pet, System Resources |
 
 Everything else is installable from the catalog, not preloaded into a fresh app
 install.

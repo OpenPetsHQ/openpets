@@ -6,6 +6,10 @@ export function emptyTeamsSnapshot(): TeamsSnapshot {
     organizationId: null,
     organizationName: null,
     pendingEnrollment: false,
+    pendingOrganizationId: null,
+    pendingOrganizationName: null,
+    pendingEnrollmentStatus: null,
+    pendingEnrollmentExpiresAt: null,
     installationId: null,
     pendingRevision: 0,
     appliedRevision: 0,
@@ -19,6 +23,10 @@ export function isTeamsSnapshot(value: unknown): value is TeamsSnapshot {
   return (
     typeof raw.enrolled === "boolean" &&
     typeof raw.pendingEnrollment === "boolean" &&
+    (raw.pendingOrganizationId === undefined || raw.pendingOrganizationId === null || typeof raw.pendingOrganizationId === "string") &&
+    (raw.pendingOrganizationName === undefined || raw.pendingOrganizationName === null || typeof raw.pendingOrganizationName === "string") &&
+    (raw.pendingEnrollmentStatus === undefined || raw.pendingEnrollmentStatus === null || raw.pendingEnrollmentStatus === "started" || raw.pendingEnrollmentStatus === "accepted" || raw.pendingEnrollmentStatus === "completed") &&
+    (raw.pendingEnrollmentExpiresAt === undefined || raw.pendingEnrollmentExpiresAt === null || typeof raw.pendingEnrollmentExpiresAt === "string") &&
     typeof raw.pendingRevision === "number" &&
     typeof raw.appliedRevision === "number" &&
     Array.isArray(raw.teamPets) &&
@@ -35,10 +43,34 @@ export function validateDisplayName(name: string): DisplayNameValidationResult {
   if (trimmed.length === 0) {
     return { ok: false, error: "Please enter a display name for this computer." };
   }
-  if (trimmed.length > 120) {
-    return { ok: false, error: "Display name must be 120 characters or fewer." };
+  if (trimmed.length > 80) {
+    return { ok: false, error: "Display name must be 80 characters or fewer." };
   }
   return { ok: true, name: trimmed };
+}
+
+export function isEnrollmentActionable(
+  snapshot: TeamsSnapshot,
+  displayName: string,
+  now = Date.now(),
+): boolean {
+  if (
+    !snapshot.pendingEnrollment
+    || snapshot.enrolled
+    || snapshot.pendingEnrollmentStatus === null
+    || snapshot.pendingEnrollmentStatus === undefined
+    || snapshot.pendingEnrollmentStatus === "completed"
+  ) return false;
+
+  if (!snapshot.pendingOrganizationId?.trim() || !snapshot.pendingOrganizationName?.trim()) {
+    return false;
+  }
+
+  const expiresAt = snapshot.pendingEnrollmentExpiresAt;
+  const expiration = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(expiration) || expiration <= now) return false;
+
+  return validateDisplayName(displayName).ok;
 }
 
 export function formatDate(isoString?: string): string {

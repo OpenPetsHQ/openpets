@@ -130,7 +130,7 @@ export const zhHant: Partial<Messages> = {
   "pets.filter.codex": "Codex",
   "pets.search.placeholder": "搜尋寵物...",
   "pets.import": "匯入寵物",
-  "pets.gallery": "藝廊",
+  "pets.gallery": "網頁藝廊",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "預設",
@@ -196,10 +196,18 @@ export const zhHant: Partial<Messages> = {
 
   // --- Settings: general (renderer) ---
   "settings.nav.general": "一般",
+  "settings.nav.personality": "個性設定",
+  "settings.nav.history": "對話封存",
   "settings.nav.reactions": "反應對應",
   "settings.nav.plugins": "外掛平台",
   "settings.nav.lan": "區域網路",
+  "settings.nav.group.app": "應用程式",
+  "settings.nav.group.assistant": "助理",
+  "settings.nav.group.platform": "平台",
+  "settings.nav.group.connectivity": "連線",
+  "settings.nav.providers": "服務提供者",
   "settings.nav.remote": "遠端控制",
+  "settings.petBehavior.title": "寵物行為",
   "settings.general.eyebrow": "環境",
   "settings.general.title": "一般設定",
   "settings.general.showOnLaunch.title": "啟動時顯示寵物",
@@ -227,6 +235,25 @@ export const zhHant: Partial<Messages> = {
   "settings.busy.resetting": "重設中",
   "settings.busy.opening": "開啟中",
   "settings.busy.checking": "檢查中",
+
+  // --- Settings: Conversation Archive (renderer) ---
+  "settings.archive.eyebrow": "對話",
+  "settings.archive.title": "對話封存",
+  "settings.archive.description": "管理保存在此電腦上的本機對話歷程記錄（用於助理上下文）。",
+  "settings.archive.boundary.title": "純本機對話封存",
+  "settings.archive.boundary.description": "封存的輪次保存在本機 openpets-conversation-history.json 檔案中（最多 200 則 / 30 天 / 512 KiB）。最近的最多 24 則訊息會作為後續輪次的上下文。寵物內的對話懸浮窗是目前工作階段的暫時歷程記錄，與此持久化封存相互獨立。讀取或清除此封存無需任何雲端同步或提供者呼叫。",
+  "settings.archive.empty.title": "尚無封存訊息",
+  "settings.archive.empty.description": "與寵物的對話訊息將自動封存並保存在這裡。",
+  "settings.archive.clear": "清空封存",
+  "settings.archive.clearConfirm.title": "確定清空對話封存？",
+  "settings.archive.clearConfirm.description": "這將永久刪除磁碟上所有已儲存的對話歷程記錄。目前的記憶體工作階段不受影響。",
+  "settings.archive.delete": "刪除",
+  "settings.archive.refresh": "重新整理",
+  "settings.archive.searchPlaceholder": "搜尋封存訊息...",
+  "settings.archive.user": "你",
+  "settings.archive.assistant": "助理",
+  "settings.archive.toast.deleted": "已刪除封存訊息。",
+  "settings.archive.toast.cleared": "已清空對話封存。",
 
   // --- Settings: LAN mode (renderer) ---
   "settings.lan.eyebrow": "辦公室寵物",

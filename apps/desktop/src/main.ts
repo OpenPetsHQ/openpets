@@ -28,6 +28,7 @@ import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
 import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow } from "./windows.js";
+import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
@@ -194,6 +195,7 @@ if (!gotSingleInstanceLock) {
     });
     installInternalUiProtocol();
     installInternalUiHandlers();
+    installDefaultPetChatIpcHandlers();
     createAppTray();
     installDefaultPetDisplayHandlers();
     await startLocalIpcServer();
@@ -216,6 +218,12 @@ if (!gotSingleInstanceLock) {
           : level === "warn"
             ? warn("teams", message, fields)
             : info("teams", message, fields),
+    });
+    teamService.subscribeToEnrollmentPreview(() => {
+      // Reuse the existing route event so an already-running Control Center
+      // refetches the authoritative preview instead of retaining its initial
+      // pending snapshot with null identity and expiry.
+      openControlCenterWindow("teams");
     });
     managerCheckInService = initializeManagerCheckInService({
       teamStateStore: teamService.stateStore,

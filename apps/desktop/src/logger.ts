@@ -13,6 +13,7 @@ export type LogScope =
   | "pet.agent"
   | "pet.window"
   | "pet.wayland"
+  | "pet.chat"
   | "plugin"
   | "state"
   | "tray"

@@ -18,11 +18,16 @@ import {
 } from "../src/team-reconciler.js";
 import { PluginStateStore } from "../src/plugin-state.js";
 import { TeamStateStore } from "../src/team-state.js";
-import { TeamApiClient } from "../src/team-api-client.js";
+import { TeamApiClient, TeamApiError } from "../src/team-api-client.js";
 import {
   activateTeamArtifact,
   removeTeamArtifact,
 } from "../src/team-package.js";
+import {
+  isEnrollmentActionable,
+  isTeamsSnapshot,
+  validateDisplayName,
+} from "../src/renderer/src/teams/teams-state.js";
 import { TeamService, type TeamServiceOptions } from "../src/team-service.js";
 import type { OpenPetsStateV1 } from "../src/app-state.js";
 import type { SecureCredentialStore } from "../src/team-state.js";
@@ -176,25 +181,22 @@ test("Teams API client pins requests to the configured origin and validates pack
   assert.throws(() => new TeamApiClient({ baseUrl: "http://insecure.example.test" }));
 });
 
-test("Teams enrollment crosses the boundary with only an intent and desktop proof", async () => {
+test("Teams enrollment previews identity and completes in one desktop request", async () => {
   const requestBodies: Record<string, Record<string, unknown>> = {};
   const expiresAt = new Date(Date.now() + 3_000).toISOString();
-  let requestedProof = "";
-  let browserConfirmed = false;
+  const requestedProof = "desktop-proof";
   const client = new TeamApiClient({
     baseUrl: "https://teams.example.test/",
     fetchImpl: async (url, init) => {
       const path = new URL(String(url)).pathname;
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       requestBodies[path] = body;
-      if (path.endsWith("/request")) {
-        requestedProof = String(body.desktopProof);
-        return new Response(
+       if (path.endsWith("/preview")) {
+         return new Response(
           JSON.stringify({
             intentId: "intent-1",
-            status: "awaiting_confirmation",
+            status: "started",
             organization: { id: "org-1", name: "Acme" },
-            displayName: "Alice desktop",
             expiresAt,
           }),
           { status: 200 },
@@ -205,12 +207,6 @@ test("Teams enrollment crosses the boundary with only an intent and desktop proo
           return new Response(
             JSON.stringify({ error: "invalid proof" }),
             { status: 401 },
-          );
-        }
-        if (!browserConfirmed) {
-          return new Response(
-            JSON.stringify({ error: "not confirmed" }),
-            { status: 409 },
           );
         }
         return new Response(
@@ -227,37 +223,119 @@ test("Teams enrollment crosses the boundary with only an intent and desktop proo
     },
   });
 
-  await client.requestEnrollment(
-    "intent-1",
-    "desktop-proof",
-    "desktop-installation",
-    "Alice desktop",
-  );
-  assert.deepEqual(
-    requestBodies["/v1/enrollment/intents/intent-1/request"],
-    {
-      desktopProof: "desktop-proof",
-      deviceInstallationId: "desktop-installation",
-      displayName: "Alice desktop",
-    },
-  );
-  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/request"], false);
-  await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", expiresAt), /HTTP 401/);
+    const preview = await client.getEnrollmentPreview("intent-1");
+    assert.equal(preview.organization.name, "Acme");
+    assert.equal(preview.displayName, undefined);
+   assert.deepEqual(
+     requestBodies["/v1/enrollment/intents/intent-1/preview"],
+     {},
+   );
+   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/preview"], false);
+  await assert.rejects(() => client.completeEnrollment("intent-1", "wrong-proof", "desktop-installation", "Alice desktop", expiresAt), /HTTP 401/);
 
-  const confirmation = setTimeout(() => {
-    browserConfirmed = true;
-  }, 10);
-  const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", expiresAt);
-  clearTimeout(confirmation);
+  const enrollment = await client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt);
   assert.equal(enrollment.deviceId, "device-1");
   assert.equal(
     requestBodies["/v1/enrollment/intents/intent-1/complete"].desktopProof,
     "desktop-proof",
   );
-  assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
+  const replay = await client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt);
+  assert.equal(replay.deviceId, enrollment.deviceId);
+  assert.equal(replay.deviceCredential, enrollment.deviceCredential);
+   assert.equal("browserToken" in requestBodies["/v1/enrollment/intents/intent-1/complete"], false);
+   assert.deepEqual(requestBodies["/v1/enrollment/intents/intent-1/complete"], {
+     desktopProof: "desktop-proof",
+     deviceInstallationId: "desktop-installation",
+     displayName: "Alice desktop",
+   });
 });
 
-test("Teams enrollment request retries a lost response with the same proof and stops at the API window", async () => {
+test("Teams enrollment preview accepts only exact started, accepted, and completed shapes", async () => {
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const statuses = ["started", "accepted", "completed"] as const;
+  let index = 0;
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async () => {
+      const status = statuses[index++]!;
+      return new Response(JSON.stringify({
+        intentId: "intent-1",
+        status,
+        organization: { id: "org-1", name: "Acme" },
+        ...(status === "started" ? {} : { displayName: "Alice desktop" }),
+        expiresAt,
+      }), { status: 200 });
+    },
+  });
+
+  assert.equal((await client.getEnrollmentPreview("intent-1")).status, "started");
+  assert.equal((await client.getEnrollmentPreview("intent-1")).status, "accepted");
+  assert.equal((await client.getEnrollmentPreview("intent-1")).status, "completed");
+
+  const invalidClient = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async () => new Response(JSON.stringify({
+      intentId: "intent-1",
+      status: "requested",
+      organization: { id: "org-1", name: "Acme" },
+      expiresAt,
+    }), { status: 200 }),
+  });
+  await assert.rejects(() => invalidClient.getEnrollmentPreview("intent-1"), /invalid/);
+});
+
+test("Teams enrollment enforces the server's 80-character display-name limit", async () => {
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async () => new Response(JSON.stringify({
+      deviceId: "device-1",
+      organization: { id: "org-1", name: "Acme" },
+      deviceCredential: "credential_" + "a".repeat(32),
+      packRevision: 1,
+    }), { status: 201 }),
+  });
+
+  await assert.doesNotReject(() => client.completeEnrollment(
+    "intent-1",
+    "desktop-proof",
+    "desktop-installation",
+    "a".repeat(80),
+    expiresAt,
+  ));
+  await assert.rejects(() => client.completeEnrollment(
+    "intent-1",
+    "desktop-proof",
+    "desktop-installation",
+    "a".repeat(81),
+    expiresAt,
+  ), /input is invalid/);
+});
+
+test("Teams renderer validates the 80-character display-name contract and preview snapshot fields", () => {
+  assert.equal(validateDisplayName("a".repeat(80)).ok, true);
+  assert.deepEqual(validateDisplayName("a".repeat(81)), {
+    ok: false,
+    error: "Display name must be 80 characters or fewer.",
+  });
+  assert.equal(isTeamsSnapshot({
+    enrolled: false,
+    organizationId: null,
+    organizationName: null,
+    pendingEnrollment: true,
+    pendingOrganizationId: "org-authoritative",
+    pendingOrganizationName: "Authoritative Org",
+    pendingEnrollmentStatus: "accepted",
+    pendingEnrollmentExpiresAt: "2026-09-19T12:00:00.000Z",
+    installationId: null,
+    pendingRevision: 0,
+    appliedRevision: 0,
+    teamPets: [],
+    teamPlugins: [],
+  }), true);
+});
+
+test("Teams enrollment completion retries a lost response with the same proof", async () => {
   let calls = 0;
   const proof = "desktop-proof";
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -270,25 +348,21 @@ test("Teams enrollment request retries a lost response with the same proof and s
         proof,
       );
       if (calls === 1) throw new TypeError("response connection lost");
-      return new Response(
-        JSON.stringify({
-          intentId: "intent-1",
-          status: "confirmed",
-          organization: { id: "org-1", name: "Acme" },
-          displayName: "Alice desktop",
-          expiresAt,
-        }),
-        { status: 200 },
-      );
-    },
-  });
-  const result = await client.requestEnrollment(
-    "intent-1",
-    proof,
-    "desktop-installation",
-    "Alice desktop",
-  );
-  assert.equal(result.status, "confirmed");
+       return new Response(
+         JSON.stringify({
+           deviceId: "device-1",
+           organization: { id: "org-1", name: "Acme" },
+           deviceCredential: "credential_" + "a".repeat(32),
+           packRevision: 4,
+         }),
+         { status: 201 },
+       );
+     },
+   });
+   const result = await client.completeEnrollment(
+     "intent-1", proof, "desktop-installation", "Alice desktop", expiresAt,
+   );
+   assert.equal(result.deviceId, "device-1");
   assert.equal(calls, 2);
 });
 
@@ -299,15 +373,15 @@ test("Teams enrollment completion respects the server-provided bounded window", 
     fetchImpl: async () => {
       calls += 1;
       return new Response(
-        JSON.stringify({ error: "not confirmed" }),
+         JSON.stringify({ error: { code: "enrollment_completion_in_progress" } }),
         { status: 409 },
       );
     },
   });
   const expiresAt = new Date(Date.now() + 20).toISOString();
   await assert.rejects(
-    () => client.completeEnrollment("intent-1", "desktop-proof", expiresAt),
-    /confirmation timed out/,
+    () => client.completeEnrollment("intent-1", "desktop-proof", "desktop-installation", "Alice desktop", expiresAt),
+    /completion timed out/,
   );
   assert.ok(calls <= 2);
 });
@@ -499,7 +573,7 @@ test("TeamService cancels an in-flight sync before leave and never resurrects ol
       },
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -575,7 +649,7 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -676,7 +750,7 @@ test("TeamService clears stale pending approval when the same revision replaces 
       downloadArtifact: async () => currentZip,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -722,13 +796,12 @@ test("TeamService enrollment returns the snapshot produced by its initial sync",
     const zip = createPluginZip("team-plugin", "1.0.0");
     const pack = createPluginPack("1.0.0", "artifact-one");
     const api = {
-      requestEnrollment: async () => ({
-        intentId: "intent-1",
-        status: "awaiting_confirmation" as const,
-        organization: { id: "org-one", name: "One" },
-        displayName: "Alice",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      }),
+       getEnrollmentPreview: async () => ({
+         intentId: "intent-1",
+         status: "started" as const,
+         organization: { id: "org-one", name: "One" },
+         expiresAt: new Date(Date.now() + 60_000).toISOString(),
+       }),
       completeEnrollment: async () => ({
         deviceId: "device-1",
         organization: { id: "org-one", name: "One" },
@@ -753,12 +826,196 @@ test("TeamService enrollment returns the snapshot produced by its initial sync",
     });
 
     assert.equal(service.handleDeepLink("openpets://teams/enroll?intent=intent-1"), true);
+    await assert.rejects(() => service.submitEnrollment("a".repeat(81)), /valid display name/);
     const snapshot = await service.submitEnrollment("Alice");
     assert.equal(snapshot.enrolled, true);
     assert.equal(snapshot.organizationId, "org-one");
     assert.equal(snapshot.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.permissionBlocked, true);
     assert.equal(snapshot.appliedRevision, 0);
     assert.equal(snapshot.pendingRevision, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TeamService refreshes pending enrollment previews and exposes authoritative identity and expiry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-service-preview-refresh-test-"));
+  try {
+    const teamState = new TeamStateStore({ userDataPath: root });
+    teamState.initialize();
+    teamState.setPendingIntent({ intentId: "intent-refresh" });
+    const pluginState = new PluginStateStore({ userDataPath: root });
+    pluginState.initialize();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    let previewCalls = 0;
+    const api = {
+      getEnrollmentPreview: async () => {
+        previewCalls += 1;
+        return {
+          intentId: "intent-refresh",
+          status: "accepted" as const,
+          organization: { id: "org-authoritative", name: "Authoritative Org" },
+          displayName: "Existing desktop",
+          expiresAt,
+        };
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
+      getTeamPack: async () => {
+        throw new Error("not used");
+      },
+      downloadArtifact: async () => {
+        throw new Error("not used");
+      },
+      reportDeployment: async () => undefined,
+      leaveOrganization: async () => undefined,
+    } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
+    const service = new TeamService({
+      userDataPath: root,
+      apiClient: api,
+      stateStore: teamState,
+      credentialStore: new MemoryCredentialStore(null),
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => [], () => undefined),
+    });
+
+    const first = await service.syncNow();
+    assert.equal(previewCalls, 1);
+    assert.equal(first.pendingOrganizationId, "org-authoritative");
+    assert.equal(first.pendingOrganizationName, "Authoritative Org");
+    assert.equal(first.pendingEnrollmentStatus, "accepted");
+    assert.equal(first.pendingEnrollmentExpiresAt, expiresAt);
+
+    await service.syncNow();
+    assert.equal(previewCalls, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("delayed enrollment preview keeps Accept unavailable until authoritative state arrives", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-service-delayed-preview-test-"));
+  try {
+    const teamState = new TeamStateStore({ userDataPath: root });
+    teamState.initialize();
+    teamState.setPendingIntent({ intentId: "intent-delayed" });
+    const pluginState = new PluginStateStore({ userDataPath: root });
+    pluginState.initialize();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    let releasePreview!: () => void;
+    let previewStarted!: () => void;
+    const previewBlocked = new Promise<void>((resolve) => {
+      releasePreview = resolve;
+    });
+    const previewReady = new Promise<void>((resolve) => {
+      previewStarted = resolve;
+    });
+    const api = {
+      getEnrollmentPreview: async () => {
+        previewStarted();
+        await previewBlocked;
+        return {
+          intentId: "intent-delayed",
+          status: "accepted" as const,
+          organization: { id: "org-authoritative", name: "Authoritative Org" },
+          expiresAt,
+        };
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
+      getTeamPack: async () => {
+        throw new Error("not used");
+      },
+      downloadArtifact: async () => {
+        throw new Error("not used");
+      },
+      reportDeployment: async () => undefined,
+      leaveOrganization: async () => undefined,
+    } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
+    const service = new TeamService({
+      userDataPath: root,
+      apiClient: api,
+      stateStore: teamState,
+      credentialStore: new MemoryCredentialStore(null),
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => [], () => undefined),
+    });
+    const initial = service.getSnapshot();
+    assert.equal(isEnrollmentActionable(initial, "Alice", Date.now()), false);
+
+    const previewUpdates: Array<ReturnType<TeamService["getSnapshot"]>> = [];
+    const refreshed = new Promise<ReturnType<TeamService["getSnapshot"]>>((resolve) => {
+      service.subscribeToEnrollmentPreview((snapshot) => {
+        previewUpdates.push(snapshot);
+        if (snapshot.pendingOrganizationId) resolve(snapshot);
+      });
+    });
+    assert.equal(service.handleDeepLink("openpets://teams/enroll?intent=intent-delayed"), true);
+    await previewReady;
+    assert.equal(
+      isEnrollmentActionable(service.getSnapshot(), "Alice", Date.now()),
+      false,
+    );
+
+    releasePreview();
+    const authoritative = await refreshed;
+    assert.equal(previewUpdates[0]?.pendingOrganizationId, null);
+    assert.equal(authoritative.pendingOrganizationId, "org-authoritative");
+    assert.equal(authoritative.pendingOrganizationName, "Authoritative Org");
+    assert.equal(authoritative.pendingEnrollmentExpiresAt, expiresAt);
+    assert.equal(isEnrollmentActionable(authoritative, "Alice", Date.now()), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TeamService clears an expired persisted enrollment intent during refresh", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-service-expired-preview-test-"));
+  try {
+    const teamState = new TeamStateStore({ userDataPath: root });
+    teamState.initialize();
+    teamState.setPendingIntent({ intentId: "intent-expired" });
+    const pluginState = new PluginStateStore({ userDataPath: root });
+    pluginState.initialize();
+    const api = {
+      getEnrollmentPreview: async () => {
+        throw new TeamApiError(401, "unauthorized", "expired");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
+      getTeamPack: async () => {
+        throw new Error("not used");
+      },
+      downloadArtifact: async () => {
+        throw new Error("not used");
+      },
+      reportDeployment: async () => undefined,
+      leaveOrganization: async () => undefined,
+    } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
+    const service = new TeamService({
+      userDataPath: root,
+      apiClient: api,
+      stateStore: teamState,
+      credentialStore: new MemoryCredentialStore(null),
+      pluginService: {
+        stateStore: pluginState,
+        runtime: { reloadPlugin: async () => undefined },
+      },
+      petState: createPetStateAdapter(() => [], () => undefined),
+    });
+
+    const snapshot = await service.syncNow();
+    assert.equal(snapshot.pendingEnrollment, false);
+    assert.equal(teamState.snapshot()?.pendingIntent, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -791,7 +1048,7 @@ test("TeamService uses persisted pet ownership to reject a personal collision", 
       downloadArtifact: async () => createPetZip("same-id"),
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {
@@ -871,7 +1128,7 @@ test("TeamService does not make a failed revision current when an earlier plugin
       downloadArtifact: async (_credential: string, versionId: string) => zips.get(versionId)!,
       reportDeployment: async () => undefined,
       leaveOrganization: async () => undefined,
-      requestEnrollment: async () => {
+      getEnrollmentPreview: async () => {
         throw new Error("not used");
       },
       completeEnrollment: async () => {

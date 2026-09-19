@@ -58,17 +58,22 @@ the Teams contract route. One stable installation ID and nonsecret enrollment
 metadata are stored atomically in a dedicated state file. The device bearer
 credential is stored only with Electron `safeStorage`. For enrollment, the
 desktop generates an ephemeral proof, sends it with the intent ID, installation
-ID, and display name, and uses that same proof only for bounded completion
-polling. The API returns the intent expiration and the desktop retries lost
-request/completion responses with the same proof only until that server-defined
-window ends. Neither the browser token nor the proof is stored in desktop state
-or included in logs; the proof is cleared after terminal completion/failure or
-app shutdown. The browser confirms the requested desktop through the
-browser-token-authenticated Teams page before the API issues a deterministically
-derived 256-bit credential. Teams starts after the plugin service, polls with
-bounded jitter, and stops before plugin shutdown. Snapshots expose separated
-Team pets/plugins and status, never credentials, enrollment tokens, proofs, or
-full server packs.
+ID, and display name, and uses that same proof for bounded completion retry as
+part of the single Accept & Enroll action. The API returns the intent expiration
+and the desktop retries lost completion responses with the same proof only until
+that server-defined window ends. Neither the browser token nor the
+proof is stored in desktop state or included in logs; the proof is cleared after
+terminal completion/failure or app shutdown. The browser token authorizes
+progress/status reads only; it cannot confirm or complete enrollment. The API
+issues a deterministically derived 256-bit credential after the desktop
+completion call. The Teams route keeps **Accept & Enroll** disabled until a
+completed preview supplies the authoritative organization identity and future
+expiry; when a deep link arrives while the Control Center is already running,
+the main process reuses its route event to make the renderer refetch that
+completed preview. Teams starts after the plugin service, polls with bounded
+jitter, and stops before plugin shutdown. Snapshots expose separated Team
+pets/plugins and status, never credentials, enrollment tokens, proofs, or full
+server packs.
 
 Team synchronization, installation, and leave operations are serialized. Leaving
 invalidates queued and in-flight Team work, so a late sync or install cannot
@@ -180,11 +185,11 @@ pet keeps rendering during fullscreen video and games.
 ### Control Center (renderer)
 
 The React/Tailwind UI under `src/renderer/`. Pages: **Dashboard,
-Pets, Settings, Plugins, Integrations, Teams** (the **Conversation** route is currently
-internal/experimental and not exposed in Control Center navigation). It is a pure consumer of main-process
+Pets, Settings, Plugins, Integrations, Teams**. It is a pure consumer of main-process
 snapshots and actions exposed over the preload bridge - it holds no privileged
-capability of its own. The renderer is the only "frontend" in scope for these
-docs (the `web/` marketing site is out of scope). See
+capability of its own. The Control Center renderer is the only management
+frontend in scope for these docs; the companion renderer is documented above
+and the `web/` marketing site is out of scope. See
 `src/renderer/src/codemap.md` for component structure.
 
 The **Teams** route presents organization membership, applied/pending revisions,
@@ -200,39 +205,57 @@ pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
 `control-center-preload.cjs` without a generic patch route: list profiles,
-presets, role status, and derived realtime status; create/update/delete a
-profile; select a profile independently for each role; update platform gates;
-and set/check/delete a profile credential. Responses contain only credential
-presence and header names. The Control Center Conversation surface consumes a
-sanitized, host-owned current-session projection; it does not own assistant
-state or the persisted archive. The projection retains only the most recent
-200 display items. Separately, #149 provides a local-only atomic archive at
-`userData/openpets-conversation-history.json`. It stores only terminal
-user/assistant text from the canonical shared voice/chat conversation, retaining
-at most 200 messages for 30 days and 512 KiB total, with a 64 KiB per-entry cap
-and newest entries preserved. Corrupt or malformed archives are quarantined
-when possible, replaced with an empty archive, and never partially trusted.
-If archive storage is unavailable, history is disabled for that session without
-blocking the Pet Assistant.
-The archive is distinct from active in-memory context. Its prompt contribution
-is the most recent 24 entries, bounded to 128 KiB; tool definitions/results,
-provider payloads, and personality data are excluded. A narrow preload/main
-bridge exposes list, delete-one, and delete-all only to the Conversation route.
-Its separate **Local history** panel lets the owner open an archived message,
-return to the active session, delete one entry, or confirm irreversible deletion
-of all entries; it refreshes when the host becomes ready and after terminal
-turns/deletions. No semantic retrieval, summary, preference, network
-synchronization, or provider call is involved in archive reads or erasure.
+presets, role status, and derived realtime status; atomically save a profile,
+credential, and selected roles; create/update/delete a profile; select a
+profile independently for each role; update platform gates; and
+set/check/delete a profile credential. Responses contain only credential
+presence and header names.
+
+### Pet Assistant In-Pet Attached Chat & Compact Composer
+
+The default pet carrier contains an in-place compact text composer and an attached expandable
+in-pet chat panel managed by `default-pet-chat.ts` and `pet-preload.cjs`. In its default collapsed
+state (200×200), the carrier displays speech bubbles and quick action buttons. Tapping Chat or the
+launcher switches the compact frame into an in-place text composer (input/textarea, Send, cancel,
+busy state) without resizing the window or opening full history. Submitting a turn hands off response
+rendering directly to the pet speech bubble.
+
+When full history is explicitly opened via the transcript affordance, the carrier window expands to
+420×640 using bijective coordinate transforms from `default-pet-chat-geometry.ts` that
+preserve the pet's on-screen anchor point. The attached chat panel and pet move as a single
+native unit, remaining interactive during motion and dragging. Preserved draft input is
+synchronized across the compact composer and expanded chat views.
+
+On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed,
+compact-composer, and expanded carrier states, keeping mouse passthrough and focus
+semantics correct under X11 and Wayland. Compact open/close is owned by the main
+process alongside expansion: opening makes the carrier focusable and adds the
+composer rectangle to the input shape; closing restores the passive pet shape and
+focus policy. The compact composer has one shared maximum geometry contract: its
+multiline textarea is capped at 68px and error feedback at 34px, producing a
+152px maximum envelope used by both CSS and the Linux mask.
+
+The in-pet chat interface exposes the current conversation snapshot, typed turn
+actions, tool invocation cards, prompt suggestions, and Talk actions/events. The
+renderer consumes the authoritative Talk snapshot (`status`, `activity`, and
+`muted`) and snapshot events only; it does not maintain a parallel voice state.
+Initial and streamed conversation/Talk snapshots are applied by sequence/revision
+ordering so a late initial IPC response cannot replace newer streamed state.
+Archive list/delete/clear operations remain host-owned Control Center IPC for Settings presentation
+and are never exposed to the pet carrier. The local-only atomic archive at
+`userData/openpets-conversation-history.json` remains the persistence/context seam.
 Normalized voice transcript events remain an
 integration seam for #147: their adapter must provide a process-lifetime
 monotonic sequence within the voice source; voice ordering is deliberately
 independent from the canonical assistant event sequence.
-Provider updates use sparse patches: omitted fields preserve current values,
-`null` clears `baseUrl`, `secretRef`, or `auth`, omitted `headers` preserves the
-redacted header list, and `headers: []` intentionally clears it.
+Provider updates use sparse patches: omitted fields preserve current values and
+`null` clears `baseUrl`, `secretRef`, or `auth`. The modal's atomic save uses
+host-owned header `add`/`replace`/`delete` operations against stored values;
+omitted header edits preserve untouched values, while direct `headers: []`
+intentionally clears the list.
 
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
-`startVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
+`startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).
 The shortcut accelerator is persisted in Settings and its runtime status and
 reason are part of the authoritative Talk snapshot/event contract. Runtime
@@ -565,9 +588,13 @@ ZIPs) and runs third-party plugin code, so it is defensive by construction:
 ## Packaging
 
 `electron-builder.yml` configures cross-platform packaging (macOS/Windows/Linux)
-with ASAR. Bundled mode unpacks the integration binaries from ASAR so hooks/MCP
-can spawn them. `scripts/release-local.mjs` automates a macOS-local release with
-a GitHub draft. See [Development](/development) for the release flow.
+with ASAR. Bundled mode unpacks the integration runtimes from ASAR so hooks, MCP,
+editor setup, and the native OpenClaw plugin can spawn them.
+`scripts/release-local.mjs` builds an isolated unpacked package for every
+platform/architecture target and then extracts the actual DMG, ZIP, AppImage,
+DEB, RPM, and tar.gz payloads for target-aware `check-packaging-contract --output`
+validation before copy/tag/publication. See [Development](/development) for the
+release flow.
 
 ## Where to look first
 

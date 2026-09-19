@@ -56,7 +56,16 @@ Two distinct window roles, two controllers:
 - **Default pet** (`default-pet-controller.ts`) - the always-on companion shown
   when enabled. Persistent. Remembers its position per connected monitor and
   clamps it back into the visible work area after display changes. Shows
-  transient reactions and status badges. Not lease-bound.
+  transient reactions and status badges, and hosts the expandable in-pet attached
+  Pet Assistant chat panel (`default-pet-chat.ts`).
+  Not lease-bound.
+
+The default carrier's compact composer and expanded chat are main-process-owned
+states. On Linux, opening the compact composer makes the carrier focusable and
+adds its composer rectangle to the input shape; closing it restores the passive
+pet-only focus and shape. Its shared maximum geometry contract bounds multiline
+input and error feedback so the Linux mask covers every compact control. The
+expanded panel uses the same transition seam.
 - **Agent pets** (`agent-pet-controller.ts`) - shown on explicit agent request,
   routed by a **lease**. The first lease opens the window; the last lease
   released closes it. This lets several agents each get their own pet without

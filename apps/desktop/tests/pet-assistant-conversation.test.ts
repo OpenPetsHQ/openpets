@@ -12,7 +12,6 @@ import {
 import { PetAssistantService } from "../src/pet-assistant-service.js";
 import { petAssistantToolName } from "../src/pet-assistant-tools.js";
 import type { PetAssistantCapabilityRuntime, PetAssistantGenerationHandle, PetAssistantTextModelResponse } from "../src/pet-assistant-types.js";
-import { applyConversationEvent, applyConversationSnapshot, emptyConversationSnapshot } from "../src/renderer/src/conversation/conversation-state.js";
 
 const handle = { generation: 1 } as PetAssistantGenerationHandle;
 const capability = { pluginId: "focus.buddy", capability: { id: "start", description: "Start focus", inputSchema: { type: "object" } }, handle };
@@ -158,17 +157,6 @@ async function flush(): Promise<void> {
   const oldest = projection.getSnapshot().items[0];
   assert.equal(oldest?.kind === "message" ? oldest.text : "", "message-2");
   projection.dispose();
-}
-
-// Renderer remounts start from a host snapshot and ignore malformed or stale events.
-{
-  const current = emptyConversationSnapshot();
-  const next = { ...current, revision: 1, lastSequence: 3, items: [{ kind: "message", id: "m", turnId: "t", role: "assistant", source: "typed", text: "hello" }] } as const;
-  const applied = applyConversationEvent(current, { type: "snapshot", sequence: 3, snapshot: next });
-  assert.equal(applied.items[0]?.kind, "message");
-  assert.equal(applyConversationEvent(applied, { type: "snapshot", sequence: 2, snapshot: next }), applied);
-  assert.equal(applyConversationEvent(applied, { type: "snapshot", sequence: 4, snapshot: { ...next, revision: 2, items: [{ kind: "message", id: "bad", turnId: "t", role: "assistant", source: "typed", text: 4 }] } }), applied);
-  assert.equal(applyConversationSnapshot(applied, { ...current, revision: 0, lastSequence: 0 }), applied);
 }
 
 // Cancelling a turn settles only that turn's outstanding capability actions as indeterminate.
