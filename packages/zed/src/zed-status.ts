@@ -801,13 +801,13 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
   if (!isSafeSiblingPath(parent, record.lockTempPath) || !parse(record.lockTempPath).base.startsWith(".openpets-zed-lock-")) {
     throw new Error("Zed write lock metadata targets an unsafe lock path.");
   }
-  if (resolve(record.lockTempPath) === resolve(lockPath) || resolve(record.lockTempPath) === resolve(record.targetPath) || resolve(record.lockTempPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.lockTempPath) === resolve(record.backupPath)) || (record.claimPath !== undefined && resolve(record.lockTempPath) === resolve(record.claimPath)) || (record.withdrawalPath !== undefined && resolve(record.lockTempPath) === resolve(record.withdrawalPath))) {
+  if (hasResolvedPathCollision(record.lockTempPath, [lockPath, record.targetPath, record.tempPath, record.backupPath, record.claimPath, record.withdrawalPath])) {
     throw new Error("Zed write lock metadata targets an unsafe lock path.");
   }
   if (!isSafeSiblingPath(parent, record.tempPath) || !parse(record.tempPath).base.startsWith(".openpets-")) {
     throw new Error("Zed write lock metadata targets an unsafe temp path.");
   }
-  if (resolve(record.tempPath) === resolve(lockPath) || resolve(record.tempPath) === resolve(record.targetPath) || (record.backupPath !== undefined && resolve(record.tempPath) === resolve(record.backupPath)) || (record.claimPath !== undefined && resolve(record.tempPath) === resolve(record.claimPath)) || (record.withdrawalPath !== undefined && resolve(record.tempPath) === resolve(record.withdrawalPath))) {
+  if (hasResolvedPathCollision(record.tempPath, [lockPath, record.targetPath, record.backupPath, record.claimPath, record.withdrawalPath])) {
     throw new Error("Zed write lock metadata targets an unsafe temp path.");
   }
   if (record.claimPath !== undefined) {
@@ -818,7 +818,7 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
     if (!isSafeSiblingPath(parent, record.claimPath) || !claimName.startsWith(".openpets-zed-claim-")) {
       throw new Error("Zed write lock metadata targets an unsafe claim path.");
     }
-    if (resolve(record.claimPath) === resolve(lockPath) || resolve(record.claimPath) === resolve(record.targetPath) || resolve(record.claimPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.claimPath) === resolve(record.backupPath)) || (record.withdrawalPath !== undefined && resolve(record.claimPath) === resolve(record.withdrawalPath))) {
+    if (hasResolvedPathCollision(record.claimPath, [lockPath, record.targetPath, record.tempPath, record.backupPath, record.withdrawalPath])) {
       throw new Error("Zed write lock metadata targets an unsafe claim path.");
     }
   }
@@ -828,7 +828,7 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
     if (!isSafeSiblingPath(parent, record.withdrawalPath) || !withdrawalName.startsWith(".openpets-zed-withdraw-")) {
       throw new Error("Zed write lock metadata targets an unsafe withdrawal path.");
     }
-    if (resolve(record.withdrawalPath) === resolve(lockPath) || resolve(record.withdrawalPath) === resolve(record.targetPath) || resolve(record.withdrawalPath) === resolve(record.tempPath) || (record.backupPath !== undefined && resolve(record.withdrawalPath) === resolve(record.backupPath))) {
+    if (hasResolvedPathCollision(record.withdrawalPath, [lockPath, record.targetPath, record.tempPath, record.backupPath])) {
       throw new Error("Zed write lock metadata targets an unsafe withdrawal path.");
     }
   }
@@ -841,10 +841,15 @@ function validateZedWriteLockRecord(record: ZedWriteLockRecord, lockPath: string
     if (!isSafeSiblingPath(parent, record.backupPath) || !backupName.startsWith(`${targetName}.openpets-backup-`)) {
       throw new Error("Zed write lock metadata targets an unsafe backup path.");
     }
-    if (resolve(record.backupPath) === resolve(lockPath) || resolve(record.backupPath) === resolve(record.targetPath) || resolve(record.backupPath) === resolve(record.tempPath) || (record.withdrawalPath !== undefined && resolve(record.backupPath) === resolve(record.withdrawalPath))) {
+    if (hasResolvedPathCollision(record.backupPath, [lockPath, record.targetPath, record.tempPath, record.withdrawalPath])) {
       throw new Error("Zed write lock metadata targets an unsafe backup path.");
     }
   }
+}
+
+function hasResolvedPathCollision(candidatePath: string, otherPaths: readonly (string | undefined)[]): boolean {
+  const resolvedCandidatePath = resolve(candidatePath);
+  return otherPaths.some((otherPath) => otherPath !== undefined && resolve(otherPath) === resolvedCandidatePath);
 }
 
 function recoverZedWriteArtifacts(record: ZedWriteLockRecord, parent: string): void {

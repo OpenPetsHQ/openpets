@@ -59,7 +59,7 @@ function executePlan(plan: ReturnType<typeof planZedMcpInstall> | ReturnType<typ
   if ("targetPath" in plan) executeZedMcpWrite(plan);
 }
 
-function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempPath: string, includeClaimPath = true, withdrawalPath?: string): void {
+function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempPath: string, includeClaimPath = true, withdrawalPath?: string, tempPath = plan.tempPath): void {
   const hash = (content: string): string => createHash("sha256").update(content, "utf8").digest("hex");
   writeSettings(lockPath, JSON.stringify({
     version: 1,
@@ -70,7 +70,7 @@ function writeInterruptedLock(plan: ZedPlannedWrite, lockPath: string, lockTempP
     ...(plan.backupPath ? { backupPath: plan.backupPath } : {}),
     ...(includeClaimPath && plan.claimPath ? { claimPath: plan.claimPath } : {}),
     ...(withdrawalPath ? { withdrawalPath } : {}),
-    tempPath: plan.tempPath,
+    tempPath,
     sourceExists: plan.sourceExists,
     sourceHash: hash(plan.sourceContent),
     contentHash: hash(plan.content),
@@ -497,6 +497,32 @@ try {
   assert.throws(() => executePlan(lockedPlan), /metadata is invalid/);
   assert.equal(existsSync(lockPath), true);
   rmSync(lockPath);
+
+  // Resolved aliases in stale lock metadata are rejected without changing settings or artifacts.
+  const aliasCollisionPath = settingsPath("resolved-path-collision");
+  const aliasCollisionSource = JSON.stringify({ theme: "dark" }, null, 2);
+  writeSettings(aliasCollisionPath, aliasCollisionSource);
+  const aliasCollisionPlan = planZedMcpInstall(aliasCollisionPath, expected);
+  assert.equal("targetPath" in aliasCollisionPlan, true);
+  if ("targetPath" in aliasCollisionPlan && aliasCollisionPlan.backupPath && aliasCollisionPlan.claimPath) {
+    const aliasCollisionLockPath = join(dirname(aliasCollisionPlan.targetPath), ".openpets-zed.lock");
+    const aliasCollisionLockTempPath = join(dirname(aliasCollisionPlan.targetPath), ".openpets-zed-lock-resolved-alias.tmp");
+    const aliasCollisionTempPath = `${dirname(aliasCollisionPlan.targetPath)}/./.openpets-zed.lock`;
+    const aliasCollisionLockSource = "stale lock owner\n";
+    writeSettings(aliasCollisionLockTempPath, aliasCollisionLockSource);
+    writeInterruptedLock(aliasCollisionPlan, aliasCollisionLockPath, aliasCollisionLockTempPath, true, undefined, aliasCollisionTempPath);
+    const originalLockMetadata = readFileSync(aliasCollisionLockPath, "utf8");
+
+    assert.throws(() => executePlan(aliasCollisionPlan), /unsafe temp path/);
+    assert.equal(readFileSync(aliasCollisionPath, "utf8"), aliasCollisionSource);
+    assert.equal(readFileSync(aliasCollisionLockPath, "utf8"), originalLockMetadata);
+    assert.equal(readFileSync(aliasCollisionLockTempPath, "utf8"), aliasCollisionLockSource);
+    assert.equal(existsSync(aliasCollisionPlan.tempPath), false);
+    assert.equal(existsSync(aliasCollisionPlan.backupPath), false);
+    assert.equal(existsSync(aliasCollisionPlan.claimPath), false);
+    rmSync(aliasCollisionLockPath, { force: true });
+    rmSync(aliasCollisionLockTempPath, { force: true });
+  }
 
   // Disabled managed entries are visible and are never silently re-enabled by install.
   const disabledPath = settingsPath("disabled");
