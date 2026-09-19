@@ -581,7 +581,6 @@ const installDefaultPetChat = () => {
   panelEl.className = "openpets-chat-panel";
   panelEl.setAttribute("role", "region");
   panelEl.setAttribute("aria-label", "Pet Assistant Chat");
-  panelEl.style.background = "#000000";
 
   // Panel Header
   const header = document.createElement("div");

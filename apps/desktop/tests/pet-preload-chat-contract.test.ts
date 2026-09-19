@@ -406,7 +406,6 @@ assert.ok(body.contains(compactComposer), "Compact composer must be attached to 
 const fullPanel = documentElement.querySelector(".openpets-chat-panel");
 assert.ok(fullPanel, "Full chat panel must be present in DOM");
 assert.ok(body.contains(fullPanel), "Full chat panel must be attached to body");
-assert.equal(fullPanel!.style.background, "#000000", "Full chat panel must have a solid black background");
 const chatTitle = fullPanel!.querySelector(".chat-title") as MockElement;
 assert.ok(chatTitle, "Chat title must exist");
 assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must use the active pet display name");
