@@ -22,31 +22,31 @@ export class ProviderTestReplacementLanes {
   }
 }
 
-export function registerProviderTestInitialization(
-  initializations: Map<number, Set<AbortController>>,
+export function registerProviderTestRequest(
+  requests: Map<number, Set<AbortController>>,
   senderId: number,
   controller: AbortController,
 ): () => void {
-  let pending = initializations.get(senderId);
+  let pending = requests.get(senderId);
   if (!pending) {
     pending = new Set();
-    initializations.set(senderId, pending);
+    requests.set(senderId, pending);
   }
   pending.add(controller);
   return () => {
     pending?.delete(controller);
-    if (pending?.size === 0) initializations.delete(senderId);
+    if (pending?.size === 0) requests.delete(senderId);
   };
 }
 
-export async function cancelProviderTranscriptionTestsForSender(
+export async function cancelProviderTestsForSender(
   senderId: number,
   reason: string,
-  initializations: Map<number, Set<AbortController>>,
+  requests: Map<number, Set<AbortController>>,
   sessions: Map<string, ProviderTestCancellationSession>,
   exceptController?: AbortController,
 ): Promise<void> {
-  for (const controller of initializations.get(senderId) ?? []) {
+  for (const controller of requests.get(senderId) ?? []) {
     if (controller !== exceptController) controller.abort(reason);
   }
   const entries = [...sessions.entries()].filter(([, entry]) => entry.senderId === senderId);

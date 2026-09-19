@@ -182,6 +182,10 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
   }
 
   const apply = () => {
+    if (typeof state.displayName === "string") {
+      document.documentElement.dataset.petDisplayName = state.displayName;
+      updateAssistantHeader(state.displayName);
+    }
     document.documentElement.dataset.reactionState = state.reactionState;
     const currentStage = document.querySelector(".stage");
     if (currentStage) {
@@ -217,6 +221,20 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
     apply();
   }
 });
+
+const assistantHeaderFallback = "Assistant";
+
+function usablePetDisplayName(value) {
+  if (typeof value !== "string") return assistantHeaderFallback;
+  const name = value.trim();
+  return name.length > 0 ? name : assistantHeaderFallback;
+}
+
+function updateAssistantHeader(displayName) {
+  const header = document.querySelector(".chat-title");
+  if (!header) return;
+  header.textContent = usablePetDisplayName(displayName ?? document.documentElement.dataset.petDisplayName);
+}
 
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
@@ -500,7 +518,7 @@ const installDefaultPetChat = () => {
   const compactInput = document.createElement("textarea");
   compactInput.className = "compact-composer-textarea";
   compactInput.dataset.compactChatInput = "true";
-  compactInput.placeholder = "Message your pet...";
+  compactInput.placeholder = "Message your pet…";
   compactInput.rows = 1;
 
   const compactSendBtn = document.createElement("button");
@@ -546,7 +564,7 @@ const installDefaultPetChat = () => {
   avatar.textContent = "✨";
   const title = document.createElement("div");
   title.className = "chat-title";
-  title.textContent = "Assistant";
+  title.textContent = usablePetDisplayName(document.documentElement.dataset.petDisplayName);
   const statusPill = document.createElement("div");
   statusPill.className = "chat-status-pill";
   statusPill.dataset.statusPill = "true";
@@ -661,7 +679,7 @@ const installDefaultPetChat = () => {
   const input = document.createElement("textarea");
   input.className = "chat-textarea";
   input.dataset.chatInput = "true";
-  input.placeholder = "Message your pet... (Enter to send, Shift+Enter for newline)";
+  input.placeholder = "Message your pet…";
   input.rows = 1;
   inputWrapper.appendChild(input);
 
@@ -788,11 +806,16 @@ const installDefaultPetChat = () => {
   const renderStatus = () => {
     const act = conversationSnapshot.activity;
     const isBusy = act !== "idle";
+    const activeAction = (conversationSnapshot.items || []).find((item) => item
+      && item.kind === "action"
+      && item.toolName === conversationSnapshot.activeToolName
+      && (item.status === "pending" || item.status === "running"));
+    const activeLabel = activeAction && typeof activeAction.label === "string" ? activeAction.label : undefined;
 
     // Compact header status
     if (isBusy) {
       compactStatusDot.style.display = "inline-block";
-      compactLabel.textContent = act === "thinking" ? "Thinking..." : act === "acting" ? (conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...") : "Responding...";
+      compactLabel.textContent = act === "thinking" ? "Thinking..." : act === "acting" ? (activeLabel ? `Doing: ${activeLabel}` : "Acting...") : "Responding...";
     } else {
       compactStatusDot.style.display = "none";
       compactLabel.textContent = "Chat";
@@ -805,7 +828,7 @@ const installDefaultPetChat = () => {
       statusText.textContent = "Thinking...";
     } else if (act === "acting") {
       statusPill.classList.add("is-acting");
-      statusText.textContent = conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...";
+      statusText.textContent = activeLabel ? `Doing: ${activeLabel}` : "Acting...";
     } else if (act === "responding") {
       statusPill.classList.add("is-responding");
       statusText.textContent = "Responding...";
@@ -919,7 +942,7 @@ const installDefaultPetChat = () => {
             <div class="chat-action-card" data-action-id="${escapeHtml(item.id)}">
               <div class="chat-action-left">
                 <svg class="chat-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                <span class="chat-action-name">${escapeHtml(item.toolName)}</span>
+                <span class="chat-action-name">${escapeHtml(item.label || "Capability action")}</span>
               </div>
               <span class="chat-action-badge ${statusClass}">${escapeHtml(item.status)}</span>
             </div>

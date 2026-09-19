@@ -222,8 +222,8 @@ create/update/delete a profile; select a profile independently for each role;
  credential. Text sends a tiny completion, TTS returns a short configured-voice
   preview through the trusted host player, STT uses a host-owned bounded transcription
   session on the shared microphone arbiter (ownership is reserved before
-  device enumeration, and renderer loss/modal close cancel both setup and
-  recording; the renderer never owns
+  device enumeration, and renderer loss/modal close/replacement/shutdown
+  cancel every in-flight setup request and recording; the renderer never owns
   `getUserMedia` or `MediaRecorder`), Realtime creates a minimal session
   configuration, and system TTS uses the selected local speech-synthesis voice.
   Network speech previews and Talk/realtime remote audio use the persistent
@@ -461,7 +461,10 @@ enumerates devices in one trusted, persistent `openpets-voice-media` partition a
   player receives only `speaker-selection`. `voice-capture-electron.ts`
 owns a hidden, sandboxed microphone window and shared session; `voice-capture.ts` owns exactly-once cleanup and cancellation; and
 `voice-privacy-indicator.ts` tracks live microphone ownership after
-`getUserMedia()` succeeds without creating a detached privacy window. A capture is one-shot and one-at-a-
+`getUserMedia()` succeeds and drives the transient Electron privacy surface. The
+surface is reference-counted across one-shot and Realtime owners, appears only
+while at least one microphone track is live, and is destroyed during shared
+voice shutdown. A capture is one-shot and one-at-a-
 time, with a 15-second acquisition timeout, a separate 30-second transcription
 timeout, and an explicit host cancellation path. Plugin teardown and app shutdown
 cancel the active capture, abort transcription, stop tracks, destroy the capture
@@ -567,6 +570,15 @@ deletion. There is no semantic retrieval, summary, preference, network
 synchronization, or provider call for archive reads. Provider-profile management
 is implemented in the Control Center
 through the host-owned bridge.
+
+Capability tools use readable lowercase provider names derived from plugin and
+capability ids. The host adds a deterministic suffix only when normalization
+collides or a provider length limit requires truncation. The in-pet action row
+shows the capability description as a friendly label while retaining the exact
+provider name separately for dispatch and event correlation.
+The attached chat header uses the active default pet's display name and falls
+back to `Assistant` when that name is unavailable; pet-content refreshes update
+the header without changing the panel layout.
 
 The plugin subsystem also owns **display deliveries**: a lazy, transparent,
 host-owned surface used by `ctx.ui.delivery`. A delivery is rendered as a single

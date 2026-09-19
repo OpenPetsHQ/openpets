@@ -57,6 +57,7 @@ async function flush(): Promise<void> {
     id: "focus-call",
     turnId: "turn-1",
     toolName: petAssistantToolName("focus.buddy", "start"),
+    label: "Start focus",
     status: "completed",
   });
   assert.equal(JSON.stringify(controller.getSnapshot()).includes("privatePluginPayload"), false);
@@ -182,8 +183,8 @@ async function flush(): Promise<void> {
   const actions = projection.getSnapshot().items.filter((item) => item.kind === "action");
   assert.equal(projection.getSnapshot().terminal?.status, "cancelled");
   assert.deepEqual(actions, [
-    { kind: "action", id: "call-1", turnId: "turn-1", toolName: "focus_start", status: "indeterminate", reason: "Capability result was unavailable." },
-    { kind: "action", id: "call-2", turnId: "turn-2", toolName: "reminder_create", status: "pending" },
+    { kind: "action", id: "call-1", turnId: "turn-1", toolName: "focus_start", label: "Capability action", status: "indeterminate", reason: "Capability result was unavailable." },
+    { kind: "action", id: "call-2", turnId: "turn-2", toolName: "reminder_create", label: "Capability action", status: "pending" },
   ]);
   assert.equal(actions.some((item) => item.kind === "action" && item.turnId === "turn-1" && (item.status === "pending" || item.status === "running")), false);
   projection.dispose();

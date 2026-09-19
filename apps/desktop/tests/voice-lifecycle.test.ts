@@ -18,7 +18,7 @@ import {
   VOICE_TRANSCRIPTION_TIMEOUT_MS,
   VoiceListeningService,
 } from "../src/voice-listening-service.js";
-import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
+import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
 import { VoiceOperationState } from "../src/voice-operation-state.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
 
@@ -208,13 +208,24 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
 }
 
 {
-  const indicator = new VoicePrivacyIndicator();
+  const events: string[] = [];
+  const surface: VoicePrivacyIndicatorSurface = {
+    show: () => events.push("show"),
+    hide: () => events.push("hide"),
+    destroy: () => events.push("destroy"),
+  };
+  const indicator = new VoicePrivacyIndicator(() => surface);
   indicator.trackStarted();
   indicator.trackStarted();
   indicator.trackStopped();
+  assert.deepEqual(events, ["show"], "additional microphone owners do not reopen the shared indicator");
   indicator.trackStopped();
-  indicator.trackStopped();
+  assert.deepEqual(events, ["show", "hide"], "the indicator hides only after the final microphone owner stops");
+  indicator.trackStarted();
+  assert.deepEqual(events, ["show", "hide", "show"]);
   indicator.shutdown();
+  assert.deepEqual(events, ["show", "hide", "show", "destroy"]);
+  indicator.trackStopped();
   assert.equal(indicator.liveTracks, 0);
 }
 

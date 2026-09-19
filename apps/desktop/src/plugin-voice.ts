@@ -5,7 +5,7 @@ import { createElectronVoiceCaptureFactory } from "./voice-capture-electron.js";
 import type { VoiceCaptureService } from "./voice-capture.js";
 import { VoiceListeningService } from "./voice-listening-service.js";
 import { VoiceOperationState, type VoiceOperationSnapshot } from "./voice-operation-state.js";
-import { VoicePrivacyIndicator } from "./voice-privacy-indicator.js";
+import { createElectronVoicePrivacyIndicator } from "./voice-privacy-indicator-electron.js";
 import { VoiceResourceOwner } from "./voice-resource-owner.js";
 import type { VoiceMicrophoneArbiter } from "./voice-microphone-arbiter.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
@@ -53,7 +53,7 @@ let activePluginId: string | undefined;
 let initializingPluginListen: { readonly pluginId?: string; readonly controller: AbortController; readonly reservation: symbol } | null = null;
 const voiceResources = new VoiceResourceOwner({
   captureFactory: createElectronVoiceCaptureFactory(),
-  privacyIndicator: new VoicePrivacyIndicator(),
+  privacyIndicator: createElectronVoicePrivacyIndicator(),
 });
 const voiceOperationState = new VoiceOperationState();
 let pluginVoiceShutdownPromise: Promise<void> | null = null;

@@ -145,6 +145,17 @@ Handlers receive a validated clone and must return an object-shaped,
 JSON-compatible, size-bounded result. Unsupported or malformed schemas,
 circular/non-JSON data, and oversized values are rejected.
 
+The host derives each provider tool name from the plugin id and capability id:
+punctuation is normalized to lowercase underscores and ordinary names remain
+readable (for example, `system_resources_summary`). Names are bounded to the
+shared provider limit; normalization collisions and truncation receive a
+short deterministic suffix, while duplicate capability identities and any
+unresolvable name collision are rejected. The generation-pinned target map is
+keyed by that exact provider name, so no opaque-name aliases are retained.
+Conversation action rows show the capability description as a concise label;
+the actual provider name is retained separately for dispatch and transcript
+correlation rather than rendered as the label.
+
 When a capability cannot proceed because the validated input is missing a
 required field, its structured failure may include `missingInformation: true`.
 This explicit assistant-capability outcome asks for the missing value; it is
@@ -247,7 +258,10 @@ already stored credential for that profile. It does not update settings,
 selections, or the secret store. Tests are adapter-specific: a minimal text
 completion; a configured-voice TTS preview; a recorded STT sample; or a
 minimal Realtime session configuration. System TTS plays through renderer-local
-speech synthesis with the selected installed voice.
+speech synthesis with the selected installed voice. Text, Realtime, and
+  network TTS probes use the caller's cancellation signal; modal replacement,
+  renderer loss, and shutdown abort them before a stale request can overlap a
+  replacement test.
 
 The persisted provider document is explicitly versioned. Startup migrates the
 legacy unversioned shape, assigns defaults for newly required TTS voices, and
@@ -288,7 +302,8 @@ renderer playback lifecycle, or generic assistant session.
 capture service, and live-track accounting. Plugin one-shot listening, the native
 Realtime lane, and the generic assistant lane release only their own tracks and
 leases. The shared owner resets the accounting once, after every lane has stopped
-during app teardown; no detached privacy window is created. The optional Realtime adapter remains host-private;
+during app teardown; the transient privacy surface is not created until a track is
+acquired and is destroyed during shutdown. The optional Realtime adapter remains host-private;
 it does not add a public voice conversation API or make Realtime part of the
 plugin contract.
 
@@ -433,9 +448,11 @@ replacement generation's deliveries, pets, or motion.
 - `voice-capture-cancellation.ts` - idempotent renderer-cancel/window-destroy
   ordering.
 - `voice-operation-state.ts` - internal tray cancellation state and phase tracking.
-- `voice-privacy-indicator.ts` - shared host-owned live microphone-track
-  accounting used by one-shot capture and realtime conversation; it has no UI
-  surface.
+- `voice-privacy-indicator.ts` and `voice-privacy-indicator-electron.ts` - shared
+  host-owned live microphone-track accounting and the transient Electron privacy
+  surface used by one-shot capture and realtime conversation. The surface is
+  reference-counted, appears only after microphone acquisition, hides after the
+  final track stops, and is destroyed during voice shutdown.
 - `plugin-user-sound-store.ts` - stores imported user sounds as opaque refs, not
   raw filesystem paths.
 - `plugin-i18n.ts` - resolves plugin locales, manifest `$t:`, and `ctx.t()`.

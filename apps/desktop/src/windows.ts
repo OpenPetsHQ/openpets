@@ -69,7 +69,7 @@ import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type Co
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { getSharedVoiceMediaPlayer } from "./voice-media-player.js";
-import { cancelProviderTranscriptionTestsForSender as cancelProviderTestsForSender, ProviderTestReplacementLanes, registerProviderTestInitialization } from "./provider-test-lifecycle.js";
+import { cancelProviderTestsForSender, ProviderTestReplacementLanes, registerProviderTestRequest } from "./provider-test-lifecycle.js";
 
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
@@ -81,7 +81,7 @@ let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
 let nextProviderTestSessionId = 0;
 const providerTestSessions = new Map<string, { readonly senderId: number; readonly session: ProviderTranscriptionTestSession }>();
-const providerTestInitializations = new Map<number, Set<AbortController>>();
+const providerTestRequests = new Map<number, Set<AbortController>>();
 const providerTestReplacementLanes = new ProviderTestReplacementLanes();
 let providerPreviewRequestId: string | null = null;
 let nextProviderPreviewId = 0;
@@ -254,7 +254,7 @@ export function installInternalUiHandlers(): void {
   }
 
   internalUiHandlersInstalled = true;
-  app.on("before-quit", () => { void cancelAllProviderTranscriptionTests("OpenPets is shutting down."); });
+  app.on("before-quit", () => { void cancelAllProviderTests("OpenPets is shutting down."); });
 
   // Apply the persisted petConfinementEnabled preference as the initial value
   // for the confinement-manager flag. This runs once after app-state is loaded.
@@ -455,24 +455,36 @@ export function installInternalUiHandlers(): void {
   });
   ipcMain.handle("openpets:provider-profile-test", async (event, input: unknown) => {
     assertAllowedSender(event, ["control-center"]);
-    const save = validateProviderConfigurationSaveInput(input);
-    const profile = previewProviderConfiguration(save);
-    debug("plugin", "Testing unsaved provider configuration", {
-      profileId: profile.id,
-      adapter: profile.adapter,
-    });
-    const capabilities = getProviderCapabilities();
-    const credential = save.credentialValue
-      ?? (profile.secretRef
-        ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
-        : undefined);
-    return testProviderConfiguration(profile, credential);
+    const controller = new AbortController();
+    const unregister = registerProviderTestRequest(providerTestRequests, event.sender.id, controller);
+    const preemption = cancelProviderTestsForSender(event.sender.id, "Provider configuration test was preempted.", providerTestRequests, providerTestSessions, controller);
+    try {
+      return await providerTestReplacementLanes.enqueue(event.sender.id, async () => {
+        await preemption;
+        if (controller.signal.aborted) throw new Error("Provider configuration test was cancelled.");
+        const save = validateProviderConfigurationSaveInput(input);
+        const profile = previewProviderConfiguration(save);
+        debug("plugin", "Testing unsaved provider configuration", {
+          profileId: profile.id,
+          adapter: profile.adapter,
+        });
+        const capabilities = getProviderCapabilities();
+        const credential = save.credentialValue
+          ?? (profile.secretRef
+            ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
+            : undefined);
+        if (controller.signal.aborted) throw new Error("Provider configuration test was cancelled.");
+        return testProviderConfiguration(profile, credential, controller.signal);
+      });
+    } finally {
+      unregister();
+    }
   });
   ipcMain.handle("openpets:provider-profile-test-begin", async (event, input: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     const initializationController = new AbortController();
-    const unregisterInitialization = registerProviderTestInitialization(providerTestInitializations, event.sender.id, initializationController);
-    const preemption = cancelProviderTranscriptionTestsForSender(event.sender.id, "Provider transcription test was preempted.", initializationController);
+    const unregisterInitialization = registerProviderTestRequest(providerTestRequests, event.sender.id, initializationController);
+    const preemption = cancelProviderTestsForSender(event.sender.id, "Provider transcription test was preempted.", providerTestRequests, providerTestSessions, initializationController);
     try {
       return await providerTestReplacementLanes.enqueue(event.sender.id, async () => {
         await preemption;
@@ -515,7 +527,7 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:provider-profile-test-cancel", async (event, sessionId: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     if (sessionId === undefined || sessionId === null) {
-      await cancelProviderTranscriptionTestsForSender(event.sender.id, "Provider transcription test was cancelled.");
+      await cancelProviderTestsForSender(event.sender.id, "Provider transcription test was cancelled.", providerTestRequests, providerTestSessions);
       return { cancelled: true } as const;
     }
     if (typeof sessionId !== "string") return { cancelled: false } as const;
@@ -1034,10 +1046,10 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
-    void cancelProviderTranscriptionTestsForSender(window.webContents.id, "Control Center renderer was lost.");
+    void cancelProviderTestsForSender(window.webContents.id, "Control Center renderer was lost.", providerTestRequests, providerTestSessions);
   });
   window.on("closed", () => {
-    void cancelProviderTranscriptionTestsForSender(window.webContents.id, "Control Center window was closed.");
+    void cancelProviderTestsForSender(window.webContents.id, "Control Center window was closed.", providerTestRequests, providerTestSessions);
     controlCenterWindow = null;
     syncDockVisibilityForInternalUi();
   });
@@ -1212,12 +1224,8 @@ function getProviderTestSession(senderId: number, value: unknown): { readonly se
   return entry;
 }
 
-async function cancelProviderTranscriptionTestsForSender(senderId: number, reason: string, exceptController?: AbortController): Promise<void> {
-  await cancelProviderTestsForSender(senderId, reason, providerTestInitializations, providerTestSessions, exceptController);
-}
-
-async function cancelAllProviderTranscriptionTests(reason: string): Promise<void> {
-  for (const controllers of providerTestInitializations.values()) {
+async function cancelAllProviderTests(reason: string): Promise<void> {
+  for (const controllers of providerTestRequests.values()) {
     for (const controller of controllers) controller.abort(reason);
   }
   const entries = [...providerTestSessions.entries()];

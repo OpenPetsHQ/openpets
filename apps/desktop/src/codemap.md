@@ -132,7 +132,8 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 ├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
 ├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
 ├── provider-service.ts resolves redacted role operation snapshots and compatible/native text, STT, TTS, and private realtime codecs
-├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials; STT uses the host session controller
+├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials; network probes honor caller cancellation; STT uses the host session controller
+├── provider-test-lifecycle.ts cancels all provider-test requests for a sender and serializes replacements across modal, renderer, and shutdown teardown
 ├── plugin-assets.ts validates/resolves declared plugin assets for SDK refs and rendered UI
 ├── plugin-user-sound-store.ts stores imported user sounds as plugin-scoped opaque refs
 ├── plugin-diagnostics.ts records plugin errors/quota/settings blocks for inspector/health UI
@@ -145,7 +146,7 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 │       │   ├── voice-capture-cancellation.ts → idempotent renderer-cancel/window-destroy ordering
 │       │   ├── voice-listening-service.ts → transcription timeout, cancellation, empty-text guard, and boundary diagnostics
 │       │   ├── voice-operation-state.ts → internal tray cancellation state and phase tracking
-│       │   └── voice-privacy-indicator.ts → host-owned live-track accounting (no detached UI surface)
+│       │   └── voice-privacy-indicator*.ts → shared live-track accounting and the transient Electron privacy surface
 │       ├── plugin-sdk-bus.ts/plugin-sdk-events.ts → curated pub/sub and host event streams
 │       ├── plugin-sdk-config.ts/plugin-sdk-storage.ts/plugin-sdk-state.ts → config, persistent plugin data, and subscriptions
 │       ├── plugin-sdk-ui.ts/plugin-panels.ts/plugin-toast.ts → bubbles, alerts, commands, panels, and toasts

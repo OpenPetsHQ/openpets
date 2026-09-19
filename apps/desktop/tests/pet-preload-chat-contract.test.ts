@@ -256,6 +256,7 @@ class MockElement {
 const documentListeners = new Map<string, Function[]>();
 const documentElement = new MockElement("html");
 documentElement.dataset.petRole = "default";
+documentElement.dataset.petDisplayName = "Hoodie Cat";
 const body = new MockElement("body");
 const initialStage = new MockElement("div");
 initialStage.className = "stage";
@@ -405,16 +406,26 @@ assert.ok(body.contains(compactComposer), "Compact composer must be attached to 
 const fullPanel = documentElement.querySelector(".openpets-chat-panel");
 assert.ok(fullPanel, "Full chat panel must be present in DOM");
 assert.ok(body.contains(fullPanel), "Full chat panel must be attached to body");
+const chatTitle = fullPanel!.querySelector(".chat-title") as MockElement;
+assert.ok(chatTitle, "Chat title must exist");
+assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must use the active pet display name");
+const headerContentStateListener = listeners.get("openpets:pet-content-state");
+assert.ok(headerContentStateListener);
+const headerRefreshBody = '<div class="stage"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-talk-button" data-openpets-talk-button="true"></button></div>';
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "Calico", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Calico", "Chat header must react to an updated pet display name");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Assistant", "Chat header must fall back when the pet display name is unusable");
 const voiceBtnLabel = fullPanel!.querySelector("[data-voice-btn-label]") as MockElement;
 assert.ok(voiceBtnLabel, "Talk button label must exist");
 
 const compactInput = compactComposer!.querySelector("[data-compact-chat-input]") as MockElement;
 assert.ok(compactInput, "Compact chat input must exist");
-assert.equal(compactInput.placeholder, "Message your pet...", "Compact composer placeholder must be concise and natural");
+assert.equal(compactInput.placeholder, "Message your pet…", "Compact composer placeholder must be concise and natural");
 
 const fullInput = fullPanel!.querySelector("[data-chat-input]") as MockElement;
 assert.ok(fullInput, "Full chat input must exist");
-assert.equal(fullInput.placeholder, "Message your pet... (Enter to send, Shift+Enter for newline)", "Full panel placeholder must match message prefix");
+assert.equal(fullInput.placeholder, "Message your pet…", "Full panel placeholder must match the compact composer");
 
 const historyBtn = compactComposer!.querySelector("[data-chat-history-btn]") as MockElement;
 assert.ok(historyBtn, "Explicit history/transcript affordance button must exist in compact composer");

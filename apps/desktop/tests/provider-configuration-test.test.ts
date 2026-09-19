@@ -94,6 +94,48 @@ async function main(): Promise<void> {
       "https://provider.test/v1/realtime/sessions",
     ]);
 
+    const assertCancellation = async (profile: ProviderProfile, credential?: string): Promise<void> => {
+      let started!: () => void;
+      const requestStarted = new Promise<void>((resolve) => { started = resolve; });
+      globalThis.fetch = async (_input, init) => {
+        started();
+        return await new Promise<Response>((_resolve, reject) => {
+          const abort = () => reject(new Error("blocking provider request aborted"));
+          if (init?.signal?.aborted) abort();
+          else init?.signal?.addEventListener("abort", abort, { once: true });
+        });
+      };
+      const controller = new AbortController();
+      const pending = testProviderConfiguration(profile, credential, controller.signal);
+      await requestStarted;
+      controller.abort();
+      await assert.rejects(pending, (error: unknown) => error instanceof Error && error.message.toLowerCase().includes("cancel"));
+    };
+
+    await assertCancellation({
+      id: "cancel-text-test",
+      label: "Cancel text test",
+      adapter: "openai-compatible-text",
+      model: "model",
+      baseUrl: "https://provider.test/v1",
+    });
+    await assertCancellation({
+      id: "cancel-realtime-test",
+      label: "Cancel realtime test",
+      adapter: "openai-realtime",
+      model: "text-model",
+      realtimeModel: "realtime-model",
+      baseUrl: "https://provider.test/v1",
+    }, "test-key");
+    await assertCancellation({
+      id: "cancel-tts-test",
+      label: "Cancel TTS test",
+      adapter: "elevenlabs-tts",
+      model: "model",
+      voice: "voice-id",
+      baseUrl: "https://provider.test/v1",
+    }, "test-key");
+
     const system = await testProviderConfiguration({
       id: "system-test",
       label: "System test",

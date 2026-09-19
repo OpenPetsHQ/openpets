@@ -42,14 +42,14 @@ export async function testProviderConfiguration(
     const response = await new TextModelClient(provider, { timeoutMs: 20_000 }).generate({
       messages: [{ role: "user", content: "Reply with the single word connected." }],
       tools: [],
-    }, new AbortController().signal);
+    }, signal ?? new AbortController().signal);
     const detail = response.type === "text" ? response.text : "Provider returned a tool request.";
     return { kind: "text", detail: detail.slice(0, 240) };
   }
 
   if (profile.adapter === "openai-realtime") {
     const operation = createProviderOperationSnapshot(profile, "realtime", credential);
-    await service.json(operation, "/realtime/sessions", { model: operation.profile.model });
+    await service.json(operation, "/realtime/sessions", { model: operation.profile.model }, signal);
     return { kind: "realtime", detail: "Realtime session configuration accepted." };
   }
 
@@ -58,7 +58,7 @@ export async function testProviderConfiguration(
   }
 
   const operation = createProviderOperationSnapshot(profile, "tts", credential);
-  const speech = await service.synthesize(operation, previewText, {});
+  const speech = await service.synthesize(operation, previewText, {}, signal);
   if (!speech) {
     throw new Error("The selected provider did not return speech audio.");
   }

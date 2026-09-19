@@ -153,6 +153,13 @@ retrieval, summary, preferences, network synchronization, or provider call for
 archive reads/erasure. Provider-profile management is implemented through the
 host-owned Control Center bridge.
 
+Capability tool names are readable lowercase names derived from the plugin and
+capability ids. The host normalizes punctuation, bounds names for providers,
+and adds a deterministic short suffix only for normalization collisions or
+truncation. Conversation action rows use the capability description as their
+friendly label while retaining the provider name separately for exact dispatch
+and correlation.
+
 ### Generic host voice session and Talk controls (#147, #150)
 
 The desktop owns a host controller/factory for one bounded generic session at a
@@ -216,8 +223,8 @@ in memory. Each links to the doc that details it.
 - **Listening through a plugin.** `voice.listen()` performs one bounded capture in
   a host-owned temporary session, records live microphone ownership only after
   acquisition succeeds, transcribes through the configured provider, and cleans up
-  on success, cancellation, timeout, teardown, or shutdown. It creates no detached
-  privacy window and is never ambient.
+  on success, cancellation, timeout, teardown, or shutdown. Its transient privacy
+  indicator is shown only after acquisition and is never ambient or always-on.
 - **Realtime voice adapter.** The host contains an optional optimized OpenAI
   Realtime adapter over the same Pet Assistant conversation. A hidden sandboxed
   renderer validates and normalizes provider events; the main process validates

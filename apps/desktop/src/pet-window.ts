@@ -100,6 +100,7 @@ export type PetStatusBadgeReaction = Exclude<OpenPetsReaction, "idle">;
 interface PetContentRender {
   readonly html: string;
   readonly bodyHtml: string;
+  readonly displayName: string;
   readonly reactionState: UniversalSpriteState;
   readonly codexSpriteVersion: 1 | 2;
   readonly paused: boolean;
@@ -1460,7 +1461,7 @@ function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRend
   if (!isAllowedPetDocumentUrl(url)) return false;
   updatePetGazeConfiguration(window, render, render.flipped);
   debug("pet.window", "content update in place", { windowId: window.id, name, sequence, reactionState: render.reactionState });
-  window.webContents.send("openpets:pet-content-state", { bodyHtml: render.bodyHtml, reactionState: render.reactionState });
+  window.webContents.send("openpets:pet-content-state", { bodyHtml: render.bodyHtml, displayName: render.displayName, reactionState: render.reactionState });
   return true;
 }
 
@@ -1576,6 +1577,7 @@ export async function createDefaultPetRender(paused: boolean, display: PetTransi
 
 function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null, petRole: "default" | "agent" = "default"): PetContentRender {
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
+  const displayName = builtInPet.displayName;
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
   const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
@@ -1588,12 +1590,13 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
   return {
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
+    displayName,
     reactionState,
     codexSpriteVersion: defaultPetSprite.version,
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1697,12 +1700,13 @@ async function createInstalledPetRender(
   return {
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
+    displayName,
     reactionState,
     codexSpriteVersion: spriteLayout.version,
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
         <head>
           <meta charset="utf-8" />
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 
 import {
-  cancelProviderTranscriptionTestsForSender,
+  cancelProviderTestsForSender,
   ProviderTestReplacementLanes,
-  registerProviderTestInitialization,
+  registerProviderTestRequest,
 } from "../src/provider-test-lifecycle.js";
 
 type Session = { readonly senderId: number; readonly session: { cancel(reason?: string): Promise<void> } };
@@ -18,8 +18,8 @@ async function rapidBegin(
   started: string[],
   cancelled: string[],
 ): Promise<void> {
-  const unregister = registerProviderTestInitialization(initializations, senderId, controller);
-  const preemption = cancelProviderTranscriptionTestsForSender(senderId, "Provider transcription test was preempted.", initializations, sessions, controller);
+  const unregister = registerProviderTestRequest(initializations, senderId, controller);
+  const preemption = cancelProviderTestsForSender(senderId, "Provider transcription test was preempted.", initializations, sessions, controller);
   try {
     await lanes.enqueue(senderId, async () => {
       await preemption;
@@ -63,17 +63,17 @@ const lossInitializations = new Map<number, Set<AbortController>>();
 const lossSessions = new Map<string, Session>();
 const lossController = new AbortController();
 const lossStarted: string[] = [];
-const lossUnregister = registerProviderTestInitialization(lossInitializations, 9, lossController);
+const lossUnregister = registerProviderTestRequest(lossInitializations, 9, lossController);
 let releaseQueuedTeardown!: () => void;
 const queuedTeardown = new Promise<void>((resolve) => { releaseQueuedTeardown = resolve; });
 lossSessions.set("queued-prior", { senderId: 9, session: { cancel: async () => queuedTeardown } });
-const queuedPreemption = cancelProviderTranscriptionTestsForSender(9, "Provider transcription test was preempted.", lossInitializations, lossSessions, lossController);
+const queuedPreemption = cancelProviderTestsForSender(9, "Provider transcription test was preempted.", lossInitializations, lossSessions, lossController);
 const queuedStart = lossLanes.enqueue(9, async () => {
   await queuedPreemption;
   if (lossController.signal.aborted) throw new Error("Provider transcription test was cancelled.");
   lossStarted.push("queued");
 });
-const rendererLoss = cancelProviderTranscriptionTestsForSender(9, "renderer lost", lossInitializations, lossSessions);
+const rendererLoss = cancelProviderTestsForSender(9, "renderer lost", lossInitializations, lossSessions);
 await new Promise<void>((resolve) => setImmediate(resolve));
 assert.equal(lossController.signal.aborted, true, "renderer loss cancels queued initialization");
 releaseQueuedTeardown();

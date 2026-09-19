@@ -118,8 +118,9 @@ pet slot so cleanup does not erase unrelated plugin display state.
 An activation owns one session and its microphone reservation. Ending releases
 that reservation; a later activation creates a fresh session. Assistant,
 plugin one-shot and native Realtime lane release only their own work. A
-shared host resource owner resets live microphone-track accounting only after all
-lanes have stopped; no detached privacy window is created. #150 adds activation controls and the shared Conversation
+  shared host resource owner resets live microphone-track accounting only after all
+  lanes have stopped; the transient privacy indicator appears only while a microphone
+  track is live and is destroyed during shutdown. #150 adds activation controls and the shared Conversation
 projection hookup while keeping provider authority host-owned;
 retained history is host-owned, owner-deletable in the Control Center, and
 remains separate from the active projection.
@@ -152,6 +153,12 @@ generation-pinned capability runtime. Structured completed, unavailable,
 rejected, indeterminate, and explicit missing-information outcomes are returned
 to Realtime and projected into the same Conversation/action/feedback state as
 typed and generic voice turns.
+
+Those tool names are readable lowercase combinations of plugin and capability
+ids, with deterministic short suffixes only for normalization collisions or
+provider-length truncation. Conversation action rows show capability
+descriptions instead of provider identifiers, while dispatch keeps the exact
+registered name separately.
 
 Closing, interruption, renderer loss, provider failure, plugin reload/disable,
 and generation replacement reject late events. A side-effecting invocation

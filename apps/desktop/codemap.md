@@ -79,7 +79,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `pet-motion-engine.ts`: Shared-ticker motion engine (~60 fps) — `Map<petHandleId, MotionState>`, single `setInterval` for all pets, sub-pixel fractional accumulators, bottom-center gravity-floor anchor, `registerPet`/`unregisterPet` seams, sole continuous position writer.
 - `display.ts`: Screen-geometry helpers — `getDefaultPetInitialPosition`, `clampToVisibleWorkArea` (legacy single-display), `clampToNearestDisplayIfOffscreen` (permissive multi-display), `isOnAnyDisplay`, `setCrossDisplayRoamingEnabled`/`isCrossDisplayRoamingEnabled` flag; display list cache with `invalidateDisplayCache()`
 - `app-state.ts`: Persistent state management (JSON file)
-- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, bounded active context, and canonical terminal-text archive integration
+- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, bounded active context, readable provider-safe capability names, friendly action presentation metadata, and canonical terminal-text archive integration
 - `pet-assistant-archive.ts`: Atomic local archive with 200-message/30-day/512KiB retention, 64KiB entry cap, quarantine recovery, and bounded prompt-window support
 - `agent-setup.ts`: Claude/OpenCode/Cursor/Zed integration logic plus OpenClaw management/status actions
 - `plugin-service.ts`: Plugin orchestration for snapshots, enable/config/reload, command execution, catalog install/update/uninstall, local loading, permission approval, JavaScript host wiring, and runtime reloads
@@ -95,7 +95,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-js-host.ts`: Hidden sandboxed BrowserWindow host for JavaScript plugin entry modules, SDK IPC tokening, session hardening, startup handshake, and teardown
 - `plugin-sdk-bridge.ts`: Permission-checked SDK API for JavaScript plugins with quotas, plugin storage, schedules, config listeners, commands/status, logs, and restricted HTTPS fetch
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
-- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, privacy state, and teardown cleanup
+- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, and teardown cleanup
 - `pet-installation.ts`: Catalog ZIP download and extraction
 - `codex-pets.ts`: Local Codex pet import
 - `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
