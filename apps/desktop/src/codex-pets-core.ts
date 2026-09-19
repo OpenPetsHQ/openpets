@@ -49,6 +49,66 @@ export const codexV2SpriteLayout: CodexPetSpriteLayout = {
   neutralPose: { row: 0, column: 6 },
 };
 
+export const codexV2GazeSectorCount = 16;
+export const codexV2GazeSectorAngle = (Math.PI * 2) / codexV2GazeSectorCount;
+export const codexV2GazeDeadZonePx = 24;
+
+export interface CodexV2GazePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface CodexV2GazeSpritePosition {
+  readonly row: 9 | 10;
+  readonly column: number;
+}
+
+/**
+ * Quantize a cursor point around the pet carrier's bottom-center anchor.
+ * Index zero points up and indices increase clockwise in 22.5 degree steps.
+ */
+export function quantizeCodexV2GazeDirection(
+  cursor: CodexV2GazePoint,
+  anchor: CodexV2GazePoint,
+  deadZonePx = codexV2GazeDeadZonePx,
+): number | null {
+  if (!isFinitePoint(cursor) || !isFinitePoint(anchor) || !Number.isFinite(deadZonePx) || deadZonePx < 0) return null;
+  const dx = cursor.x - anchor.x;
+  const dy = cursor.y - anchor.y;
+  if (Math.hypot(dx, dy) <= deadZonePx) return null;
+
+  const angle = Math.atan2(dx, -dy);
+  const sector = Math.floor((angle + codexV2GazeSectorAngle / 2) / codexV2GazeSectorAngle);
+  return (sector + codexV2GazeSectorCount) % codexV2GazeSectorCount;
+}
+
+/** Mirror a gaze index before the renderer applies its horizontal CSS flip. */
+export function mirrorCodexV2GazeIndex(index: number): number | null {
+  if (!isCodexV2GazeIndex(index)) return null;
+  return (codexV2GazeSectorCount - index) % codexV2GazeSectorCount;
+}
+
+/** Return the static V2 atlas cell for a gaze index, optionally flip-compensated. */
+export function getCodexV2GazeSpritePosition(index: number, flipped = false): CodexV2GazeSpritePosition | null {
+  if (!isCodexV2GazeIndex(index)) return null;
+  const selectedIndex = flipped ? mirrorCodexV2GazeIndex(index) : index;
+  if (selectedIndex === null) return null;
+  return selectedIndex < 8
+    ? { row: 9, column: selectedIndex }
+    : { row: 10, column: selectedIndex - 8 };
+}
+
+function isCodexV2GazeIndex(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value < codexV2GazeSectorCount;
+}
+
+function isFinitePoint(value: unknown): value is CodexV2GazePoint {
+  return typeof value === "object"
+    && value !== null
+    && Number.isFinite((value as { readonly x?: unknown }).x)
+    && Number.isFinite((value as { readonly y?: unknown }).y);
+}
+
 export function validateCodexPetMetadata(value: unknown, folderName: string): CodexPetMetadata {
   if (!isSafeCodexPetId(folderName)) throw new Error("Codex pet folder name is invalid.");
   if (!isRecord(value)) throw new Error("pet.json must be an object.");

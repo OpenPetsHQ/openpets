@@ -385,6 +385,17 @@ assert.ok(listeners.has("openpets:default-pet-chat-expansion-changed"));
 assert.ok(listeners.has("openpets:default-pet-chat-event"));
 assert.ok(listeners.has("openpets:default-pet-chat-voice-event"));
 assert.ok(listeners.has("openpets:pet-content-state"));
+assert.ok(listeners.has("openpets:pet-gaze"));
+const gazeListener = listeners.get("openpets:pet-gaze")!;
+assert.equal(documentElement.dataset.codexGazeIndex, undefined);
+gazeListener!({}, { index: 4 });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "valid gaze payload updates only the gaze data attribute");
+gazeListener!({}, { index: 16 });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "out-of-range gaze payload is ignored");
+gazeListener!({}, { index: 4, extra: true });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "extra gaze payload fields are ignored");
+gazeListener!({}, { index: null });
+assert.equal(documentElement.dataset.codexGazeIndex, "neutral", "null gaze payload restores the neutral frame");
 
 // Verify both compact composer and full chat panel exist in DOM
 const compactComposer = documentElement.querySelector(".openpets-compact-composer");
@@ -714,6 +725,29 @@ assert.strictEqual(petDoubleClickedSent, undefined, "Double-click on compact com
 sent.length = 0;
 const currentPetShell = documentElement.querySelector(".pet-shell")!;
 assert.ok(currentPetShell);
+
+// A stationary drag still has an explicit start/end lifetime on both drag paths.
+sent.length = 0;
+for (const listener of mousedownListeners) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100, preventDefault: () => {} });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-start"), "stationary manual drag must publish its start");
+for (const listener of documentListeners.get("mouseup") ?? []) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100 });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-end"), "stationary manual drag must publish its end");
+
+documentElement.dataset.nativePetDrag = "wayland";
+sent.length = 0;
+for (const listener of mousedownListeners) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100, preventDefault: () => {} });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-start"), "stationary native drag must publish its start");
+for (const listener of documentListeners.get("mouseup") ?? []) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100 });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-end"), "stationary native drag must publish its end");
+delete documentElement.dataset.nativePetDrag;
 
 for (const l of clickListeners) {
   l({ button: 0, target: currentPetShell, preventDefault: () => {}, stopPropagation: () => {} });

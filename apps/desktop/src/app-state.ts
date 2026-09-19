@@ -98,6 +98,8 @@ export interface OpenPetsStateV1 {
      readonly preferredVoiceOutputDeviceId: string | null;
     /** Canonical Electron accelerator that toggles the compact pet chat composer; empty disables it. */
     readonly chatShortcut: string;
+    /** Canonical Electron accelerator that hides/shows the default pet; empty disables it. */
+    readonly petToggleShortcut: string;
     /** Show the chat launcher button on the default pet. */
     readonly showChatButton: boolean;
     /** Show the talk (voice) button on the default pet. */
@@ -638,10 +640,11 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petCrossDisplayEnabled: normalizePetCrossDisplayEnabled(value.petCrossDisplayEnabled, defaultState.preferences.petCrossDisplayEnabled),
     petGravityEnabled: normalizePetGravityEnabled(value.petGravityEnabled, defaultState.preferences.petGravityEnabled),
     personality: normalizePetAssistantPersonality(value.personality),
-     voiceAssistantShortcut: isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+     voiceAssistantShortcut: value.voiceAssistantShortcut === "" ? "" : isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
      preferredVoiceInputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceInputDeviceId),
      preferredVoiceOutputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceOutputDeviceId),
     chatShortcut: isCanonicalVoiceAssistantShortcut(value.chatShortcut) ? value.chatShortcut : "",
+    petToggleShortcut: isCanonicalVoiceAssistantShortcut(value.petToggleShortcut) ? value.petToggleShortcut : "",
     showChatButton: typeof value.showChatButton === "boolean" ? value.showChatButton : true,
     showTalkButton: typeof value.showTalkButton === "boolean" ? value.showTalkButton : true,
     petButtonsPosition: normalizePetButtonsPosition(value.petButtonsPosition),
@@ -745,6 +748,7 @@ function createDefaultState(): OpenPetsStateV1 {
       preferredVoiceInputDeviceId: null,
       preferredVoiceOutputDeviceId: null,
       chatShortcut: "",
+      petToggleShortcut: "",
       showChatButton: true,
       showTalkButton: true,
       petButtonsPosition: defaultPetButtonsPosition,

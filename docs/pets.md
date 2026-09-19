@@ -346,10 +346,13 @@ repaired/skipped counts, and skip reasons are logged, and a migration problem
 never prevents the desktop app from starting.
 
 V2's sixteen look-direction cells (rows 9–10) are retained in the imported
-atlas but are not individually selected: OpenPets currently emits only idle,
-left-run, and right-run motion, not a two-dimensional gaze target. It therefore
-does not invent directional behavior or claim full gaze support. A future gaze
-API can map those cells directly without changing the import contract.
+atlas and selected while an installed V2 pet is visually idle. OpenPets samples
+the global cursor around the pet carrier's bottom-center anchor, quantizes the
+direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
+inside a small dead zone. Reactions, movement, dragging, plugin sprite
+overrides, and paused pets suspend gaze; V1 pets retain their existing idle
+behavior. Horizontal flips compensate the selected atlas cell so the pet still
+looks toward the cursor.
 
 Codex integration remains import-only: OpenPets does not write installed or
 catalog pets back into `~/.codex/pets/`.

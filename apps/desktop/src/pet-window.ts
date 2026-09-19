@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, getHudScaleForPetScale, hudScaleOptions, isPetFlippedHorizontally, markPetBroken, petScaleOptions, togglePetHorizontalFlip, updatePreferences, type HudScaleValue, type PetScaleValue } from "./app-state.js";
-import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { getCodexPetSpritePosition, getCodexV2GazeSpritePosition, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
@@ -101,6 +101,9 @@ interface PetContentRender {
   readonly html: string;
   readonly bodyHtml: string;
   readonly reactionState: UniversalSpriteState;
+  readonly codexSpriteVersion: 1 | 2;
+  readonly paused: boolean;
+  readonly flipped: boolean;
   readonly cacheKey: string;
 }
 
@@ -111,6 +114,280 @@ const windowLoadSequences = new WeakMap<BrowserWindow, number>();
 const petWindowFocusPolicy = new WeakMap<BrowserWindow, boolean>();
 const petMouseInteropRecovery = new WeakMap<BrowserWindow, (reason: string) => void>();
 const petWindowDragging = new WeakMap<BrowserWindow, boolean>();
+
+interface PetGazeEntry {
+  readonly window: BrowserWindow;
+  codexSpriteVersion: 1 | 2;
+  paused: boolean;
+  reactionState: UniversalSpriteState;
+  motionState: PetMotionState;
+  flipped: boolean;
+  pluginSpriteOverride: boolean;
+  rendererReady: boolean;
+  dragging: boolean;
+  movementSuspended: boolean;
+  movementTimer: NodeJS.Timeout | null;
+  movementGeneration: number;
+  lastBounds: Electron.Rectangle | null;
+  lastDirection: number | null;
+}
+
+const petGazeEntries = new Map<BrowserWindow, PetGazeEntry>();
+let petGazeTicker: NodeJS.Timeout | null = null;
+const petGazeTickerIntervalMs = 100;
+
+function registerPetGazeWindow(window: BrowserWindow): void {
+  if (petGazeEntries.has(window)) return;
+  const entry: PetGazeEntry = {
+    window,
+    codexSpriteVersion: 1,
+    paused: false,
+    reactionState: "idle",
+    motionState: "idle",
+    flipped: false,
+    pluginSpriteOverride: false,
+    rendererReady: false,
+    dragging: false,
+    movementSuspended: false,
+    movementTimer: null,
+    movementGeneration: 0,
+    lastBounds: null,
+    lastDirection: null,
+  };
+  petGazeEntries.set(window, entry);
+
+  const resetForNavigation = (): void => resetPetGazeWindow(window);
+  const handleLoad = (): void => setPetGazeRendererReady(window);
+  const handleRendererGone = (): void => resetPetGazeWindow(window);
+  const handleHide = (): void => {
+    const current = petGazeEntries.get(window);
+    if (!current) return;
+    if (current.movementTimer) {
+      clearTimeout(current.movementTimer);
+      current.movementTimer = null;
+    }
+    current.movementGeneration += 1;
+    current.movementSuspended = false;
+    current.dragging = false;
+    current.lastBounds = null;
+    resetPetGazeDirection(current);
+    syncPetGazeTicker();
+  };
+  const handleShow = (): void => forcePetGazeEvaluation(window);
+  window.webContents.on("did-start-navigation", resetForNavigation);
+  window.webContents.on("did-start-loading", resetForNavigation);
+  window.webContents.on("did-finish-load", handleLoad);
+  window.webContents.on("did-fail-load", resetForNavigation);
+  window.webContents.on("render-process-gone", handleRendererGone);
+  window.on("hide", handleHide);
+  window.on("show", handleShow);
+  window.on("close", resetForNavigation);
+  const remove = (): void => {
+    const current = petGazeEntries.get(window);
+    if (!current) return;
+    if (current.movementTimer) clearTimeout(current.movementTimer);
+    window.webContents.off("did-start-navigation", resetForNavigation);
+    window.webContents.off("did-start-loading", resetForNavigation);
+    window.webContents.off("did-finish-load", handleLoad);
+    window.webContents.off("did-fail-load", resetForNavigation);
+    window.webContents.off("render-process-gone", handleRendererGone);
+    window.off("hide", handleHide);
+    window.off("show", handleShow);
+    window.off("close", resetForNavigation);
+    petGazeEntries.delete(window);
+    syncPetGazeTicker();
+  };
+  window.once("closed", remove);
+}
+
+function stopPetGazeTicker(): void {
+  if (!petGazeTicker) return;
+  clearInterval(petGazeTicker);
+  petGazeTicker = null;
+}
+
+function syncPetGazeTicker(): void {
+  const needsTicker = [...petGazeEntries.values()].some(isPetGazeEligible);
+  if (!needsTicker) {
+    stopPetGazeTicker();
+    return;
+  }
+  if (petGazeTicker) return;
+  petGazeTicker = setInterval(tickPetGaze, petGazeTickerIntervalMs);
+  petGazeTicker.unref?.();
+}
+
+function isPetGazeEligible(entry: PetGazeEntry): boolean {
+  return entry.codexSpriteVersion === 2
+    && !entry.paused
+    && entry.reactionState === "idle"
+    && entry.motionState === "idle"
+    && !entry.pluginSpriteOverride
+    && !entry.dragging
+    && !entry.movementSuspended
+    && entry.rendererReady
+    && !entry.window.isDestroyed()
+    && entry.window.isVisible()
+    && !entry.window.webContents.isDestroyed();
+}
+
+function sendPetGaze(entry: PetGazeEntry, direction: number | null): void {
+  if (!entry.rendererReady || entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) return;
+  if (entry.lastDirection === direction) return;
+  entry.lastDirection = direction;
+  entry.window.webContents.send("openpets:pet-gaze", { index: direction });
+}
+
+function resetPetGazeDirection(entry: PetGazeEntry): void {
+  const hadDirection = entry.lastDirection !== null;
+  entry.lastDirection = null;
+  if (!hadDirection || !entry.rendererReady || entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) return;
+  entry.window.webContents.send("openpets:pet-gaze", { index: null });
+}
+
+function evaluatePetGaze(entry: PetGazeEntry, cursor: Point): void {
+  if (!isPetGazeEligible(entry)) {
+    if (!entry.rendererReady || entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) entry.lastDirection = null;
+    else resetPetGazeDirection(entry);
+    return;
+  }
+  let bounds: Electron.Rectangle;
+  try {
+    bounds = entry.window.getContentBounds();
+  } catch {
+    resetPetGazeDirection(entry);
+    return;
+  }
+  const direction = quantizeCodexV2GazeDirection(
+    cursor,
+    { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height },
+  );
+  const selected = direction === null ? null : getCodexV2GazeSpritePosition(direction, entry.flipped);
+  const selectedDirection = direction === null ? null : (entry.flipped ? mirrorCodexV2GazeIndex(direction) : direction);
+  sendPetGaze(entry, selected ? selectedDirection : null);
+}
+
+function tickPetGaze(): void {
+  if (![...petGazeEntries.values()].some(isPetGazeEligible)) {
+    for (const entry of petGazeEntries.values()) evaluatePetGaze(entry, { x: 0, y: 0 });
+    syncPetGazeTicker();
+    return;
+  }
+  const cursor = screen.getCursorScreenPoint();
+  for (const entry of petGazeEntries.values()) {
+    if (!entry.window.isDestroyed() && !entry.window.webContents.isDestroyed() && entry.window.isVisible()) {
+      try {
+        const bounds = entry.window.getContentBounds();
+        const previous = entry.lastBounds;
+        entry.lastBounds = bounds;
+        if (previous && (previous.x !== bounds.x || previous.y !== bounds.y || previous.width !== bounds.width || previous.height !== bounds.height)) {
+          suspendPetGazeForMovement(entry.window);
+        }
+      } catch {
+        entry.lastBounds = null;
+      }
+    }
+    evaluatePetGaze(entry, cursor);
+  }
+}
+
+function forcePetGazeEvaluation(window: BrowserWindow): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry || !entry.rendererReady || window.isDestroyed() || window.webContents.isDestroyed() || !window.isVisible()) return;
+  evaluatePetGaze(entry, screen.getCursorScreenPoint());
+  syncPetGazeTicker();
+}
+
+function resetPetGazeWindow(window: BrowserWindow): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  if (entry.movementTimer) {
+    clearTimeout(entry.movementTimer);
+    entry.movementTimer = null;
+  }
+  entry.movementGeneration += 1;
+  entry.rendererReady = false;
+  entry.dragging = false;
+  entry.motionState = "idle";
+  entry.movementSuspended = false;
+  entry.lastBounds = null;
+  resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
+
+function setPetGazeRendererReady(window: BrowserWindow): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry || window.isDestroyed() || window.webContents.isDestroyed()) return;
+  entry.rendererReady = true;
+  forcePetGazeEvaluation(window);
+}
+
+function updatePetGazeConfiguration(window: BrowserWindow, render: PetContentRender, flipped: boolean): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  const changed = entry.codexSpriteVersion !== render.codexSpriteVersion
+    || entry.paused !== render.paused
+    || entry.reactionState !== render.reactionState
+    || entry.flipped !== flipped;
+  entry.codexSpriteVersion = render.codexSpriteVersion;
+  entry.paused = render.paused;
+  entry.reactionState = render.reactionState;
+  entry.flipped = flipped;
+  if (changed) resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
+
+function setPetGazeMotionState(window: BrowserWindow, state: PetMotionState): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.motionState = state;
+  if (state !== "idle") resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+  if (state === "idle") forcePetGazeEvaluation(window);
+}
+
+function setPetGazeDragging(window: BrowserWindow, dragging: boolean): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.dragging = dragging;
+  if (dragging) resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
+
+function suspendPetGazeForMovement(window: BrowserWindow): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.movementSuspended = true;
+  entry.lastBounds = null;
+  resetPetGazeDirection(entry);
+  if (entry.movementTimer) clearTimeout(entry.movementTimer);
+  const movementGeneration = ++entry.movementGeneration;
+  entry.movementTimer = setTimeout(() => {
+    if (entry.movementGeneration !== movementGeneration) return;
+    entry.movementTimer = null;
+    entry.movementSuspended = false;
+    syncPetGazeTicker();
+    forcePetGazeEvaluation(window);
+  }, 180);
+  entry.movementTimer.unref?.();
+  syncPetGazeTicker();
+}
+
+function setPetGazeReactionState(window: BrowserWindow, state: UniversalSpriteState): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.reactionState = state;
+  if (state !== "idle") resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
+
+function setPetGazePluginOverride(window: BrowserWindow, active: boolean): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.pluginSpriteOverride = active;
+  resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
 
 export type PetWindowSpeechCompletion = {
   readonly window: BrowserWindow;
@@ -647,12 +924,15 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
   const handleReady = (event: IpcMainEvent): void => {
     if (!isFromWindow(event)) return;
     rendererReady = true;
+    setPetGazeRendererReady(window);
     setPassthrough(true);
     scheduleForwardingWatch("ready-forwarding-watch");
   };
 
   const handleDragStart = (event: IpcMainEvent, point: unknown): void => {
     if (!isFromWindow(event) || !isScreenPoint(point) || window.isDestroyed()) return;
+    setPetGazeDragging(window, true);
+    suspendPetGazeForMovement(window);
     if (useWaylandNativeDrag) {
       debug("pet.window", "manual drag start ignored on Wayland native drag", { windowId });
       return;
@@ -668,6 +948,7 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
 
   const handleDragMove = (event: IpcMainEvent, point: unknown): void => {
     if (!isFromWindow(event) || !dragging || !isScreenPoint(point) || window.isDestroyed()) return;
+    suspendPetGazeForMovement(window);
     if (useWaylandNativeDrag) {
       debug("pet.window", "manual drag move ignored on Wayland native drag", { windowId });
       return;
@@ -679,6 +960,8 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
 
   const handleDragEnd = (event: IpcMainEvent): void => {
     if (!isFromWindow(event)) return;
+    setPetGazeDragging(window, false);
+    suspendPetGazeForMovement(window);
     if (useWaylandNativeDrag) {
       debug("pet.window", "manual drag end ignored on Wayland native drag", { windowId });
       return;
@@ -737,6 +1020,7 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
     petWindowDragging.set(window, false);
     rendererReady = false;
     lastInteractive = false;
+    resetPetGazeWindow(window);
     clearRearmTimers();
     debug("pet.window", "navigation reset passthrough", { windowId });
     setPassthrough(false);
@@ -757,6 +1041,7 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
   const handleLoadFailure = (): void => {
     dragging = null;
     lastInteractive = false;
+    resetPetGazeWindow(window);
     debug("pet.window", "load failure rearm passthrough", { windowId });
     setPassthrough(true);
   };
@@ -982,6 +1267,7 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   debug("pet.window", "default content render begin", { windowId: window.id, sequence, paused, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge, hasPluginBubble: Boolean(pluginBubbles?.transient), hasPinned: Boolean(pluginBubbles?.pinned), defaultPetId: getAppStateSnapshot().preferences.defaultPetId });
   applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded() || isDefaultPetChatCompactOpen());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
+  if (windowLoadSequences.get(window) === sequence) updatePetGazeConfiguration(window, render, render.flipped);
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const bubbleHtml = createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles);
   const hasBubble = Boolean(bubbleHtml.trim());
@@ -989,6 +1275,7 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
   await loadPetHtmlFile(window, render.html, "default", sequence).then(() => {
     petWindowRenderCache.set(window, render.cacheKey);
+    if (windowLoadSequences.get(window) === sequence) updatePetGazeConfiguration(window, render, render.flipped);
   }).catch((error: unknown) => {
     logError("pet.window", "default content load failed", error instanceof Error ? error : { error });
     console.error("Failed to load default pet URL.", error);
@@ -1021,6 +1308,7 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
         pet.source?.kind === "team" ? "team" : "personal",
         "agent",
       );
+    if (windowLoadSequences.get(window) === sequence) updatePetGazeConfiguration(window, render, render.flipped);
     const hasPinned = Boolean(pluginBubbles?.pinned);
     const bubbleHtml = createBubbleMarkup(display, false, badge, dismissToken, pluginBubbles);
     const hasBubble = Boolean(bubbleHtml.trim());
@@ -1028,6 +1316,7 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
     petWindowRenderCache.set(window, render.cacheKey);
+    if (windowLoadSequences.get(window) === sequence) updatePetGazeConfiguration(window, render, render.flipped);
   } catch (error: unknown) {
     logError("pet.window", "explicit content load failed", error instanceof Error ? error : { petId, error });
     console.error(`Failed to load explicit pet ${petId} URL.`, error);
@@ -1087,12 +1376,14 @@ export function clearTransientReaction(display: PetTransientDisplay): PetTransie
 
 export function setPetReactionState(window: BrowserWindow, state: UniversalSpriteState): void {
   if (window.isDestroyed()) return;
+  setPetGazeReactionState(window, state);
   window.webContents.send("openpets:pet-reaction-state", state);
 }
 
 /** Override the pet sprite with a plugin-bundled spritesheet strip (§5), or clear with null. */
 export function setPetSpriteOverride(window: BrowserWindow, override: { readonly filePath: string; readonly fps: number; readonly loop: boolean } | null): void {
   if (window.isDestroyed()) return;
+  setPetGazePluginOverride(window, override !== null);
   window.webContents.send("openpets:pet-sprite-override", override ? { fileUrl: pathToFileURL(override.filePath).toString(), fps: override.fps, loop: override.loop } : null);
 }
 
@@ -1135,6 +1426,7 @@ function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRend
   if (petWindowRenderCache.get(window) !== render.cacheKey) return false;
   const url = window.webContents.getURL();
   if (!isAllowedPetDocumentUrl(url)) return false;
+  updatePetGazeConfiguration(window, render, render.flipped);
   debug("pet.window", "content update in place", { windowId: window.id, name, sequence, reactionState: render.reactionState });
   window.webContents.send("openpets:pet-content-state", { bodyHtml: render.bodyHtml, reactionState: render.reactionState });
   return true;
@@ -1265,8 +1557,11 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
+    codexSpriteVersion: 1,
+    paused,
+    flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="1" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1370,8 +1665,11 @@ async function createInstalledPetRender(
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
+    codexSpriteVersion: spriteLayout.version,
+    paused,
+    flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
+      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
         <head>
           <meta charset="utf-8" />
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -2528,7 +2826,18 @@ function createSpriteStateCss(selector: ".sprite" | ".installed-sprite", stateRo
 
 function createInstalledSpriteStateCss(stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout): string {
   if (layout.version === 1) return createSpriteStateCss(".installed-sprite", stateRows);
-  return createSpriteStateCss(".installed-sprite", stateRows, layout);
+  return `${createSpriteStateCss(".installed-sprite", stateRows, layout)}\n${createCodexV2GazeCss(layout)}`;
+}
+
+function createCodexV2GazeCss(layout: CodexPetSpriteLayout): string {
+  if (layout.version !== 2) return "";
+  return Array.from({ length: 16 }, (_, index) => {
+    const position = getCodexV2GazeSpritePosition(index);
+    if (!position) return "";
+    const x = -(position.column * layout.frameWidth);
+    const y = -(position.row * layout.frameHeight);
+    return `html[data-codex-sprite-version="2"][data-paused="false"][data-reaction-state="idle"][data-motion-state="idle"][data-codex-gaze-index="${index}"] .installed-sprite { --sprite-row-y: ${y}px; --sprite-offset-x: ${x}px; --sprite-end-offset-x: ${x}px; --sprite-animation: none; animation: none; background-position: ${x}px ${y}px; }`;
+  }).join("\n");
 }
 
 function createSpriteRule(selector: string, state: UniversalSpriteState, stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout, neutralPose?: { readonly row: number; readonly column: number }): string {
@@ -2728,6 +3037,7 @@ function escapeCssUrl(value: string): string {
 }
 
 function installMotionStatePublisher(window: BrowserWindow): void {
+  registerPetGazeWindow(window);
   let lastX = window.getPosition()[0];
   let lastSent: PetMotionState = "idle";
   let idleTimer: NodeJS.Timeout | null = null;
@@ -2735,6 +3045,7 @@ function installMotionStatePublisher(window: BrowserWindow): void {
   const sendMotionState = (state: PetMotionState): void => {
     if (window.isDestroyed() || lastSent === state) return;
     lastSent = state;
+    setPetGazeMotionState(window, state);
     window.webContents.send("openpets:pet-motion", state);
   };
 
@@ -2748,6 +3059,7 @@ function installMotionStatePublisher(window: BrowserWindow): void {
 
   const handleMove = (): void => {
     if (window.isDestroyed()) return;
+    suspendPetGazeForMovement(window);
     const [x] = window.getPosition();
     const deltaX = x - lastX;
     lastX = x;
@@ -2762,6 +3074,7 @@ function installMotionStatePublisher(window: BrowserWindow): void {
   window.on("moved", handleMove);
   window.webContents.on("did-finish-load", () => {
     lastSent = "idle";
+    setPetGazeMotionState(window, "idle");
     window.webContents.send("openpets:pet-motion", "idle");
   });
   window.on("closed", () => {

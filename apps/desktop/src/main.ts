@@ -31,6 +31,7 @@ import { installInternalUiHandlers, installInternalUiProtocol, openControlCenter
 import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeChatShortcut } from "./chat-shortcut.js";
+import { initializePetToggleShortcut } from "./pet-toggle-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
 import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
@@ -208,6 +209,14 @@ if (!gotSingleInstanceLock) {
         setDefaultPetChatCompactOpen(!isDefaultPetChatCompactOpen());
       }).catch((error: unknown) => logError("app", "chat shortcut toggle failed", error));
     }, getAppStateSnapshot().preferences.chatShortcut);
+    initializePetToggleShortcut(globalShortcut, () => {
+      void import("./default-pet-controller.js").then(({ isDefaultPetVisible, hideDefaultPet, showDefaultPet }) => {
+        if (isDefaultPetVisible()) hideDefaultPet();
+        else showDefaultPet();
+        // The tray's hide/show label reflects visibility; keep it in sync.
+        return import("./tray.js").then(({ refreshTrayMenu }) => refreshTrayMenu());
+      }).catch((error: unknown) => logError("app", "pet toggle shortcut failed", error));
+    }, getAppStateSnapshot().preferences.petToggleShortcut);
     // Resolve the UI language before any window or the tray is built.
     setLocaleFromPreference(getAppStateSnapshot().preferences.locale);
     initializeLanController();

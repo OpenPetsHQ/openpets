@@ -15,23 +15,33 @@ export interface GlobalShortcutRegistry {
 
 const MODIFIER_ORDER = ["CommandOrControl", "Command", "Control", "Alt", "Option", "Shift", "Super", "Meta"] as const;
 const MODIFIERS = new Set<string>(MODIFIER_ORDER);
-const SPECIAL_KEYS = new Set(["Space", "Tab", "Enter", "Escape", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Up", "Down", "Left", "Right", "Plus", "Minus", "PrintScreen"]);
+const SPECIAL_KEYS = new Set(["Space", "Tab", "Enter", "Escape", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Up", "Down", "Left", "Right", "Plus", "Minus", "PrintScreen", "Capslock", "Numlock", "Scrolllock", "VolumeUp", "VolumeDown", "VolumeMute", "MediaNextTrack", "MediaPreviousTrack", "MediaStop", "MediaPlayPause"]);
+// Keys that may be bound WITHOUT a modifier: they never collide with typing,
+// so a bare global binding is safe. Everything printable requires a modifier —
+// a bare global "S" would swallow the key in every application system-wide.
+const BARE_BINDABLE_KEYS = new Set(["PrintScreen", "VolumeUp", "VolumeDown", "VolumeMute", "MediaNextTrack", "MediaPreviousTrack", "MediaStop", "MediaPlayPause"]);
 
 /**
- * Accept only the canonical Electron spelling and a deliberately small key
- * set. This keeps persisted shortcuts portable instead of accepting platform
- * aliases that Electron may interpret differently.
+ * Accept the canonical Electron spelling with modifiers in a fixed order.
+ * Any key Electron can register is allowed — single printable characters,
+ * digits, letters, F1–F24, and named navigation/media keys. Whether the OS
+ * actually grants the combination is decided at registration time and
+ * surfaced through the snapshot status.
  */
 export function isCanonicalVoiceAssistantShortcut(value: unknown): value is string {
-  if (typeof value !== "string" || value.length < 3 || value.length > 80 || /\s/.test(value)) return false;
+  if (typeof value !== "string" || value.length < 2 || value.length > 80 || /\s/.test(value)) return false;
   const parts = value.split("+");
-  if (parts.length < 2) return false;
   const key = parts.at(-1)!;
   const modifiers = parts.slice(0, -1);
   if (modifiers.some((modifier) => !MODIFIERS.has(modifier))) return false;
   if (new Set(modifiers).size !== modifiers.length) return false;
   if (!isValidAcceleratorKey(key)) return false;
+  if (modifiers.length === 0 && !isBareBindableKey(key)) return false;
   return modifiers.every((modifier, index) => index === 0 || MODIFIER_ORDER.indexOf(modifier as typeof MODIFIER_ORDER[number]) > MODIFIER_ORDER.indexOf(modifiers[index - 1] as typeof MODIFIER_ORDER[number]));
+}
+
+function isBareBindableKey(key: string): boolean {
+  return BARE_BINDABLE_KEYS.has(key) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(key);
 }
 
 export function validateVoiceAssistantShortcut(value: unknown): string {
@@ -40,7 +50,10 @@ export function validateVoiceAssistantShortcut(value: unknown): string {
 }
 
 function isValidAcceleratorKey(value: string): boolean {
-  return /^[A-Z0-9]$/.test(value) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(value) || SPECIAL_KEYS.has(value);
+  // Any single printable character except "+" (the accelerator separator);
+  // lowercase letters are rejected so persisted accelerators stay canonical.
+  if (value.length === 1) return value !== "+" && !/[a-z\s]/.test(value);
+  return /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(value) || SPECIAL_KEYS.has(value);
 }
 
 export class VoiceAssistantShortcutManager {
@@ -128,27 +141,50 @@ export class VoiceAssistantShortcutManager {
 }
 
 export function resolveVoiceAssistantShortcutPreference(current: string, requested: string, snapshot: VoiceAssistantShortcutSnapshot): string {
+  if (requested === "") return "";
   return snapshot.status === "registered" && snapshot.accelerator === requested ? requested : current;
 }
 
+const DISABLED_SNAPSHOT: VoiceAssistantShortcutSnapshot = { accelerator: "", status: "unavailable", reason: "Talk shortcut is disabled." };
+
+let runtimeRegistry: GlobalShortcutRegistry | null = null;
+let runtimeOnTriggered: (() => void) | null = null;
 let runtimeManager: VoiceAssistantShortcutManager | null = null;
+let runtimeSnapshot: VoiceAssistantShortcutSnapshot = { accelerator: DEFAULT_VOICE_ASSISTANT_SHORTCUT, status: "unavailable", reason: "Shortcut registration is not initialized." };
 
 export function initializeVoiceAssistantShortcut(registry: GlobalShortcutRegistry, onTriggered: () => void, accelerator: string): VoiceAssistantShortcutSnapshot {
   if (runtimeManager) {
     const previous = runtimeManager.shutdown();
     if (previous.reason !== "Shortcut registration is stopped.") return previous;
+    runtimeManager = null;
   }
-  runtimeManager = new VoiceAssistantShortcutManager(registry, onTriggered);
-  return runtimeManager.configure(accelerator);
+  runtimeRegistry = registry;
+  runtimeOnTriggered = onTriggered;
+  return configureVoiceAssistantShortcut(accelerator);
 }
 
 export function configureVoiceAssistantShortcut(accelerator: string): VoiceAssistantShortcutSnapshot {
-  if (!runtimeManager) return { accelerator, status: "unavailable", reason: "Shortcut registration is not initialized." };
-  return runtimeManager.configure(accelerator);
+  if (!runtimeRegistry || !runtimeOnTriggered) {
+    runtimeSnapshot = { accelerator, status: "unavailable", reason: "Shortcut registration is not initialized." };
+    return runtimeSnapshot;
+  }
+  if (!accelerator) {
+    // Clearing: release the active registration; keep it when release fails.
+    if (runtimeManager) {
+      const previous = runtimeManager.shutdown();
+      if (previous.reason !== "Shortcut registration is stopped.") return previous;
+      runtimeManager = null;
+    }
+    runtimeSnapshot = DISABLED_SNAPSHOT;
+    return runtimeSnapshot;
+  }
+  if (!runtimeManager) runtimeManager = new VoiceAssistantShortcutManager(runtimeRegistry, runtimeOnTriggered);
+  runtimeSnapshot = runtimeManager.configure(accelerator);
+  return runtimeSnapshot;
 }
 
 export function getVoiceAssistantShortcutSnapshot(): VoiceAssistantShortcutSnapshot {
-  return runtimeManager?.snapshot() ?? { accelerator: DEFAULT_VOICE_ASSISTANT_SHORTCUT, status: "unavailable", reason: "Shortcut registration is not initialized." };
+  return runtimeManager?.snapshot() ?? runtimeSnapshot;
 }
 
 export function shutdownVoiceAssistantShortcut(): VoiceAssistantShortcutSnapshot {

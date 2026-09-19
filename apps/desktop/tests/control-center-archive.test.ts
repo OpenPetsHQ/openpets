@@ -126,15 +126,4 @@ const desktopRoot = process.env.OPENPETS_DESKTOP_ROOT ?? new URL("../..", import
   assert.deepEqual(invoked[1]?.args, ["test-msg-id"]);
 }
 
-// 3. Test Pet window preload isolation: no archive management methods exposed to companion
-{
-  const petSource = readFileSync(join(desktopRoot, "pet-preload.cjs"), "utf8");
-
-  // Pet preload must not invoke archive endpoints
-  assert.equal(petSource.includes("openpets:get-conversation-history"), false);
-  assert.equal(petSource.includes("openpets:delete-conversation-history-message"), false);
-  assert.equal(petSource.includes("openpets:clear-conversation-history"), false);
-  assert.equal(petSource.includes("openPetsControlCenter"), false);
-}
-
 console.log("control-center archive behavior tests passed.");

@@ -42,6 +42,7 @@ import type { ProviderTranscriptionTestSession } from "./provider-configuration-
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
+import { configurePetToggleShortcut, getPetToggleShortcutSnapshot, resolvePetToggleShortcutPreference } from "./pet-toggle-shortcut.js";
 import { getTeamService } from "./team-service.js";
 import { getManagerCheckInService } from "./manager-check-in-service.js";
 import { managerCheckInFeelingCodes } from "./team-api-client.js";
@@ -137,13 +138,14 @@ async function getPetsStateSnapshot(): Promise<{
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
   hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
   chatShortcutStatus: ReturnType<typeof getChatShortcutSnapshot>;
+  petToggleShortcutStatus: ReturnType<typeof getPetToggleShortcutSnapshot>;
 } {
   const state = getAppStateSnapshot();
   return {
@@ -162,6 +164,7 @@ function getSettingsStateSnapshot(): {
       personality: state.preferences.personality,
       voiceAssistantShortcut: state.preferences.voiceAssistantShortcut,
       chatShortcut: state.preferences.chatShortcut,
+      petToggleShortcut: state.preferences.petToggleShortcut,
       showChatButton: state.preferences.showChatButton,
       showTalkButton: state.preferences.showTalkButton,
       petButtonsPosition: state.preferences.petButtonsPosition,
@@ -174,6 +177,7 @@ function getSettingsStateSnapshot(): {
       .map(({ id, displayName }) => ({ id, displayName })),
     voiceAssistantShortcutStatus: getVoiceAssistantShortcutSnapshot(),
     chatShortcutStatus: getChatShortcutSnapshot(),
+    petToggleShortcutStatus: getPetToggleShortcutSnapshot(),
   };
 }
 
@@ -622,16 +626,21 @@ export function installInternalUiHandlers(): void {
     const previousPoolEnabled = getAppStateSnapshot().preferences.petPoolEnabled;
     const validatedPatch = validatePreferencePatch(patch);
     const currentShortcut = getAppStateSnapshot().preferences.voiceAssistantShortcut;
-    const shortcutSnapshot = validatedPatch.voiceAssistantShortcut
+    const shortcutSnapshot = validatedPatch.voiceAssistantShortcut !== undefined
       ? configureVoiceAssistantShortcut(validatedPatch.voiceAssistantShortcut)
       : null;
-    let effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut
+    let effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut !== undefined
       ? { ...validatedPatch, voiceAssistantShortcut: resolveVoiceAssistantShortcutPreference(currentShortcut, validatedPatch.voiceAssistantShortcut, shortcutSnapshot) }
       : validatedPatch;
     if (validatedPatch.chatShortcut !== undefined) {
       const currentChatShortcut = getAppStateSnapshot().preferences.chatShortcut;
       const chatSnapshot = configureChatShortcut(validatedPatch.chatShortcut);
       effectivePatch = { ...effectivePatch, chatShortcut: resolveChatShortcutPreference(currentChatShortcut, validatedPatch.chatShortcut, chatSnapshot) };
+    }
+    if (validatedPatch.petToggleShortcut !== undefined) {
+      const currentPetToggleShortcut = getAppStateSnapshot().preferences.petToggleShortcut;
+      const petToggleSnapshot = configurePetToggleShortcut(validatedPatch.petToggleShortcut);
+      effectivePatch = { ...effectivePatch, petToggleShortcut: resolvePetToggleShortcutPreference(currentPetToggleShortcut, validatedPatch.petToggleShortcut, petToggleSnapshot) };
     }
     const state = updatePreferences(effectivePatch);
     if (validatedPatch.personality) debug("ui", "Pet Assistant personality preferences updated", { fields: Object.keys(validatedPatch.personality) });
@@ -1089,14 +1098,14 @@ function flushPendingControlCenterRoute(window: BrowserWindow): void {
   if (openManagerCheckInForm) sendManagerCheckInFormRequest(window);
 }
 
-function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; settingsTab?: string } {
-  return target.settingsTab ? { route: target.route, settingsTab: target.settingsTab } : { route: target.route };
+function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; assistantTab?: string } {
+  return target.assistantTab ? { route: target.route, assistantTab: target.assistantTab } : { route: target.route };
 }
 
 function withControlCenterRoute(rawUrl: string, target: ControlCenterRouteTarget): string {
   const url = new URL(rawUrl);
   url.searchParams.set("route", target.route);
-  if (target.settingsTab) url.searchParams.set("settingsTab", target.settingsTab);
+  if (target.assistantTab) url.searchParams.set("assistantTab", target.assistantTab);
   return url.toString();
 }
 

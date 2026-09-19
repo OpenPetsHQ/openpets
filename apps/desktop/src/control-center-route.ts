@@ -1,20 +1,22 @@
 export type ControlCenterRoute =
   | "dashboard"
   | "pets"
+  | "assistant"
   | "settings"
   | "plugins"
   | "integrations"
   | "teams";
 
-export type ControlCenterSettingsTab = "providers";
+export type ControlCenterAssistantTab = "providers";
 
 export type ControlCenterRouteTarget =
-  | { readonly route: "settings"; readonly settingsTab?: ControlCenterSettingsTab }
-  | { readonly route: Exclude<ControlCenterRoute, "settings">; readonly settingsTab?: never };
+  | { readonly route: "assistant"; readonly assistantTab?: ControlCenterAssistantTab }
+  | { readonly route: Exclude<ControlCenterRoute, "assistant">; readonly assistantTab?: never };
 
 const controlCenterRoutes = new Set<ControlCenterRoute>([
   "dashboard",
   "pets",
+  "assistant",
   "settings",
   "plugins",
   "integrations",
@@ -33,10 +35,10 @@ export function normalizeControlCenterRouteTarget(target: unknown): ControlCente
   if (typeof target === "string") return { route: normalizeControlCenterRoute(target) };
   if (!target || typeof target !== "object") return { route: "dashboard" };
 
-  const candidate = target as { readonly route?: unknown; readonly settingsTab?: unknown };
+  const candidate = target as { readonly route?: unknown; readonly assistantTab?: unknown };
   const route = normalizeControlCenterRoute(candidate.route);
-  if (route === "settings" && candidate.settingsTab === "providers") {
-    return { route, settingsTab: "providers" };
+  if (route === "assistant" && candidate.assistantTab === "providers") {
+    return { route, assistantTab: "providers" };
   }
   return { route };
 }
@@ -56,7 +58,7 @@ export function resolveDevControlCenterRoute(
   if (isPackaged || rawValue === undefined) return null;
   if (isControlCenterRoute(rawValue)) return { kind: "route", route: rawValue };
   if (rawValue === "providers") {
-    return { kind: "target", target: { route: "settings", settingsTab: "providers" } };
+    return { kind: "target", target: { route: "assistant", assistantTab: "providers" } };
   }
 
   return {

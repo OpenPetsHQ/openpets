@@ -27,6 +27,8 @@ export type PreferencePatch = {
   voiceAssistantShortcut?: string;
   /** Empty string disables the chat shortcut; otherwise a canonical accelerator. */
   chatShortcut?: string;
+  /** Empty string disables the pet visibility shortcut; otherwise a canonical accelerator. */
+  petToggleShortcut?: string;
   showChatButton?: boolean;
   showTalkButton?: boolean;
   petButtonsPosition?: PetButtonsPosition;
@@ -112,7 +114,10 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
   }
 
   if ("voiceAssistantShortcut" in value) {
-    patch.voiceAssistantShortcut = validateVoiceAssistantShortcut(value.voiceAssistantShortcut);
+    // Clearable: an empty accelerator disables the Talk shortcut.
+    patch.voiceAssistantShortcut = value.voiceAssistantShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.voiceAssistantShortcut);
   }
 
   if ("chatShortcut" in value) {
@@ -120,6 +125,13 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
     patch.chatShortcut = value.chatShortcut === ""
       ? ""
       : validateVoiceAssistantShortcut(value.chatShortcut);
+  }
+
+  if ("petToggleShortcut" in value) {
+    // Clearable like the chat shortcut.
+    patch.petToggleShortcut = value.petToggleShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.petToggleShortcut);
   }
 
   if ("showChatButton" in value) {

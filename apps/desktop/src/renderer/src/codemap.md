@@ -6,7 +6,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 
 ## Design
 
-- **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
+- **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `assistant`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
 - **Teams**: Modularized under `teams/` to manage organization membership, synchronization, and security controls while strictly isolating personal content:
   - `teams/TeamsView.tsx`: Top-level container component orchestrating snapshot retrieval, synchronization, permission approval actions, optional plugin enable/disable toggling, error banner/toast presentation, and child section rendering.
   - `teams/TeamEnrollmentSection.tsx`: Presentational view for deep-link invitation enrollment (device display name entry), authoritative preview/expiry gating for acceptance, and un-enrolled onboarding guides with personal isolation assurances.
@@ -22,7 +22,8 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
 - **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
-- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, voice devices hardware routing, conversation archive management, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Assistant**: Top-level route owning the Pet Assistant feature surfaces — chat/talk button and shortcut preferences, personality authoring, conversation archive management, and model/speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS) with realtime status. Deep links target it via `assistantTab` (currently `providers`).
+- **Settings**: Startup, launch-at-login, pet scale, voice devices hardware routing, reaction-animation mapping, host capability gates, update check, default-pet position reset, and pet reaction previews.
 - **General Settings**: Modularized under `settings/general/` for host-wide hardware preferences:
   - `settings/general/VoiceDevicesSection.tsx`: Hardware audio device routing controls for microphone input and speaker output with truthful disconnected-fallback badges, capability gating, and refresh trigger.
   - `settings/general/types.ts`: TypeScript contracts for voice device descriptions, resolutions, and snapshots.

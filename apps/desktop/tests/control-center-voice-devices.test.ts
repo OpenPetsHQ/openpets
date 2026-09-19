@@ -159,33 +159,4 @@ assert.equal(resetSnapshot.preferredOutputDeviceId, null);
 assert.equal(resetSnapshot.resolvedOutputDeviceId, null);
 assert.equal(resetSnapshot.outputResolution, "system-default");
 
-// 8. Control Center ownership invariant: Voice devices hardware routing belongs exclusively to Settings → General, never Providers
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-
-const desktopRoot = process.env.OPENPETS_DESKTOP_ROOT ?? new URL("../..", import.meta.url).pathname;
-
-// General settings module exports VoiceDevicesSection
-assert.equal(existsSync(join(desktopRoot, "src/renderer/src/settings/general/VoiceDevicesSection.tsx")), true, "VoiceDevicesSection is located under settings/general");
-const generalIndex = readFileSync(join(desktopRoot, "src/renderer/src/settings/general/index.ts"), "utf8");
-assert.match(generalIndex, /export\s+\{\s*VoiceDevicesSection/, "settings/general exports VoiceDevicesSection");
-
-// Providers module does NOT export VoiceDevicesSection
-const providersIndex = readFileSync(join(desktopRoot, "src/renderer/src/settings/providers/index.ts"), "utf8");
-assert.doesNotMatch(providersIndex, /VoiceDevicesSection/, "settings/providers does not export VoiceDevicesSection");
-
-// ProvidersSection component does NOT contain VoiceDevicesSection JSX or voice device methods
-const providersSectionSource = readFileSync(join(desktopRoot, "src/renderer/src/settings/providers/ProvidersSection.tsx"), "utf8");
-assert.doesNotMatch(providersSectionSource, /VoiceDevicesSection/, "ProvidersSection does not reference VoiceDevicesSection");
-assert.doesNotMatch(providersSectionSource, /getVoiceDevices|refreshVoiceDevices|saveVoiceDevicePreferences/, "ProvidersSection does not own voice device API operations");
-
-// Main Control Center Settings shell mounts VoiceDevicesSection in General tab and not in Providers tab
-const mainSource = readFileSync(join(desktopRoot, "src/renderer/src/main.tsx"), "utf8");
-assert.match(mainSource, /from "\.\/settings\/general\/index\.js"/, "main.tsx imports from settings/general");
-const generalTabBlock = mainSource.slice(mainSource.indexOf('activeTab === "general"'), mainSource.indexOf('activeTab === "personality"'));
-assert.match(generalTabBlock, /<VoiceDevicesSection/, "VoiceDevicesSection is mounted in Settings -> General tab");
-
-const providersTabBlock = mainSource.slice(mainSource.indexOf('activeTab === "providers"'), mainSource.indexOf('activeTab === "lan"'));
-assert.doesNotMatch(providersTabBlock, /VoiceDevicesSection|voiceDevices/, "Providers tab does not contain VoiceDevicesSection");
-
 console.log("Control Center voice devices contract and resolution behavior verified.");

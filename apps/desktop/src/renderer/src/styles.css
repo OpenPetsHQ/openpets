@@ -169,6 +169,13 @@ body.theme-dark .plugin-input::placeholder {
   color: #8493aa;
 }
 
+body.theme-dark .shortcut-keycap {
+  border-color: rgba(116, 159, 221, 0.36);
+  background: rgba(30, 41, 59, 0.9);
+  color: #dbeafe;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
 body.theme-dark .filter,
 body.theme-dark .nav-tab,
 body.theme-dark .btn-secondary {
@@ -663,6 +670,9 @@ body.theme-dark .plugin-config-backdrop {
   .conversation-voice-header { @apply flex flex-wrap items-center justify-between gap-3; }
   .conversation-voice-badges { @apply flex flex-wrap items-center gap-2 text-xs font-semibold; }
   .conversation-voice-controls { @apply flex flex-wrap items-center gap-2; }
+  .shortcut-recorder { @apply flex min-w-48 max-w-full cursor-pointer flex-wrap items-center justify-center gap-1; }
+  .shortcut-recorder-armed { @apply border-brand ring-4 ring-brand/15; }
+  .shortcut-keycap { @apply inline-flex min-w-[1.6em] items-center justify-center rounded-md border border-slate-300/80 bg-slate-100/80 px-1.5 py-0.5 font-sans text-[11px] font-bold leading-none text-slate-700 shadow-[inset_0_-1px_0_rgba(0,0,0,0.12)]; }
   .voice-badge { @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold; }
   .voice-badge-neutral { @apply border-slate-200 bg-slate-100/80 text-slate-700; }
   .voice-badge-active { @apply border-blue-200 bg-blue-50 text-brand; }

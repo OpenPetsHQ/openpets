@@ -9,7 +9,7 @@ assert.deepEqual(resolveDevControlCenterRoute("teams", false), {
 });
 assert.deepEqual(resolveDevControlCenterRoute("providers", false), {
   kind: "target",
-  target: { route: "settings", settingsTab: "providers" },
+  target: { route: "assistant", assistantTab: "providers" },
 });
 assert.deepEqual(resolveDevControlCenterRoute("", false), {
   kind: "invalid",

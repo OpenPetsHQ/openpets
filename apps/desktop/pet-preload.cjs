@@ -32,6 +32,7 @@ try {
 
 const allowedMotionStates = new Set(["idle", "run-left", "run-right"]);
 const allowedReactionStates = new Set(["idle", "running-right", "running-left", "waving", "jumping", "failed", "waiting", "running", "review"]);
+const allowedCodexGazeIndices = new Set(Array.from({ length: 16 }, (_value, index) => index));
 let lastInteractiveHit = null;
 let dragging = false;
 
@@ -150,6 +151,22 @@ ipcRenderer.on("openpets:pet-reaction-state", (_event, state) => {
 
   const apply = () => {
     document.documentElement.dataset.reactionState = state;
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", apply, { once: true });
+  } else {
+    apply();
+  }
+});
+
+ipcRenderer.on("openpets:pet-gaze", (_event, payload) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "index")) return;
+  const index = payload.index;
+  if (index !== null && (!Number.isInteger(index) || !allowedCodexGazeIndices.has(index))) return;
+
+  const apply = () => {
+    document.documentElement.dataset.codexGazeIndex = index === null ? "neutral" : String(index);
   };
 
   if (document.readyState === "loading") {
@@ -1530,7 +1547,12 @@ const installMouseInterop = () => {
     if (event.button !== 0 || !target) return;
     if (isInteractivePanelOrBubble(target)) return;
     if (!target.closest(".pet-hitbox, .pet-shell")) return;
-    if (usesNativePetDrag()) return;
+    if (usesNativePetDrag()) {
+      dragging = true;
+      dragStartPoint = { screenX: event.screenX, screenY: event.screenY };
+      ipcRenderer.send("openpets:pet-drag-start", { screenX: event.screenX, screenY: event.screenY });
+      return;
+    }
     event.preventDefault();
     dragging = true;
     dragStartPoint = { screenX: event.screenX, screenY: event.screenY };
@@ -1545,7 +1567,7 @@ const installMouseInterop = () => {
       suppressClickUntil = Date.now() + 300;
     }
     dragStartPoint = null;
-    if (!usesNativePetDrag()) ipcRenderer.send("openpets:pet-drag-end");
+    ipcRenderer.send("openpets:pet-drag-end");
   });
 
   document.addEventListener("mouseleave", () => {
