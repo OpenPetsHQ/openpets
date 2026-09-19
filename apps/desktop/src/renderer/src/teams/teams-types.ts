@@ -111,6 +111,7 @@ export type TeamsApi = {
   getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;
   submitManagerCheckIn?(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
   setManagerCheckInScheduledOffersPaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
+  onManagerCheckInOpenForm?(callback: () => void): () => void;
 };
 
 export type TeamsNavigationRoute =

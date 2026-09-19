@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 
-import { defaultAppearanceTheme, defaultPetScale, defaultWaitingAnimationDurationMs, markOnboardingCompleted, normalizeAppearanceTheme, normalizeOnboardingCompleted, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { defaultAppearanceTheme, defaultHudScale, defaultPetScale, defaultWaitingAnimationDurationMs, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeOnboardingCompleted, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
 import type { Point } from "./display.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
@@ -57,6 +57,7 @@ export interface OpenPetsStateV1 {
     readonly appearanceTheme: AppearanceTheme;
     readonly speechBubblesEnabled: boolean;
     readonly petScale: number;
+    readonly hudScale: number;
     readonly waitingAnimationDurationMs: WaitingAnimationDurationMs;
     readonly reactionAnimationOverrides?: ReactionAnimationOverrides;
     readonly onboardingCompleted: boolean;
@@ -121,7 +122,7 @@ export type OpenPetsActivityRecord =
   | { readonly kind: "say"; readonly reaction?: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" }
   | { readonly kind: "react"; readonly reaction: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" };
 
-export { defaultAppearanceTheme, defaultPetScale, defaultWaitingAnimationDurationMs, normalizeAppearanceTheme, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type PetScaleValue, type WaitingAnimationDurationMs };
+export { defaultAppearanceTheme, defaultHudScale, defaultPetScale, defaultWaitingAnimationDurationMs, normalizeAppearanceTheme, normalizeHudScale, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetScaleValue, type WaitingAnimationDurationMs };
 export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 
 export type OpenPetsPreferencePatch = Omit<Partial<OpenPetsStateV1["preferences"]>, "personality"> & {
@@ -606,6 +607,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     appearanceTheme: normalizeAppearanceTheme(value.appearanceTheme),
     speechBubblesEnabled: true,
     petScale: normalizePetScale(value.petScale),
+    hudScale: normalizeHudScale(value.hudScale),
     waitingAnimationDurationMs: normalizeWaitingAnimationDurationMs(value.waitingAnimationDurationMs),
     reactionAnimationOverrides: normalizeReactionAnimationOverrides(value.reactionAnimationOverrides),
     onboardingCompleted: normalizeOnboardingCompleted(value),
@@ -703,6 +705,7 @@ function createDefaultState(): OpenPetsStateV1 {
       appearanceTheme: defaultAppearanceTheme,
       speechBubblesEnabled: true,
       petScale: defaultPetScale,
+      hudScale: defaultHudScale,
       waitingAnimationDurationMs: defaultWaitingAnimationDurationMs,
       reactionAnimationOverrides: undefined,
       onboardingCompleted: false,

@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type Open
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, normalizePetPoolOrder, petScaleOptions, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
@@ -80,6 +80,7 @@ const controlCenterRoutes = new Set<ControlCenterRoute>([
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
 let pendingControlCenterRoute: ControlCenterRoute | null = null;
+let pendingManagerCheckInFormRequest = false;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
 const dockHideShowCooldownMs = 1100;
@@ -136,8 +137,9 @@ async function getPetsStateSnapshot(): Promise<{
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut">;
   petScaleOptions: typeof petScaleOptions;
+  hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
@@ -148,6 +150,7 @@ function getSettingsStateSnapshot(): {
       openDefaultPetOnLaunch: state.preferences.openDefaultPetOnLaunch,
       appearanceTheme: state.preferences.appearanceTheme,
       petScale: state.preferences.petScale,
+      hudScale: state.preferences.hudScale,
       waitingAnimationDurationMs: state.preferences.waitingAnimationDurationMs,
       reactionAnimationOverrides: state.preferences.reactionAnimationOverrides,
       petPoolOrder: state.preferences.petPoolOrder,
@@ -159,6 +162,7 @@ function getSettingsStateSnapshot(): {
       voiceAssistantShortcut: state.preferences.voiceAssistantShortcut,
     },
     petScaleOptions,
+    hudScaleOptions,
     petPoolCandidates: state.pets.installed
       .filter((p) => !p.builtIn && !p.broken && p.id !== state.preferences.defaultPetId)
       .map(({ id, displayName }) => ({ id, displayName })),
@@ -478,6 +482,7 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:update-preferences", (event, patch: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     const previousScale = getAppStateSnapshot().preferences.petScale;
+    const previousHudScale = getAppStateSnapshot().preferences.hudScale;
     const previousWaitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
     const previousOverrides = JSON.stringify(getAppStateSnapshot().preferences.reactionAnimationOverrides ?? {});
     const previousLocale = getActiveLocale();
@@ -493,7 +498,7 @@ export function installInternalUiHandlers(): void {
     const state = updatePreferences(effectivePatch);
     if (validatedPatch.personality) debug("ui", "Pet Assistant personality preferences updated", { fields: Object.keys(validatedPatch.personality) });
     const nextOverrides = JSON.stringify(state.preferences.reactionAnimationOverrides ?? {});
-    if (state.preferences.petScale !== previousScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides) {
+    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
     }
@@ -886,6 +891,11 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
   });
 }
 
+export function openControlCenterManagerCheckInForm(): void {
+  pendingManagerCheckInFormRequest = true;
+  openControlCenterWindow("teams");
+}
+
 export function focusOpenTaskWindows(): void {
   syncDockVisibilityForInternalUi();
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
@@ -904,6 +914,11 @@ function sendControlCenterRoute(window: BrowserWindow, route: ControlCenterRoute
   window.webContents.send("openpets:control-center-route", route);
 }
 
+function sendManagerCheckInFormRequest(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  window.webContents.send("openpets:manager-check-in-open-form");
+}
+
 /** Tell the open Control Center to re-fetch the plugin snapshot (e.g. after a locale change). */
 function broadcastPluginRecordsRefresh(): void {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
@@ -920,8 +935,11 @@ function routeControlCenterWindow(window: BrowserWindow, route: ControlCenterRou
 function flushPendingControlCenterRoute(window: BrowserWindow): void {
   if (window.isDestroyed() || !pendingControlCenterRoute) return;
   const route = pendingControlCenterRoute;
+  const openManagerCheckInForm = pendingManagerCheckInFormRequest;
   pendingControlCenterRoute = null;
+  pendingManagerCheckInFormRequest = false;
   sendControlCenterRoute(window, route);
+  if (openManagerCheckInForm) sendManagerCheckInFormRequest(window);
 }
 
 function withControlCenterRoute(rawUrl: string, route: ControlCenterRoute): string {

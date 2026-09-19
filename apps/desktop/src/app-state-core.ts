@@ -12,6 +12,18 @@ export const petScaleOptions = [
 export type PetScaleValue = typeof petScaleOptions[number]["value"];
 export const defaultPetScale: PetScaleValue = 1;
 
+// Scale for the pinned plugin bubble (the HUD under the pet). Deliberately a
+// separate preference from petScale: pet size is aesthetic, HUD size is about
+// readability. Max 1.5 keeps the 188px HUD inside the 340px pet window.
+export const hudScaleOptions = [
+  { label: "Small", value: 0.85 },
+  { label: "Medium", value: 1 },
+  { label: "Large", value: 1.25 },
+  { label: "Huge", value: 1.5 },
+] as const;
+export type HudScaleValue = typeof hudScaleOptions[number]["value"];
+export const defaultHudScale: HudScaleValue = 1;
+
 export const waitingAnimationDurationOptions = [
   { value: 1010, label: "Normal" },
   { value: 2200, label: "Relaxed" },
@@ -33,6 +45,10 @@ export function normalizeWaitingAnimationDurationMs(value: unknown): WaitingAnim
 
 export function normalizePetScale(value: unknown): PetScaleValue {
   return petScaleOptions.find((option) => option.value === value)?.value ?? defaultPetScale;
+}
+
+export function normalizeHudScale(value: unknown): HudScaleValue {
+  return hudScaleOptions.find((option) => option.value === value)?.value ?? defaultHudScale;
 }
 
 export function normalizeOnboardingCompleted(value: OnboardingPreferenceLike): boolean {

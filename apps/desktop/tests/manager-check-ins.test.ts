@@ -237,7 +237,7 @@ test("weekly mascot offer is presented once per local week and not repeated by r
   try {
     let now = new Date("2026-09-14T12:00:00.000Z");
     let syncCalls = 0;
-    const messages: string[] = [];
+    const offers: Array<{ title: string; introduction: string }> = [];
     const api = {
       getManagerCheckInSync: async () => {
         syncCalls += 1;
@@ -252,21 +252,58 @@ test("weekly mascot offer is presented once per local week and not repeated by r
       apiClient: api,
       stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
       now: () => now,
-      offerWeeklyCheckIn: (message) => {
-        messages.push(message);
+      offerWeeklyCheckIn: (offer, onPresented) => {
+        offers.push(offer);
+        onPresented();
         return { shown: true };
       },
     });
 
     await service.start();
     assert.equal(syncCalls, 1);
-    assert.equal(messages.length, 1);
+    assert.equal(offers.length, 1);
+    assert.deepEqual(offers[0], {
+      title: settings.title,
+      introduction: settings.introduction,
+    });
     assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, "2026-09-14");
     await service.syncNow();
-    assert.equal(messages.length, 1);
+    assert.equal(offers.length, 1);
     now = new Date("2026-09-21T12:00:00.000Z");
     await service.syncNow();
-    assert.equal(messages.length, 2);
+    assert.equal(offers.length, 2);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("weekly offer state is marked only after the pet presentation is shown", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-offer-presentation-test-"));
+  try {
+    let presentationCount = 0;
+    const api = {
+      getManagerCheckInSync: async () => createSyncResponse(),
+      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => createSubmission(input.clientGeneratedId),
+      setScheduledOffersPaused: async () => false,
+    };
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => createTeamState() },
+      credentialStore: createCredentialStore(),
+      apiClient: api,
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => new Date("2026-09-14T12:00:00.000Z"),
+      offerWeeklyCheckIn: (_offer, onPresented) => {
+        presentationCount += 1;
+        if (presentationCount === 2) onPresented();
+        return { shown: presentationCount === 2 };
+      },
+    });
+
+    await service.start();
+    assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, undefined);
+    await service.syncNow();
+    assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, "2026-09-14");
     await service.stop();
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -278,7 +315,7 @@ test("paused and manually completed weeks suppress the mascot offer", async () =
   try {
     let now = new Date("2026-09-14T12:00:00.000Z");
     let paused = true;
-    const messages: string[] = [];
+    const offers: Array<{ title: string; introduction: string }> = [];
     const api = {
       getManagerCheckInSync: async () => createSyncResponse({
         scheduledOffersPaused: paused,
@@ -294,20 +331,21 @@ test("paused and manually completed weeks suppress the mascot offer", async () =
       apiClient: api,
       stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
       now: () => now,
-      offerWeeklyCheckIn: (message) => {
-        messages.push(message);
+      offerWeeklyCheckIn: (offer, onPresented) => {
+        offers.push(offer);
+        onPresented();
         return { shown: true };
       },
     });
 
     await service.start();
-    assert.equal(messages.length, 0);
+    assert.equal(offers.length, 0);
     paused = false;
     await service.syncNow();
-    assert.equal(messages.length, 1);
+    assert.equal(offers.length, 1);
     now = new Date("2026-09-21T12:00:00.000Z");
     await service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 });
-    assert.equal(messages.length, 1);
+    assert.equal(offers.length, 1);
     assert.equal(service.stateStore.snapshot()?.lastManualSubmissionWeek, "2026-09-21");
     await service.stop();
   } finally {
@@ -341,7 +379,10 @@ test("mascot offers use only local state and do not create server telemetry", as
       apiClient: api,
       stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
       now: () => new Date("2026-09-14T12:00:00.000Z"),
-      offerWeeklyCheckIn: () => ({ shown: true }),
+      offerWeeklyCheckIn: (_offer, onPresented) => {
+        onPresented();
+        return { shown: true };
+      },
     });
 
     await service.start();

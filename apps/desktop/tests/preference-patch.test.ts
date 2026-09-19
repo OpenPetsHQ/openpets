@@ -159,6 +159,23 @@ for (const { key, errMsg } of booleanKeys) {
 }
 
 // ---------------------------------------------------------------------------
+// hudScale — only listed HUD scale values are accepted
+// ---------------------------------------------------------------------------
+{
+  assert.equal(validatePreferencePatch({ hudScale: 1 }).hudScale, 1);
+  assert.equal(validatePreferencePatch({ hudScale: 1.5 }).hudScale, 1.5);
+
+  for (const value of [null, "1", true, 0, 2, Number.NaN]) {
+    assert.throws(
+      () => validatePreferencePatch({ hudScale: value }),
+      /Invalid HUD scale value\./,
+      `hudScale must reject ${String(value)}`,
+    );
+  }
+  console.log("validatePreferencePatch: hudScale validation — PASS");
+}
+
+// ---------------------------------------------------------------------------
 // Pet Assistant personality — nested renderer values are validated and bounded
 // ---------------------------------------------------------------------------
 {

@@ -9,7 +9,7 @@ import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
 import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
 import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, installDefaultPetDisplayHandlers, isDefaultPetVisible, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, installDefaultPetDisplayHandlers, isDefaultPetVisible, presentManagerCheckInOffer, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
 import { initializeLanController, isDefaultPetAwayForLan, startLanController } from "./lan-controller.js";
 import { debug, error as logError, getLogFilePath, info, initializeLogger, warn } from "./logger.js";
@@ -27,7 +27,7 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow } from "./windows.js";
+import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterManagerCheckInForm, openControlCenterWindow } from "./windows.js";
 import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
@@ -230,6 +230,11 @@ if (!gotSingleInstanceLock) {
       credentialStore: teamService.credentialStore,
       apiClient: teamsApiClient,
       stateOptions: { userDataPath: app.getPath("userData") },
+      offerWeeklyCheckIn: (offer, onPresented) => presentManagerCheckInOffer(
+        offer,
+        () => openControlCenterManagerCheckInForm(),
+        onPresented,
+      ),
       log: (level, message, fields) => {
         if (level === "error") {
           logError("teams", message, fields);

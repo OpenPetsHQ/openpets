@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useI18n } from "../../i18n.js";
 import {
   BrainIcon,
   ChevronDownIcon,
@@ -6,7 +7,6 @@ import {
   CloseIcon,
   KeyIcon,
   MicIcon,
-  OpenRouterLogo,
   PlusIcon,
   ShieldCheckIcon,
   SpeakerIcon,
@@ -16,11 +16,10 @@ import {
   PROVIDER_PRESETS,
   getPresetById,
   generateRandomProfileId,
+  type PresetCategory,
   type ProviderPresetItem,
 } from "./presets.js";
 import {
-  getAdapterExplainer,
-  getAdapterFriendlyLabel,
   getDefaultAuthHeader,
   getDefaultAuthStrategy,
   isLocalOrSystemProvider,
@@ -33,14 +32,12 @@ import {
   type ProviderProfilePatch,
   type ProviderProfileSummary,
   type ProviderRole,
-  type ProviderSelections,
 } from "./types.js";
 
 export type ProviderModalProps = {
   readonly isOpen: boolean;
   readonly editingProfile: ProviderProfileSummary | null;
   readonly initialPresetId?: string;
-  readonly currentSelections: ProviderSelections;
   readonly busy: string;
   readonly onClose: () => void;
   readonly onSave: (params: ProviderConfigurationSaveInput) => Promise<void>;
@@ -54,17 +51,38 @@ type HeaderDraft = {
   readonly deleted?: boolean;
 };
 
+// Templates are grouped by the companion role they serve so the picker reads
+// as "what do you want to add" instead of a flat wall of vendor names.
+const TEMPLATE_GROUPS: readonly {
+  readonly key: "text" | "stt" | "tts" | "custom";
+  readonly categories: readonly PresetCategory[];
+}[] = [
+  { key: "text", categories: ["cloud-text", "cloud-realtime", "local-text"] },
+  { key: "stt", categories: ["cloud-stt"] },
+  { key: "tts", categories: ["cloud-tts", "local-tts"] },
+  { key: "custom", categories: ["custom"] },
+];
+
+const ADAPTER_OPTIONS: readonly ProviderAdapter[] = [
+  "openai-compatible-text",
+  "openai-realtime",
+  "anthropic-text",
+  "openai-compatible-transcription",
+  "system-tts",
+  "elevenlabs-tts",
+  "minimax-tts",
+  "openai-compatible-speech",
+];
+
 export function ProviderModal({
   isOpen,
   editingProfile,
   initialPresetId,
-  currentSelections,
   busy,
   onClose,
   onSave,
 }: ProviderModalProps) {
-  if (!isOpen) return null;
-
+  const { t } = useI18n();
   const isEditing = Boolean(editingProfile);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(
     initialPresetId ?? (isEditing ? "" : "openrouter")
@@ -79,11 +97,6 @@ export function ProviderModal({
   const [secretRef, setSecretRef] = useState<string | undefined>(undefined);
   const [inlineKey, setInlineKey] = useState("");
 
-  // Role activations
-  const [activateBrain, setActivateBrain] = useState(false);
-  const [activateHearing, setActivateHearing] = useState(false);
-  const [activateSpeech, setActivateSpeech] = useState(false);
-
   // Advanced section
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customAuth, setCustomAuth] = useState<ProviderAuth | null>(null);
@@ -94,8 +107,11 @@ export function ProviderModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Initialize draft when modal opens or editingProfile changes
+  // Initialize the draft each time the modal opens (or the edited profile
+  // changes while open). The component stays mounted while closed, so this
+  // must not run on closed renders.
   useEffect(() => {
+    if (!isOpen) return;
     if (editingProfile) {
       setProfileId(editingProfile.id);
       setLabel(editingProfile.label);
@@ -108,16 +124,15 @@ export function ProviderModal({
       setHeaders(editingProfile.headerNames.map((name) => ({ key: `existing-${name}`, originalName: name, name, value: "" })));
       setHeadersEdited(false);
       setInlineKey("");
-
-      setActivateBrain(currentSelections.text === editingProfile.id);
-      setActivateHearing(currentSelections.stt === editingProfile.id);
-      setActivateSpeech(currentSelections.tts === editingProfile.id);
       setShowAdvanced(Boolean(editingProfile.auth || editingProfile.headerNames?.length > 0));
     } else {
-      const preset = getPresetById(selectedPresetId) ?? PROVIDER_PRESETS[0];
+      // Honor the preset the caller asked for (quick-add buttons), falling
+      // back to the last picked template on plain reopens.
+      const preset =
+        getPresetById(initialPresetId ?? selectedPresetId) ?? PROVIDER_PRESETS[0];
       applyPreset(preset);
     }
-  }, [editingProfile, isOpen]);
+  }, [editingProfile, isOpen, initialPresetId]);
 
   function applyPreset(preset: ProviderPresetItem) {
     const id = generateRandomProfileId(preset.id);
@@ -139,11 +154,6 @@ export function ProviderModal({
       setHeaders([]);
       setHeadersEdited(false);
     }
-
-    // Default role activation
-    setActivateBrain(preset.defaultRoles.includes("text"));
-    setActivateHearing(preset.defaultRoles.includes("stt"));
-    setActivateSpeech(preset.defaultRoles.includes("tts"));
   }
 
   const supportsText = profileSupportsRole({ adapter }, "text");
@@ -160,19 +170,19 @@ export function ProviderModal({
     const trimmedBaseUrl = baseUrl.trim();
 
     if (!trimmedId) {
-      setFormError("Profile ID is required.");
+      setFormError(t("settings.providers.modal.error.id"));
       return;
     }
     if (!trimmedLabel) {
-      setFormError("Display Label is required.");
+      setFormError(t("settings.providers.modal.error.label"));
       return;
     }
     if (adapter !== "system-tts" && !trimmedModel) {
-      setFormError("Model Identifier is required.");
+      setFormError(t("settings.providers.modal.error.model"));
       return;
     }
     if (adapter !== "system-tts" && !trimmedBaseUrl) {
-      setFormError("Base Endpoint URL is required.");
+      setFormError(t("settings.providers.modal.error.baseUrl"));
       return;
     }
 
@@ -227,22 +237,14 @@ export function ProviderModal({
               }),
         };
 
+    // "Save & Activate" assigns the profile to every role its adapter supports
+    // (each adapter maps to exactly one role today). Unassigning happens in the
+    // role rows / library, not here.
     const activatedRoles: ProviderRole[] = [];
-    const deactivatedRoles: ProviderRole[] = [];
-
     if (shouldActivateRoles) {
-      if (supportsText) {
-        if (activateBrain) activatedRoles.push("text");
-        else if (isEditing && currentSelections.text === trimmedId) deactivatedRoles.push("text");
-      }
-      if (supportsStt) {
-        if (activateHearing) activatedRoles.push("stt");
-        else if (isEditing && currentSelections.stt === trimmedId) deactivatedRoles.push("stt");
-      }
-      if (supportsTts) {
-        if (activateSpeech) activatedRoles.push("tts");
-        else if (isEditing && currentSelections.tts === trimmedId) deactivatedRoles.push("tts");
-      }
+      if (supportsText) activatedRoles.push("text");
+      if (supportsStt) activatedRoles.push("stt");
+      if (supportsTts) activatedRoles.push("tts");
     }
 
     setIsSaving(true);
@@ -253,11 +255,11 @@ export function ProviderModal({
         payload,
         credentialValue: inlineKey.trim() || undefined,
         activatedRoles,
-        deactivatedRoles,
+        deactivatedRoles: [],
       });
       onClose();
     } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : "Failed to save profile.");
+      setFormError(err instanceof Error ? err.message : t("settings.providers.modal.error.generic"));
     } finally {
       setIsSaving(false);
     }
@@ -265,12 +267,37 @@ export function ProviderModal({
 
   const isBusy = Boolean(busy) || isSaving;
 
+  if (!isOpen) return null;
+
+  function renderTemplateChip(preset: ProviderPresetItem) {
+    const isSelected = selectedPresetId === preset.id;
+    return (
+      <button
+        key={preset.id}
+        type="button"
+        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+          isSelected
+            ? "border-brand bg-brand text-white shadow-sm"
+            : "border-blue-200 bg-white text-navy shadow-xs hover:border-brand hover:text-brand dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-brand dark:hover:text-blue-300"
+        }`}
+        disabled={isBusy}
+        onClick={() => applyPreset(preset)}
+      >
+        {preset.label}
+      </button>
+    );
+  }
+
   return (
     <div
       className="plugin-config-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label={isEditing ? `Edit Provider ${profileId}` : "Add AI & Voice Provider"}
+      aria-label={
+        isEditing
+          ? t("settings.providers.modal.titleEdit", { id: profileId })
+          : t("settings.providers.modal.titleAdd")
+      }
     >
       <button
         className="plugin-config-backdrop"
@@ -287,10 +314,12 @@ export function ProviderModal({
             </div>
             <div>
               <h3 className="m-0 font-monoDisplay text-xl font-black text-navy dark:text-slate-100">
-                {isEditing ? `Edit Provider (${profileId})` : "Add AI & Voice Provider"}
+                {isEditing
+                  ? t("settings.providers.modal.titleEdit", { id: profileId })
+                  : t("settings.providers.modal.titleAdd")}
               </h3>
               <p className="text-xs text-slatecopy m-0">
-                Configure model endpoints, API keys, and active companion roles.
+                {t("settings.providers.modal.subtitle")}
               </p>
             </div>
           </div>
@@ -305,52 +334,33 @@ export function ProviderModal({
           </button>
         </div>
 
-        {/* Template Selector (Shown when creating new profile) */}
+        {/* Template Selector, grouped by companion role (creating only) */}
         {!isEditing && (
-          <div className="flex flex-col gap-2">
-            <span className="text-[11px] font-bold text-slatecopy uppercase tracking-wider">
-              Choose Provider Template
+          <div className="flex flex-col gap-3 border-b border-blue-100 dark:border-slate-800 pb-4">
+            <span className="text-xs font-black text-navy dark:text-slate-100 uppercase tracking-wider">
+              {t("settings.providers.modal.templateLabel")}
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {PROVIDER_PRESETS.map((preset) => {
-                const isSelected = selectedPresetId === preset.id;
-                const isFeatured = preset.id === "openrouter";
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`flex flex-col items-start gap-1 rounded-xl p-2.5 text-left border transition-all cursor-pointer ${
-                      isSelected
-                        ? "border-brand bg-blue-50/80 dark:bg-blue-950/40 dark:border-brand shadow-xs"
-                        : "border-blue-100/70 dark:border-slate-800 bg-white/80 dark:bg-slate-800/60 hover:border-blue-300"
-                    }`}
-                    disabled={isBusy}
-                    onClick={() => applyPreset(preset)}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1">
-                        {isFeatured && <OpenRouterLogo className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
-                        {preset.label}
-                      </span>
-                      {preset.badge && (
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                            isFeatured
-                              ? "bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200"
-                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200"
-                          }`}
-                        >
-                          {preset.badge}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-slatecopy line-clamp-1">
-                      {preset.model || getAdapterFriendlyLabel(preset.adapter)}
+            {TEMPLATE_GROUPS.map((group) => {
+              const groupPresets = PROVIDER_PRESETS.filter((preset) =>
+                group.categories.includes(preset.category)
+              );
+              if (groupPresets.length === 0) return null;
+              return (
+                <div key={group.key} className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    {group.key === "text" && <BrainIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                    {group.key === "stt" && <MicIcon className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />}
+                    {group.key === "tts" && <SpeakerIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    <span className="text-[11px] font-bold text-navy/80 dark:text-slate-200 uppercase tracking-wider">
+                      {t(`settings.providers.modal.group.${group.key}`)}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {groupPresets.map(renderTemplateChip)}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -365,13 +375,13 @@ export function ProviderModal({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
             <label htmlFor="modal-provider-label" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-              Display Label
+              {t("settings.providers.modal.field.label")}
             </label>
             <input
               id="modal-provider-label"
               type="text"
               className="settings-select w-full text-xs font-medium"
-              placeholder="e.g. OpenRouter GPT-4o-mini"
+              placeholder={t("settings.providers.modal.field.labelPlaceholder")}
               value={label}
               maxLength={160}
               disabled={isBusy}
@@ -381,7 +391,7 @@ export function ProviderModal({
 
           <div>
             <label htmlFor="modal-provider-adapter" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-              Provider Type
+              {t("settings.providers.modal.field.adapter")}
             </label>
             <select
               id="modal-provider-adapter"
@@ -400,14 +410,11 @@ export function ProviderModal({
                 }
               }}
             >
-              <option value="openai-compatible-text">Cloud / Local Text (OpenRouter, OpenAI, Ollama)</option>
-              <option value="openai-realtime">OpenAI Realtime Voice & Text (WebRTC)</option>
-              <option value="anthropic-text">Anthropic Messages API (Claude)</option>
-              <option value="openai-compatible-transcription">Speech-to-Text Transcription (Whisper)</option>
-              <option value="system-tts">System Voice (Local built-in TTS)</option>
-              <option value="elevenlabs-tts">ElevenLabs Neural Voice (TTS)</option>
-              <option value="minimax-tts">MiniMax Speech (TTS)</option>
-              <option value="openai-compatible-speech">OpenAI Speech (TTS)</option>
+              {ADAPTER_OPTIONS.map((adapterOption) => (
+                <option key={adapterOption} value={adapterOption}>
+                  {t(`settings.providers.adapter.${adapterOption}`)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -417,13 +424,13 @@ export function ProviderModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label htmlFor="modal-provider-model" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-                Model Identifier
+                {t("settings.providers.modal.field.model")}
               </label>
               <input
                 id="modal-provider-model"
                 type="text"
                 className="settings-select w-full text-xs font-mono"
-                placeholder="e.g. openai/gpt-4o-mini, llama3.2, whisper-1"
+                placeholder={t("settings.providers.modal.field.modelPlaceholder")}
                 value={model}
                 maxLength={256}
                 disabled={isBusy}
@@ -433,7 +440,7 @@ export function ProviderModal({
 
             <div>
               <label htmlFor="modal-provider-baseurl" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-                Base Endpoint URL
+                {t("settings.providers.modal.field.baseUrl")}
               </label>
               <input
                 id="modal-provider-baseurl"
@@ -450,29 +457,29 @@ export function ProviderModal({
         )}
 
         <p className="text-[11px] text-slatecopy -mt-2 m-0">
-          {getAdapterExplainer(adapter)}
+          {t(`settings.providers.adapterHint.${adapter}`)}
         </p>
 
         {/* Credential / Key Input */}
-        <div className="rounded-2xl border border-blue-100/80 dark:border-slate-800 bg-blue-50/30 dark:bg-slate-800/40 p-3.5 flex flex-col gap-2">
+        <div className="rounded-2xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/60 dark:bg-slate-800/60 p-3.5 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <label htmlFor="modal-provider-key" className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1.5">
               <KeyIcon className="w-4 h-4 text-brand" />
-              API Key / Credential
+              {t("settings.providers.modal.key.label")}
             </label>
             {isLocal ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                 <ShieldCheckIcon className="w-3.5 h-3.5" />
-                Local Provider (No key needed)
+                {t("settings.providers.modal.key.local")}
               </span>
             ) : editingProfile?.hasCredential ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                 <ShieldCheckIcon className="w-3.5 h-3.5" />
-                Credential Stored
+                {t("settings.providers.modal.key.stored")}
               </span>
             ) : (
               <span className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
-                Required for cloud requests
+                {t("settings.providers.modal.key.required")}
               </span>
             )}
           </div>
@@ -485,8 +492,8 @@ export function ProviderModal({
                 className="settings-select w-full text-xs font-mono"
                 placeholder={
                   editingProfile?.hasCredential
-                    ? "Enter new API key to replace existing credential (or leave empty)..."
-                    : "Paste API key (e.g. sk-or-v1-...)"
+                    ? t("settings.providers.modal.key.placeholderReplace")
+                    : t("settings.providers.modal.key.placeholderNew")
                 }
                 value={inlineKey}
                 disabled={isBusy}
@@ -498,68 +505,14 @@ export function ProviderModal({
                 }}
               />
               <span className="text-[10px] text-slatecopy block mt-1">
-                Keys are stored securely in your OS keychain / encrypted host store.
+                {t("settings.providers.modal.key.note")}
               </span>
             </div>
           ) : (
             <p className="text-xs text-slatecopy m-0">
-              This provider runs locally on your computer or uses built-in OS capabilities. No network API key is required.
+              {t("settings.providers.modal.key.localBody")}
             </p>
           )}
-        </div>
-
-        {/* Activate for Roles Section */}
-        <div className="rounded-2xl border border-blue-100/80 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 flex flex-col gap-2">
-          <strong className="text-xs font-bold text-navy dark:text-slate-100 block">
-            Activate for Pet Roles
-          </strong>
-          <p className="text-[11px] text-slatecopy -mt-1 m-0">
-            Check the roles you want this provider to power immediately upon saving:
-          </p>
-
-          <div className="flex flex-wrap gap-2.5 mt-1">
-            {supportsText && (
-              <label className="flex items-center gap-2 rounded-xl border border-blue-100/70 dark:border-slate-800 bg-blue-50/30 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold text-navy dark:text-slate-200 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  className="rounded text-brand"
-                  checked={activateBrain}
-                  disabled={isBusy}
-                  onChange={(e) => setActivateBrain(e.target.checked)}
-                />
-                <BrainIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                <span>Pet Brain (Text & Reasoning)</span>
-              </label>
-            )}
-
-            {supportsStt && (
-              <label className="flex items-center gap-2 rounded-xl border border-blue-100/70 dark:border-slate-800 bg-blue-50/30 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold text-navy dark:text-slate-200 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  className="rounded text-brand"
-                  checked={activateHearing}
-                  disabled={isBusy}
-                  onChange={(e) => setActivateHearing(e.target.checked)}
-                />
-                <MicIcon className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>Hearing (Speech-to-Text)</span>
-              </label>
-            )}
-
-            {supportsTts && (
-              <label className="flex items-center gap-2 rounded-xl border border-blue-100/70 dark:border-slate-800 bg-blue-50/30 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold text-navy dark:text-slate-200 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  className="rounded text-brand"
-                  checked={activateSpeech}
-                  disabled={isBusy}
-                  onChange={(e) => setActivateSpeech(e.target.checked)}
-                />
-                <SpeakerIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Speech (Text-to-Speech)</span>
-              </label>
-            )}
-          </div>
         </div>
 
         {/* Collapsible Advanced Options */}
@@ -570,7 +523,7 @@ export function ProviderModal({
             onClick={() => setShowAdvanced(!showAdvanced)}
           >
             {showAdvanced ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />}
-            <span>Advanced Configuration (Headers, Custom Auth, Slug ID)</span>
+            <span>{t("settings.providers.modal.advanced")}</span>
           </button>
 
           {showAdvanced && (
@@ -578,7 +531,7 @@ export function ProviderModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="modal-provider-slug" className="block text-[11px] font-bold text-navy dark:text-slate-100 mb-1">
-                    Profile ID (Slug)
+                    {t("settings.providers.modal.advanced.slug")}
                   </label>
                   <input
                     id="modal-provider-slug"
@@ -594,7 +547,7 @@ export function ProviderModal({
 
                 <div>
                   <label htmlFor="modal-provider-secret-ref" className="block text-[11px] font-bold text-navy dark:text-slate-100 mb-1">
-                    Secret Reference Key
+                    {t("settings.providers.modal.advanced.secretRef")}
                   </label>
                   <input
                     id="modal-provider-secret-ref"
@@ -613,7 +566,7 @@ export function ProviderModal({
               {secretRef && (
                 <div className="flex flex-col gap-2">
                   <label htmlFor="modal-provider-auth-scheme" className="text-[11px] font-bold text-navy dark:text-slate-100">
-                    Authentication Header Scheme
+                    {t("settings.providers.modal.advanced.authScheme")}
                   </label>
                   <select
                     id="modal-provider-auth-scheme"
@@ -633,9 +586,12 @@ export function ProviderModal({
                     }}
                   >
                     <option value="default">
-                      Standard Default ({getDefaultAuthHeader(adapter)}: {getDefaultAuthStrategy(adapter)})
+                      {t("settings.providers.modal.advanced.authDefault", {
+                        header: getDefaultAuthHeader(adapter),
+                        strategy: getDefaultAuthStrategy(adapter),
+                      })}
                     </option>
-                    <option value="custom">Custom Auth Header Placement</option>
+                    <option value="custom">{t("settings.providers.modal.advanced.authCustom")}</option>
                   </select>
 
                   {customAuth && (
@@ -676,7 +632,7 @@ export function ProviderModal({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-navy dark:text-slate-100">
-                      Static Request Headers ({headers.length}/16)
+                      {t("settings.providers.modal.advanced.headers", { count: headers.length })}
                     </span>
                     <button
                       type="button"
@@ -688,7 +644,7 @@ export function ProviderModal({
                       }}
                     >
                       <PlusIcon className="w-3 h-3" />
-                      <span>Add Header</span>
+                      <span>{t("settings.providers.modal.advanced.addHeader")}</span>
                     </button>
                   </div>
 
@@ -697,7 +653,7 @@ export function ProviderModal({
                       <input
                         type="text"
                         className="settings-select flex-1 text-xs font-mono"
-                        placeholder="Header Name (e.g. HTTP-Referer)"
+                        placeholder={t("settings.providers.modal.advanced.headerName")}
                         value={hdr.name}
                         disabled={isBusy}
                         onChange={(e) => {
@@ -708,7 +664,11 @@ export function ProviderModal({
                       <input
                         type="text"
                         className="settings-select flex-1 text-xs font-mono"
-                        placeholder={hdr.originalName ? "Leave blank to keep stored value" : "Header Value"}
+                        placeholder={
+                          hdr.originalName
+                            ? t("settings.providers.modal.advanced.headerKeep")
+                            : t("settings.providers.modal.advanced.headerValue")
+                        }
                         value={hdr.value}
                         disabled={isBusy}
                         onChange={(e) => {
@@ -745,7 +705,7 @@ export function ProviderModal({
             disabled={isBusy}
             onClick={onClose}
           >
-            Cancel
+            {t("settings.providers.modal.cancel")}
           </button>
           <button
             type="button"
@@ -753,7 +713,7 @@ export function ProviderModal({
             disabled={isBusy}
             onClick={() => void handleSubmit(false)}
           >
-            Save to Library
+            {t("settings.providers.modal.saveLibrary")}
           </button>
           <button
             type="button"
@@ -761,7 +721,9 @@ export function ProviderModal({
             disabled={isBusy}
             onClick={() => void handleSubmit(true)}
           >
-            {isSaving ? "Saving..." : "Save & Activate"}
+            {isSaving
+              ? t("settings.providers.modal.saving")
+              : t("settings.providers.modal.saveActivate")}
           </button>
         </div>
       </div>

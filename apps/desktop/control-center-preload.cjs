@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+let managerCheckInFormRequestPending = false;
+const managerCheckInFormRequestListeners = new Set();
+ipcRenderer.on("openpets:manager-check-in-open-form", () => {
+  managerCheckInFormRequestPending = managerCheckInFormRequestListeners.size === 0;
+  for (const listener of managerCheckInFormRequestListeners) listener();
+});
+
 const api = {
   getPetsState: () => ipcRenderer.invoke("openpets:get-pets-state"),
   getDashboardSnapshot: () => ipcRenderer.invoke("openpets:get-dashboard-snapshot"),
@@ -87,6 +94,14 @@ const api = {
     const listener = (_event, route) => callback(route);
     ipcRenderer.on("openpets:control-center-route", listener);
     return () => ipcRenderer.removeListener("openpets:control-center-route", listener);
+  },
+  onManagerCheckInOpenForm: (callback) => {
+    managerCheckInFormRequestListeners.add(callback);
+    if (managerCheckInFormRequestPending) {
+      managerCheckInFormRequestPending = false;
+      queueMicrotask(callback);
+    }
+    return () => managerCheckInFormRequestListeners.delete(callback);
   },
   onPluginsRefresh: (callback) => {
     const listener = () => callback();

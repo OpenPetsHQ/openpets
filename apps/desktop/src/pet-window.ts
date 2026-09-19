@@ -4,7 +4,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, togglePetHorizontalFlip, type PetScaleValue } from "./app-state.js";
+import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, togglePetHorizontalFlip, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
@@ -1222,10 +1222,11 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
   const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
+  const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
     html: `<!doctype html>
@@ -1236,7 +1237,7 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>OpenPets Default Pet</title>
         <style>
-          ${createPetWindowCss(paused, scale)}
+          ${createPetWindowCss(paused, scale, hudScale)}
           .sprite {
             width: ${defaultPetSprite.frameWidth}px;
             height: ${defaultPetSprite.frameHeight}px;
@@ -1324,10 +1325,11 @@ async function createInstalledPetRender(
   const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
+  const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
     html: `<!doctype html>
@@ -1338,7 +1340,7 @@ async function createInstalledPetRender(
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>OpenPets Default Pet</title>
           <style>
-            ${createPetWindowCss(paused, scale)}
+            ${createPetWindowCss(paused, scale, hudScale)}
             .installed-card { width: ${Math.ceil(spriteLayout.frameWidth * scale)}px; height: ${Math.ceil(spriteLayout.frameHeight * scale)}px; overflow: visible; position: relative; }
             .installed-sprite {
               position: absolute;
@@ -1393,7 +1395,7 @@ function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: s
   </div>`;
 }
 
-function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
+function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: HudScaleValue): string {
   const opacity = paused ? "0.62" : "1";
   const playState = paused ? "paused" : "running";
   const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
@@ -1401,6 +1403,9 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
   const petBottom = 22;
   const hitPadding = 28;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
+  // The pet and transient bubbles are lifted above the pinned plugin bubble
+  // (HUD); the lift grows with the HUD's own scale so they never overlap.
+  const pinnedLift = Math.round(28 * hudScale);
   const emojiFontUrl = pathToFileURL(join(app.getAppPath(), "assets", "NotoColorEmoji.ttf")).toString();
   const petShellFilter = process.platform === "win32" ? "none" : "drop-shadow(0 10px 12px rgba(15, 23, 42, 0.24)) drop-shadow(0 2px 3px rgba(15, 23, 42, 0.18))";
   const bubbleBackdropFilter = process.platform === "win32" ? "none" : "blur(10px)";
@@ -1482,7 +1487,6 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
       left: 50%;
       bottom: 6px;
       z-index: 4;
-      transform: translateX(-50%);
       width: 188px;
       box-sizing: border-box;
       display: flex;
@@ -1498,8 +1502,11 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
       text-align: center;
       max-height: none;
       max-width: none;
-      animation: bubble-in 200ms cubic-bezier(0.2, 0, 0, 1);
+      animation: pinned-bubble-in 200ms cubic-bezier(0.2, 0, 0, 1);
+      transform: translateX(-50%) scale(${hudScale});
+      transform-origin: bottom center;
     }
+    @keyframes pinned-bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(${hudScale * 0.96}); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(${hudScale}); } }
     .bubble.is-pinned::after { content: none !important; }
     .bubble.is-pinned .bubble-body { width: 100%; text-align: center; }
     .bubble.is-pinned .bubble-text { display: inline-block; -webkit-line-clamp: unset; -webkit-box-orient: initial; white-space: pre; overflow-wrap: normal; word-break: keep-all; font: 800 10px/13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; letter-spacing: -0.03em; color: #334155; text-align: left; }
@@ -1517,8 +1524,8 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
     .bubble.is-pinned.accent-red { background: linear-gradient(135deg, rgba(254, 226, 226, 0.94), rgba(254, 202, 202, 0.92)); }
     .bubble.is-pinned.accent-pink { background: linear-gradient(135deg, rgba(252, 231, 243, 0.94), rgba(251, 207, 232, 0.92)); }
     .bubble.is-pinned.accent-slate { background: linear-gradient(135deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.92)); }
-    .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + 28}px; }
-    .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + 28}px; }
+    .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
+    .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
     .bubble.is-plugin.accent-green { background: linear-gradient(135deg, rgba(220, 252, 231, 0.97), rgba(187, 247, 208, 0.94)); }

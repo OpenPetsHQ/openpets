@@ -105,13 +105,18 @@ prompt snapshot with the submission, so historical wording and labels remain
 meaningful after settings change.
 
 When the organization enables the weekly offer, the mascot may offer it when
-OpenPets is already open on the enrolled desktop's local weekday. The service
-tracks the offer per local week; a successful manual submission also suppresses
-that desktop's scheduled offer for the current local week. The employee can
-pause or resume scheduled offers on that device; **Check in now** remains
-available while paused, and the pause is not sent to the dashboard as a
-response or activity signal. Dismissing or not using an offer creates no
-check-in entry.
+OpenPets is already open on the enrolled desktop's local weekday. The offer is a
+host-owned actionable pet bubble using the synced title and introduction, with
+a voluntary **Check in now** action. That action opens/focuses Control Center
+on Teams and opens the existing Manager Check-in form; the pet never collects
+the feeling or note and never submits directly. The service tracks the offer
+per local week only after the bubble is actually presented; dismissal, timeout,
+or an offer blocked behind another bubble is not presentation. A successful
+manual submission also suppresses that desktop's scheduled offer for the
+current local week. The employee can pause or resume scheduled offers on that
+device; **Check in now** remains available while paused, and the pause is not
+sent to the dashboard as a response or activity signal. Dismissing or not using
+an offer creates no check-in entry.
 
 Each active enrolled desktop has one employee identity in V1. Submitted
 check-ins are identified and visible to authenticated users in that employee's

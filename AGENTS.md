@@ -68,6 +68,9 @@ intermediate values, focused helpers, and explicit branches when they make the
 state transition or boundary decision clearer. Prefer a readable function over
 a clever expression; do not trade clarity for fewer lines.
 
+Besides this kind of regex based tests, should contain specific codes and shit in tests or ocntracts are bullshit don't do that plz anymore, i'm willing to actually remove that kind of meaningless
+dumb tests.
+
 ## Catalog Direction
 
 Catalog v2 is legacy and exists only for old app versions/fallback compatibility.

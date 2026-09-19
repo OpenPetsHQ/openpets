@@ -121,7 +121,10 @@ reaction into something visible:
    active locale (see [Internationalization](/i18n)).
 3. `pet-window.ts` renders the chosen animation via CSS sprite animation, and
    shows speech bubbles, alert indicators, pinned HUDs, and status badges as
-   requested. The transient display (bubble) expires after a few seconds while
+   requested. The sprite is sized by the pet scale preference; the pinned
+   plugin HUD is sized by the separate HUD scale preference (`hudScale`, in
+   Settings → General next to pet scale), so HUD readability is independent of
+   pet size. The transient display (bubble) expires after a few seconds while
    a busy status badge (`thinking`/`working`/`editing`/`running`/`testing`/
    `waiting`) survives much longer; when the display reaction is gone, a badge
    that resolves to a looping animation (`resolveEffectiveSpriteState`) keeps

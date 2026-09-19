@@ -137,73 +137,9 @@ export function profileSupportsRole(profile: { adapter: ProviderAdapter }, role:
   );
 }
 
-export function getRoleDisplayName(role: ProviderRole): string {
-  switch (role) {
-    case "text":
-      return "Pet Brain";
-    case "stt":
-      return "Hearing";
-    case "tts":
-      return "Speech";
-  }
-}
-
-export function getRoleSubtitle(role: ProviderRole): string {
-  switch (role) {
-    case "text":
-      return "Text generation, conversation & tools";
-    case "stt":
-      return "Speech-to-text audio input";
-    case "tts":
-      return "Spoken companion voice";
-  }
-}
-
-export function getAdapterFriendlyLabel(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "Cloud & Local Text";
-    case "openai-realtime":
-      return "OpenAI Realtime Voice & Text";
-    case "anthropic-text":
-      return "Anthropic Claude";
-    case "openai-compatible-transcription":
-      return "Whisper Audio Transcription";
-    case "system-tts":
-      return "Built-in System Voice";
-    case "minimax-tts":
-      return "MiniMax Speech";
-    case "elevenlabs-tts":
-      return "ElevenLabs Voice";
-    case "openai-compatible-speech":
-      return "OpenAI Speech";
-    default:
-      return adapter;
-  }
-}
-
-export function getAdapterExplainer(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "Compatible with OpenRouter, OpenAI, Ollama, LM Studio, vLLM, and any OpenAI-style completions API.";
-    case "openai-realtime":
-      return "Native bidirectional WebRTC realtime session. Powers low-latency pet audio conversations.";
-    case "anthropic-text":
-      return "Direct Anthropic Messages API for Claude 3.5 and 3.7 models.";
-    case "openai-compatible-transcription":
-      return "Converts speech from your microphone into text using Whisper-compatible endpoints.";
-    case "system-tts":
-      return "Uses your operating system's built-in text-to-speech. Works offline with zero configuration and no API keys.";
-    case "minimax-tts":
-      return "High quality neural speech synthesis from MiniMax.";
-    case "elevenlabs-tts":
-      return "Ultra-expressive custom voices and voice cloning from ElevenLabs.";
-    case "openai-compatible-speech":
-      return "OpenAI audio/speech synthesis endpoint.";
-    default:
-      return "";
-  }
-}
+// Role names/subtitles and adapter labels/explainers are user-facing copy and
+// live in the locale catalog (`settings.providers.role.*`,
+// `settings.providers.adapter.*`, `settings.providers.adapterHint.*`).
 
 export function getDefaultAuthHeader(adapter: ProviderAdapter): string {
   if (adapter === "anthropic-text") return "x-api-key";

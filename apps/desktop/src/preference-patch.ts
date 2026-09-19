@@ -5,7 +5,7 @@
  * without an Electron process context.
  */
 
-import { normalizeAppearanceTheme, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { normalizeAppearanceTheme, normalizeHudScale, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
 import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -16,6 +16,7 @@ export type PreferencePatch = {
   locale?: LocalePreference;
   appearanceTheme?: AppearanceTheme;
   petScale?: number;
+  hudScale?: number;
   waitingAnimationDurationMs?: WaitingAnimationDurationMs;
   reactionAnimationOverrides?: ReturnType<typeof validateReactionAnimationOverrides>;
   petPoolEnabled?: boolean;
@@ -82,6 +83,12 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
     const scale = normalizePetScale(value.petScale);
     if (scale !== value.petScale) throw new Error("Invalid pet scale value.");
     patch.petScale = scale;
+  }
+
+  if ("hudScale" in value) {
+    const scale = normalizeHudScale(value.hudScale);
+    if (scale !== value.hudScale) throw new Error("Invalid HUD scale value.");
+    patch.hudScale = scale;
   }
 
   if ("waitingAnimationDurationMs" in value) {
