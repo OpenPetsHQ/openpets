@@ -64,7 +64,7 @@ type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: stri
 type LanStatusSnapshot = { mode: "off" | "server" | "client"; localHost: string; serverUrl: string; port: number; auth: "token" | "none"; authSource: "env" | "stored" | "generated" | "none"; authInsecure: boolean; tokenHint: string | null; topologyHosts: number; topologyLinks: number; topologyIssues: LanTopologyIssue[]; currentHost: string | null; clients: Array<{ host: string; lastSeen: number; position?: { x: number; y: number } }>; updatedAt: number; persistedCurrentHost: string | null; persistedUpdatedAt: number | null };
 type UpdateStatus = { state: "idle" | "checking" | "available" | "current" | "error"; currentVersion: string; latestVersion?: string; releaseUrl?: string; checkedAt?: number; error?: string };
 type DashboardActivity = { messagesSent: number; reactionsSent: number; reactionCounts: Record<string, number>; perPetActivityCounts: Record<string, number>; lastActivityAt?: number };
-type DashboardSnapshot = { defaultPet: { id: string; displayName: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
+type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
 type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
 type PluginFilter = "all" | "installed" | "catalog" | "local" | "broken";
 type PluginPermission =
@@ -224,9 +224,11 @@ type ControlCenterApi = {
   installLocalPet(): Promise<unknown>;
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
+  openOrganizationsPage?(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
   onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
   onPluginsRefresh(callback: () => void): () => void;
+  onDashboardRefresh?(callback: () => void): () => void;
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   updateIntegrationCommandPaths(patch: Partial<AgentSetupCommandPaths>): Promise<AgentSetupCommandPaths>;
@@ -676,7 +678,12 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    return api.onDashboardRefresh?.(() => {
+      void load();
+    });
+  }, []);
 
   if (!snapshot) {
     return (
@@ -693,7 +700,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
 
   // Find top pet by activity or fallback to default
   const topPetId = Object.entries(activity.perPetActivityCounts).sort(([, a], [, b]) => b - a)[0]?.[0];
-  const topPetName = topPetId === defaultPet.id ? defaultPet.displayName : (topPetId || defaultPet.displayName);
+  const topPetName = topPetId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : (topPetId || defaultPet.displayName);
 
   // Find top reaction
   const reactionEntries = Object.entries(activity.reactionCounts)
@@ -826,7 +833,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
                 </div>
                 <div className="dashboard-bars-list">
                   {topCompanionEntries.length ? topCompanionEntries.map(([petId, count]) => {
-                    const label = petId === defaultPet.id ? defaultPet.displayName : petId.replace(/[-_]/g, " ");
+                    const label = petId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : petId.replace(/[-_]/g, " ");
                     return (
                       <div key={petId} className="dashboard-bar-item">
                         <div className="dashboard-bar-labels">

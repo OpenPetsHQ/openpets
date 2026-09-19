@@ -75,6 +75,12 @@ jitter, and stops before plugin shutdown. Snapshots expose separated Team
 pets/plugins and status, never credentials, enrollment tokens, proofs, or full
 server packs.
 
+The Teams Control Center view presents a distinct empty-state when not joined:
+a compact marketing CTA with feature highlights links externally to
+`https://openpets.dev/organizations` via `openpets:open-organizations-page`,
+accompanied by member deep-link enrollment guidance and the personal content
+isolation guarantee.
+
 Team synchronization, installation, and leave operations are serialized. Leaving
 invalidates queued and in-flight Team work, so a late sync or install cannot
 reapply organization state after departure. A Team Pack stays pending and is not
@@ -587,9 +593,12 @@ capability ids. The host adds a deterministic suffix only when normalization
 collides or a provider length limit requires truncation. The in-pet action row
 shows the capability description as a friendly label while retaining the exact
 provider name separately for dispatch and event correlation.
-The attached chat header uses the active default pet's display name and falls
-back to `Assistant` when that name is unavailable; pet-content refreshes update
-the header without changing the panel layout.
+The attached chat header and Dashboard hero title use the companion's personal
+display name from the saved personality `petName` (falling back to the active
+pet asset name if the personal name is unusable, and `Assistant` if neither is
+available). Pet manager cards, the pet catalog, and system tray continue to display
+the pet asset name. Personality preference updates broadcast to the Control Center
+and pet carrier to refresh the hero title and chat header live.
 
 The plugin subsystem also owns **display deliveries**: a lazy, transparent,
 host-owned surface used by `ctx.ui.delivery`. A delivery is rendered as a single

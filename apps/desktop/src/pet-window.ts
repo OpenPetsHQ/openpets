@@ -4,7 +4,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { getAppStateSnapshot, getHudScaleForPetScale, hudScaleOptions, isPetFlippedHorizontally, markPetBroken, petScaleOptions, togglePetHorizontalFlip, updatePreferences, type HudScaleValue, type PetScaleValue } from "./app-state.js";
+import { getAppStateSnapshot, getHudScaleForPetScale, hudScaleOptions, isPetFlippedHorizontally, markPetBroken, petScaleOptions, resolveCompanionDisplayName, togglePetHorizontalFlip, updatePreferences, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexPetSpritePosition, getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
@@ -101,6 +101,7 @@ interface PetContentRender {
   readonly html: string;
   readonly bodyHtml: string;
   readonly displayName: string;
+  readonly assetName: string;
   readonly reactionState: UniversalSpriteState;
   readonly codexSpriteVersion: 1 | 2;
   readonly paused: boolean;
@@ -1461,7 +1462,12 @@ function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRend
   if (!isAllowedPetDocumentUrl(url)) return false;
   updatePetGazeConfiguration(window, render, render.flipped);
   debug("pet.window", "content update in place", { windowId: window.id, name, sequence, reactionState: render.reactionState });
-  window.webContents.send("openpets:pet-content-state", { bodyHtml: render.bodyHtml, displayName: render.displayName, reactionState: render.reactionState });
+  window.webContents.send("openpets:pet-content-state", {
+    bodyHtml: render.bodyHtml,
+    displayName: render.displayName,
+    assetName: render.assetName,
+    reactionState: render.reactionState,
+  });
   return true;
 }
 
@@ -1584,7 +1590,11 @@ export async function createDefaultPetRender(paused: boolean, display: PetTransi
 
 function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null, petRole: "default" | "agent" = "default"): PetContentRender {
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
-  const displayName = builtInPet.displayName;
+  const assetDisplayName = builtInPet.displayName;
+  const state = getAppStateSnapshot();
+  const displayName = petRole === "default"
+    ? resolveCompanionDisplayName(state.preferences.personality?.petName, assetDisplayName)
+    : assetDisplayName;
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
   const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
@@ -1598,12 +1608,13 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
+    assetName: assetDisplayName,
     reactionState,
     codexSpriteVersion: defaultPetSprite.version,
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1662,6 +1673,8 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
       dismissToken,
       pluginBubbles,
       selected.source?.kind === "team" ? "team" : "personal",
+      "default",
+      state.preferences.personality?.petName,
     );
   } catch (error) {
     console.error(`Failed to render installed default pet ${selected.id}; falling back to built-in pet.`, error);
@@ -1676,7 +1689,7 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
 
 async function createInstalledPetRender(
   petId: string,
-  displayName: string,
+  assetDisplayName: string,
   paused: boolean,
   display: PetTransientDisplay | null,
   scale: PetScaleValue,
@@ -1686,7 +1699,11 @@ async function createInstalledPetRender(
   pluginBubbles: PetPluginBubbles | null = null,
   source: "personal" | "team" = "personal",
   petRole: "default" | "agent" = "default",
+  personalityPetName?: string,
 ): Promise<PetContentRender> {
+  const displayName = petRole === "default"
+    ? resolveCompanionDisplayName(personalityPetName ?? getAppStateSnapshot().preferences.personality?.petName, assetDisplayName)
+    : assetDisplayName;
   const spritesheetPath = join(getPetDir(petId, source), "spritesheet.webp");
   const spritesheet = await stat(spritesheetPath);
   if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) {
@@ -1708,12 +1725,13 @@ async function createInstalledPetRender(
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
+    assetName: assetDisplayName,
     reactionState,
     codexSpriteVersion: spriteLayout.version,
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
         <head>
           <meta charset="utf-8" />
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />

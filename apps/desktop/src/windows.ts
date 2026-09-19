@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type Open
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
@@ -198,7 +198,7 @@ function getI18nSnapshot(): {
 }
 
 async function getDashboardSnapshot(): Promise<{
-  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly previewSpriteUrl: string; readonly spriteLayout: CodexPetSpriteLayout };
+  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly spriteLayout: CodexPetSpriteLayout };
   readonly installedPetCount: number;
   readonly catalog: { readonly source: string; readonly total?: number; readonly page?: number; readonly pageCount?: number; readonly error?: string };
   readonly plugins: { readonly installed: number; readonly enabled: number; readonly broken: number };
@@ -207,6 +207,9 @@ async function getDashboardSnapshot(): Promise<{
 }> {
   const state = getAppStateSnapshot();
   const defaultPet = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId && !pet.broken) ?? state.pets.installed[0];
+  const assetName = defaultPet?.displayName ?? "OpenPets";
+  const personalName = state.preferences.personality?.petName;
+  const companionDisplayName = resolveCompanionDisplayName(personalName, assetName);
   const preview = await getDefaultPetPreviewSpriteInfo();
   const catalog = await getCatalogUiState().catch((error: unknown) => ({ source: "error" as const, pets: [], total: undefined, page: undefined, pageCount: undefined, error: error instanceof Error ? error.message : "Catalog unavailable." }));
   const pluginSnapshot = await getPluginService().getSnapshot().catch((error: unknown) => {
@@ -220,7 +223,9 @@ async function getDashboardSnapshot(): Promise<{
   return {
     defaultPet: {
       id: defaultPet?.id ?? state.preferences.defaultPetId,
-      displayName: defaultPet?.displayName ?? "OpenPets",
+      displayName: companionDisplayName,
+      assetName,
+      petName: personalName,
       previewSpriteUrl: `openpets-pet-preview://spritesheet/default?v=${encodeURIComponent(preview.version)}`,
       spriteLayout: preview.spriteLayout,
     },
@@ -639,6 +644,7 @@ export function installInternalUiHandlers(): void {
     const previousOverrides = JSON.stringify(getAppStateSnapshot().preferences.reactionAnimationOverrides ?? {});
     const previousLocale = getActiveLocale();
     const previousPoolEnabled = getAppStateSnapshot().preferences.petPoolEnabled;
+    const previousPersonalityPetName = getAppStateSnapshot().preferences.personality.petName;
     const validatedPatch = validatePreferencePatch(patch);
     const currentShortcut = getAppStateSnapshot().preferences.voiceAssistantShortcut;
     const shortcutSnapshot = validatedPatch.voiceAssistantShortcut !== undefined
@@ -664,6 +670,11 @@ export function installInternalUiHandlers(): void {
       || validatedPatch.showTalkButton !== undefined
       || validatedPatch.petButtonsPosition !== undefined
       || validatedPatch.petButtonsSize !== undefined;
+    const personalityPetNameChanged = state.preferences.personality.petName !== previousPersonalityPetName;
+    if (personalityPetNameChanged) {
+      refreshDefaultPetContent();
+      broadcastDashboardRefresh();
+    }
     if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
@@ -799,6 +810,7 @@ export function installInternalUiHandlers(): void {
     refreshDefaultPetContent();
     recoverDefaultPetMouseInterop("default-pet-changed");
     setTimeout(() => recoverDefaultPetMouseInterop("default-pet-changed+500ms"), 500).unref?.();
+    broadcastDashboardRefresh();
     return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
   });
 
@@ -853,6 +865,11 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:open-gallery", async (event) => {
     assertAllowedSender(event, ["control-center"]);
     await shell.openExternal("https://openpets.dev/gallery");
+  });
+
+  ipcMain.handle("openpets:open-organizations-page", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    await shell.openExternal("https://openpets.dev/organizations");
   });
 
   ipcMain.handle("openpets:import-codex-pet", async (event, petId: unknown) => {
@@ -1097,6 +1114,13 @@ function sendManagerCheckInFormRequest(window: BrowserWindow): void {
 function broadcastPluginRecordsRefresh(): void {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.webContents.send("openpets:plugins-refresh");
+  }
+}
+
+/** Tell the open Control Center to re-fetch the dashboard snapshot (e.g. after personality or default pet changes). */
+function broadcastDashboardRefresh(): void {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.webContents.send("openpets:dashboard-refresh");
   }
 }
 

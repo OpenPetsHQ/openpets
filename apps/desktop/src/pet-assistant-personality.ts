@@ -76,6 +76,22 @@ export function mergePetAssistantPersonality(base: PetAssistantPersonality, patc
 }
 
 /**
+ * Resolve the companion display name from the saved personality petName,
+ * falling back to the pet asset's name only if the personal name is unusable.
+ */
+export function resolveCompanionDisplayName(personalName: unknown, assetName?: unknown): string {
+  if (typeof personalName === "string") {
+    const trimmed = personalName.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  if (typeof assetName === "string") {
+    const trimmed = assetName.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return defaultPetAssistantPersonality.petName;
+}
+
+/**
  * Serialize in a fixed field order. Brackets inside values are unicode-escaped
  * so owner text cannot forge the surrounding prompt markers.
  */

@@ -894,6 +894,12 @@ body.theme-dark .plugin-config-backdrop {
   body.theme-dark .provider-profile-card:hover { @apply bg-slate-900/90 border-slate-600; }
 
   /* Teams Section Styling */
+  .team-marketing-card {
+    @apply relative overflow-hidden rounded-[28px] border border-blue-200/80 bg-gradient-to-br from-blue-50/90 via-indigo-50/30 to-sky-50/60 p-6 shadow-sm;
+  }
+  .team-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-blue-200/60 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm;
+  }
   .team-card {
     @apply flex flex-col gap-4 rounded-[28px] border border-blue-100/70 bg-white/80 p-6 shadow-sm;
   }
@@ -910,6 +916,12 @@ body.theme-dark .plugin-config-backdrop {
     @apply flex flex-col gap-1.5 rounded-2xl border border-blue-100/60 bg-blue-50/30 p-4;
   }
 
+  body.theme-dark .team-marketing-card {
+    @apply border-blue-500/30 bg-gradient-to-br from-slate-900 via-blue-950/40 to-slate-900 text-slate-100;
+  }
+  body.theme-dark .team-pill {
+    @apply border-slate-700/80 bg-slate-800/80 text-slate-200;
+  }
   body.theme-dark .team-card,
   body.theme-dark .team-modal {
     @apply border-slate-700/60 bg-slate-900/80 text-slate-100;

@@ -498,6 +498,52 @@ export function InfoIcon({ className = "w-4 h-4" }: { className?: string } = {})
   );
 }
 
+export function ArrowUpRightIcon({
+  className = "w-3.5 h-3.5",
+}: {
+  className?: string;
+} = {}) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="7" y1="17" x2="17" y2="7" />
+      <polyline points="7 7 17 7 17 17" />
+    </svg>
+  );
+}
+
+export function UsersIcon({
+  className = "w-5 h-5",
+}: {
+  className?: string;
+} = {}) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
 export function CheckCircleIcon({ className = "w-4 h-4" }: { className?: string } = {}) {
   return (
     <svg

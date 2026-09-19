@@ -339,6 +339,7 @@ export function TeamsView({ api }: TeamsViewProps) {
           onEnrollSubmit={(e) => void handleEnrollSubmit(e)}
           onRefreshStatus={() => void handleRefreshStatus()}
           onDiscardEnrollment={() => void handleDiscardEnrollment()}
+          onOpenOrganizationsPage={() => void api.openOrganizationsPage?.()}
         />
       ) : (
         /* Enrolled State (Active Organization) */

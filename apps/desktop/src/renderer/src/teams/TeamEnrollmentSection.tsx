@@ -1,5 +1,13 @@
 import type React from "react";
-import { BuildingIcon, LaptopIcon, RefreshIcon, ShieldCheckIcon } from "./teams-icons.js";
+import {
+  ArrowUpRightIcon,
+  BuildingIcon,
+  LaptopIcon,
+  RefreshIcon,
+  ShieldCheckIcon,
+  SparklesIcon,
+  UsersIcon,
+} from "./teams-icons.js";
 import { formatDate, isEnrollmentActionable } from "./teams-state.js";
 import type { TeamsSnapshot } from "./teams-types.js";
 
@@ -12,6 +20,7 @@ export type TeamEnrollmentSectionProps = {
   readonly onEnrollSubmit: (e?: React.FormEvent) => void;
   readonly onRefreshStatus: () => void;
   readonly onDiscardEnrollment: () => void;
+  readonly onOpenOrganizationsPage?: () => void;
 };
 
 export function TeamEnrollmentSection({
@@ -23,6 +32,7 @@ export function TeamEnrollmentSection({
   onEnrollSubmit,
   onRefreshStatus,
   onDiscardEnrollment,
+  onOpenOrganizationsPage,
 }: TeamEnrollmentSectionProps) {
   const isBusy = Boolean(busy);
   const isSubmitDisabled = isBusy || !isEnrollmentActionable(snapshot, displayNameInput);
@@ -127,22 +137,84 @@ export function TeamEnrollmentSection({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Distinct Compact Marketing CTA Card */}
+      <section className="team-marketing-card">
+        {/* Subtle decorative atmosphere glow */}
+        <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-blue-400/10 blur-2xl dark:bg-blue-600/15" />
+
+        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="flex items-start gap-4 max-w-xl">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand text-white shadow-sm ring-4 ring-brand/10">
+              <UsersIcon className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-monoDisplay text-[10px] font-black uppercase tracking-[.2em] text-brand dark:text-blue-400">
+                  Organizations & Fleets
+                </span>
+              </div>
+              <h2 className="m-0 font-monoDisplay text-xl md:text-2xl font-black text-navy dark:text-slate-50 leading-tight">
+                Your team. Your pets. Your server.
+              </h2>
+              <p className="m-0 mt-1.5 text-xs text-slatecopy dark:text-slate-300 leading-relaxed">
+                Deploy a private OpenPets server for your company. Give your team its own pets, ship internal plugins,
+                and let the pets deliver what matters: code reviews, standups, birthdays, vacation approvals, and announcements.
+              </p>
+
+              {/* Feature highlight tags */}
+              <div className="flex flex-wrap items-center gap-2 mt-3.5">
+                <span className="team-pill">
+                  <BuildingIcon className="w-3.5 h-3.5 text-brand dark:text-blue-400" />
+                  Private Pet Fleet
+                </span>
+                <span className="team-pill">
+                  <SparklesIcon className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                  Internal Plugins
+                </span>
+                <span className="team-pill">
+                  <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Isolated Workspaces
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Marketing CTA Button & External Link Hint */}
+          <div className="flex flex-col items-start md:items-end gap-2 shrink-0 pt-2 md:pt-0">
+            <button
+              type="button"
+              className="btn btn-primary gap-2 px-5 py-2.5 text-xs shadow-md"
+              onClick={onOpenOrganizationsPage}
+            >
+              <span>Explore Organizations</span>
+              <ArrowUpRightIcon className="w-3.5 h-3.5 stroke-[2.5]" />
+            </button>
+            <button
+              type="button"
+              className="group inline-flex items-center gap-1 font-mono text-[11px] text-brand/80 dark:text-blue-400 hover:text-brand dark:hover:text-blue-300 transition-colors"
+              onClick={onOpenOrganizationsPage}
+            >
+              <span className="underline decoration-dotted underline-offset-2">openpets.dev/organizations</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Member Enrollment Guidance Card */}
       <section className="team-card">
         <div className="flex items-start gap-4">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-brand border border-blue-100/60 shadow-sm dark:bg-slate-800 dark:border-slate-700">
-            <BuildingIcon />
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-blue-50 text-brand border border-blue-100/60 shadow-sm dark:bg-slate-800 dark:border-slate-700">
+            <LaptopIcon />
           </div>
           <div className="flex-1 min-w-0">
             <span className="font-monoDisplay text-[10px] font-black uppercase tracking-[.18em] text-brand block mb-0.5">
-              Private Catalog & Fleet
+              Joining An Existing Organization
             </span>
-            <h2 className="m-0 font-monoDisplay text-2xl font-black text-navy leading-tight">
-              Join an Organization
-            </h2>
-            <p className="m-0 mt-1 text-xs text-slatecopy leading-relaxed">
-              OpenPets Teams allows engineering teams and organizations to securely distribute
-              company-curated companions, shared workflow plugins, and team configurations directly
-              to your desktop.
+            <h3 className="m-0 font-monoDisplay text-lg font-black text-navy dark:text-slate-100 leading-tight">
+              Have an invitation from your team?
+            </h3>
+            <p className="m-0 mt-1 text-xs text-slatecopy dark:text-slate-300 leading-relaxed">
+              If your workplace already uses OpenPets Teams, your administrator can provide an enrollment link to connect this desktop client.
             </p>
           </div>
         </div>
@@ -181,7 +253,7 @@ export function TeamEnrollmentSection({
         </div>
 
         <div className="flex items-center justify-between border-t border-blue-50/60 dark:border-slate-800 pt-4 mt-2">
-          <span className="text-xs text-slatecopy">Waiting for an enrollment link...</span>
+          <span className="text-xs text-slatecopy dark:text-slate-400">Waiting for an enrollment link...</span>
           <button
             type="button"
             className="btn btn-compact btn-secondary text-xs"

@@ -416,6 +416,10 @@ headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "Cal
 assert.equal(chatTitle.textContent, "Calico", "Chat header must react to an updated pet display name");
 headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", reactionState: "idle" });
 assert.equal(chatTitle.textContent, "Assistant", "Chat header must fall back when the pet display name is unusable");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", assetName: "Hoodie Cat", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must fall back to asset name when personal display name is unusable");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", assetName: "   ", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Assistant", "Chat header must fall back to Assistant when neither display name nor asset name is usable");
 const voiceBtnLabel = fullPanel!.querySelector("[data-voice-btn-label]") as MockElement;
 assert.ok(voiceBtnLabel, "Talk button label must exist");
 
@@ -432,6 +436,57 @@ assert.ok(historyBtn, "Explicit history/transcript affordance button must exist 
 
 const compactCloseBtn = compactComposer!.querySelector("[data-chat-composer-close-btn]") as MockElement;
 assert.ok(compactCloseBtn, "Compact composer close button must exist");
+
+// Visual-contract: unified flex alignment, geometry, and visual centerline between inputs and send buttons
+const compactForm = compactComposer!.querySelector("[data-compact-chat-form]") as MockElement;
+const compactSendBtn = compactComposer!.querySelector("[data-compact-chat-send-btn]") as MockElement;
+const fullComposer = fullPanel!.querySelector("[data-chat-composer]") as MockElement;
+const fullSendBtn = fullPanel!.querySelector("[data-chat-send-btn]") as MockElement;
+const inputWrapper = fullPanel!.querySelector(".chat-input-wrapper") as MockElement;
+
+assert.ok(compactForm, "Compact composer form must exist");
+assert.ok(compactSendBtn, "Compact composer send button must exist");
+assert.ok(fullComposer, "Full chat composer form must exist");
+assert.ok(fullSendBtn, "Full chat send button must exist");
+assert.ok(inputWrapper, "Full chat input wrapper must exist");
+
+// Flex containers share bottom alignment for consistent multi-line behavior
+assert.equal(fullComposer.style.display, "flex", "Full composer must use flex display");
+assert.equal(fullComposer.style.alignItems, "flex-end", "Full composer must align items to flex-end");
+assert.equal(compactForm.style.display, "flex", "Compact composer must use flex display");
+assert.equal(compactForm.style.alignItems, "flex-end", "Compact composer must align items to flex-end");
+
+// Input wrapper in full composer eliminates inline-block baseline gap / descent
+assert.equal(inputWrapper.style.display, "flex", "Input wrapper must be a flex container to eliminate baseline gap");
+assert.equal(inputWrapper.style.alignItems, "flex-end", "Input wrapper must align items to flex-end");
+assert.equal(inputWrapper.style.lineHeight, "0", "Input wrapper must zero out line-height strut");
+
+// Inputs share block layout and border-box sizing
+assert.equal(fullInput.style.display, "block", "Full input must be display block");
+assert.equal(fullInput.style.boxSizing, "border-box", "Full input must use border-box");
+assert.equal(compactInput.style.display, "block", "Compact input must be display block");
+assert.equal(compactInput.style.boxSizing, "border-box", "Compact input must use border-box");
+
+// Send buttons share zero padding/margin, flex centering, and exact heights
+assert.equal(fullSendBtn.style.padding, "0", "Full send button must zero padding");
+assert.equal(fullSendBtn.style.margin, "0", "Full send button must zero margin");
+assert.equal(fullSendBtn.style.boxSizing, "border-box", "Full send button must use border-box");
+assert.equal(compactSendBtn.style.padding, "0", "Compact send button must zero padding");
+assert.equal(compactSendBtn.style.margin, "0", "Compact send button must zero margin");
+assert.equal(compactSendBtn.style.boxSizing, "border-box", "Compact send button must use border-box");
+
+// Exact visual centerline match in resting / disabled single-line state
+assert.equal(fullInput.style.height, "36px", "Full input single-line height must be 36px");
+assert.equal(fullSendBtn.style.height, "36px", "Full send button height must be 36px");
+assert.equal(fullSendBtn.disabled, true, "Full send button must be initially disabled when input is empty");
+const fullCenterlineOffset = Math.abs(parseInt(fullInput.style.height, 10) / 2 - parseInt(fullSendBtn.style.height, 10) / 2);
+assert.equal(fullCenterlineOffset, 0, "Full input and send button must share an exact visual centerline (0px offset)");
+
+assert.equal(compactInput.style.height, "28px", "Compact input single-line height must be 28px");
+assert.equal(compactSendBtn.style.height, "28px", "Compact send button height must be 28px");
+assert.equal(compactSendBtn.disabled, true, "Compact send button must be initially disabled when input is empty");
+const compactCenterlineOffset = Math.abs(parseInt(compactInput.style.height, 10) / 2 - parseInt(compactSendBtn.style.height, 10) / 2);
+assert.equal(compactCenterlineOffset, 0, "Compact input and send button must share an exact visual centerline (0px offset)");
 
 // 2. Test opening compact composer via launcher button click
 const clickListeners = documentListeners.get("click") ?? [];

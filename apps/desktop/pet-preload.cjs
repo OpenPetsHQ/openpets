@@ -182,9 +182,12 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
   }
 
   const apply = () => {
+    if (typeof state.assetName === "string") {
+      document.documentElement.dataset.petAssetName = state.assetName;
+    }
     if (typeof state.displayName === "string") {
       document.documentElement.dataset.petDisplayName = state.displayName;
-      updateAssistantHeader(state.displayName);
+      updateAssistantHeader(state.displayName, state.assetName);
     }
     document.documentElement.dataset.reactionState = state.reactionState;
     const currentStage = document.querySelector(".stage");
@@ -224,16 +227,17 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
 
 const assistantHeaderFallback = "Assistant";
 
-function usablePetDisplayName(value) {
-  if (typeof value !== "string") return assistantHeaderFallback;
+function usablePetDisplayName(value, fallback = assistantHeaderFallback) {
+  if (typeof value !== "string") return fallback;
   const name = value.trim();
-  return name.length > 0 ? name : assistantHeaderFallback;
+  return name.length > 0 ? name : fallback;
 }
 
-function updateAssistantHeader(displayName) {
+function updateAssistantHeader(displayName, assetName) {
   const header = document.querySelector(".chat-title");
   if (!header) return;
-  header.textContent = usablePetDisplayName(displayName ?? document.documentElement.dataset.petDisplayName);
+  const fallback = usablePetDisplayName(assetName ?? document.documentElement.dataset.petAssetName, assistantHeaderFallback);
+  header.textContent = usablePetDisplayName(displayName ?? document.documentElement.dataset.petDisplayName, fallback);
 }
 
 const getInteractiveTarget = (event) => {
@@ -514,12 +518,21 @@ const installDefaultPetChat = () => {
   const compactForm = document.createElement("form");
   compactForm.className = "compact-composer-form";
   compactForm.dataset.compactChatForm = "true";
+  compactForm.style.display = "flex";
+  compactForm.style.alignItems = "flex-end";
 
   const compactInput = document.createElement("textarea");
   compactInput.className = "compact-composer-textarea";
   compactInput.dataset.compactChatInput = "true";
   compactInput.placeholder = "Message your pet…";
   compactInput.rows = 1;
+  compactInput.style.display = "block";
+  compactInput.style.boxSizing = "border-box";
+  compactInput.style.flex = "1 1 auto";
+  compactInput.style.minWidth = "0";
+  compactInput.style.minHeight = "28px";
+  compactInput.style.height = "28px";
+  compactInput.style.margin = "0";
 
   const compactSendBtn = document.createElement("button");
   compactSendBtn.type = "submit";
@@ -528,6 +541,15 @@ const installDefaultPetChat = () => {
   compactSendBtn.setAttribute("aria-label", "Send message");
   compactSendBtn.setAttribute("title", "Send (Enter)");
   compactSendBtn.disabled = true;
+  compactSendBtn.style.display = "flex";
+  compactSendBtn.style.alignItems = "center";
+  compactSendBtn.style.justifyContent = "center";
+  compactSendBtn.style.flexShrink = "0";
+  compactSendBtn.style.width = "28px";
+  compactSendBtn.style.height = "28px";
+  compactSendBtn.style.padding = "0";
+  compactSendBtn.style.margin = "0";
+  compactSendBtn.style.boxSizing = "border-box";
   compactSendBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
 
   const compactCancelBtn = document.createElement("button");
@@ -537,6 +559,14 @@ const installDefaultPetChat = () => {
   compactCancelBtn.setAttribute("aria-label", "Cancel turn");
   compactCancelBtn.setAttribute("title", "Cancel turn");
   compactCancelBtn.style.display = "none";
+  compactCancelBtn.style.alignItems = "center";
+  compactCancelBtn.style.justifyContent = "center";
+  compactCancelBtn.style.flexShrink = "0";
+  compactCancelBtn.style.width = "28px";
+  compactCancelBtn.style.height = "28px";
+  compactCancelBtn.style.padding = "0";
+  compactCancelBtn.style.margin = "0";
+  compactCancelBtn.style.boxSizing = "border-box";
   compactCancelBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
 
   compactForm.appendChild(compactInput);
@@ -564,7 +594,8 @@ const installDefaultPetChat = () => {
   avatar.textContent = "✨";
   const title = document.createElement("div");
   title.className = "chat-title";
-  title.textContent = usablePetDisplayName(document.documentElement.dataset.petDisplayName);
+  const initialFallback = usablePetDisplayName(document.documentElement.dataset.petAssetName, assistantHeaderFallback);
+  title.textContent = usablePetDisplayName(document.documentElement.dataset.petDisplayName, initialFallback);
   const statusPill = document.createElement("div");
   statusPill.className = "chat-status-pill";
   statusPill.dataset.statusPill = "true";
@@ -673,14 +704,31 @@ const installDefaultPetChat = () => {
   const composer = document.createElement("form");
   composer.className = "chat-composer";
   composer.dataset.chatComposer = "true";
+  composer.style.display = "flex";
+  composer.style.alignItems = "flex-end";
 
   const inputWrapper = document.createElement("div");
   inputWrapper.className = "chat-input-wrapper";
+  inputWrapper.style.display = "flex";
+  inputWrapper.style.alignItems = "flex-end";
+  inputWrapper.style.flex = "1 1 auto";
+  inputWrapper.style.minWidth = "0";
+  inputWrapper.style.margin = "0";
+  inputWrapper.style.padding = "0";
+  inputWrapper.style.lineHeight = "0";
+
   const input = document.createElement("textarea");
   input.className = "chat-textarea";
   input.dataset.chatInput = "true";
   input.placeholder = "Message your pet…";
   input.rows = 1;
+  input.style.display = "block";
+  input.style.boxSizing = "border-box";
+  input.style.width = "100%";
+  input.style.minHeight = "36px";
+  input.style.height = "36px";
+  input.style.margin = "0";
+  input.style.lineHeight = "18px";
   inputWrapper.appendChild(input);
 
   const sendBtn = document.createElement("button");
@@ -690,6 +738,15 @@ const installDefaultPetChat = () => {
   sendBtn.setAttribute("aria-label", "Send message");
   sendBtn.setAttribute("title", "Send message (Enter)");
   sendBtn.disabled = true;
+  sendBtn.style.display = "flex";
+  sendBtn.style.alignItems = "center";
+  sendBtn.style.justifyContent = "center";
+  sendBtn.style.flexShrink = "0";
+  sendBtn.style.width = "36px";
+  sendBtn.style.height = "36px";
+  sendBtn.style.padding = "0";
+  sendBtn.style.margin = "0";
+  sendBtn.style.boxSizing = "border-box";
   sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
 
   const cancelTurnBtn = document.createElement("button");
@@ -699,6 +756,14 @@ const installDefaultPetChat = () => {
   cancelTurnBtn.setAttribute("aria-label", "Cancel turn");
   cancelTurnBtn.setAttribute("title", "Cancel turn");
   cancelTurnBtn.style.display = "none";
+  cancelTurnBtn.style.alignItems = "center";
+  cancelTurnBtn.style.justifyContent = "center";
+  cancelTurnBtn.style.flexShrink = "0";
+  cancelTurnBtn.style.width = "36px";
+  cancelTurnBtn.style.height = "36px";
+  cancelTurnBtn.style.padding = "0";
+  cancelTurnBtn.style.margin = "0";
+  cancelTurnBtn.style.boxSizing = "border-box";
   cancelTurnBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
 
   composer.appendChild(inputWrapper);
@@ -707,6 +772,80 @@ const installDefaultPetChat = () => {
   panelEl.appendChild(composer);
 
   document.body.appendChild(panelEl);
+
+  const composerStyle = document.createElement("style");
+  composerStyle.setAttribute("data-openpets-composer-styles", "true");
+  composerStyle.textContent = `
+    .chat-composer,
+    .compact-composer-form {
+      display: flex;
+      align-items: flex-end;
+    }
+    .chat-input-wrapper {
+      display: flex;
+      align-items: flex-end;
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      line-height: 0;
+    }
+    .chat-textarea {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 36px;
+      max-height: 96px;
+      margin: 0;
+      line-height: 18px;
+    }
+    .compact-composer-textarea {
+      display: block;
+      box-sizing: border-box;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 28px;
+      margin: 0;
+      line-height: 16px;
+    }
+    .chat-send-btn,
+    .chat-cancel-turn-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      box-sizing: border-box;
+    }
+    .compact-composer-send-btn,
+    .compact-composer-cancel-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      box-sizing: border-box;
+    }
+    .chat-send-btn:disabled,
+    .compact-composer-send-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+  `;
+  const styleTarget = document.head || document.documentElement || document.body;
+  if (styleTarget && typeof styleTarget.appendChild === "function") {
+    styleTarget.appendChild(composerStyle);
+  }
 
   if (typeof ResizeObserver !== "undefined") {
     const panelResizeObserver = new ResizeObserver((entries) => {

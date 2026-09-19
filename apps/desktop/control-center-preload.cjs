@@ -98,6 +98,7 @@ const api = {
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),
   importCodexPet: (petId) => ipcRenderer.invoke("openpets:import-codex-pet", petId),
   openGallery: () => ipcRenderer.invoke("openpets:open-gallery"),
+  openOrganizationsPage: () => ipcRenderer.invoke("openpets:open-organizations-page"),
   removePet: (petId) => ipcRenderer.invoke("openpets:remove-pet", petId),
   onRouteChange: (callback) => {
     const listener = (_event, route) => callback(route);
@@ -116,6 +117,11 @@ const api = {
     const listener = () => callback();
     ipcRenderer.on("openpets:plugins-refresh", listener);
     return () => ipcRenderer.removeListener("openpets:plugins-refresh", listener);
+  },
+  onDashboardRefresh: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("openpets:dashboard-refresh", listener);
+    return () => ipcRenderer.removeListener("openpets:dashboard-refresh", listener);
   },
   getIntegrationsState: (selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-snapshot", selectedPetId, commandMode),
   runIntegrationAction: (action, selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-action", action, selectedPetId, commandMode),

@@ -49,6 +49,13 @@ assert.equal(listeners.has("openpets:plugins-refresh"), true);
 cleanupPlugins();
 assert.equal(listeners.has("openpets:plugins-refresh"), false);
 
+// Verify dashboard refresh listener registration and cleanup
+const dashboardCallback = () => {};
+const cleanupDashboard = exposed.onDashboardRefresh(dashboardCallback);
+assert.equal(listeners.has("openpets:dashboard-refresh"), true);
+cleanupDashboard();
+assert.equal(listeners.has("openpets:dashboard-refresh"), false);
+
 // Verify standard invocations work
 await exposed.getPetsState();
 await exposed.getDashboardSnapshot();
@@ -59,6 +66,7 @@ await exposed.clearConversationHistory();
 await exposed.getVoiceDevices();
 await exposed.refreshVoiceDevices();
 await exposed.saveVoiceDevicePreferences({ preferredInputDeviceId: "mic-1", preferredOutputDeviceId: null });
+await exposed.openOrganizationsPage();
 
 assert.deepEqual(invoked.map(({ channel }) => channel), [
   "openpets:get-pets-state",
@@ -70,6 +78,7 @@ assert.deepEqual(invoked.map(({ channel }) => channel), [
   "openpets:voice-devices-get",
   "openpets:voice-devices-refresh",
   "openpets:voice-devices-save-preferences",
+  "openpets:open-organizations-page",
 ]);
 
 console.log("control-center preload contract passed.");
