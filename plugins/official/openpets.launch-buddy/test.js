@@ -88,7 +88,22 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   h.expectNoErrors();
 }
 
-// 4) Custom message mode and custom sound are honored.
+// 4) The assistant greeting capability immediately uses the configured message and returns success.
+{
+  const h = createTestHarness(register, {
+    permissions: PERMISSIONS,
+    config: { greetingMode: "custom", customMessage: "Assistant launch ready.", delaySeconds: 60, soundEnabled: false },
+    locales: LOCALES,
+    nowMs: 10_000,
+  });
+  await h.start();
+  assert.deepEqual([...h.calls.assistantCapabilities.keys()], ["launch.greet"]);
+  assert.deepEqual(await h.runCapability("launch.greet", {}), { ok: true });
+  h.expectSpoke(/Assistant launch ready\./);
+  h.expectNoErrors();
+}
+
+// 5) Custom message mode and custom sound are honored.
 {
   const h = createTestHarness(register, { permissions: PERMISSIONS, config: { greetingMode: "custom", customMessage: "Welcome, Captain.", frequency: "everyLaunch", delaySeconds: 0, reaction: "none", soundEnabled: true, soundChoice: "custom", customSound: "soft-pop" }, locales: LOCALES, nowMs: 10_000 });
   await h.start();
@@ -101,7 +116,7 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   h.expectNoErrors();
 }
 
-// 5) Random mode uses the configured list deterministically.
+// 6) Random mode uses the configured list deterministically.
 {
   const h = createTestHarness(register, { permissions: PERMISSIONS, config: { greetingMode: "random", messageList: "Alpha\nBeta\nGamma", frequency: "everyLaunch", delaySeconds: 0, soundEnabled: false }, locales: LOCALES, nowMs: 120_000 });
   await h.start();
@@ -110,7 +125,7 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   h.expectNoErrors();
 }
 
-// 6) Away-hours gate waits until enough time has passed, then reset clears state.
+// 7) Away-hours gate waits until enough time has passed, then reset clears state.
 {
   const nowMs = 10 * 60 * 60_000;
   assert.equal(shouldGreet({ enabled: true, frequency: "afterAwayHours", awayHours: 6 }, { lastGreetingAt: nowMs - 5 * 60 * 60_000 }, nowMs), false);

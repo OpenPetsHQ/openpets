@@ -199,7 +199,7 @@ async function scheduleNextTick(ctx, now = Date.now()) {
   } catch {}
 }
 
-export async function feed(ctx, now = Date.now()) {
+export async function feed(ctx, now = Date.now(), { speak = true } = {}) {
   const state = cleanState(await ctx.storage.get("state"));
   const cleanActive = wakeUpIfSleeping(state, now);
   
@@ -219,14 +219,16 @@ export async function feed(ctx, now = Date.now()) {
   
   await ctx.storage.set("state", newState);
   await playActionSound(ctx);
-  
+
   try {
     await ctx.pet.react("celebrating", { showMessage: false });
-    if (xpInfo.leveledUp) {
-      await ctx.pet.speak(ctx.t("speech.levelup"));
-    } else {
-      const idx = Math.floor(Math.random() * 4);
-      await ctx.pet.speak(ctx.t(`speech.feed.${idx}`));
+    if (speak) {
+      if (xpInfo.leveledUp) {
+        await ctx.pet.speak(ctx.t("speech.levelup"));
+      } else {
+        const idx = Math.floor(Math.random() * 4);
+        await ctx.pet.speak(ctx.t(`speech.feed.${idx}`));
+      }
     }
   } catch {}
   
@@ -234,7 +236,7 @@ export async function feed(ctx, now = Date.now()) {
   return newState;
 }
 
-export async function play(ctx, now = Date.now()) {
+export async function play(ctx, now = Date.now(), { speak = true } = {}) {
   const state = cleanState(await ctx.storage.get("state"));
   const cleanActive = wakeUpIfSleeping(state, now);
   
@@ -256,14 +258,16 @@ export async function play(ctx, now = Date.now()) {
   
   await ctx.storage.set("state", newState);
   await playActionSound(ctx);
-  
+
   try {
     await ctx.pet.react("celebrating", { showMessage: false });
-    if (xpInfo.leveledUp) {
-      await ctx.pet.speak(ctx.t("speech.levelup"));
-    } else {
-      const idx = Math.floor(Math.random() * 4);
-      await ctx.pet.speak(ctx.t(`speech.play.${idx}`));
+    if (speak) {
+      if (xpInfo.leveledUp) {
+        await ctx.pet.speak(ctx.t("speech.levelup"));
+      } else {
+        const idx = Math.floor(Math.random() * 4);
+        await ctx.pet.speak(ctx.t(`speech.play.${idx}`));
+      }
     }
   } catch {}
   
@@ -271,7 +275,7 @@ export async function play(ctx, now = Date.now()) {
   return newState;
 }
 
-export async function pet(ctx, now = Date.now()) {
+export async function pet(ctx, now = Date.now(), { speak = true } = {}) {
   const state = cleanState(await ctx.storage.get("state"));
   const cleanActive = wakeUpIfSleeping(state, now);
   
@@ -293,14 +297,16 @@ export async function pet(ctx, now = Date.now()) {
   
   await ctx.storage.set("state", newState);
   await playActionSound(ctx);
-  
+
   try {
     await ctx.pet.react("waving", { showMessage: false });
-    if (xpInfo.leveledUp) {
-      await ctx.pet.speak(ctx.t("speech.levelup"));
-    } else {
-      const idx = Math.floor(Math.random() * 4);
-      await ctx.pet.speak(ctx.t(`speech.pet.${idx}`));
+    if (speak) {
+      if (xpInfo.leveledUp) {
+        await ctx.pet.speak(ctx.t("speech.levelup"));
+      } else {
+        const idx = Math.floor(Math.random() * 4);
+        await ctx.pet.speak(ctx.t(`speech.pet.${idx}`));
+      }
     }
   } catch {}
   
@@ -308,7 +314,7 @@ export async function pet(ctx, now = Date.now()) {
   return newState;
 }
 
-export async function nap(ctx, now = Date.now()) {
+export async function nap(ctx, now = Date.now(), { speak = true } = {}) {
   const state = cleanState(await ctx.storage.get("state"));
   
   const energy = Math.min(100, state.energy + 40);
@@ -329,14 +335,16 @@ export async function nap(ctx, now = Date.now()) {
   
   await ctx.storage.set("state", newState);
   await playActionSound(ctx);
-  
+
   try {
     await ctx.pet.react("waiting", { showMessage: false });
-    if (xpInfo.leveledUp) {
-      await ctx.pet.speak(ctx.t("speech.levelup"));
-    } else {
-      const idx = Math.floor(Math.random() * 4);
-      await ctx.pet.speak(ctx.t(`speech.nap.${idx}`));
+    if (speak) {
+      if (xpInfo.leveledUp) {
+        await ctx.pet.speak(ctx.t("speech.levelup"));
+      } else {
+        const idx = Math.floor(Math.random() * 4);
+        await ctx.pet.speak(ctx.t(`speech.nap.${idx}`));
+      }
     }
   } catch {}
   
@@ -344,14 +352,17 @@ export async function nap(ctx, now = Date.now()) {
   return newState;
 }
 
-export async function showStatus(ctx, now = Date.now()) {
+export async function showStatus(ctx, now = Date.now(), { speak = true } = {}) {
   const state = cleanState(await ctx.storage.get("state"));
   await updatePinned(ctx, state, now);
   
   const mood = getMood(state, now);
-  try {
-    await ctx.pet.speak(ctx.t(`speech.status.${mood}`));
-  } catch {}
+  if (speak) {
+    try {
+      await ctx.pet.speak(ctx.t(`speech.status.${mood}`));
+    } catch {}
+  }
+  return state;
 }
 
 export async function reconcile(ctx, now = Date.now()) {
@@ -376,10 +387,48 @@ export async function reconcile(ctx, now = Date.now()) {
   return savedState;
 }
 
+const assistantInputSchema = {
+  type: "object",
+  additionalProperties: false,
+};
+
+function assistantStateResult(action, state, now) {
+  return {
+    ok: true,
+    action,
+    mood: getMood(state, now),
+    state: cleanState(state),
+  };
+}
+
+async function runAssistantAction(ctx, action, actionHandler) {
+  const now = Date.now();
+  const state = await actionHandler(ctx, now, { speak: false });
+  return assistantStateResult(action, state, now);
+}
+
+async function registerAssistantCapabilities(ctx) {
+  const capabilities = [
+    ["virtual-pet.status", "Read the virtual pet's current care stats and mood.", (context) => runAssistantAction(context, "status", showStatus)],
+    ["virtual-pet.feed", "Feed the virtual pet and return its updated care stats.", (context) => runAssistantAction(context, "feed", feed)],
+    ["virtual-pet.play", "Play with the virtual pet and return its updated care stats.", (context) => runAssistantAction(context, "play", play)],
+    ["virtual-pet.pet", "Pet the virtual pet and return its updated care stats.", (context) => runAssistantAction(context, "pet", pet)],
+    ["virtual-pet.nap", "Put the virtual pet down for a nap and return its updated care stats.", (context) => runAssistantAction(context, "nap", nap)],
+  ];
+
+  for (const [id, description, handler] of capabilities) {
+    await ctx.assistant.registerCapability(
+      { id, description, inputSchema: assistantInputSchema },
+      () => handler(ctx),
+    );
+  }
+}
+
 export function register(OpenPetsPlugin) {
   OpenPetsPlugin.register({
     async start(ctx) {
       await reconcile(ctx);
+      await registerAssistantCapabilities(ctx);
       
       try {
         ctx.events.on("pet:clicked", () => pet(ctx));
