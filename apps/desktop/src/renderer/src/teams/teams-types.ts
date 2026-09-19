@@ -110,7 +110,6 @@ export type TeamsApi = {
 
 export type TeamsNavigationRoute =
   | "dashboard"
-  | "conversation"
   | "pets"
   | "settings"
   | "plugins"

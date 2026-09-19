@@ -28,6 +28,7 @@ import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
 import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow } from "./windows.js";
+import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
@@ -194,6 +195,7 @@ if (!gotSingleInstanceLock) {
     });
     installInternalUiProtocol();
     installInternalUiHandlers();
+    installDefaultPetChatIpcHandlers();
     createAppTray();
     installDefaultPetDisplayHandlers();
     await startLocalIpcServer();

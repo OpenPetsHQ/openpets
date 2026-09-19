@@ -121,7 +121,7 @@ tray.ts → openControlCenterWindow(route) → windows.ts
 ├── hardened BrowserWindow loads Vite renderer or packaged dist/renderer/index.html
 ├── control-center-preload.cjs exposes page-specific APIs
 ├── Dashboard snapshot: default pet, catalog, plugin health, update status, activity
-└── renderer/src/main.tsx routes Dashboard/Conversation/Pets/Integrations/Plugins/Settings
+└── renderer/src/main.tsx routes Dashboard/Pets/Integrations/Plugins/Settings
 ```
 
 **Plugin Flow**:
@@ -223,11 +223,15 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
+- `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the expanded attached chat panel
+- `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling attached chat expansion, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
+- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states
 - `window-tracker-latch.ts`: Re-entrancy latch helper (`createLatchedTick`) that prevents overlapping async ticks from stacking; used by the window-tracking poller
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Window creation (transparent, frameless, always-on-top), HTML/CSS generation, sprite animation states, speech bubbles, status badges, transient displays, and validated V1/V2 installed-atlas layout selection
+- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, sprite animation states, compact default-pet companion launcher, in-pet attached chat panel styles, speech bubbles, status badges, transient displays, and validated V1/V2 installed-atlas layout selection
+- `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging

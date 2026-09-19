@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), "openpets-provider-profiles-"));
 try {
   initializePluginPlatformSettings(dir);
   const presetModes = Object.fromEntries(providerPresets.map((preset) => [preset.id, preset.credentialMode]));
-  assert.deepEqual(presetModes, { openai: "required", anthropic: "required", ollama: "none", "lm-studio": "none", vllm: "none", "minimax-chat": "required", whisper: "required", elevenlabs: "required", "system-tts": "none" });
+  assert.deepEqual(presetModes, { openrouter: "required", openai: "required", anthropic: "required", ollama: "none", "lm-studio": "none", vllm: "none", "minimax-chat": "required", whisper: "required", elevenlabs: "required", "system-tts": "none" });
   createProviderProfile({ id: "text-local", label: "Local text", adapter: "openai-compatible-text", model: "llama", baseUrl: "http://127.0.0.1:11434/v1", headers: [{ name: "X-Client", value: "openpets" }] });
   createProviderProfile({ id: "stt-cloud", label: "Whisper", adapter: "openai-compatible-transcription", model: "whisper-1", baseUrl: "https://stt.example/v1", secretRef: "stt" });
   createProviderProfile({ id: "system-voice", label: "System", adapter: "system-tts", model: "" });

@@ -181,11 +181,11 @@ pet keeps rendering during fullscreen video and games.
 ### Control Center (renderer)
 
 The React/Tailwind UI under `src/renderer/`. Pages: **Dashboard,
-Pets, Settings, Plugins, Integrations, Teams** (the **Conversation** route is currently
-internal/experimental and not exposed in Control Center navigation). It is a pure consumer of main-process
+Pets, Settings, Plugins, Integrations, Teams**. It is a pure consumer of main-process
 snapshots and actions exposed over the preload bridge - it holds no privileged
-capability of its own. The renderer is the only "frontend" in scope for these
-docs (the `web/` marketing site is out of scope). See
+capability of its own. The Control Center renderer is the only management
+frontend in scope for these docs; the companion renderer is documented above
+and the `web/` marketing site is out of scope. See
 `src/renderer/src/codemap.md` for component structure.
 
 The **Teams** route presents organization membership, applied/pending revisions,
@@ -204,26 +204,32 @@ Provider-profile bridge operations are exposed by
 presets, role status, and derived realtime status; create/update/delete a
 profile; select a profile independently for each role; update platform gates;
 and set/check/delete a profile credential. Responses contain only credential
-presence and header names. The Control Center Conversation surface consumes a
-sanitized, host-owned current-session projection; it does not own assistant
-state or the persisted archive. The projection retains only the most recent
-200 display items. Separately, #149 provides a local-only atomic archive at
-`userData/openpets-conversation-history.json`. It stores only terminal
-user/assistant text from the canonical shared voice/chat conversation, retaining
-at most 200 messages for 30 days and 512 KiB total, with a 64 KiB per-entry cap
-and newest entries preserved. Corrupt or malformed archives are quarantined
-when possible, replaced with an empty archive, and never partially trusted.
-If archive storage is unavailable, history is disabled for that session without
-blocking the Pet Assistant.
-The archive is distinct from active in-memory context. Its prompt contribution
-is the most recent 24 entries, bounded to 128 KiB; tool definitions/results,
-provider payloads, and personality data are excluded. A narrow preload/main
-bridge exposes list, delete-one, and delete-all only to the Conversation route.
-Its separate **Local history** panel lets the owner open an archived message,
-return to the active session, delete one entry, or confirm irreversible deletion
-of all entries; it refreshes when the host becomes ready and after terminal
-turns/deletions. No semantic retrieval, summary, preference, network
-synchronization, or provider call is involved in archive reads or erasure.
+presence and header names.
+
+### Pet Assistant In-Pet Attached Chat & Compact Composer
+
+The default pet carrier contains an in-place compact text composer and an attached expandable
+in-pet chat panel managed by `default-pet-chat.ts` and `pet-preload.cjs`. In its default collapsed
+state (200×200), the carrier displays speech bubbles and quick action buttons. Tapping Chat or the
+launcher switches the compact frame into an in-place text composer (input/textarea, Send, cancel,
+busy state) without resizing the window or opening full history. Submitting a turn hands off response
+rendering directly to the pet speech bubble.
+
+When full history is explicitly opened via the transcript affordance, the carrier window expands to
+420×640 using bijective coordinate transforms from `default-pet-chat-geometry.ts` that
+preserve the pet's on-screen anchor point. The attached chat panel and pet move as a single
+native unit, remaining interactive during motion and dragging. Preserved draft input is
+synchronized across the compact composer and expanded chat views.
+
+On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed
+and expanded carrier states, keeping mouse passthrough and focus semantics correct
+under X11 and Wayland.
+
+The in-pet chat interface exposes the current conversation snapshot, typed turn
+actions, tool invocation cards, prompt suggestions, and Talk actions/events. Archive
+list/delete/clear operations remain host-owned Control Center IPC for Settings presentation
+and are never exposed to the pet carrier. The local-only atomic archive at
+`userData/openpets-conversation-history.json` remains the persistence/context seam.
 Normalized voice transcript events remain an
 integration seam for #147: their adapter must provide a process-lifetime
 monotonic sequence within the voice source; voice ordering is deliberately
@@ -233,7 +239,7 @@ Provider updates use sparse patches: omitted fields preserve current values,
 redacted header list, and `headers: []` intentionally clears it.
 
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
-`startVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
+`startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).
 The shortcut accelerator is persisted in Settings and its runtime status and
 reason are part of the authoritative Talk snapshot/event contract. Runtime

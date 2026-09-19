@@ -35,6 +35,11 @@ const allowedReactionStates = new Set(["idle", "running-right", "running-left", 
 let lastInteractiveHit = null;
 let dragging = false;
 
+const isInteractivePanelOrBubble = (target) => {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .bubble, .openpets-context-menu"));
+};
+
 const dismissBubble = (event) => {
   if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
 
@@ -53,7 +58,7 @@ const dismissBubble = (event) => {
   bubble.remove();
 
   const newTarget = document.elementFromPoint(event.clientX, event.clientY);
-  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble")) || dragging;
+  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher]")) || dragging;
   reportInteractiveHit(stillInteractive, "bubble-dismiss", true);
 
   ipcRenderer.send("openpets:bubble-dismissed", dismissToken);
@@ -98,7 +103,31 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
 
   const apply = () => {
     document.documentElement.dataset.reactionState = state.reactionState;
-    document.body.innerHTML = state.bodyHtml;
+    const currentStage = document.querySelector(".stage");
+    if (currentStage) {
+      try {
+        const template = document.createElement("template");
+        template.innerHTML = state.bodyHtml.trim();
+        const newStage = template.content && template.content.firstElementChild;
+        if (newStage && newStage.classList && newStage.classList.contains("stage")) {
+          currentStage.replaceWith(newStage);
+        } else {
+          currentStage.outerHTML = state.bodyHtml;
+        }
+      } catch {
+        currentStage.outerHTML = state.bodyHtml;
+      }
+    } else {
+      document.body.insertAdjacentHTML("afterbegin", state.bodyHtml);
+    }
+    if (spriteOverrideElement) {
+      const shell = document.querySelector(".pet-shell");
+      if (shell && !shell.contains(spriteOverrideElement)) {
+        const base = shell.querySelector(".sprite, .installed-card");
+        if (base) base.style.visibility = "hidden";
+        shell.appendChild(spriteOverrideElement);
+      }
+    }
   };
 
   if (document.readyState === "loading") {
@@ -110,7 +139,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
 
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble");
+  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu");
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -133,7 +162,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -184,18 +213,23 @@ const installPetSenses = () => {
     if (event.button !== 0) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (isInteractivePanelOrBubble(target)) return;
     if (!target.closest(".pet-hitbox, .pet-shell")) return;
     if (Date.now() < suppressClickUntil) return;
     sendPetEvent("pet:clicked", {});
   });
   document.addEventListener("dblclick", (event) => {
     const target = event.target;
-    if (!(target instanceof Element) || !target.closest(".pet-hitbox, .pet-shell")) return;
+    if (!(target instanceof Element)) return;
+    if (isInteractivePanelOrBubble(target)) return;
+    if (!target.closest(".pet-hitbox, .pet-shell")) return;
     sendPetEvent("pet:doubleClicked", {});
   });
   document.addEventListener("mouseover", (event) => {
     const target = event.target;
-    if (!(target instanceof Element) || !target.closest(".pet-hitbox, .pet-shell")) return;
+    if (!(target instanceof Element)) return;
+    if (isInteractivePanelOrBubble(target)) return;
+    if (!target.closest(".pet-hitbox, .pet-shell")) return;
     const now = Date.now();
     if (now - lastHoverSentAt < 2000) return;
     lastHoverSentAt = now;
@@ -206,11 +240,15 @@ const installPetSenses = () => {
   const maxDropFileBytes = 5 * 1024 * 1024;
   document.addEventListener("dragover", (event) => {
     const target = event.target;
-    if (target instanceof Element && target.closest(".pet-hitbox, .pet-shell")) event.preventDefault();
+    if (!(target instanceof Element)) return;
+    if (isInteractivePanelOrBubble(target)) return;
+    if (target.closest(".pet-hitbox, .pet-shell")) event.preventDefault();
   });
   document.addEventListener("drop", (event) => {
     const target = event.target;
-    if (!(target instanceof Element) || !target.closest(".pet-hitbox, .pet-shell")) return;
+    if (!(target instanceof Element)) return;
+    if (isInteractivePanelOrBubble(target)) return;
+    if (!target.closest(".pet-hitbox, .pet-shell")) return;
     event.preventDefault();
     const transfer = event.dataTransfer;
     if (!transfer) return;
@@ -227,6 +265,823 @@ const installPetSenses = () => {
     const text = String(transfer.getData("text/plain") || "").slice(0, maxDropTextBytes);
     if (text) sendPetEvent("pet:drop", { kind: "text", text });
   });
+};
+
+// --- Default Pet In-Window Attached Chat Panel -------------------------------
+
+const escapeHtml = (value) => {
+  if (typeof value !== "string") return "";
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+};
+
+const renderMarkdown = (text) => {
+  if (!text) return "";
+  let safe = escapeHtml(text);
+  // Code blocks: ```lang ... ```
+  safe = safe.replace(/```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
+    return `<pre class="chat-code-block"><code>${code.trim()}</code></pre>`;
+  });
+  // Inline code: `code`
+  safe = safe.replace(/`([^`]+)`/g, '<code class="chat-code-inline">$1</code>');
+  // Bold: **text**
+  safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic: *text*
+  safe = safe.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // Lists: lines starting with "- " or "* "
+  const lines = safe.split("\n");
+  let inList = false;
+  const processedLines = [];
+  for (const line of lines) {
+    const listMatch = line.match(/^(\s*)[-*]\s+(.*)$/);
+    if (listMatch) {
+      if (!inList) {
+        processedLines.push("<ul>");
+        inList = true;
+      }
+      processedLines.push(`<li>${listMatch[2]}</li>`);
+    } else {
+      if (inList) {
+        processedLines.push("</ul>");
+        inList = false;
+      }
+      processedLines.push(line);
+    }
+  }
+  if (inList) processedLines.push("</ul>");
+  return processedLines.join("\n").replace(/(?<!<\/pre>|<\/ul>|<\/li>)\n/g, "<br>");
+};
+
+const defaultPromptSuggestions = [
+  "What can you do?",
+  "Check system status",
+  "Summarize activity",
+];
+
+const installDefaultPetChat = () => {
+  if (document.documentElement?.dataset?.petRole !== "default") return;
+
+  let isExpanded = false;
+  let isCompactOpen = false;
+  let conversationSnapshot = {
+    conversationId: "pet-assistant",
+    items: [],
+    activity: "idle",
+    lastSequence: 0,
+    revision: 0,
+  };
+  let voiceSnapshot = {
+    state: "idle",
+    isMuted: false,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "unregistered",
+    shortcutReason: null,
+  };
+  let promptSuggestions = [...defaultPromptSuggestions];
+  let preservedDraft = "";
+  let errorToastMessage = null;
+  let errorToastTimer = null;
+  let userScrolledUp = false;
+
+  // --- 1. Compact In-Place Composer Structure ---
+  const compactEl = document.createElement("div");
+  compactEl.className = "openpets-compact-composer";
+  compactEl.setAttribute("role", "region");
+  compactEl.setAttribute("aria-label", "Compact Pet Chat");
+
+  const compactHeader = document.createElement("div");
+  compactHeader.className = "compact-composer-header";
+
+  const compactTitle = document.createElement("div");
+  compactTitle.className = "compact-composer-title";
+  const compactAvatar = document.createElement("span");
+  compactAvatar.textContent = "✨";
+  const compactLabel = document.createElement("span");
+  compactLabel.textContent = "Chat";
+  const compactStatusDot = document.createElement("span");
+  compactStatusDot.className = "compact-composer-status-dot";
+  compactStatusDot.style.display = "none";
+  compactTitle.appendChild(compactAvatar);
+  compactTitle.appendChild(compactLabel);
+  compactTitle.appendChild(compactStatusDot);
+
+  const compactActions = document.createElement("div");
+  compactActions.className = "compact-composer-actions";
+
+  const compactHistoryBtn = document.createElement("button");
+  compactHistoryBtn.type = "button";
+  compactHistoryBtn.className = "compact-composer-btn is-history";
+  compactHistoryBtn.dataset.chatHistoryBtn = "true";
+  compactHistoryBtn.setAttribute("aria-label", "View conversation history");
+  compactHistoryBtn.setAttribute("title", "Conversation history / full panel");
+  compactHistoryBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>';
+
+  const compactCloseBtn = document.createElement("button");
+  compactCloseBtn.type = "button";
+  compactCloseBtn.className = "compact-composer-btn is-close";
+  compactCloseBtn.dataset.chatComposerCloseBtn = "true";
+  compactCloseBtn.setAttribute("aria-label", "Close composer");
+  compactCloseBtn.setAttribute("title", "Close (Esc)");
+  compactCloseBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+  compactActions.appendChild(compactHistoryBtn);
+  compactActions.appendChild(compactCloseBtn);
+
+  compactHeader.appendChild(compactTitle);
+  compactHeader.appendChild(compactActions);
+  compactEl.appendChild(compactHeader);
+
+  const compactError = document.createElement("div");
+  compactError.className = "compact-composer-error";
+  compactError.dataset.compactChatError = "true";
+  compactError.style.display = "none";
+  compactEl.appendChild(compactError);
+
+  const compactForm = document.createElement("form");
+  compactForm.className = "compact-composer-form";
+  compactForm.dataset.compactChatForm = "true";
+
+  const compactInput = document.createElement("textarea");
+  compactInput.className = "compact-composer-textarea";
+  compactInput.dataset.compactChatInput = "true";
+  compactInput.placeholder = "Ask pet... (Enter to send)";
+  compactInput.rows = 1;
+
+  const compactSendBtn = document.createElement("button");
+  compactSendBtn.type = "submit";
+  compactSendBtn.className = "compact-composer-send-btn";
+  compactSendBtn.dataset.compactChatSendBtn = "true";
+  compactSendBtn.setAttribute("aria-label", "Send message");
+  compactSendBtn.setAttribute("title", "Send (Enter)");
+  compactSendBtn.disabled = true;
+  compactSendBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+
+  const compactCancelBtn = document.createElement("button");
+  compactCancelBtn.type = "button";
+  compactCancelBtn.className = "compact-composer-cancel-btn";
+  compactCancelBtn.dataset.compactChatCancelBtn = "true";
+  compactCancelBtn.setAttribute("aria-label", "Cancel turn");
+  compactCancelBtn.setAttribute("title", "Cancel turn");
+  compactCancelBtn.style.display = "none";
+  compactCancelBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
+
+  compactForm.appendChild(compactInput);
+  compactForm.appendChild(compactSendBtn);
+  compactForm.appendChild(compactCancelBtn);
+  compactEl.appendChild(compactForm);
+
+  document.body.appendChild(compactEl);
+
+  // --- 2. Full In-Pet Attached Chat Panel Structure ---
+  const panelEl = document.createElement("div");
+  panelEl.className = "openpets-chat-panel";
+  panelEl.setAttribute("role", "region");
+  panelEl.setAttribute("aria-label", "Pet Assistant Chat");
+
+  // Panel Header
+  const header = document.createElement("div");
+  header.className = "chat-header";
+
+  const headerLeft = document.createElement("div");
+  headerLeft.className = "chat-header-left";
+  const avatar = document.createElement("div");
+  avatar.className = "chat-avatar";
+  avatar.setAttribute("aria-hidden", "true");
+  avatar.textContent = "✨";
+  const title = document.createElement("div");
+  title.className = "chat-title";
+  title.textContent = "Assistant";
+  const statusPill = document.createElement("div");
+  statusPill.className = "chat-status-pill";
+  statusPill.dataset.statusPill = "true";
+  const statusDot = document.createElement("span");
+  statusDot.className = "chat-status-dot";
+  const statusText = document.createElement("span");
+  statusText.dataset.statusText = "true";
+  statusText.textContent = "Ready";
+  statusPill.appendChild(statusDot);
+  statusPill.appendChild(statusText);
+  headerLeft.appendChild(avatar);
+  headerLeft.appendChild(title);
+  headerLeft.appendChild(statusPill);
+
+  const headerRight = document.createElement("div");
+  headerRight.className = "chat-header-right";
+  const voiceBtn = document.createElement("button");
+  voiceBtn.type = "button";
+  voiceBtn.className = "chat-voice-btn";
+  voiceBtn.dataset.chatVoiceBtn = "true";
+  voiceBtn.setAttribute("aria-label", "Toggle voice assistant");
+  voiceBtn.innerHTML = '<svg class="chat-mic-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
+  const voiceBtnLabel = document.createElement("span");
+  voiceBtnLabel.dataset.voiceBtnLabel = "true";
+  voiceBtnLabel.textContent = "Talk";
+  voiceBtn.appendChild(voiceBtnLabel);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "chat-close-btn";
+  closeBtn.dataset.chatCloseBtn = "true";
+  closeBtn.setAttribute("aria-label", "Collapse chat");
+  closeBtn.setAttribute("title", "Collapse chat (Esc)");
+  closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+  headerRight.appendChild(voiceBtn);
+  headerRight.appendChild(closeBtn);
+
+  header.appendChild(headerLeft);
+  header.appendChild(headerRight);
+  panelEl.appendChild(header);
+
+  // Panel Voice banner
+  const voiceBanner = document.createElement("div");
+  voiceBanner.className = "chat-voice-banner";
+  voiceBanner.dataset.voiceBanner = "true";
+  voiceBanner.style.display = "none";
+
+  const voiceBannerInfo = document.createElement("div");
+  voiceBannerInfo.className = "chat-voice-banner-info";
+  const voiceWave = document.createElement("div");
+  voiceWave.className = "chat-voice-wave";
+  voiceWave.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 4; i += 1) {
+    const bar = document.createElement("div");
+    bar.className = "chat-voice-bar";
+    voiceWave.appendChild(bar);
+  }
+  const voiceBannerText = document.createElement("span");
+  voiceBannerText.dataset.voiceBannerText = "true";
+  voiceBannerText.textContent = "Listening...";
+  voiceBannerInfo.appendChild(voiceWave);
+  voiceBannerInfo.appendChild(voiceBannerText);
+
+  const voiceBannerActions = document.createElement("div");
+  voiceBannerActions.className = "chat-voice-actions";
+  voiceBannerActions.dataset.voiceBannerActions = "true";
+
+  voiceBanner.appendChild(voiceBannerInfo);
+  voiceBanner.appendChild(voiceBannerActions);
+  panelEl.appendChild(voiceBanner);
+
+  // Panel Error banner
+  const errorBanner = document.createElement("div");
+  errorBanner.className = "chat-error-banner";
+  errorBanner.dataset.errorBanner = "true";
+  errorBanner.style.display = "none";
+  const errorText = document.createElement("span");
+  errorText.dataset.errorText = "true";
+  const errorDismiss = document.createElement("button");
+  errorDismiss.type = "button";
+  errorDismiss.className = "chat-close-btn";
+  errorDismiss.dataset.errorDismiss = "true";
+  errorDismiss.setAttribute("aria-label", "Dismiss error");
+  errorDismiss.textContent = "✕";
+  errorBanner.appendChild(errorText);
+  errorBanner.appendChild(errorDismiss);
+  panelEl.appendChild(errorBanner);
+
+  // Panel Transcript
+  const transcript = document.createElement("div");
+  transcript.className = "chat-transcript";
+  transcript.dataset.chatTranscript = "true";
+  transcript.setAttribute("tabindex", "0");
+  transcript.setAttribute("role", "log");
+  transcript.setAttribute("aria-live", "polite");
+  panelEl.appendChild(transcript);
+
+  // Panel Suggestions
+  const suggestions = document.createElement("div");
+  suggestions.className = "chat-suggestions";
+  suggestions.dataset.chatSuggestions = "true";
+  suggestions.style.display = "none";
+  panelEl.appendChild(suggestions);
+
+  // Panel Composer
+  const composer = document.createElement("form");
+  composer.className = "chat-composer";
+  composer.dataset.chatComposer = "true";
+
+  const inputWrapper = document.createElement("div");
+  inputWrapper.className = "chat-input-wrapper";
+  const input = document.createElement("textarea");
+  input.className = "chat-textarea";
+  input.dataset.chatInput = "true";
+  input.placeholder = "Ask anything... (Enter to send, Shift+Enter for newline)";
+  input.rows = 1;
+  inputWrapper.appendChild(input);
+
+  const sendBtn = document.createElement("button");
+  sendBtn.type = "submit";
+  sendBtn.className = "chat-send-btn";
+  sendBtn.dataset.chatSendBtn = "true";
+  sendBtn.setAttribute("aria-label", "Send message");
+  sendBtn.setAttribute("title", "Send message (Enter)");
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+
+  const cancelTurnBtn = document.createElement("button");
+  cancelTurnBtn.type = "button";
+  cancelTurnBtn.className = "chat-cancel-turn-btn";
+  cancelTurnBtn.dataset.chatCancelTurnBtn = "true";
+  cancelTurnBtn.setAttribute("aria-label", "Cancel turn");
+  cancelTurnBtn.setAttribute("title", "Cancel turn");
+  cancelTurnBtn.style.display = "none";
+  cancelTurnBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
+
+  composer.appendChild(inputWrapper);
+  composer.appendChild(sendBtn);
+  composer.appendChild(cancelTurnBtn);
+  panelEl.appendChild(composer);
+
+  document.body.appendChild(panelEl);
+
+  // --- Helper & State Updaters ---
+  const showErrorToast = (msg) => {
+    errorToastMessage = msg;
+    if (errorToastTimer) clearTimeout(errorToastTimer);
+    if (msg) {
+      errorText.textContent = msg;
+      errorBanner.style.display = "flex";
+      compactError.textContent = msg;
+      compactError.style.display = "block";
+      errorToastTimer = setTimeout(() => {
+        errorToastMessage = null;
+        errorBanner.style.display = "none";
+        compactError.style.display = "none";
+      }, 6000);
+    } else {
+      errorBanner.style.display = "none";
+      compactError.style.display = "none";
+    }
+  };
+
+  const autoResizeInput = () => {
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(96, Math.max(36, input.scrollHeight))}px`;
+  };
+
+  const autoResizeCompactInput = () => {
+    if (!compactInput) return;
+    compactInput.style.height = "auto";
+    compactInput.style.height = `${Math.min(68, Math.max(28, compactInput.scrollHeight))}px`;
+  };
+
+  const updateSendButtonState = () => {
+    const text = input ? input.value.trim() : "";
+    const isBusy = conversationSnapshot.activity !== "idle";
+    if (sendBtn) {
+      sendBtn.disabled = text.length === 0 || isBusy;
+      sendBtn.style.display = isBusy ? "none" : "flex";
+    }
+    if (cancelTurnBtn) {
+      cancelTurnBtn.style.display = isBusy ? "flex" : "none";
+    }
+  };
+
+  const updateCompactSendButtonState = () => {
+    const text = compactInput ? compactInput.value.trim() : "";
+    const isBusy = conversationSnapshot.activity !== "idle";
+    if (compactSendBtn) {
+      compactSendBtn.disabled = text.length === 0 || isBusy;
+      compactSendBtn.style.display = isBusy ? "none" : "flex";
+    }
+    if (compactCancelBtn) {
+      compactCancelBtn.style.display = isBusy ? "flex" : "none";
+    }
+  };
+
+  const setCompactOpen = (open) => {
+    isCompactOpen = Boolean(open);
+    document.documentElement.dataset.compactComposerOpen = isCompactOpen ? "true" : "false";
+    if (isCompactOpen) {
+      compactInput.value = preservedDraft;
+      autoResizeCompactInput();
+      updateCompactSendButtonState();
+      setTimeout(() => compactInput.focus(), 30);
+    }
+  };
+
+  const renderStatus = () => {
+    const act = conversationSnapshot.activity;
+    const isBusy = act !== "idle";
+
+    // Compact header status
+    if (isBusy) {
+      compactStatusDot.style.display = "inline-block";
+      compactLabel.textContent = act === "thinking" ? "Thinking..." : act === "acting" ? (conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...") : "Responding...";
+    } else {
+      compactStatusDot.style.display = "none";
+      compactLabel.textContent = "Chat";
+    }
+
+    // Panel header status
+    statusPill.className = "chat-status-pill";
+    if (act === "thinking") {
+      statusPill.classList.add("is-thinking");
+      statusText.textContent = "Thinking...";
+    } else if (act === "acting") {
+      statusPill.classList.add("is-acting");
+      statusText.textContent = conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...";
+    } else if (act === "responding") {
+      statusPill.classList.add("is-responding");
+      statusText.textContent = "Responding...";
+    } else if (voiceSnapshot.state !== "idle") {
+      statusPill.classList.add("is-voice");
+      statusText.textContent = voiceSnapshot.isMuted ? "Muted" : "Voice active";
+    } else {
+      statusText.textContent = "Ready";
+    }
+  };
+
+  const renderVoiceControls = () => {
+    const state = voiceSnapshot.state;
+    const isMuted = voiceSnapshot.isMuted;
+
+    voiceBtn.className = "chat-voice-btn";
+    if (state !== "idle") {
+      voiceBtn.classList.add("is-active");
+      if (isMuted) voiceBtn.classList.add("is-muted");
+    }
+
+    if (state === "idle") {
+      voiceBtnLabel.textContent = "Talk";
+      voiceBanner.style.display = "none";
+    } else {
+      voiceBtnLabel.textContent = isMuted ? "Unmute" : state === "listening" ? "Listening" : state === "speaking" ? "Speaking" : "Active";
+      voiceBanner.style.display = "flex";
+
+      if (state === "listening") {
+        voiceBannerText.textContent = isMuted ? "Microphone is muted" : "Listening to you...";
+      } else if (state === "thinking") {
+        voiceBannerText.textContent = "Thinking...";
+      } else if (state === "speaking") {
+        voiceBannerText.textContent = "Speaking...";
+      } else if (state === "error") {
+        voiceBannerText.textContent = voiceSnapshot.error || "Voice error";
+      } else {
+        voiceBannerText.textContent = "Voice connected";
+      }
+
+      voiceBannerActions.innerHTML = "";
+      if (state === "error") {
+        const retryBtn = document.createElement("button");
+        retryBtn.type = "button";
+        retryBtn.className = "chat-voice-action-btn";
+        retryBtn.textContent = "Retry";
+        retryBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-retry"));
+        voiceBannerActions.appendChild(retryBtn);
+      } else {
+        const muteBtn = document.createElement("button");
+        muteBtn.type = "button";
+        muteBtn.className = "chat-voice-action-btn";
+        muteBtn.textContent = isMuted ? "Unmute" : "Mute";
+        muteBtn.addEventListener("click", () => {
+          if (isMuted) ipcRenderer.invoke("openpets:default-pet-chat-voice-unmute");
+          else ipcRenderer.invoke("openpets:default-pet-chat-voice-mute");
+        });
+        voiceBannerActions.appendChild(muteBtn);
+
+        if (state === "speaking") {
+          const interruptBtn = document.createElement("button");
+          interruptBtn.type = "button";
+          interruptBtn.className = "chat-voice-action-btn";
+          interruptBtn.textContent = "Interrupt";
+          interruptBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-interrupt"));
+          voiceBannerActions.appendChild(interruptBtn);
+        }
+      }
+
+      const endBtn = document.createElement("button");
+      endBtn.type = "button";
+      endBtn.className = "chat-voice-action-btn is-end";
+      endBtn.textContent = "End";
+      endBtn.addEventListener("click", () => ipcRenderer.invoke("openpets:default-pet-chat-voice-end"));
+      voiceBannerActions.appendChild(endBtn);
+    }
+  };
+
+  const renderTranscript = () => {
+    const items = conversationSnapshot.items || [];
+    if (items.length === 0) {
+      transcript.innerHTML = `
+        <div class="chat-empty">
+          <div class="chat-empty-icon" aria-hidden="true">🐾</div>
+          <div class="chat-empty-title">Hi, how can I help?</div>
+          <div class="chat-empty-subtitle">Ask questions, generate actions, or start a voice conversation.</div>
+        </div>
+      `;
+    } else {
+      const parts = [];
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i];
+        if (item.kind === "message") {
+          const isUser = item.role === "user";
+          const isLast = i === items.length - 1;
+          const showCursor = !isUser && (item.partial || (isLast && conversationSnapshot.activity === "responding"));
+          const bubbleContent = isUser ? escapeHtml(item.text) : renderMarkdown(item.text);
+          const cursorHtml = showCursor ? '<span class="chat-typing-cursor" aria-hidden="true"></span>' : '';
+          parts.push(`
+            <div class="chat-msg ${isUser ? "is-user" : "is-assistant"}" data-msg-id="${escapeHtml(item.id)}">
+              <div class="chat-msg-bubble">${bubbleContent}${cursorHtml}</div>
+            </div>
+          `);
+        } else if (item.kind === "action") {
+          const statusClass = `is-${item.status}`;
+          parts.push(`
+            <div class="chat-action-card" data-action-id="${escapeHtml(item.id)}">
+              <div class="chat-action-left">
+                <svg class="chat-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                <span class="chat-action-name">${escapeHtml(item.toolName)}</span>
+              </div>
+              <span class="chat-action-badge ${statusClass}">${escapeHtml(item.status)}</span>
+            </div>
+          `);
+        }
+      }
+      transcript.innerHTML = parts.join("");
+    }
+
+    if (!userScrolledUp) {
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+  };
+
+  const renderSuggestions = () => {
+    const isIdle = conversationSnapshot.activity === "idle";
+    if (isIdle && promptSuggestions && promptSuggestions.length > 0) {
+      suggestions.style.display = "flex";
+      suggestions.innerHTML = promptSuggestions.slice(0, 3).map((suggestion) => `
+        <button type="button" class="chat-chip" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>
+      `).join("");
+    } else {
+      suggestions.style.display = "none";
+      suggestions.innerHTML = "";
+    }
+  };
+
+  const renderAll = () => {
+    renderStatus();
+    renderVoiceControls();
+    renderTranscript();
+    renderSuggestions();
+    updateSendButtonState();
+    updateCompactSendButtonState();
+  };
+
+  // --- Transcript scroll detection ---
+  transcript.addEventListener("scroll", () => {
+    userScrolledUp = transcript.scrollTop + transcript.clientHeight < transcript.scrollHeight - 35;
+  }, { passive: true });
+
+  // --- Suggestions click ---
+  suggestions.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-suggestion]");
+    if (!chip) return;
+    const text = chip.dataset.suggestion;
+    if (!text) return;
+    input.value = text;
+    compactInput.value = text;
+    preservedDraft = text;
+    autoResizeInput();
+    autoResizeCompactInput();
+    updateSendButtonState();
+    updateCompactSendButtonState();
+    sendMessage(text);
+  });
+
+  // --- Message Sending Handlers ---
+  const sendMessage = (textToSend) => {
+    const text = (textToSend ?? input.value).trim();
+    if (!text) return;
+    input.value = "";
+    compactInput.value = "";
+    preservedDraft = "";
+    autoResizeInput();
+    autoResizeCompactInput();
+    updateSendButtonState();
+    updateCompactSendButtonState();
+    userScrolledUp = false;
+
+    ipcRenderer.invoke("openpets:default-pet-chat-send-message", text).catch((err) => {
+      showErrorToast(err && err.message ? err.message : "Failed to send message");
+    });
+  };
+
+  const sendCompactMessage = (textToSend) => {
+    const text = (textToSend ?? compactInput.value).trim();
+    if (!text) return;
+    compactInput.value = "";
+    input.value = "";
+    preservedDraft = "";
+    autoResizeCompactInput();
+    autoResizeInput();
+    updateCompactSendButtonState();
+    updateSendButtonState();
+    setCompactOpen(false);
+    userScrolledUp = false;
+
+    ipcRenderer.invoke("openpets:default-pet-chat-send-message", text).catch((err) => {
+      showErrorToast(err && err.message ? err.message : "Failed to send message");
+    });
+  };
+
+  // --- Compact Form Listeners ---
+  compactInput.addEventListener("input", () => {
+    preservedDraft = compactInput.value;
+    input.value = preservedDraft;
+    autoResizeCompactInput();
+    autoResizeInput();
+    updateCompactSendButtonState();
+    updateSendButtonState();
+  });
+
+  compactInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      sendCompactMessage();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setCompactOpen(false);
+    }
+  });
+
+  compactForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendCompactMessage();
+  });
+
+  compactCancelBtn.addEventListener("click", () => {
+    ipcRenderer.invoke("openpets:default-pet-chat-cancel-turn").catch(() => {});
+  });
+
+  compactHistoryBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    preservedDraft = compactInput.value;
+    setCompactOpen(false);
+    ipcRenderer.send("openpets:default-pet-chat-expand");
+  });
+
+  compactCloseBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    preservedDraft = compactInput.value;
+    setCompactOpen(false);
+  });
+
+  // --- Panel Form Listeners ---
+  input.addEventListener("input", () => {
+    preservedDraft = input.value;
+    compactInput.value = preservedDraft;
+    autoResizeInput();
+    autoResizeCompactInput();
+    updateSendButtonState();
+    updateCompactSendButtonState();
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      sendMessage();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      preservedDraft = input.value;
+      ipcRenderer.send("openpets:default-pet-chat-collapse");
+    }
+  });
+
+  composer.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendMessage();
+  });
+
+  cancelTurnBtn.addEventListener("click", () => {
+    ipcRenderer.invoke("openpets:default-pet-chat-cancel-turn").catch(() => {});
+  });
+
+  voiceBtn.addEventListener("click", () => {
+    if (voiceSnapshot.state === "idle") {
+      ipcRenderer.invoke("openpets:default-pet-chat-voice-start").catch((err) => {
+        showErrorToast(err && err.message ? err.message : "Failed to start voice");
+      });
+    } else if (voiceSnapshot.isMuted) {
+      ipcRenderer.invoke("openpets:default-pet-chat-voice-unmute").catch(() => {});
+    } else {
+      ipcRenderer.invoke("openpets:default-pet-chat-voice-mute").catch(() => {});
+    }
+  });
+
+  closeBtn.addEventListener("click", () => {
+    preservedDraft = input.value;
+    ipcRenderer.send("openpets:default-pet-chat-collapse");
+  });
+
+  errorDismiss.addEventListener("click", () => {
+    showErrorToast(null);
+  });
+
+  // --- Launcher Button Click ---
+  document.addEventListener("click", (event) => {
+    const launcher = event.target?.closest?.("[data-openpets-companion-launcher]");
+    if (!launcher) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isExpanded) {
+      preservedDraft = input.value;
+      ipcRenderer.send("openpets:default-pet-chat-collapse");
+    } else {
+      setCompactOpen(!isCompactOpen);
+    }
+  });
+
+  // --- Global Escape Key ---
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (isExpanded) {
+        preservedDraft = input.value;
+        ipcRenderer.send("openpets:default-pet-chat-collapse");
+      } else if (isCompactOpen) {
+        setCompactOpen(false);
+      }
+    }
+  });
+
+  // --- Expansion Changed Listener ---
+  ipcRenderer.on("openpets:default-pet-chat-expansion-changed", (_event, expanded) => {
+    isExpanded = Boolean(expanded);
+    document.documentElement.dataset.chatExpanded = isExpanded ? "true" : "false";
+    if (isExpanded) {
+      setCompactOpen(false);
+      input.value = preservedDraft;
+      compactInput.value = preservedDraft;
+      autoResizeInput();
+      autoResizeCompactInput();
+      renderAll();
+      setTimeout(() => input.focus(), 60);
+    } else {
+      renderAll();
+    }
+  });
+
+  // --- Conversation Event Listener ---
+  ipcRenderer.on("openpets:default-pet-chat-event", (_event, payload) => {
+    if (!payload) return;
+    if (payload.type === "snapshot" && payload.snapshot) {
+      conversationSnapshot = payload.snapshot;
+      if (payload.snapshot.promptSuggestions) {
+        promptSuggestions = payload.snapshot.promptSuggestions;
+      }
+      renderAll();
+    }
+  });
+
+  // --- Voice Event Listener ---
+  ipcRenderer.on("openpets:default-pet-chat-voice-event", (_event, payload) => {
+    if (!payload) return;
+    if (payload.type === "snapshot" && payload.snapshot) {
+      voiceSnapshot = payload.snapshot;
+      renderAll();
+    } else if (payload.type === "state-changed") {
+      voiceSnapshot = { ...voiceSnapshot, state: payload.state, isMuted: Boolean(payload.isMuted), error: payload.error ?? null };
+      renderAll();
+    }
+  });
+
+  // --- Initial Snapshots Fetch ---
+  ipcRenderer.invoke("openpets:default-pet-chat-get-snapshot").then((snap) => {
+    if (snap) {
+      conversationSnapshot = snap;
+      renderAll();
+    }
+  }).catch(() => {});
+
+  ipcRenderer.invoke("openpets:default-pet-chat-get-voice-snapshot").then((snap) => {
+    if (snap) {
+      voiceSnapshot = snap;
+      renderAll();
+    }
+  }).catch(() => {});
+
+  ipcRenderer.invoke("openpets:default-pet-chat-is-expanded").then((expanded) => {
+    if (typeof expanded === "boolean") {
+      isExpanded = expanded;
+      document.documentElement.dataset.chatExpanded = isExpanded ? "true" : "false";
+      if (isExpanded) {
+        input.value = preservedDraft;
+        compactInput.value = preservedDraft;
+        autoResizeInput();
+        autoResizeCompactInput();
+        renderAll();
+      }
+    }
+  }).catch(() => {});
+
+  renderAll();
 };
 
 // --- Plugin sprite/scale overrides ------------------------------------------
@@ -545,6 +1400,7 @@ const installMouseInterop = () => {
     dismissBubble(event);
   });
   installPetSenses();
+  installDefaultPetChat();
   if (usesNativePetDrag()) installLayerShellContextMenu();
 
   let dragStartPoint = null;
@@ -555,9 +1411,11 @@ const installMouseInterop = () => {
   }, { passive: true });
 
   document.addEventListener("mousedown", (event) => {
-    const target = getInteractiveTarget(event);
-    setInteractiveHit(Boolean(target));
-    if (event.button !== 0 || !target?.closest(".pet-hitbox, .pet-shell")) return;
+    const target = event.target instanceof Element ? event.target : getInteractiveTarget(event);
+    setInteractiveHit(Boolean(getInteractiveTarget(event)));
+    if (event.button !== 0 || !target) return;
+    if (isInteractivePanelOrBubble(target)) return;
+    if (!target.closest(".pet-hitbox, .pet-shell")) return;
     if (usesNativePetDrag()) return;
     event.preventDefault();
     dragging = true;

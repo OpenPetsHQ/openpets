@@ -189,17 +189,20 @@ export async function startVoiceAssistant(): Promise<VoiceAssistantTalkSnapshot>
   const host = activeHost;
   if (!host) throw new Error("Voice assistant is still starting.");
   const session = await host.activate();
-  const { openControlCenterWindow } = await import("./windows.js");
-  openControlCenterWindow("conversation");
   return addShortcutSnapshot(session.snapshot(), activeSessionId);
+}
+
+export async function retryVoiceAssistant(): Promise<VoiceAssistantTalkSnapshot> {
+  const host = activeHost;
+  if (!host?.session) throw new Error("Voice assistant is not active.");
+  await host.session.retry();
+  return getVoiceAssistantSnapshot();
 }
 
 export async function toggleVoiceAssistant(): Promise<VoiceAssistantTalkSnapshot> {
   const host = activeHost;
   if (!host) throw new Error("Voice assistant is still starting.");
-  const { openControlCenterWindow } = await import("./windows.js");
   const session = await host.toggle();
-  openControlCenterWindow("conversation");
   return addShortcutSnapshot(session?.snapshot() ?? createIdleVoiceAssistantSnapshot(), activeSessionId);
 }
 
@@ -218,8 +221,6 @@ export async function interruptVoiceAssistant(): Promise<VoiceAssistantTalkSnaps
 export async function endVoiceAssistant(): Promise<VoiceAssistantTalkSnapshot> {
   const host = activeHost;
   if (!host) return getVoiceAssistantSnapshot();
-  const { openControlCenterWindow } = await import("./windows.js");
-  openControlCenterWindow("conversation");
   await host.end();
   return getVoiceAssistantSnapshot();
 }
@@ -227,8 +228,6 @@ export async function endVoiceAssistant(): Promise<VoiceAssistantTalkSnapshot> {
 async function runVoiceAssistantControl(operation: (session: NonNullable<VoiceAssistantHostController["session"]>) => Promise<void>): Promise<VoiceAssistantTalkSnapshot> {
   const host = activeHost;
   if (!host?.session) throw new Error("Voice assistant is not active.");
-  const { openControlCenterWindow } = await import("./windows.js");
-  openControlCenterWindow("conversation");
   await operation(host.session);
   return getVoiceAssistantSnapshot();
 }
@@ -250,8 +249,9 @@ function nextVoiceProjectionSequence(): number { voiceProjectionSequence += 1; r
 
 const defaultPetFeedbackTarget = {
   setActivity: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => setDefaultPetVoiceActivity(reaction),
-  showReaction: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction, message?: string) => {
-    if (message) applyExternalPetSay(message, reaction); else applyExternalPetReaction(reaction);
+  showReaction: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null, message?: string) => {
+    if (message) applyExternalPetSay(message, reaction ?? undefined);
+    else if (reaction) applyExternalPetReaction(reaction);
     setDefaultPetVoiceTerminalFeedback(reaction);
   },
   setStatus: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => applyExternalPetStatusReaction(reaction),

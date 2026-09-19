@@ -23,6 +23,9 @@ import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForw
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
 import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayland-layer-backend.js";
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
+import { calculatePetInteractiveShape } from "./pet-window-shape.js";
+import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
+import { isDefaultPetChatExpanded } from "./default-pet-chat.js";
 
 export interface PetWindowInteractionHooks {
   readonly onBubbleDismissed?: (dismissToken: string) => void;
@@ -943,7 +946,7 @@ function applyPetAlwaysOnTop(window: BrowserWindow): void {
 export async function loadDefaultPetContent(window: BrowserWindow, paused: boolean, display: PetTransientDisplay | null = null, badge: PetStatusBadgeReaction | null = null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<void> {
   const sequence = allocateWindowLoadSequence(window);
   debug("pet.window", "default content render begin", { windowId: window.id, sequence, paused, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge, hasPluginBubble: Boolean(pluginBubbles?.transient), hasPinned: Boolean(pluginBubbles?.pinned), defaultPetId: getAppStateSnapshot().preferences.defaultPetId });
-  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles));
+  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
   applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || paused || pluginBubbles?.transient || pluginBubbles?.pinned));
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
@@ -967,7 +970,7 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     debug("pet.window", "explicit content render begin", { windowId: window.id, sequence, petId, displayName: pet.displayName, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge });
     const scale = scaleOverride ?? state.preferences.petScale as PetScaleValue;
     const render = pet.id === builtInPet.id
-      ? createBuiltInPetRender(false, display, badge, scale, `explicit:${pet.id}`, pet.id, dismissToken, pluginBubbles)
+      ? createBuiltInPetRender(false, display, badge, scale, `explicit:${pet.id}`, pet.id, dismissToken, pluginBubbles, "agent")
       : await createInstalledPetRender(
         pet.id,
         pet.displayName,
@@ -979,6 +982,7 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
         dismissToken,
         pluginBubbles,
         pet.source?.kind === "team" ? "team" : "personal",
+        "agent",
       );
     applyLinuxPetWindowShape(window, scale, Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient || pluginBubbles?.pinned));
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
@@ -1115,37 +1119,29 @@ export function getSafeDefaultPetPosition(position: Point | undefined): Point {
 
 export function readWindowPosition(window: BrowserWindow): Point {
   const [x, y] = window.getPosition();
-  if (isCrossDisplayRoamingEnabled()) return clampToNearestDisplayIfOffscreen({ x, y }, defaultPetWindowSize);
-  return clampToVisibleWorkArea({ x, y }, defaultPetWindowSize);
+  const bounds = window.getBounds();
+  let rawPos: Point = { x, y };
+  if (bounds.width > defaultPetWindowSize.width || bounds.height > defaultPetWindowSize.height) {
+    rawPos = toCollapsedPosition(rawPos, { width: bounds.width, height: bounds.height }, defaultPetWindowSize);
+  }
+  if (isCrossDisplayRoamingEnabled()) return clampToNearestDisplayIfOffscreen(rawPos, defaultPetWindowSize);
+  return clampToVisibleWorkArea(rawPos, defaultPetWindowSize);
 }
 
 function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
-  const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
-  const scaledHeight = Math.ceil(defaultPetSprite.frameHeight * scale);
-  const petBottom = 22;
-  const hitPadding = 28;
-  const petHitboxWidth = scaledWidth + hitPadding * 2;
-  const petHitboxHeight = scaledHeight + hitPadding * 2;
-  const shape: Electron.Rectangle[] = [
-    {
-      x: Math.round((defaultPetWindowSize.width - petHitboxWidth) / 2),
-      y: Math.round(defaultPetWindowSize.height - Math.max(0, petBottom - hitPadding) - petHitboxHeight),
-      width: petHitboxWidth,
-      height: petHitboxHeight,
-    },
-  ];
-
-  if (hasBubble) {
-    const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
-    shape.push({
-      x: 0,
-      y: Math.max(0, defaultPetWindowSize.height - bubbleBottom - 156),
-      width: defaultPetWindowSize.width,
-      height: Math.min(156, defaultPetWindowSize.height),
-    });
-  }
+  const isExpanded = isDefaultPetChatExpanded();
+  const bounds = window.getBounds();
+  const { shape } = calculatePetInteractiveShape({
+    windowWidth: bounds.width,
+    windowHeight: bounds.height,
+    spriteWidth: defaultPetSprite.frameWidth,
+    spriteHeight: defaultPetSprite.frameHeight,
+    scale,
+    hasBubble,
+    isExpanded,
+  });
 
   // setShape's rects are undocumented as to units, but empirically the window's
   // true on-screen size/position are scaled by the display's scaleFactor, while
@@ -1153,8 +1149,8 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
   // unscaled logical size instead of the true physical geometry — so getBounds()
   // must not be used here. Scale the DIP-computed rect by the live scaleFactor
   // directly instead.
-  const scaleFactor = screen.getDisplayMatching(window.getBounds()).scaleFactor;
-  const physicalShape: Electron.Rectangle[] = scaleFactor === 1 ? shape : shape.map((rect) => ({
+  const scaleFactor = screen.getDisplayMatching(bounds).scaleFactor;
+  const physicalShape: Electron.Rectangle[] = scaleFactor === 1 ? [...shape] : shape.map((rect) => ({
     x: Math.round(rect.x * scaleFactor),
     y: Math.round(rect.y * scaleFactor),
     width: Math.round(rect.width * scaleFactor),
@@ -1169,6 +1165,44 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
   }
 }
 
+export function applyLinuxPetWindowShapeWithExpansion(window: BrowserWindow, isExpanded: boolean): void {
+  if (process.platform !== "linux" || window.isDestroyed()) return;
+
+  const state = getAppStateSnapshot();
+  const scale = state.preferences.petScale as PetScaleValue;
+  const bounds = window.getBounds();
+  const { shape } = calculatePetInteractiveShape({
+    windowWidth: bounds.width,
+    windowHeight: bounds.height,
+    spriteWidth: defaultPetSprite.frameWidth,
+    spriteHeight: defaultPetSprite.frameHeight,
+    scale,
+    hasBubble: false,
+    isExpanded,
+  });
+
+  const scaleFactor = screen.getDisplayMatching(bounds).scaleFactor;
+  const physicalShape: Electron.Rectangle[] = scaleFactor === 1 ? [...shape] : shape.map((rect) => ({
+    x: Math.round(rect.x * scaleFactor),
+    y: Math.round(rect.y * scaleFactor),
+    width: Math.round(rect.width * scaleFactor),
+    height: Math.round(rect.height * scaleFactor),
+  }));
+
+  try {
+    window.setShape(physicalShape);
+    debug("pet.window", "linux window shape applied with expansion", { windowId: window.id, isExpanded, scaleFactor, shape: physicalShape });
+  } catch (error) {
+    logError("pet.window", "linux window shape with expansion failed", error instanceof Error ? error : { error });
+  }
+}
+
+export function refreshDefaultPetFocusPolicy(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const expanded = isDefaultPetChatExpanded();
+  applyPetWindowFocusPolicy(window, expanded);
+}
+
 async function createDefaultPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<PetContentRender> {
   const installedPetRender = await tryCreateInstalledPetRender(paused, display, badge, dismissToken, pluginBubbles);
   if (installedPetRender) {
@@ -1177,13 +1211,13 @@ async function createDefaultPetRender(paused: boolean, display: PetTransientDisp
 
   const state = getAppStateSnapshot();
   const scale = state.preferences.petScale as PetScaleValue;
-  return createBuiltInPetRender(paused, display, badge, scale, "default:builtin", state.preferences.defaultPetId, dismissToken, pluginBubbles);
+  return createBuiltInPetRender(paused, display, badge, scale, "default:builtin", state.preferences.defaultPetId, dismissToken, pluginBubbles, "default");
 }
 
-function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): PetContentRender {
+function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null, petRole: "default" | "agent" = "default"): PetContentRender {
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
-  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned);
+  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
@@ -1193,7 +1227,7 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
     bodyHtml,
     reactionState,
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1274,6 +1308,7 @@ async function createInstalledPetRender(
   dismissToken?: string,
   pluginBubbles: PetPluginBubbles | null = null,
   source: "personal" | "team" = "personal",
+  petRole: "default" | "agent" = "default",
 ): Promise<PetContentRender> {
   const spritesheetPath = join(getPetDir(petId, source), "spritesheet.webp");
   const spritesheet = await stat(spritesheetPath);
@@ -1284,7 +1319,7 @@ async function createInstalledPetRender(
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
-  const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned);
+  const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
@@ -1294,7 +1329,7 @@ async function createInstalledPetRender(
     bodyHtml,
     reactionState,
     html: `<!doctype html>
-      <html lang="${getActiveLocaleLang()}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
+      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}">
         <head>
           <meta charset="utf-8" />
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1338,11 +1373,16 @@ async function createInstalledPetRender(
   };
 }
 
-function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false): string {
-  return `<div class="stage${hasPinned ? " has-pinned" : ""}" aria-label="${stageLabel}">
+function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false, petRole: "default" | "agent" = "default"): string {
+  const launcherSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+  const launcherButton = petRole === "default"
+    ? `<button type="button" class="openpets-companion-launcher" data-openpets-companion-launcher aria-label="Open companion chat" title="Open companion chat">${launcherSvg}</button>`
+    : "";
+  return `<div class="stage${hasPinned ? " has-pinned" : ""}" aria-label="${stageLabel}" data-pet-role="${petRole}">
     ${pinnedBubble}
     ${bubble}
     <div class="pet-hitbox" aria-hidden="true">
+      ${launcherButton}
       <div class="pet-shell">
         ${spriteMarkup}
       </div>
@@ -1369,6 +1409,9 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
     html { color: #172033; }
     body { -webkit-app-region: no-drag; pointer-events: none; }
     .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; }
+    .openpets-companion-launcher { position: absolute; right: 8px; bottom: 8px; z-index: 5; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(239, 246, 255, 0.92) 100%); color: #2563eb; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16), 0 1px 2px rgba(15, 23, 42, 0.08); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
+    .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12); }
+    .openpets-companion-launcher:active { transform: scale(0.95); }
     .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${scaledWidth + hitPadding * 2}px; height: ${scaledHeight + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     .pet-shell { position: relative; width: ${scaledWidth}px; height: ${scaledHeight}px; display: block; opacity: var(--pet-opacity); filter: ${petShellFilter}; transition-property: opacity, filter; transition-duration: 180ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     html[data-flip-x="true"] .pet-shell { transform: scaleX(-1); }
@@ -1552,6 +1595,750 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue): string {
     .bubble-hud-item-fill.tone-pink { background: #db2777; }
     .bubble-hud-item-fill.tone-slate { background: #475569; }
     .bubble-hud-item-fill.tone-red { background: #dc2626; }
+    /* --- In-Pet Compact Composer --- */
+    .openpets-compact-composer {
+      position: absolute;
+      left: 50%;
+      bottom: ${bubbleBottom}px;
+      transform: translateX(-50%);
+      width: calc(100% - 16px);
+      max-width: 196px;
+      box-sizing: border-box;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 10px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 245, 255, 0.96) 55%, rgba(237, 233, 254, 0.95) 100%);
+      color: #172033;
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 14px;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      backdrop-filter: ${bubbleBackdropFilter};
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      z-index: 10;
+      opacity: 0;
+      color-scheme: light;
+    }
+    .openpets-compact-composer::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 11px;
+      height: 11px;
+      background: #eef3ff;
+      border-right: 1px solid rgba(203, 213, 225, 0.75);
+      border-bottom: 1px solid rgba(203, 213, 225, 0.75);
+      border-bottom-right-radius: 3px;
+      transform: translateX(-50%) rotate(45deg);
+      box-shadow: 2px 2px 4px rgba(15, 23, 42, 0.06);
+    }
+    html[data-compact-composer-open="true"]:not([data-chat-expanded="true"]) .openpets-compact-composer {
+      display: flex;
+      opacity: 1;
+      animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1) forwards;
+    }
+    html[data-compact-composer-open="true"]:not([data-chat-expanded="true"]) .bubble:not(.is-pinned) {
+      display: none !important;
+    }
+    .compact-composer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      user-select: none;
+    }
+    .compact-composer-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 780;
+      color: #1e293b;
+      letter-spacing: -0.01em;
+      min-width: 0;
+    }
+    .compact-composer-status-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #f59e0b;
+      animation: status-pulse 800ms infinite ease-in-out;
+    }
+    .compact-composer-actions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .compact-composer-btn {
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.7);
+      color: #64748b;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: all 120ms ease;
+    }
+    .compact-composer-btn:hover {
+      background: #ffffff;
+      color: #0f172a;
+      border-color: rgba(148, 163, 184, 0.4);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+    .compact-composer-btn.is-history:hover {
+      color: #2563eb;
+      background: #eff6ff;
+      border-color: rgba(59, 130, 246, 0.4);
+    }
+    .compact-composer-btn.is-close:hover {
+      color: #ef4444;
+      background: #fef2f2;
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    .compact-composer-form {
+      display: flex;
+      align-items: flex-end;
+      gap: 5px;
+      position: relative;
+    }
+    .compact-composer-textarea {
+      box-sizing: border-box;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 28px;
+      max-height: 68px;
+      padding: 5px 8px;
+      border: 1px solid rgba(203, 213, 225, 0.85);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.96);
+      color: #0f172a;
+      font-family: inherit;
+      font-size: 11px;
+      line-height: 14.5px;
+      resize: none;
+      outline: none;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    .compact-composer-textarea:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .compact-composer-textarea::placeholder {
+      color: #94a3b8;
+    }
+    .compact-composer-send-btn, .compact-composer-cancel-btn {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 9px;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: all 120ms ease;
+    }
+    .compact-composer-send-btn {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      box-shadow: 0 2px 5px rgba(37, 99, 235, 0.28);
+    }
+    .compact-composer-send-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+      box-shadow: 0 3px 7px rgba(37, 99, 235, 0.38);
+      transform: scale(1.03);
+    }
+    .compact-composer-send-btn:disabled {
+      background: rgba(203, 213, 225, 0.45);
+      color: #94a3b8;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .compact-composer-cancel-btn {
+      background: #fee2e2;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #dc2626;
+    }
+    .compact-composer-cancel-btn:hover {
+      background: #fecaca;
+      color: #b91c1c;
+    }
+    .compact-composer-error {
+      font-size: 10px;
+      font-weight: 600;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 6px;
+      padding: 3px 6px;
+      line-height: 1.3;
+    }
+    /* --- In-Pet Attached Chat Panel --- */
+    .openpets-chat-panel {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 390px;
+      height: 500px;
+      z-index: 100;
+      box-sizing: border-box;
+      display: none;
+      flex-direction: column;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+      color: #0f172a;
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 20px;
+      box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 1);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      opacity: 0;
+      color-scheme: light;
+    }
+    html[data-chat-expanded="true"] .openpets-chat-panel {
+      display: flex;
+      opacity: 1;
+      animation: chat-panel-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .openpets-chat-panel::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 12px;
+      height: 12px;
+      background: #f8fafc;
+      border-right: 1px solid rgba(226, 232, 240, 0.95);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+      border-bottom-right-radius: 3px;
+      transform: translateX(-50%) rotate(45deg);
+      box-shadow: 3px 3px 6px rgba(15, 23, 42, 0.08);
+    }
+    .chat-header {
+      height: 46px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+      background: rgba(248, 250, 252, 0.8);
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .chat-header-left {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+    .chat-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+    }
+    .chat-title {
+      font-size: 13px;
+      font-weight: 780;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .chat-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #ffffff;
+      font-size: 10px;
+      font-weight: 600;
+      color: #475569;
+      border: 1px solid rgba(203, 213, 225, 0.7);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 130px;
+    }
+    .chat-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      flex-shrink: 0;
+    }
+    .chat-status-pill.is-thinking .chat-status-dot { background: #f59e0b; animation: status-pulse 800ms infinite ease-in-out; }
+    .chat-status-pill.is-acting .chat-status-dot { background: #3b82f6; animation: status-pulse 800ms infinite ease-in-out; }
+    .chat-status-pill.is-responding .chat-status-dot { background: #8b5cf6; animation: status-pulse 800ms infinite ease-in-out; }
+    .chat-status-pill.is-voice .chat-status-dot { background: #ec4899; animation: status-pulse 600ms infinite ease-in-out; }
+    .chat-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .chat-voice-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(203, 213, 225, 0.8);
+      background: #ffffff;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: all 140ms ease;
+    }
+    .chat-voice-btn:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    .chat-voice-btn.is-active {
+      background: linear-gradient(135deg, rgba(252, 231, 243, 0.95) 0%, rgba(243, 232, 255, 0.95) 100%);
+      border-color: rgba(236, 72, 153, 0.4);
+      color: #db2777;
+    }
+    .chat-voice-btn.is-muted {
+      background: #fee2e2;
+      border-color: rgba(239, 68, 68, 0.35);
+      color: #dc2626;
+    }
+    .chat-close-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: all 140ms ease;
+    }
+    .chat-close-btn:hover {
+      background: rgba(148, 163, 184, 0.16);
+      color: #0f172a;
+    }
+    .chat-voice-banner {
+      padding: 7px 14px;
+      background: linear-gradient(90deg, rgba(239, 246, 255, 0.95) 0%, rgba(243, 232, 255, 0.95) 100%);
+      border-bottom: 1px solid rgba(191, 219, 254, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 550;
+      color: #1d4ed8;
+      flex-shrink: 0;
+    }
+    .chat-voice-banner-info {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .chat-voice-wave {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      height: 12px;
+    }
+    .chat-voice-bar {
+      width: 2.5px;
+      height: 100%;
+      background: #3b82f6;
+      border-radius: 99px;
+      animation: voice-wave 1s ease-in-out infinite;
+    }
+    .chat-voice-bar:nth-child(2) { animation-delay: 0.15s; }
+    .chat-voice-bar:nth-child(3) { animation-delay: 0.3s; }
+    .chat-voice-bar:nth-child(4) { animation-delay: 0.45s; }
+    .chat-voice-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .chat-voice-action-btn {
+      padding: 2px 7px;
+      border-radius: 6px;
+      border: 1px solid rgba(191, 219, 254, 0.8);
+      background: #ffffff;
+      color: #1e40af;
+      font-size: 10px;
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: background 120ms ease;
+    }
+    .chat-voice-action-btn:hover {
+      background: #eff6ff;
+    }
+    .chat-voice-action-btn.is-end {
+      background: #fee2e2;
+      border-color: rgba(239, 68, 68, 0.35);
+      color: #b91c1c;
+    }
+    .chat-voice-action-btn.is-end:hover {
+      background: #fecaca;
+    }
+    .chat-transcript {
+      flex: 1 1 0;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+    }
+    .chat-transcript::-webkit-scrollbar {
+      width: 5px;
+    }
+    .chat-transcript::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.3);
+      border-radius: 99px;
+    }
+    .chat-transcript::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.5);
+    }
+    .chat-empty {
+      margin: auto 0;
+      text-align: center;
+      padding: 20px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .chat-empty-icon {
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+    .chat-empty-title {
+      font-size: 13px;
+      font-weight: 780;
+      color: #0f172a;
+    }
+    .chat-empty-subtitle {
+      font-size: 11px;
+      color: #64748b;
+      max-width: 240px;
+      line-height: 1.4;
+    }
+    .chat-msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 88%;
+      animation: msg-appear 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .chat-msg.is-user {
+      align-self: flex-end;
+    }
+    .chat-msg.is-assistant {
+      align-self: flex-start;
+      max-width: 92%;
+    }
+    .chat-msg-bubble {
+      padding: 8px 12px;
+      font-size: 12px;
+      line-height: 16.5px;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .chat-msg.is-user .chat-msg-bubble {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      border-radius: 14px 14px 2px 14px;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
+    }
+    .chat-msg.is-assistant .chat-msg-bubble {
+      background: #ffffff;
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      color: #1e293b;
+      border-radius: 14px 14px 14px 2px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      white-space: normal;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble p {
+      margin: 0 0 6px;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble p:last-child {
+      margin-bottom: 0;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble strong {
+      font-weight: 780;
+      color: #0f172a;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble em {
+      font-style: italic;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble ul, .chat-msg.is-assistant .chat-msg-bubble ol {
+      margin: 4px 0 6px 16px;
+      padding: 0;
+    }
+    .chat-msg.is-assistant .chat-msg-bubble li {
+      margin-bottom: 2px;
+    }
+    .chat-code-inline {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(241, 245, 249, 0.95);
+      border: 1px solid rgba(203, 213, 225, 0.7);
+      border-radius: 4px;
+      padding: 1px 4px;
+      color: #2563eb;
+    }
+    .chat-code-block {
+      margin: 6px 0;
+      padding: 8px 10px;
+      background: #f8fafc;
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 15px;
+      color: #0f172a;
+      white-space: pre;
+    }
+    .chat-typing-cursor {
+      display: inline-block;
+      width: 5px;
+      height: 12px;
+      background: #2563eb;
+      border-radius: 1px;
+      vertical-align: -1px;
+      margin-left: 2px;
+      animation: cursor-blink 750ms infinite;
+    }
+    .chat-action-card {
+      align-self: stretch;
+      padding: 6px 10px;
+      background: #ffffff;
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 10px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #475569;
+    }
+    .chat-action-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .chat-action-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: #64748b;
+    }
+    .chat-action-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 650;
+      color: #0f172a;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-action-badge {
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 1px 5px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .chat-action-badge.is-running { background: #eff6ff; color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); }
+    .chat-action-badge.is-completed { background: #ecfdf5; color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); }
+    .chat-action-badge.is-failed, .chat-action-badge.is-rejected { background: #fef2f2; color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.25); }
+    .chat-error-banner {
+      margin: 4px 14px;
+      padding: 7px 10px;
+      background: #fef2f2;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #b91c1c;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .chat-suggestions {
+      padding: 2px 14px 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .chat-chip {
+      padding: 4px 9px;
+      background: #ffffff;
+      border: 1px solid rgba(203, 213, 225, 0.8);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 550;
+      color: #334155;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      transition: all 120ms ease;
+      user-select: none;
+    }
+    .chat-chip:hover {
+      background: #eff6ff;
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #1d4ed8;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(37, 99, 235, 0.12);
+    }
+    .chat-composer {
+      padding: 10px 14px 14px;
+      border-top: 1px solid rgba(226, 232, 240, 0.9);
+      background: rgba(248, 250, 252, 0.85);
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .chat-input-wrapper {
+      flex: 1 1 auto;
+      position: relative;
+      min-width: 0;
+    }
+    .chat-textarea {
+      width: 100%;
+      min-height: 36px;
+      max-height: 96px;
+      padding: 8px 11px;
+      box-sizing: border-box;
+      border: 1px solid rgba(203, 213, 225, 0.9);
+      border-radius: 12px;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 16px;
+      resize: none;
+      outline: none;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    .chat-textarea:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), inset 0 1px 2px rgba(15, 23, 42, 0.03);
+    }
+    .chat-textarea::placeholder {
+      color: #94a3b8;
+    }
+    .chat-send-btn, .chat-cancel-turn-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      transition: all 140ms ease;
+    }
+    .chat-send-btn {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      box-shadow: 0 2px 5px rgba(37, 99, 235, 0.28);
+    }
+    .chat-send-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+      box-shadow: 0 3px 8px rgba(37, 99, 235, 0.35);
+      transform: scale(1.02);
+    }
+    .chat-send-btn:disabled {
+      background: rgba(203, 213, 225, 0.45);
+      color: #94a3b8;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .chat-cancel-turn-btn {
+      background: #fee2e2;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #dc2626;
+    }
+    .chat-cancel-turn-btn:hover {
+      background: #fecaca;
+      color: #b91c1c;
+    }
+    @keyframes chat-panel-enter {
+      from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.97); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    }
+    @keyframes msg-appear {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes voice-wave {
+      0%, 100% { height: 4px; }
+      50% { height: 12px; }
+    }
+    @keyframes cursor-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.15; }
+    }
     @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
     @keyframes status-pulse { 0%, 100% { opacity: 0.52; } 50% { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .sprite, .installed-sprite, .bubble, .bubble-status-icon::before { animation: none !important; } }

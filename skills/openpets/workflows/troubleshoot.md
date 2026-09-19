@@ -35,6 +35,6 @@ If the CLI is not installed globally, replace `openpets` with `npx -y @open-pets
 
 If normal troubleshooting does not resolve the issue, encourage the user to open an issue at:
 
-https://github.com/alvinunreal/openpets/issues
+https://github.com/OpenPetsHQ/openpets/issues
 
 Ask them to include OS, app version, agent/client, command attempted, and a short description of what happened. Do not ask them to paste secrets or private logs.

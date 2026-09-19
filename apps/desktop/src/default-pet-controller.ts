@@ -4,7 +4,8 @@ import { getAppStateSnapshot, getDefaultPetPosition, getPerMonitorPetPosition, r
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
 import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, invalidateDisplayCache, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
-import { registerRoamingPet } from "./pet-roaming-controller.js";
+import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
+import { bindDefaultPetChatWindow, collapseDefaultPetChat, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
 import { debug, info } from "./logger.js";
 import { t } from "./i18n/index.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
@@ -111,6 +112,7 @@ function hideDefaultPetWindow(): void {
   const hidePosition = readWindowPosition(defaultPetWindow);
   info("pet.default", "hide requested", { windowId: defaultPetWindow.id, position: hidePosition, petId: getAppStateSnapshot().preferences.defaultPetId });
   handlePositionChanged(hidePosition);
+  collapseDefaultPetChat();
   defaultPetWindow.hide();
 }
 
@@ -273,6 +275,9 @@ export function destroyDefaultPet(): void {
   info("pet.default", "destroy requested", { windowId: defaultPetWindow.id, position: destroyPosition, petId: getAppStateSnapshot().preferences.defaultPetId });
   handlePositionChanged(destroyPosition);
   const window = defaultPetWindow;
+  unregisterRoamingPet("default");
+  collapseDefaultPetChat();
+  unbindDefaultPetChatWindow();
   defaultPetWindow = null;
   window.setIgnoreMouseEvents(false);
   window.destroy();
@@ -350,21 +355,29 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
     onPetEvent: (name, payload) => publishPluginPetEvent("default", name, payload),
     onWindowReplaced: (replacement) => {
       defaultPetWindow = replacement;
+      bindDefaultPetChatWindow(replacement);
       void loadDefaultPetContent(replacement, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
       const replacementId = replacement.id;
       replacement.on("closed", () => {
         if (defaultPetWindow !== replacement) return;
+        unregisterRoamingPet("default");
+        collapseDefaultPetChat();
+        unbindDefaultPetChatWindow();
         info("pet.default", "closed", { windowId: replacementId });
         defaultPetWindow = null;
       });
     },
   }, getCurrentDismissToken());
   const createdWindow = defaultPetWindow;
+  bindDefaultPetChatWindow(createdWindow);
   const windowId = createdWindow.id;
   info("pet.default", "created", { windowId, position, paused, petId: getAppStateSnapshot().preferences.defaultPetId });
 
   createdWindow.on("closed", () => {
     if (defaultPetWindow !== createdWindow) return;
+    unregisterRoamingPet("default");
+    collapseDefaultPetChat();
+    unbindDefaultPetChatWindow();
     info("pet.default", "closed", { windowId });
     defaultPetWindow = null;
   });

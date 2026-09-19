@@ -6,13 +6,13 @@ export type PetAssistantFeedbackState = "listening" | "thinking" | "acting" | "s
 
 export type PetAssistantFeedback = {
   readonly state: PetAssistantFeedbackState;
-  readonly reaction: OpenPetsReaction;
+  readonly reaction?: OpenPetsReaction;
   readonly message?: string;
 };
 
 export type PetAssistantFeedbackTarget = {
   setActivity(reaction: OpenPetsReaction | null): void;
-  showReaction(reaction: OpenPetsReaction, message?: string): void;
+  showReaction(reaction: OpenPetsReaction | null, message?: string): void;
   setStatus(reaction: OpenPetsReaction | null): void;
 };
 
@@ -32,26 +32,29 @@ export function feedbackForAssistantEvent(event: PetAssistantEvent): PetAssistan
   }
   if (event.type !== "terminal") return null;
   if (event.result.status === "cancelled") return null;
-  if (event.result.status === "failed") return { state: "failure", reaction: "error", message: "I couldn't complete that." };
+  if (event.result.status === "failed") return { state: "failure", reaction: "error", message: event.result.response?.trim() ? event.result.response : "I couldn't complete that." };
   const outcomes = event.result.toolOutcomes ?? [];
   if (outcomes.some((outcome) => outcome.result.status !== "completed" && outcome.result.missingInformation === true)) {
-    return { state: "missing-information", reaction: "waiting", message: "I need more information to finish that." };
+    return { state: "missing-information", reaction: "waiting", message: event.result.response?.trim() ? event.result.response : "I need more information to finish that." };
   }
   if (outcomes.some((outcome) => outcome.result.status !== "completed")) {
-    return { state: "failure", reaction: "error", message: "I couldn't complete that." };
+    return { state: "failure", reaction: "error", message: event.result.response?.trim() ? event.result.response : "I couldn't complete that." };
   }
-  return { state: "success", reaction: "success", message: "Done." };
+  const response = event.result.response?.trim();
+  return { state: "success", ...(response ? { message: response } : {}) };
 }
 
 export function applyPetAssistantFeedback(target: PetAssistantFeedbackTarget, feedback: PetAssistantFeedback | null): void {
   if (!feedback) return;
   if (feedback.state === "listening" || feedback.state === "thinking" || feedback.state === "acting" || feedback.state === "speaking") {
-    target.setActivity(feedback.reaction);
+    target.setActivity(feedback.reaction ?? null);
     return;
   }
   target.setActivity(null);
-  target.setStatus(feedback.reaction);
-  target.showReaction(feedback.reaction, feedback.message);
+  target.setStatus(feedback.reaction ?? null);
+  if (feedback.message || feedback.reaction) {
+    target.showReaction(feedback.reaction ?? null, feedback.message);
+  }
 }
 
 /** One host-owned reducer for typed canonical events and the active voice lane. */

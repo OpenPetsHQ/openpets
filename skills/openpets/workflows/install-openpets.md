@@ -10,7 +10,7 @@ Use this workflow when the user asks to install or start using OpenPets.
 4. Install the CLI if the user wants the clean `openpets` command:
 
 ```bash
-npm install -g @open-pets/cli
+   npm install -g @open-pets/cli@latest
 ```
 
 5. Verify the app is reachable:
@@ -27,4 +27,4 @@ openpets status
 
 - The desktop app must be running for live pet control.
 - If status cannot connect, check that the app is open and that local IPC is not blocked.
-- If installation repeatedly fails, ask the user to report the issue at https://github.com/alvinunreal/openpets/issues with OS/version details.
+- If installation repeatedly fails, ask the user to report the issue at https://github.com/OpenPetsHQ/openpets/issues with OS/version details.

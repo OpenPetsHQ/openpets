@@ -1,4 +1,4 @@
-import type { VoiceAssistantShortcutStatus } from "./conversation/conversation-types.js";
+export type VoiceAssistantShortcutStatus = "registered" | "conflict" | "unavailable" | "invalid";
 
 export type ShortcutSaveResponse = {
   readonly preferences: { readonly voiceAssistantShortcut?: string };

@@ -419,7 +419,7 @@ try {
   assert.match(ancestorValidError, /symlink/);
   assert.match(ancestorValidError, /was not modified/);
   assert.match(ancestorValidError, new RegExp(escapeCheckRegExp(ancestorRealDir)));
-  assert.match(ancestorValidError, /use project-local OpenCode setup/);
+  assert.match(ancestorValidError, /Project-local setup/);
   assert.equal(lstatSync(ancestorLink).isSymbolicLink(), true, "ancestor symlink must not be followed");
   assert.equal(hasCheckEntry(join(ancestorRealDir, "opencode.jsonc")), false, "no config may be written through the ancestor symlink");
   assert.equal(hasCheckEntry(join(ancestorRealDir, "openpets.md")), false, "no instructions may be written through the ancestor symlink");
