@@ -1,4 +1,5 @@
 import type React from "react";
+import { useI18n } from "../i18n.js";
 import {
   ArrowUpRightIcon,
   BuildingIcon,
@@ -34,6 +35,7 @@ export function TeamEnrollmentSection({
   onDiscardEnrollment,
   onOpenOrganizationsPage,
 }: TeamEnrollmentSectionProps) {
+  const { t } = useI18n();
   const isBusy = Boolean(busy);
   const isSubmitDisabled = isBusy || !isEnrollmentActionable(snapshot, displayNameInput);
 
@@ -150,30 +152,29 @@ export function TeamEnrollmentSection({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-monoDisplay text-[10px] font-black uppercase tracking-[.2em] text-brand dark:text-blue-400">
-                  Organizations & Fleets
+                  {t("teams.empty.marketing.kicker")}
                 </span>
               </div>
               <h2 className="m-0 font-monoDisplay text-xl md:text-2xl font-black text-navy dark:text-slate-50 leading-tight">
-                Your team. Your pets. Your server.
+                {t("teams.empty.marketing.title")}
               </h2>
               <p className="m-0 mt-1.5 text-xs text-slatecopy dark:text-slate-300 leading-relaxed">
-                Deploy a private OpenPets server for your company. Give your team its own pets, ship internal plugins,
-                and let the pets deliver what matters: code reviews, standups, birthdays, vacation approvals, and announcements.
+                {t("teams.empty.marketing.description")}
               </p>
 
               {/* Feature highlight tags */}
               <div className="flex flex-wrap items-center gap-2 mt-3.5">
                 <span className="team-pill">
                   <BuildingIcon className="w-3.5 h-3.5 text-brand dark:text-blue-400" />
-                  Private Pet Fleet
+                  {t("teams.empty.marketing.privateFleet")}
                 </span>
                 <span className="team-pill">
                   <SparklesIcon className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                  Internal Plugins
+                  {t("teams.empty.marketing.internalPlugins")}
                 </span>
                 <span className="team-pill">
                   <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Isolated Workspaces
+                  {t("teams.empty.marketing.isolatedWorkspaces")}
                 </span>
               </div>
             </div>
@@ -186,7 +187,7 @@ export function TeamEnrollmentSection({
               className="btn btn-primary gap-2 px-5 py-2.5 text-xs shadow-md"
               onClick={onOpenOrganizationsPage}
             >
-              <span>Explore Organizations</span>
+              <span>{t("teams.empty.marketing.explore")}</span>
               <ArrowUpRightIcon className="w-3.5 h-3.5 stroke-[2.5]" />
             </button>
             <button

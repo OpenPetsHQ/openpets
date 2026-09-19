@@ -75,6 +75,13 @@ export const zhHans: Partial<Messages> = {
   "route.integrations.title": "集成",
   "route.integrations.description": "将你的伙伴连接到 Claude Code、VS Code、Cursor 等。",
   "route.teams.title": "团队",
+  "teams.empty.marketing.kicker": "组织与宠物团队",
+  "teams.empty.marketing.title": "你的团队。你的宠物。你的服务器。",
+  "teams.empty.marketing.description": "为公司部署私有 OpenPets 服务器。为团队配备专属宠物、发布内部插件，让宠物传递重要事项：代码审查、站会、生日、休假审批和公告。",
+  "teams.empty.marketing.privateFleet": "私有宠物团队",
+  "teams.empty.marketing.internalPlugins": "内部插件",
+  "teams.empty.marketing.isolatedWorkspaces": "隔离工作区",
+  "teams.empty.marketing.explore": "探索组织",
   "route.teams.description": "管理您的组织成员资格、团队宠物和已部署的伴侣插件。",
 
   // --- App shell (renderer) ---

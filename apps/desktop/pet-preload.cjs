@@ -486,13 +486,13 @@ const installDefaultPetChat = () => {
   const compactActions = document.createElement("div");
   compactActions.className = "compact-composer-actions";
 
-  const compactHistoryBtn = document.createElement("button");
-  compactHistoryBtn.type = "button";
-  compactHistoryBtn.className = "compact-composer-btn is-history";
-  compactHistoryBtn.dataset.chatHistoryBtn = "true";
-  compactHistoryBtn.setAttribute("aria-label", "View conversation history");
-  compactHistoryBtn.setAttribute("title", "Conversation history / full panel");
-  compactHistoryBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>';
+  const compactOpenChatBtn = document.createElement("button");
+  compactOpenChatBtn.type = "button";
+  compactOpenChatBtn.className = "compact-composer-btn is-open-chat";
+  compactOpenChatBtn.dataset.chatOpenBtn = "true";
+  compactOpenChatBtn.setAttribute("aria-label", "Open chat");
+  compactOpenChatBtn.setAttribute("title", "Open chat");
+  compactOpenChatBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 
   const compactCloseBtn = document.createElement("button");
   compactCloseBtn.type = "button";
@@ -502,7 +502,7 @@ const installDefaultPetChat = () => {
   compactCloseBtn.setAttribute("title", "Close (Esc)");
   compactCloseBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 
-  compactActions.appendChild(compactHistoryBtn);
+  compactActions.appendChild(compactOpenChatBtn);
   compactActions.appendChild(compactCloseBtn);
 
   compactHeader.appendChild(compactTitle);
@@ -581,6 +581,7 @@ const installDefaultPetChat = () => {
   panelEl.className = "openpets-chat-panel";
   panelEl.setAttribute("role", "region");
   panelEl.setAttribute("aria-label", "Pet Assistant Chat");
+  panelEl.style.background = "#000000";
 
   // Panel Header
   const header = document.createElement("div");
@@ -1220,7 +1221,7 @@ const installDefaultPetChat = () => {
     ipcRenderer.invoke("openpets:default-pet-chat-cancel-turn").catch(() => {});
   });
 
-  compactHistoryBtn.addEventListener("click", (event) => {
+  compactOpenChatBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     preservedDraft = compactInput.value;

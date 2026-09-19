@@ -75,6 +75,13 @@ export const ja: Partial<Messages> = {
   "route.integrations.title": "連携",
   "route.integrations.description": "相棒を Claude Code、VS Code、Cursor などに接続します。",
   "route.teams.title": "チーム",
+  "teams.empty.marketing.kicker": "組織とフリート",
+  "teams.empty.marketing.title": "あなたのチーム。あなたのペット。あなたのサーバー。",
+  "teams.empty.marketing.description": "会社向けにプライベートな OpenPets サーバーを導入しましょう。チーム専用のペットや社内プラグインを用意し、コードレビュー、スタンドアップ、誕生日、休暇承認、お知らせなど、大切な情報をペットに届けさせられます。",
+  "teams.empty.marketing.privateFleet": "プライベートペットフリート",
+  "teams.empty.marketing.internalPlugins": "社内プラグイン",
+  "teams.empty.marketing.isolatedWorkspaces": "分離されたワークスペース",
+  "teams.empty.marketing.explore": "組織を探す",
   "route.teams.description": "組織メンバーシップ、チームペット、デプロイされた相棒プラグインを管理します。",
 
   // --- App shell (renderer) ---

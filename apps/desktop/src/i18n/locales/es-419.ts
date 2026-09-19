@@ -75,6 +75,13 @@ export const es419: Partial<Messages> = {
   "route.integrations.title": "Integraciones",
   "route.integrations.description": "Conecta tus compañeros con Claude Code, VS Code, Cursor y más.",
   "route.teams.title": "Equipos",
+  "teams.empty.marketing.kicker": "Organizaciones y flotas",
+  "teams.empty.marketing.title": "Tu equipo. Tus mascotas. Tu servidor.",
+  "teams.empty.marketing.description": "Implementa un servidor privado de OpenPets para tu empresa. Dale a tu equipo sus propias mascotas, publica plugins internos y deja que las mascotas entreguen lo importante: revisiones de código, reuniones diarias, cumpleaños, aprobaciones de vacaciones y anuncios.",
+  "teams.empty.marketing.privateFleet": "Flota privada de mascotas",
+  "teams.empty.marketing.internalPlugins": "Plugins internos",
+  "teams.empty.marketing.isolatedWorkspaces": "Espacios de trabajo aislados",
+  "teams.empty.marketing.explore": "Explorar organizaciones",
   "route.teams.description": "Administra la membresía de tu organización, mascotas de equipo y plugins complementarios implementados.",
 
   // --- App shell (renderer) ---

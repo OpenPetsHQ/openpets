@@ -2198,7 +2198,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       border-color: rgba(148, 163, 184, 0.4);
       box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
     }
-    .compact-composer-btn.is-history:hover {
+    .compact-composer-btn.is-open-chat:hover {
       color: #2563eb;
       background: #eff6ff;
       border-color: rgba(59, 130, 246, 0.4);

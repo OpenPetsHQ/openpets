@@ -75,6 +75,13 @@ export const ko: Partial<Messages> = {
   "route.integrations.title": "연동",
   "route.integrations.description": "동반자를 Claude Code, VS Code, Cursor 등에 연결하세요.",
   "route.teams.title": "팀",
+  "teams.empty.marketing.kicker": "조직 및 플릿",
+  "teams.empty.marketing.title": "우리 팀. 우리 펫. 우리 서버.",
+  "teams.empty.marketing.description": "회사용 비공개 OpenPets 서버를 배포하세요. 팀 전용 펫을 만들고 내부 플러그인을 배포하며, 코드 리뷰, 스탠드업, 생일, 휴가 승인, 공지처럼 중요한 소식을 펫이 전달하게 하세요.",
+  "teams.empty.marketing.privateFleet": "비공개 펫 플릿",
+  "teams.empty.marketing.internalPlugins": "내부 플러그인",
+  "teams.empty.marketing.isolatedWorkspaces": "격리된 작업 공간",
+  "teams.empty.marketing.explore": "조직 살펴보기",
   "route.teams.description": "조직 멤버십, 팀 펫 및 배포된 동반자 플러그인을 관리합니다.",
 
   // --- App shell (renderer) ---

@@ -88,6 +88,13 @@ export const en = {
   "route.integrations.description": "Connect your companions to Claude Code, VS Code, Cursor, and more.",
   "route.teams.title": "Teams",
   "route.teams.description": "Manage your organization membership, team pets, and deployed companion plugins.",
+  "teams.empty.marketing.kicker": "Organizations & Fleets",
+  "teams.empty.marketing.title": "Your team. Your pets. Your server.",
+  "teams.empty.marketing.description": "Deploy a private OpenPets server for your company. Give your team its own pets, ship internal plugins, and let the pets deliver what matters: code reviews, standups, birthdays, vacation approvals, and announcements.",
+  "teams.empty.marketing.privateFleet": "Private Pet Fleet",
+  "teams.empty.marketing.internalPlugins": "Internal Plugins",
+  "teams.empty.marketing.isolatedWorkspaces": "Isolated Workspaces",
+  "teams.empty.marketing.explore": "Explore Organizations",
 
   // --- App shell (renderer) ---
   "app.controlCenter": "Control Center",

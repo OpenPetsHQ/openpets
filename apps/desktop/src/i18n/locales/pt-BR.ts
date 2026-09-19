@@ -75,6 +75,13 @@ export const ptBR: Partial<Messages> = {
   "route.integrations.title": "Integrações",
   "route.integrations.description": "Conecte seus companheiros ao Claude Code, VS Code, Cursor e muito mais.",
   "route.teams.title": "Equipes",
+  "teams.empty.marketing.kicker": "Organizações e frotas",
+  "teams.empty.marketing.title": "Sua equipe. Seus pets. Seu servidor.",
+  "teams.empty.marketing.description": "Implante um servidor privado do OpenPets para sua empresa. Dê à sua equipe seus próprios pets, publique plugins internos e deixe os pets entregarem o que importa: revisões de código, reuniões diárias, aniversários, aprovações de férias e anúncios.",
+  "teams.empty.marketing.privateFleet": "Frota privada de pets",
+  "teams.empty.marketing.internalPlugins": "Plugins internos",
+  "teams.empty.marketing.isolatedWorkspaces": "Espaços de trabalho isolados",
+  "teams.empty.marketing.explore": "Explorar organizações",
   "route.teams.description": "Gerencie a associação à organização, mascotes de equipe e plugins de companheiro implantados.",
 
   // --- App shell (renderer) ---

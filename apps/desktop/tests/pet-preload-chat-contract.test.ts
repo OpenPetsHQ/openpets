@@ -406,6 +406,7 @@ assert.ok(body.contains(compactComposer), "Compact composer must be attached to 
 const fullPanel = documentElement.querySelector(".openpets-chat-panel");
 assert.ok(fullPanel, "Full chat panel must be present in DOM");
 assert.ok(body.contains(fullPanel), "Full chat panel must be attached to body");
+assert.equal(fullPanel!.style.background, "#000000", "Full chat panel must have a solid black background");
 const chatTitle = fullPanel!.querySelector(".chat-title") as MockElement;
 assert.ok(chatTitle, "Chat title must exist");
 assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must use the active pet display name");
@@ -431,8 +432,10 @@ const fullInput = fullPanel!.querySelector("[data-chat-input]") as MockElement;
 assert.ok(fullInput, "Full chat input must exist");
 assert.equal(fullInput.placeholder, "Message your pet…", "Full panel placeholder must match the compact composer");
 
-const historyBtn = compactComposer!.querySelector("[data-chat-history-btn]") as MockElement;
-assert.ok(historyBtn, "Explicit history/transcript affordance button must exist in compact composer");
+const openChatBtn = compactComposer!.querySelector("[data-chat-open-btn]") as MockElement;
+assert.ok(openChatBtn, "Open-chat affordance button must exist in compact composer");
+assert.equal(openChatBtn.getAttribute("aria-label"), "Open chat", "Compact launcher button must have 'Open chat' aria-label");
+assert.equal(openChatBtn.getAttribute("title"), "Open chat", "Compact launcher button must have 'Open chat' title");
 
 const compactCloseBtn = compactComposer!.querySelector("[data-chat-composer-close-btn]") as MockElement;
 assert.ok(compactCloseBtn, "Compact composer close button must exist");
@@ -506,11 +509,11 @@ compactInput.value = "Draft message from compact composer";
 compactInput.dispatchEvent({ type: "input" });
 assert.equal(fullInput.value, "Draft message from compact composer", "Draft must synchronize to full panel composer");
 
-// 4. Test explicit history trigger from compact composer to expand full panel
+// 4. Test explicit open-chat trigger from compact composer to expand full panel
 sent.length = 0;
-historyBtn.dispatchEvent({ type: "click", button: 0, preventDefault: () => {}, stopPropagation: () => {} });
+openChatBtn.dispatchEvent({ type: "click", button: 0, preventDefault: () => {}, stopPropagation: () => {} });
 const expandSent = sent.find((s) => s.channel === "openpets:default-pet-chat-expand");
-assert.ok(expandSent, "Clicking history affordance must send default-pet-chat-expand to host");
+assert.ok(expandSent, "Clicking open-chat affordance must send default-pet-chat-expand to host");
 assert.equal(documentElement.dataset.compactComposerOpen, "false", "Opening full panel closes compact composer");
 
 // Simulate host expanding window
