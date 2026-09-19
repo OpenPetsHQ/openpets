@@ -211,8 +211,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `main.ts`: Entry, single-instance lock, bootstrap sequence, JavaScript plugin host construction, and dev-only Control Center route opening
 - `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance) with logging; stops plugin service, IPC, and pet windows on quit
 - `state.ts`: Simple shell pause state
-- `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, and host Pet Assistant personality preferences
-- `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, onboarding normalization
+- `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
+- `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, idle cursor-gaze default/normalization, onboarding normalization
 - `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, bounded active/archive context, archive query/erase seam, and generation-pinned capability routing
 - `pet-assistant-archive.ts`: Host-owned local terminal-text archive with atomic writes, retention/quarantine, and bounded prompt-window support
 - `pet-assistant-history-ipc.ts`: Pure narrow history list/delete/clear handler helpers, including startup and identifier validation
@@ -229,7 +229,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
-- `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
+- `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
 - `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the expanded attached chat panel
@@ -239,7 +239,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, sprite animation states, shared V2 idle cursor-gaze ticker, compact default-pet companion launcher, in-pet attached chat panel styles, speech bubbles, status badges, transient displays, and validated V1/V2 installed-atlas layout selection
+- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, bundled V2 and installed V1/V2 sprite animation states, shared preference-gated movement-driven V2 idle cursor-gaze ticker, compact default-pet companion launcher, in-pet attached chat panel styles, speech bubbles, status badges, transient displays, and validated atlas layout selection
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
@@ -247,7 +247,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `built-in-pet.ts`: Built-in pet constant
 - `reaction-messages.ts`: Message pools for each reaction type
-- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, canonical sprite state definitions, and derived waiting-duration state tables
+- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, bundled V2 Hoodie Cat atlas metadata, canonical sprite state definitions, and derived waiting-duration state tables
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
@@ -265,8 +265,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `codex-pets-core.ts`: Codex V1/V2 metadata, exact V2 atlas, and neutral-pose layout validation
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews
-- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback
-- `catalog-validation.ts`: CatalogV2/V3 schema validation
+- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback, and V1/V2 sprite metadata conversion
+- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 
 **Plugins**:

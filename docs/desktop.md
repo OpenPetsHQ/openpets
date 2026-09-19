@@ -398,7 +398,14 @@ installed pets, the default-pet config, reaction→animation overrides, onboardi
 state, locale preference, the pet pool preference (ordered pet list +
 `petPoolEnabled` toggle), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
 `petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
-preference and canonical `voiceAssistantShortcut` accelerator. That duration is normalized to `1010` ms (Normal) or `2200` ms
+preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
+`voiceAssistantShortcut` accelerator. Idle cursor gaze defaults to enabled and
+is configurable in Control Center → Settings → General. Eligible V2 pets treat
+cursor movement as a short glance: they follow direction changes and return to
+neutral after about 1.2 seconds without movement. Disabling it promptly returns
+eligible V2 pets to their neutral idle pose and stops the shared gaze ticker;
+enabling it resumes tracking. Reactions, motion, dragging, pausing, explicit
+presentation overrides, and V1 pets are unaffected. That duration is normalized to `1010` ms (Normal) or `2200` ms
 (Relaxed), with `1010` ms as the default. `app-state-core.ts` and
 `pet-assistant-personality.ts` hold pure normalization helpers that are testable
 without Electron.

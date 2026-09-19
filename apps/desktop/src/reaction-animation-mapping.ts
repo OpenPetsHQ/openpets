@@ -1,5 +1,6 @@
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
 import { defaultWaitingAnimationDurationMs, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { codexV2SpriteLayout } from "./codex-pets-core.js";
 
 export type PetMotionState = "idle" | "run-left" | "run-right";
 export type UniversalSpriteState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
@@ -49,10 +50,7 @@ export const defaultReactionToSpriteState = {
 
 export const defaultPetSprite = {
   fileName: "default-pet-spritesheet.webp",
-  frameWidth: 192,
-  frameHeight: 208,
-  columns: 8,
-  rows: 9,
+  ...codexV2SpriteLayout,
   states: {
     idle: { row: 0, frames: 6, durationMs: 5500, iterations: "infinite" },
     "running-right": { row: 1, frames: 8, durationMs: 1060 },

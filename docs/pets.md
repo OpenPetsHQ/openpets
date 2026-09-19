@@ -26,8 +26,9 @@ A pet package is small and asset-driven:
 
 There are three sources a pet can come from at runtime:
 
-1. **Built-in pet** (`built-in-pet.ts`) - a bundled spritesheet that always
-   works as a fallback, even offline with nothing installed.
+1. **Built-in pet** (`built-in-pet.ts`) - the bundled V2 Hoodie Cat spritesheet
+   that always works as a fallback, even offline with nothing installed. It uses
+   the exact 8×11 atlas and row 0, column 6 neutral pose, including V2 idle gaze.
 2. **Catalog pets** - downloaded from the public catalog and extracted into
    `userData/pets/{id}/`.
 3. **Codex pets** - locally-developed pets imported from `~/.codex/pets/`
@@ -317,6 +318,10 @@ scripts produce is in [Catalogs](/catalog), with release checks in
 
 ### Codex sprite versions
 
+The bundled default Hoodie Cat uses the same V2 atlas contract as imported
+Codex V2 pets. Its public `builtin` identity and `Hoodie Cat` display name stay
+unchanged; only the desktop asset and runtime layout have been upgraded.
+
 OpenPets preserves the original Codex V1 package shape: an unmarked
 `spritesheet.webp` with the nine standard `192×208` animation rows. It also
 imports V2 only when `pet.json` has `"spriteVersionNumber": 2` and its source
@@ -352,7 +357,18 @@ direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
 inside a small dead zone. Reactions, movement, dragging, plugin sprite
 overrides, and paused pets suspend gaze; V1 pets retain their existing idle
 behavior. Horizontal flips compensate the selected atlas cell so the pet still
-looks toward the cursor.
+looks toward the cursor. Control Center → Settings → General exposes the
+persisted **Idle cursor gaze** setting, enabled by default; disabling it keeps
+all V2 pets on the neutral idle pose and stops the shared ticker, without
+changing reactions, movement, or V1 behavior. When enabled, cursor movement
+drives a short glance: the current direction is held while the cursor is moving
+and for about 1.2 seconds afterward, then eligible idle V2 pets return to
+neutral. No additional blink frames are used.
+
+Catalog V2 entries may declare the same version with an exact numeric
+`spriteVersionNumber: 2`; the desktop carries that marker into Pets previews so
+their 8×11 layout is resolved consistently with imported/local V2 pets. Older
+catalog entries omit the marker and retain V1 compatibility.
 
 Codex integration remains import-only: OpenPets does not write installed or
 catalog pets back into `~/.codex/pets/`.

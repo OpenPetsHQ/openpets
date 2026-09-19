@@ -100,7 +100,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `codex-pets.ts`: Local Codex pet import
 - `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
-- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides
+- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
 - `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, and in-pet attached chat panel), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
 - `electron-builder.yml`: Packaging configuration

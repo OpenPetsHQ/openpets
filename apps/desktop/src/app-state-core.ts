@@ -64,6 +64,13 @@ export const waitingAnimationDurationOptions = [
 export type WaitingAnimationDurationMs = typeof waitingAnimationDurationOptions[number]["value"];
 export const defaultWaitingAnimationDurationMs: WaitingAnimationDurationMs = waitingAnimationDurationOptions[0].value;
 
+/** Whether idle V2 pets follow the global cursor by default. */
+export const defaultIdleCursorGazeEnabled = true;
+
+export function normalizeIdleCursorGazeEnabled(value: unknown, defaultValue = defaultIdleCursorGazeEnabled): boolean {
+  return typeof value === "boolean" ? value : defaultValue;
+}
+
 export const appearanceThemeOptions = ["system", "light", "dark"] as const;
 export type AppearanceTheme = typeof appearanceThemeOptions[number];
 export const defaultAppearanceTheme: AppearanceTheme = "system";

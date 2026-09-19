@@ -26,6 +26,19 @@ export const defaultPetSpriteLayout: PetSpriteLayout = {
   rows: 9,
 };
 
+export const catalogV2SpriteLayout: PetSpriteLayout = {
+  version: 2,
+  frameWidth: 192,
+  frameHeight: 208,
+  columns: 8,
+  rows: 11,
+  neutralPose: { row: 0, column: 6 },
+};
+
+export function getCatalogPetSpriteLayout(spriteVersionNumber: 2 | undefined): PetSpriteLayout | undefined {
+  return spriteVersionNumber === 2 ? catalogV2SpriteLayout : undefined;
+}
+
 export function buildPetSpritePreviewModel(
   layout: PetSpriteLayout | undefined,
   state: { readonly row: number; readonly frames: number },

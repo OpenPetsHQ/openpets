@@ -23,7 +23,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 - **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
 - **Assistant**: Top-level route owning the Pet Assistant feature surfaces — chat/talk button and shortcut preferences, personality authoring, conversation archive management, and model/speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS) with realtime status. Deep links target it via `assistantTab` (currently `providers`).
-- **Settings**: Startup, launch-at-login, pet scale, voice devices hardware routing, reaction-animation mapping, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Settings**: Startup, launch-at-login, pet scale, persisted idle cursor-gaze toggle, voice devices hardware routing, reaction-animation mapping, host capability gates, update check, default-pet position reset, and pet reaction previews.
 - **General Settings**: Modularized under `settings/general/` for host-wide hardware preferences:
   - `settings/general/VoiceDevicesSection.tsx`: Hardware audio device routing controls for microphone input and speaker output with truthful disconnected-fallback badges, capability gating, and refresh trigger.
   - `settings/general/types.ts`: TypeScript contracts for voice device descriptions, resolutions, and snapshots.
@@ -50,6 +50,6 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 ## Key Files
 
 - `main.tsx`: Existing route shell and management pages for Dashboard, Pets, Plugins, Integrations, Teams, and Settings.
-- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation and selects V2's neutral frame.
+- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation, selects V2's neutral frame, and resolves catalog V2 sprite metadata.
 - `styles.css`: Tailwind base/components/utilities plus glass-card layout, navigation, galleries, modals, status pills, previews, and notifications.
 - `vite-env.d.ts`: Vite/TypeScript renderer environment declarations.

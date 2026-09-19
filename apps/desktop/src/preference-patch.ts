@@ -18,6 +18,7 @@ export type PreferencePatch = {
   petScale?: number;
   hudScale?: number;
   waitingAnimationDurationMs?: WaitingAnimationDurationMs;
+  idleCursorGazeEnabled?: boolean;
   reactionAnimationOverrides?: ReturnType<typeof validateReactionAnimationOverrides>;
   petPoolEnabled?: boolean;
   petConfinementEnabled?: boolean;
@@ -69,6 +70,11 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
   if ("petGravityEnabled" in value) {
     if (typeof value.petGravityEnabled !== "boolean") throw new Error("Invalid pet-gravity-enabled value.");
     patch.petGravityEnabled = value.petGravityEnabled;
+  }
+
+  if ("idleCursorGazeEnabled" in value) {
+    if (typeof value.idleCursorGazeEnabled !== "boolean") throw new Error("Invalid idle-cursor-gaze-enabled value.");
+    patch.idleCursorGazeEnabled = value.idleCursorGazeEnabled;
   }
 
   if ("petCrossDisplayEnabled" in value) {

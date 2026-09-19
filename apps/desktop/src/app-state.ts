@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 
-import { defaultAppearanceTheme, defaultHudScale, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
 import type { Point } from "./display.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
@@ -60,6 +60,8 @@ export interface OpenPetsStateV1 {
     readonly petScale: number;
     readonly hudScale: number;
     readonly waitingAnimationDurationMs: WaitingAnimationDurationMs;
+    /** Whether idle V2 pets follow the global cursor. Defaults to true. */
+    readonly idleCursorGazeEnabled: boolean;
     readonly reactionAnimationOverrides?: ReactionAnimationOverrides;
     readonly onboardingCompleted: boolean;
     readonly claudeCommandPath?: string;
@@ -139,7 +141,7 @@ export type OpenPetsActivityRecord =
   | { readonly kind: "say"; readonly reaction?: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" }
   | { readonly kind: "react"; readonly reaction: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" };
 
-export { defaultAppearanceTheme, defaultHudScale, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
+export { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
 export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 
 export type OpenPetsPreferencePatch = Omit<Partial<OpenPetsStateV1["preferences"]>, "personality"> & {
@@ -626,6 +628,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petScale: normalizePetScale(value.petScale),
     hudScale: normalizeHudScale(value.hudScale),
     waitingAnimationDurationMs: normalizeWaitingAnimationDurationMs(value.waitingAnimationDurationMs),
+    idleCursorGazeEnabled: normalizeIdleCursorGazeEnabled(value.idleCursorGazeEnabled, defaultState.preferences.idleCursorGazeEnabled),
     reactionAnimationOverrides: normalizeReactionAnimationOverrides(value.reactionAnimationOverrides),
     onboardingCompleted: normalizeOnboardingCompleted(value),
     claudeCommandPath: normalizeCommandPath(value.claudeCommandPath),
@@ -732,6 +735,7 @@ function createDefaultState(): OpenPetsStateV1 {
       petScale: defaultPetScale,
       hudScale: defaultHudScale,
       waitingAnimationDurationMs: defaultWaitingAnimationDurationMs,
+      idleCursorGazeEnabled: defaultIdleCursorGazeEnabled,
       reactionAnimationOverrides: undefined,
       onboardingCompleted: false,
       claudeCommandPath: undefined,

@@ -11,11 +11,12 @@ import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
 import { getCodexPetsUiState, importCodexPet, readCodexPetSpritesheet } from "./codex-pets.js";
-import { codexV1SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
+import { refreshPetGazePreference } from "./pet-window.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
@@ -121,7 +122,7 @@ async function getPetsStateSnapshot(): Promise<{
 }> {
   const state = getAppStateSnapshot();
   const installed = await Promise.all(state.pets.installed.map(async (pet) => {
-    if (pet.builtIn) return { ...pet, spriteLayout: codexV1SpriteLayout };
+    if (pet.builtIn) return { ...pet, spriteLayout: codexV2SpriteLayout };
     try {
       return {
         ...pet,
@@ -138,7 +139,7 @@ async function getPetsStateSnapshot(): Promise<{
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
   hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
@@ -155,6 +156,7 @@ function getSettingsStateSnapshot(): {
       petScale: state.preferences.petScale,
       hudScale: state.preferences.hudScale,
       waitingAnimationDurationMs: state.preferences.waitingAnimationDurationMs,
+      idleCursorGazeEnabled: state.preferences.idleCursorGazeEnabled,
       reactionAnimationOverrides: state.preferences.reactionAnimationOverrides,
       petPoolOrder: state.preferences.petPoolOrder,
       petPoolEnabled: state.preferences.petPoolEnabled,
@@ -621,6 +623,7 @@ export function installInternalUiHandlers(): void {
     const previousScale = getAppStateSnapshot().preferences.petScale;
     const previousHudScale = getAppStateSnapshot().preferences.hudScale;
     const previousWaitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
+    const previousIdleCursorGazeEnabled = getAppStateSnapshot().preferences.idleCursorGazeEnabled;
     const previousOverrides = JSON.stringify(getAppStateSnapshot().preferences.reactionAnimationOverrides ?? {});
     const previousLocale = getActiveLocale();
     const previousPoolEnabled = getAppStateSnapshot().preferences.petPoolEnabled;
@@ -652,6 +655,9 @@ export function installInternalUiHandlers(): void {
     if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
+    }
+    if (state.preferences.idleCursorGazeEnabled !== previousIdleCursorGazeEnabled) {
+      refreshPetGazePreference();
     }
     if (setLocaleFromPreference(state.preferences.locale) !== previousLocale) {
       // Tray labels are rendered eagerly, so rebuild the menu in the new language.
@@ -1314,14 +1320,14 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string
             selected.id,
             selected.source?.kind === "team" ? "team" : "personal",
           )
-        : codexV1SpriteLayout;
+        : codexV2SpriteLayout;
       return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
   } catch {
     // Fall back to the bundled pet if an installed default disappears while Settings is open.
   }
   const fallback = await stat(builtInPath);
-  return { path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV1SpriteLayout };
+  return { path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV2SpriteLayout };
 }
 
 function getLaunchAtLoginState(): { supported: boolean; enabled: boolean } {

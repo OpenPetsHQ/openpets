@@ -234,6 +234,8 @@ export const en = {
   "settings.general.petScale.description": "Adjust how large the default desktop pet appears.",
   "settings.general.hudScale.title": "Plugin HUD scale",
   "settings.general.hudScale.description": "Adjust how large the plugin HUD panel under the pet appears.",
+  "settings.general.idleCursorGaze.title": "Idle cursor gaze",
+  "settings.general.idleCursorGaze.description": "Let V2 pets look toward your cursor while they are idle.",
   "settings.appearance.title": "Appearance",
   "settings.appearance.description": "Choose how the Control Center follows light or dark mode.",
   "settings.appearance.system": "System default",
@@ -248,6 +250,7 @@ export const en = {
   "settings.toast.loginStartupSaved": "Login startup preference saved.",
   "settings.toast.petScaleSaved": "Pet scale saved.",
   "settings.toast.hudScaleSaved": "HUD scale saved.",
+  "settings.toast.idleCursorGazeSaved": "Idle cursor gaze setting saved.",
 
   // --- Companion assistant (Chat & Voice) settings ---
   "settings.nav.assistant": "Chat & Voice",

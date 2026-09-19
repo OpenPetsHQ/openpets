@@ -26,7 +26,7 @@ import {
 } from "./settings/providers/index.js";
 import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
-import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
+import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 
 import claudeLogoUrl from "../../../assets/integrations/claude.svg";
@@ -39,8 +39,8 @@ import zedLogoUrl from "../../../assets/integrations/zed.svg";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
-type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
-type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured"> & { searchText?: string; catalogPage?: number };
+type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
+type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured" | "spriteVersionNumber"> & { searchText?: string; catalogPage?: number };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -57,7 +57,7 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
@@ -1654,6 +1654,14 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     {(settings?.hudScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
+                <ToggleRow
+                  title={t("settings.general.idleCursorGaze.title")}
+                  description={t("settings.general.idleCursorGaze.description")}
+                  checked={settings?.preferences.idleCursorGazeEnabled ?? true}
+                  disabled={!settings || !!busy}
+                  testId="setting-idle-cursor-gaze-toggle"
+                  onChange={(checked) => patchPreferences({ idleCursorGazeEnabled: checked }, t("settings.toast.idleCursorGazeSaved"))}
+                />
                 <ToggleRow
                   title={t("settings.petConfinement.label")}
                   description={t("settings.petConfinement.description")}
@@ -4653,10 +4661,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       const localSpritesheet = p.id && !catalogPet && !codexPet && !p.builtIn ? installedPetSpritesheetUrl(p.id) : undefined;
       const spritesheet = safePetImage(codexPet?.spritesheet) || safePetImage(catalogPet?.spritesheet) || safePetImage(localSpritesheet);
       const preview = safePetImage(codexPet?.preview) || safePetImage(catalogPet?.preview) || safePetImage(catalogPet?.thumbnail) || safePetImage(p.source && "preview" in p.source ? (p.source as { preview?: string }).preview : undefined) || safePetImage(localSpritesheet) || defaultThumbUrl;
-      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? p.spriteLayout;
+      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? getCatalogPetSpriteLayout(catalogPet?.spriteVersionNumber) ?? p.spriteLayout;
       const category = catalogPet?.category;
       const original = catalogPet?.original;
       const featured = catalogPet?.featured;
+      const spriteVersionNumber = catalogPet?.spriteVersionNumber
+        ?? codexPet?.spriteVersionNumber
+        ?? (p.spriteLayout?.version === 2 ? 2 : undefined);
       return {
         ...p,
         spritesheet,
@@ -4665,6 +4676,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         category,
         original,
         featured,
+        spriteVersionNumber,
         sourceKind: "installed" as const,
         installed: true,
       };
@@ -4676,6 +4688,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           ...p,
           preview: safePetImage(p.preview) || safePetImage(p.thumbnail) || defaultThumbUrl,
           spritesheet: safePetImage(p.spritesheet),
+          spriteLayout: getCatalogPetSpriteLayout(p.spriteVersionNumber),
           sourceKind: "catalog",
           installed: false,
         });
@@ -4944,7 +4957,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       <b className="card-title">{pet.displayName}</b>
                     </span>
                     <p className="card-desc">{pet.description || pet.id}</p>
-                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
+                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
 
                     <div className="pet-card-actions" onClick={(event) => event.stopPropagation()}>
                       <Button
@@ -5070,8 +5083,9 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       {selected.broken && <StatusPill tone="red">{t("pets.badge.broken")}</StatusPill>}
                       {selected.installed && !selected.broken && <StatusPill tone="green">{t("pets.badge.ready")}</StatusPill>}
                       {selected.builtIn && <StatusPill tone="orange">{t("pets.badge.originals")}</StatusPill>}
-                      {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
-                      {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
+                       {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}
                     </div>
                     {statusText && <p className="text-sm text-slatecopy mt-3 mb-0 font-medium">{statusText}</p>}
                   </div>

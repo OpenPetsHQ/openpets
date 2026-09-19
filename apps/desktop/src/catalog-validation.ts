@@ -15,6 +15,7 @@ export interface CatalogPetV2 {
   readonly subcategory?: string;
   readonly original?: boolean;
   readonly featured?: boolean;
+  readonly spriteVersionNumber?: 2;
 }
 
 export interface CatalogV3Index {
@@ -67,6 +68,7 @@ export interface CatalogV3SearchPet {
   readonly catalogPage: number;
   readonly original?: boolean;
   readonly featured?: boolean;
+  readonly spriteVersionNumber?: 2;
 }
 
 export interface CatalogPetV3 {
@@ -80,6 +82,7 @@ export interface CatalogPetV3 {
   readonly subcategory?: string;
   readonly original?: boolean;
   readonly featured?: boolean;
+  readonly spriteVersionNumber?: 2;
 }
 
 export function validateCatalogV2(value: unknown): CatalogV2 {
@@ -192,6 +195,7 @@ function validateCatalogPet(value: unknown, ids: Set<string>): CatalogPetV2 {
     description: validateString(value.description, "description", 500),
     preview: validateCatalogUrl(value.preview, "preview"),
     zip: validateCatalogUrl(value.zip, "zip"),
+    ...(value.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: validateSpriteVersionNumber(value.spriteVersionNumber) }),
   };
 }
 
@@ -209,6 +213,7 @@ function validateCatalogV3Pet(value: unknown, ids: Set<string>): CatalogPetV3 {
     spritesheet: validateCatalogUrl(value.spritesheet, "preview"),
     zip: validateCatalogUrl(value.zip, "zip"),
     category,
+    ...(value.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: validateSpriteVersionNumber(value.spriteVersionNumber) }),
   };
   const withSubcategory = value.subcategory === undefined ? entry : { ...entry, subcategory: validateString(value.subcategory, "subcategory", 80) };
   return withCatalogMeta(withSubcategory, value);
@@ -232,7 +237,27 @@ function validateCatalogV3SearchPet(value: unknown, catalogPageCount: number): C
     searchText: validateString(value.searchText, "searchText", 400),
     category: validateCategory(value.category),
     catalogPage,
+    ...(value.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: validateSpriteVersionNumber(value.spriteVersionNumber) }),
   }, value);
+}
+
+export function toCatalogPetV2Compat(pet: CatalogPetV3): CatalogPetV2 {
+  const entry: CatalogPetV2 = {
+    id: pet.id,
+    displayName: pet.displayName,
+    description: pet.description,
+    preview: pet.thumbnail,
+    spritesheet: pet.spritesheet,
+    zip: pet.zip,
+    category: pet.category,
+  };
+  return {
+    ...entry,
+    ...(pet.subcategory ? { subcategory: pet.subcategory } : {}),
+    ...(pet.original === undefined ? {} : { original: pet.original }),
+    ...(pet.featured === undefined ? {} : { featured: pet.featured }),
+    ...(pet.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: pet.spriteVersionNumber }),
+  };
 }
 
 function withCatalogMeta<T extends object>(entry: T, value: Record<string, unknown>): T & { readonly original?: boolean; readonly featured?: boolean } {
@@ -246,6 +271,11 @@ function withCatalogMeta<T extends object>(entry: T, value: Record<string, unkno
 function validateBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new Error(`Catalog pet ${field} must be a boolean.`);
   return value;
+}
+
+function validateSpriteVersionNumber(value: unknown): 2 {
+  if (value !== 2) throw new Error("Catalog pet spriteVersionNumber must be 2 when provided.");
+  return 2;
 }
 
 function validateCategory(value: unknown): "western" | "asian" {

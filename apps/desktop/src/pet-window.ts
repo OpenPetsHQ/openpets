@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, getHudScaleForPetScale, hudScaleOptions, isPetFlippedHorizontally, markPetBroken, petScaleOptions, togglePetHorizontalFlip, updatePreferences, type HudScaleValue, type PetScaleValue } from "./app-state.js";
-import { getCodexPetSpritePosition, getCodexV2GazeSpritePosition, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { getCodexPetSpritePosition, getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
@@ -135,6 +135,8 @@ interface PetGazeEntry {
 const petGazeEntries = new Map<BrowserWindow, PetGazeEntry>();
 let petGazeTicker: NodeJS.Timeout | null = null;
 const petGazeTickerIntervalMs = 100;
+let petGazeCursorPoint: Point | null = null;
+let petGazeLastCursorMovedAt: number | null = null;
 
 function registerPetGazeWindow(window: BrowserWindow): void {
   if (petGazeEntries.has(window)) return;
@@ -201,9 +203,10 @@ function registerPetGazeWindow(window: BrowserWindow): void {
 }
 
 function stopPetGazeTicker(): void {
-  if (!petGazeTicker) return;
-  clearInterval(petGazeTicker);
+  if (petGazeTicker) clearInterval(petGazeTicker);
   petGazeTicker = null;
+  petGazeCursorPoint = null;
+  petGazeLastCursorMovedAt = null;
 }
 
 function syncPetGazeTicker(): void {
@@ -218,17 +221,30 @@ function syncPetGazeTicker(): void {
 }
 
 function isPetGazeEligible(entry: PetGazeEntry): boolean {
-  return entry.codexSpriteVersion === 2
-    && !entry.paused
-    && entry.reactionState === "idle"
-    && entry.motionState === "idle"
-    && !entry.pluginSpriteOverride
+  return shouldTrackCodexV2Gaze({
+    spriteVersion: entry.codexSpriteVersion,
+    idleCursorGazeEnabled: getAppStateSnapshot().preferences.idleCursorGazeEnabled,
+    paused: entry.paused,
+    reactionState: entry.reactionState,
+    motionState: entry.motionState,
+    pluginSpriteOverride: entry.pluginSpriteOverride,
+  })
     && !entry.dragging
     && !entry.movementSuspended
     && entry.rendererReady
     && !entry.window.isDestroyed()
     && entry.window.isVisible()
     && !entry.window.webContents.isDestroyed();
+}
+
+/** Apply an idle cursor-gaze preference change without waiting for the ticker. */
+export function refreshPetGazePreference(): void {
+  const enabled = getAppStateSnapshot().preferences.idleCursorGazeEnabled;
+  for (const entry of petGazeEntries.values()) {
+    resetPetGazeDirection(entry);
+    if (enabled) forcePetGazeEvaluation(entry.window);
+  }
+  syncPetGazeTicker();
 }
 
 function sendPetGaze(entry: PetGazeEntry, direction: number | null): void {
@@ -245,10 +261,14 @@ function resetPetGazeDirection(entry: PetGazeEntry): void {
   entry.window.webContents.send("openpets:pet-gaze", { index: null });
 }
 
-function evaluatePetGaze(entry: PetGazeEntry, cursor: Point): void {
+function evaluatePetGaze(entry: PetGazeEntry, cursor: Point, now = Date.now()): void {
   if (!isPetGazeEligible(entry)) {
     if (!entry.rendererReady || entry.window.isDestroyed() || entry.window.webContents.isDestroyed()) entry.lastDirection = null;
     else resetPetGazeDirection(entry);
+    return;
+  }
+  if (!isCodexV2GazeActive(petGazeLastCursorMovedAt, now)) {
+    sendPetGaze(entry, null);
     return;
   }
   let bounds: Electron.Rectangle;
@@ -267,6 +287,16 @@ function evaluatePetGaze(entry: PetGazeEntry, cursor: Point): void {
   sendPetGaze(entry, selected ? selectedDirection : null);
 }
 
+function updatePetGazeCursor(cursor: Point, now: number): void {
+  if (!petGazeCursorPoint) {
+    petGazeCursorPoint = cursor;
+    return;
+  }
+  if (petGazeCursorPoint.x === cursor.x && petGazeCursorPoint.y === cursor.y) return;
+  petGazeCursorPoint = cursor;
+  petGazeLastCursorMovedAt = now;
+}
+
 function tickPetGaze(): void {
   if (![...petGazeEntries.values()].some(isPetGazeEligible)) {
     for (const entry of petGazeEntries.values()) evaluatePetGaze(entry, { x: 0, y: 0 });
@@ -274,6 +304,8 @@ function tickPetGaze(): void {
     return;
   }
   const cursor = screen.getCursorScreenPoint();
+  const now = Date.now();
+  updatePetGazeCursor(cursor, now);
   for (const entry of petGazeEntries.values()) {
     if (!entry.window.isDestroyed() && !entry.window.webContents.isDestroyed() && entry.window.isVisible()) {
       try {
@@ -287,7 +319,7 @@ function tickPetGaze(): void {
         entry.lastBounds = null;
       }
     }
-    evaluatePetGaze(entry, cursor);
+    evaluatePetGaze(entry, cursor, now);
   }
 }
 
@@ -1557,11 +1589,11 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
     cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
-    codexSpriteVersion: 1,
+    codexSpriteVersion: defaultPetSprite.version,
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="1" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${shouldUseWaylandNativePetDrag() ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -1585,7 +1617,8 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
             transform: scale(${scale});
             transform-origin: top left;
           }
-          ${createSpriteStateCss(".sprite", stateRows)}
+          ${createSpriteStateCss(".sprite", stateRows, defaultPetSprite)}
+          ${createCodexV2GazeCss(".sprite", defaultPetSprite)}
           @keyframes pet-frames {
             from { background-position: 0 var(--sprite-row-y); }
             to { background-position: calc(-${defaultPetSprite.frameWidth}px * var(--sprite-frames)) var(--sprite-row-y); }
@@ -2826,17 +2859,17 @@ function createSpriteStateCss(selector: ".sprite" | ".installed-sprite", stateRo
 
 function createInstalledSpriteStateCss(stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout): string {
   if (layout.version === 1) return createSpriteStateCss(".installed-sprite", stateRows);
-  return `${createSpriteStateCss(".installed-sprite", stateRows, layout)}\n${createCodexV2GazeCss(layout)}`;
+  return `${createSpriteStateCss(".installed-sprite", stateRows, layout)}\n${createCodexV2GazeCss(".installed-sprite", layout)}`;
 }
 
-function createCodexV2GazeCss(layout: CodexPetSpriteLayout): string {
+function createCodexV2GazeCss(selector: ".sprite" | ".installed-sprite", layout: CodexPetSpriteLayout): string {
   if (layout.version !== 2) return "";
   return Array.from({ length: 16 }, (_, index) => {
     const position = getCodexV2GazeSpritePosition(index);
     if (!position) return "";
     const x = -(position.column * layout.frameWidth);
     const y = -(position.row * layout.frameHeight);
-    return `html[data-codex-sprite-version="2"][data-paused="false"][data-reaction-state="idle"][data-motion-state="idle"][data-codex-gaze-index="${index}"] .installed-sprite { --sprite-row-y: ${y}px; --sprite-offset-x: ${x}px; --sprite-end-offset-x: ${x}px; --sprite-animation: none; animation: none; background-position: ${x}px ${y}px; }`;
+    return `html[data-codex-sprite-version="2"][data-paused="false"][data-reaction-state="idle"][data-motion-state="idle"][data-codex-gaze-index="${index}"] ${selector} { --sprite-row-y: ${y}px; --sprite-offset-x: ${x}px; --sprite-end-offset-x: ${x}px; --sprite-animation: none; animation: none; background-position: ${x}px ${y}px; }`;
   }).join("\n");
 }
 

@@ -52,15 +52,43 @@ export const codexV2SpriteLayout: CodexPetSpriteLayout = {
 export const codexV2GazeSectorCount = 16;
 export const codexV2GazeSectorAngle = (Math.PI * 2) / codexV2GazeSectorCount;
 export const codexV2GazeDeadZonePx = 24;
+export const codexV2GazeIdleResetMs = 1_200;
 
 export interface CodexV2GazePoint {
   readonly x: number;
   readonly y: number;
 }
 
+export function isCodexV2GazeActive(lastCursorMovedAt: number | null, now: number, idleResetMs = codexV2GazeIdleResetMs): boolean {
+  return lastCursorMovedAt !== null
+    && Number.isFinite(lastCursorMovedAt)
+    && Number.isFinite(now)
+    && Number.isFinite(idleResetMs)
+    && idleResetMs > 0
+    && now - lastCursorMovedAt < idleResetMs;
+}
+
 export interface CodexV2GazeSpritePosition {
   readonly row: 9 | 10;
   readonly column: number;
+}
+
+export interface CodexV2GazeEligibility {
+  readonly spriteVersion: 1 | 2;
+  readonly idleCursorGazeEnabled: boolean;
+  readonly paused: boolean;
+  readonly reactionState: string;
+  readonly motionState: string;
+  readonly pluginSpriteOverride: boolean;
+}
+
+export function shouldTrackCodexV2Gaze(state: CodexV2GazeEligibility): boolean {
+  return state.spriteVersion === 2
+    && state.idleCursorGazeEnabled
+    && !state.paused
+    && state.reactionState === "idle"
+    && state.motionState === "idle"
+    && !state.pluginSpriteOverride;
 }
 
 /**
