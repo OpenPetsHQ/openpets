@@ -883,6 +883,13 @@ export interface OpenPetsSystemInfo {
   online: boolean;
 }
 
+export interface OpenPetsSystemNetworkMetrics {
+  /** Aggregate receive throughput from successive host counter samples. */
+  downloadBytesPerSecond: number;
+  /** Aggregate transmit throughput from successive host counter samples. */
+  uploadBytesPerSecond: number;
+}
+
 /** Aggregate machine metrics — never per-process or per-app data. */
 export interface OpenPetsSystemMetrics {
   /** 0–100, recent average. */
@@ -894,6 +901,12 @@ export interface OpenPetsSystemMetrics {
   /** Optional used capacity (0–100) of the system volume when supported by the host OS. */
   diskUsedPercent?: number;
   battery?: { percent: number; charging: boolean };
+  /** Optional aggregate network throughput; absent until two valid counter samples exist. */
+  network?: OpenPetsSystemNetworkMetrics;
+  /** Identity of the last successful extended metrics collection. */
+  extendedMetricsSampledAt?: number;
+  /** False while an expired cached extended reading is awaiting refresh. */
+  extendedMetricsFresh?: boolean;
 }
 
 /** Read-only environment + open-external + gated clipboard. */

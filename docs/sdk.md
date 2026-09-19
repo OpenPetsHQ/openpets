@@ -57,7 +57,7 @@ each gated by a permission ([Plugin platform](/plugins)):
 | `ctx.auth` | Host-mediated OAuth/PKCE | `auth` |
 | `ctx.net` | Declared∩approved hosts; public HTTPS + optional local HTTP via `network:local`; non-GET via `network:write` | `network`, `network:write`, `network:local` |
 | `ctx.files` | Scoped file access | `files` |
-| `ctx.system` | System info, aggregate CPU/memory and optional GPU/system-volume metrics, clipboard | `system:*`, `clipboard` |
+| `ctx.system` | System info, aggregate CPU/memory plus optional GPU, system-volume, battery, and network metrics, clipboard | `system:*`, `clipboard` |
 | `ctx.assets` | Resolve declared asset refs (icons/images/sprites/sounds) | (declared assets) |
 | `ctx.commands` | Register right-click commands | `commands` |
 | `ctx.status` | Publish status text | (status surface) |
@@ -67,9 +67,14 @@ each gated by a permission ([Plugin platform](/plugins)):
 
 The exact signatures live in `packages/sdk/src/index.ts` - that file is the
 contract, so program against it rather than any list copied into a doc.
-`ctx.system.metrics()` always returns aggregate CPU and memory usage; its
-GPU and system-volume fields are optional because host support varies by OS and
-hardware. It never exposes process, application, file, or device identity data.
+`ctx.system.metrics()` always returns aggregate CPU and memory usage; GPU,
+system-volume, battery, and network fields are optional because host support
+varies by OS and hardware. Network throughput is derived from successive
+aggregate interface counters, so it is omitted until a valid delta exists and
+is reset after counter rollback or a long sleep/wake gap. The optional
+`extendedMetricsSampledAt` and `extendedMetricsFresh` fields identify whether
+extended values come from a new host probe or an expired cache awaiting refresh.
+They never expose process, application, file, interface, or device identity data.
 `OpenPetsPermission` in the SDK mirrors manifest validation so authors get
 autocomplete for exactly the capabilities they can request.
 
