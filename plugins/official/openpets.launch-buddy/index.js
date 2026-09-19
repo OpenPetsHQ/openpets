@@ -129,9 +129,18 @@ export async function greet(ctx, { force = false, now = Date.now() } = {}) {
   return true;
 }
 
+async function registerAssistantCapabilities(ctx) {
+  await ctx.assistant.registerCapability({
+    id: "launch.greet",
+    description: "Trigger the configured Launch Buddy greeting immediately.",
+    inputSchema: { type: "object", additionalProperties: false },
+  }, async () => ({ ok: await greet(ctx, { force: true }) }));
+}
+
 export function register(OpenPetsPlugin) {
   OpenPetsPlugin.register({
     async start(ctx) {
+      await registerAssistantCapabilities(ctx);
       await ctx.commands.register({ id: "greet-now", title: "$t:command.greetNow.title", description: "$t:command.greetNow.description", icon: "sparkles" }, () => greet(ctx, { force: true }));
       await ctx.commands.register({ id: "reset-launch-buddy", title: "$t:command.reset.title", description: "$t:command.reset.description", icon: "check" }, async () => {
         await ctx.storage.set(STORAGE_LAST_GREETING_AT, undefined);

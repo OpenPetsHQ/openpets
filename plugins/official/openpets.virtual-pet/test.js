@@ -198,6 +198,61 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   h.expectNoErrors();
 }
 
+// 5b) Assistant capabilities reuse care mutations without command speech.
+{
+  const now = 103_500_000_000;
+  const h = createTestHarness(register, {
+    permissions: PERMISSIONS,
+    locales: LOCALES,
+    config: { sound: "care-chime" },
+    nowMs: now,
+  });
+  activeHarness = h;
+  await h.start();
+
+  assert.deepEqual(
+    [...h.calls.assistantCapabilities.keys()],
+    [
+      "virtual-pet.status",
+      "virtual-pet.feed",
+      "virtual-pet.play",
+      "virtual-pet.pet",
+      "virtual-pet.nap",
+    ],
+  );
+
+  const status = await h.runCapability("virtual-pet.status", {});
+  assert.equal(status.ok, true);
+  assert.equal(status.action, "status");
+  assert.equal(status.state.hunger, 80);
+  assert.equal(status.mood, "content");
+
+  const fed = await h.runCapability("virtual-pet.feed", {});
+  assert.equal(fed.state.hunger, 100);
+  assert.equal(fed.state.careCounts.fed, 1);
+  h.expectStored("state", (state) => state.hunger === 100 && state.careCounts.fed === 1);
+
+  const played = await h.runCapability("virtual-pet.play", {});
+  assert.equal(played.state.happiness, 100);
+  assert.equal(played.state.energy, 65);
+  assert.equal(played.state.careCounts.played, 1);
+
+  const petted = await h.runCapability("virtual-pet.pet", {});
+  assert.equal(petted.state.affection, 65);
+  assert.equal(petted.state.careCounts.petted, 1);
+
+  const napped = await h.runCapability("virtual-pet.nap", {});
+  assert.equal(napped.state.energy, 100);
+  assert.equal(napped.state.careCounts.napped, 1);
+  assert.equal(napped.state.sleptUntil, now + 15 * 60_000);
+
+  assert.equal(h.calls.speak.length, 0, "assistant care actions must not use command speech");
+  assert.deepEqual(h.calls.react, ["celebrating", "celebrating", "waving", "waiting"]);
+  assert.equal(h.calls.sounds.length, 4, "assistant care actions must preserve action sounds");
+  assert.ok(h.calls.bubbles[0].updates.length >= 5, "assistant care actions must update the pinned HUD");
+  h.expectNoErrors();
+}
+
 // 6) Click event triggers petting
 {
   const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES, nowMs: 104_000_000_000 });

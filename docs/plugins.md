@@ -165,15 +165,19 @@ stale plugin generations, handler failures, timeouts, and unavailable or
 indeterminate execution remain ordinary structured rejected/unavailable
 outcomes without that discriminator.
 
-Focus Buddy and Quick Reminders are the first official examples. Focus Buddy
-registers `focus.start`, `focus.status`, `focus.pause`, `focus.resume`, and
-`focus.end`; its start capability accepts an explicit duration in minutes.
+Bundled official plugins are the primary examples. Focus Buddy registers
+`focus.start`, `focus.status`, `focus.pause`, `focus.resume`, `focus.end`, and
+`focus.skipBreak`; its start capability accepts an explicit duration in minutes.
 Quick Reminders registers `reminders.create`, `reminders.list`,
 `reminders.complete`, `reminders.snooze`, and `reminders.remove`.
 `reminders.create` accepts an absolute ISO due time with a `Z` suffix or numeric
-UTC offset, never a guessed local or natural-language date. Both plugins reuse
-their direct-control domain operations but keep assistant calls free of
-command-specific speech and bubble confirmations.
+UTC offset, never a guessed local or natural-language date. Launch Buddy exposes
+`launch.greet`; Virtual Pet exposes `virtual-pet.status`, `virtual-pet.feed`,
+`virtual-pet.play`, `virtual-pet.pet`, and `virtual-pet.nap`; System Resources
+exposes `resources.get`, `resources.show`, and `resources.hide`. These
+capabilities reuse direct-control domain operations but keep assistant calls free
+of command-specific speech and bubble confirmations, except Launch Buddy's
+explicit greeting, whose purpose is to present the configured greeting.
 
 The current v1 quotas are 32 registrations per plugin, 16 KiB per schema,
 schema depth six, 32 properties per object, 128 total schema properties, 32

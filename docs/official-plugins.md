@@ -64,10 +64,18 @@ Those defaults are defined in `apps/desktop/src/bundled-plugins.ts` and consumed
 Everything else is installable from the catalog, not preloaded into a fresh app
 install.
 
-Focus Buddy and Quick Reminders also expose typed Pet Assistant capabilities
-when enabled. Their assistant operations use the same durable domain state as
-their pet-menu controls, while the host conversation owns the spoken or chat
-response.
+Every bundled plugin exposes its useful operations as typed Pet Assistant
+capabilities when enabled. Their assistant operations use the same durable
+domain state as their pet-menu controls, while the host conversation owns the
+spoken or chat response.
+
+| Plugin | Assistant capabilities |
+| --- | --- |
+| Quick Reminders | Create, list, complete, snooze, and remove reminders. |
+| Focus Buddy | Start, inspect, pause, resume, end, or skip to a break in a focus session. |
+| Launch Buddy | Deliver the configured greeting on demand. |
+| Virtual Pet | Inspect its status, then feed, play with, pet, or put it down for a nap. |
+| System Resources | Read metrics and show or hide its pinned HUD. |
 
 The same file also defines `staleBundledPluginIds`, a cleanup list for old
 bundled plugins that should be removed during upgrade. Keep that list when old
