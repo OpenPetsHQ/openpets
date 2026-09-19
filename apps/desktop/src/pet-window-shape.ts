@@ -45,6 +45,7 @@ export const compactComposerGeometry = Object.freeze({
   maxWidth: 196,
   horizontalInset: 8,
   maxHeight: 152,
+  bottomGap: 18,
   paddingX: 10,
   paddingY: 8,
   gap: 6,
@@ -121,10 +122,10 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   } else if (options.isCompactOpen) {
     const width = Math.min(compactComposerGeometry.maxWidth, Math.max(0, options.windowWidth - compactComposerGeometry.horizontalInset * 2));
     const height = Math.min(compactComposerGeometry.maxHeight, options.windowHeight);
-    const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8) + pinnedLift;
+    const compactComposerBottom = Math.ceil(petBottom + scaledHeight + compactComposerGeometry.bottomGap) + pinnedLift;
     compactComposer = {
       x: Math.round((options.windowWidth - width) / 2),
-      y: options.windowHeight - bubbleBottom - height,
+      y: options.windowHeight - compactComposerBottom - height,
       width,
       height,
     };

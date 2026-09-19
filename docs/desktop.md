@@ -281,7 +281,8 @@ bottom-anchored panel bounds, tracking dynamic panel height reported from the re
 `ResizeObserver`. Compact open/close is owned by the main
 process alongside expansion: opening makes the carrier focusable and adds the
 composer rectangle to the input shape; closing restores the passive pet shape and
-focus policy. The compact composer has one shared maximum geometry contract: its
+focus policy. The compact composer is anchored above the pet with a 12px visual gap
+below its 6px tail. It has one shared maximum geometry contract: its
 multiline textarea is capped at 68px and error feedback at 34px, producing a
 152px maximum envelope used by both CSS and the Linux mask.
 

@@ -1844,6 +1844,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
   const petBottom = 22;
   const hitPadding = 28;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
+  const compactComposerBottom = Math.ceil(petBottom + scaledHeight + compactComposerGeometry.bottomGap);
   const chatPanelBottom = calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap);
   // The pet and transient bubbles are lifted above the pinned plugin bubble
   // (HUD); the lift grows with the HUD's own scale so they never overlap.
@@ -2008,7 +2009,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .bubble.is-pinned.accent-slate { background: linear-gradient(135deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.92)); }
     .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
-    .stage.has-pinned .openpets-compact-composer { bottom: ${bubbleBottom + pinnedLift}px; }
+    .stage.has-pinned .openpets-compact-composer { bottom: ${compactComposerBottom + pinnedLift}px; }
     .stage.has-pinned .openpets-chat-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
@@ -2101,7 +2102,7 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .openpets-compact-composer {
       position: absolute;
       left: 50%;
-      bottom: ${bubbleBottom}px;
+      bottom: ${compactComposerBottom}px;
       transform: translateX(-50%);
        width: calc(100% - ${compactComposerGeometry.horizontalInset * 2}px);
        max-width: ${compactComposerGeometry.maxWidth}px;

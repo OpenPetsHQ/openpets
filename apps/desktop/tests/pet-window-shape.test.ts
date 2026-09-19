@@ -126,7 +126,7 @@ import { calculateChatPanelBottom, defaultPetChatPanelLayout, expandedPetWindowS
   const composer = compactShapeInfo.compactComposer!;
   assert.equal(composer.width, compactComposerGeometry.maxWidth);
   assert.equal(composer.height, compactComposerGeometry.maxHeight);
-  const expectedComposerY = defaultPetWindowSize.height - Math.ceil(22 + 32 * 3 + 8) - compactComposerGeometry.maxHeight;
+  const expectedComposerY = defaultPetWindowSize.height - Math.ceil(22 + 32 * 3 + compactComposerGeometry.bottomGap) - compactComposerGeometry.maxHeight;
   assert.equal(composer.y, expectedComposerY, "the input mask follows the composer's absolute bottom anchor");
 
   const contentX = composer.x + compactComposerGeometry.borderWidth;
