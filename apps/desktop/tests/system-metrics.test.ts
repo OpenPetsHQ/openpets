@@ -12,6 +12,7 @@ import {
   readExtendedSystemMetrics,
   readNetworkCountersForPlatform,
   type ExtendedSystemMetrics,
+  type NetworkCounters,
 } from "../src/system-metrics.js";
 
 // The SDK exposes aggregate, bounded values only: unavailable hardware omits a metric.
@@ -43,19 +44,34 @@ assert.deepEqual(networkCountersFromNetstat(`Name Mtu Network Address Ipkts Ierr
 en0 1500 <Link#4> aa:bb 10 0 1000 20 0 2000 0
 en0 1500 192.0.2 192.0.2.2 10 0 1000 20 0 2000 0
 lo0 16384 <Link#1> 00:00 10 0 9999 10 0 9999 0
-en1 1500 <Link#5> cc:dd 10 0 3000 20 0 4000 0`), { receivedBytes: 4000, sentBytes: 6000 });
-assert.deepEqual(networkCountersFromWindowsJson('[{"Name":"Wi-Fi","ReceivedBytes":100,"SentBytes":200},{"Name":"Ethernet","ReceivedBytes":300,"SentBytes":400}]'), { receivedBytes: 400, sentBytes: 600 });
-assert.deepEqual(networkCountersFromWindowsJson('{"Name":"Wi-Fi","ReceivedBytes":100,"SentBytes":200}'), { receivedBytes: 100, sentBytes: 200 });
+en1 1500 <Link#5> cc:dd 10 0 3000 20 0 4000 0`), {
+  interfaces: [
+    { id: "mac:aa:bb", receivedBytes: 1000, sentBytes: 2000 },
+    { id: "mac:cc:dd", receivedBytes: 3000, sentBytes: 4000 },
+  ],
+});
+assert.deepEqual(networkCountersFromNetstat(`Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+lo0 16384 <Link#1> 00:00 10 0 9999 10 0 9999 0`), { interfaces: [] });
+assert.deepEqual(networkCountersFromWindowsJson('[{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":100,"SentBytes":200},{"Name":"Ethernet","InterfaceGuid":"{ETH-GUID}","ReceivedBytes":300,"SentBytes":400}]'), {
+  interfaces: [
+    { id: "guid:{wifi-guid}", receivedBytes: 100, sentBytes: 200 },
+    { id: "guid:{eth-guid}", receivedBytes: 300, sentBytes: 400 },
+  ],
+});
+assert.deepEqual(networkCountersFromWindowsJson('{"Name":"Wi-Fi","MacAddress":"AA-BB-CC-DD-EE-FF","ReceivedBytes":100,"SentBytes":200}'), {
+  interfaces: [{ id: "mac:aa:bb:cc:dd:ee:ff", receivedBytes: 100, sentBytes: 200 }],
+});
+assert.deepEqual(networkCountersFromWindowsJson("[]"), { interfaces: [] });
 assert.equal(networkCountersFromWindowsJson('{"Name":"Wi-Fi","ReceivedBytes":null,"SentBytes":null}'), undefined);
 assert.equal(networkCountersFromWindowsJson('{"Name":"Wi-Fi"}'), undefined);
 
 {
   let now = 0;
   const samples = [
-    { receivedBytes: 100, sentBytes: 200 },
-    { receivedBytes: 1_100, sentBytes: 700 },
-    { receivedBytes: 100, sentBytes: 50 },
-    { receivedBytes: 600, sentBytes: 550 },
+    { interfaces: [{ id: "mac:en0", receivedBytes: 100, sentBytes: 200 }] },
+    { interfaces: [{ id: "mac:en0", receivedBytes: 1_100, sentBytes: 700 }] },
+    { interfaces: [{ id: "mac:en0", receivedBytes: 100, sentBytes: 50 }] },
+    { interfaces: [{ id: "mac:en0", receivedBytes: 600, sentBytes: 550 }] },
   ];
   const sampler = createNetworkRateSampler(async () => samples.shift(), { now: () => now, maxGapMs: 5_000 });
   assert.equal(await sampler(), undefined, "the first counter sample establishes a baseline");
@@ -65,6 +81,54 @@ assert.equal(networkCountersFromWindowsJson('{"Name":"Wi-Fi"}'), undefined);
   assert.equal(await sampler(), undefined, "counter resets establish a new baseline");
   now = 8_000;
   assert.equal(await sampler(), undefined, "a sleep-sized gap does not fabricate throughput");
+}
+
+function counters(...interfaces: Array<[id: string, receivedBytes: number, sentBytes: number]>): NetworkCounters {
+  return { interfaces: interfaces.map(([id, receivedBytes, sentBytes]) => ({ id, receivedBytes, sentBytes })) };
+}
+
+{
+  let now = 0;
+  const samples = [
+    `Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+en0 1500 <Link#4> aa:bb 10 0 100 20 0 200 0`,
+    `Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+en0 1500 <Link#4> aa:bb 10 0 200 20 0 300 0
+en1 1500 <Link#5> cc:dd 10 0 1,000,000 20 0 2,000,000 0`,
+    `Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+en1 1500 <Link#5> cc:dd 10 0 1,000,100 20 0 2,000,100 0`,
+    `Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+en0 1500 <Link#4> aa:bb 10 0 9,000,000 20 0 9,000,000 0
+en1 1500 <Link#5> cc:dd 10 0 1,000,200 20 0 2,000,200 0`,
+  ].map(networkCountersFromNetstat);
+  const sampler = createNetworkRateSampler(async () => samples.shift(), { now: () => now });
+
+  assert.equal(await sampler(), undefined, "the first macOS sample establishes per-interface baselines");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 100, uploadBytesPerSecond: 100 }, "a newly joined adapter is baselined instead of treated as accumulated traffic");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 100, uploadBytesPerSecond: 100 }, "a disconnected adapter contributes no delta while the surviving adapter continues normally");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 100, uploadBytesPerSecond: 100 }, "a rejoined adapter is baselined again instead of creating a reconnect spike");
+}
+
+{
+  let now = 0;
+  const samples = [
+    '[{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":1000,"SentBytes":2000}]',
+    '[{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":1100,"SentBytes":2200},{"Name":"Ethernet","InterfaceGuid":"{ETH-GUID}","ReceivedBytes":9000000,"SentBytes":8000000}]',
+    '[{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":1200,"SentBytes":2400},{"Name":"Ethernet","InterfaceGuid":"{ETH-GUID}","ReceivedBytes":100,"SentBytes":200}]',
+    '[{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":1300,"SentBytes":2600},{"Name":"Ethernet","InterfaceGuid":"{ETH-GUID}","ReceivedBytes":200,"SentBytes":400}]',
+  ].map(networkCountersFromWindowsJson);
+  const sampler = createNetworkRateSampler(async () => samples.shift(), { now: () => now });
+
+  assert.equal(await sampler(), undefined, "the first Windows sample establishes per-interface baselines");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 100, uploadBytesPerSecond: 200 }, "a newly joined adapter is excluded until it has a consecutive sample");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 100, uploadBytesPerSecond: 200 }, "a counter reset is rebaselined without fabricating a negative or huge delta");
+  now += 1_000;
+  assert.deepEqual(await sampler(), { downloadBytesPerSecond: 200, uploadBytesPerSecond: 400 }, "normal traffic resumes after the reset baseline");
 }
 
 {
@@ -154,14 +218,15 @@ assert.equal(networkCountersFromWindowsJson('{"Name":"Wi-Fi"}'), undefined);
       assert.deepEqual(args, ["-ib"]);
       return "Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll\nen0 1500 <Link#4> aa 1 0 100 1 0 200 0";
     },
-  }), { receivedBytes: 100, sentBytes: 200 });
+  }), { interfaces: [{ id: "mac:aa", receivedBytes: 100, sentBytes: 200 }] });
   assert.deepEqual(await readNetworkCountersForPlatform("win32", {
     run: async (command, args) => {
       assert.equal(command, "powershell.exe");
       assert.equal(args[0], "-NoProfile");
-      return '{"ReceivedBytes":100,"SentBytes":200}';
+      assert.match(args.at(-1) ?? "", /MacAddress/);
+      return '{"Name":"Wi-Fi","MacAddress":"AA-BB-CC-DD-EE-FF","ifIndex":7,"ReceivedBytes":100,"SentBytes":200}';
     },
-  }), { receivedBytes: 100, sentBytes: 200 });
+  }), { interfaces: [{ id: "mac:aa:bb:cc:dd:ee:ff", receivedBytes: 100, sentBytes: 200 }] });
 }
 
 {

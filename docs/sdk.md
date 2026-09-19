@@ -70,8 +70,10 @@ contract, so program against it rather than any list copied into a doc.
 `ctx.system.metrics()` always returns aggregate CPU and memory usage; GPU,
 system-volume, battery, and network fields are optional because host support
 varies by OS and hardware. Network throughput is derived from successive
-aggregate interface counters, so it is omitted until a valid delta exists and
-is reset after counter rollback or a long sleep/wake gap. The optional
+per-interface counter samples matched by host-stable identities, so newly seen
+or reset interfaces are baselined and contribute no delta until a consecutive
+sample exists. It is omitted until at least one valid interface delta exists
+and is reset after a command failure or a long sleep/wake gap. The optional
 `extendedMetricsSampledAt` and `extendedMetricsFresh` fields identify whether
 extended values come from a new host probe or an expired cache awaiting refresh.
 They never expose process, application, file, interface, or device identity data.

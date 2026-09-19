@@ -20,7 +20,13 @@ export type ExtendedSystemMetrics = {
   extendedMetricsFresh?: boolean;
 };
 
-export type NetworkCounters = { receivedBytes: number; sentBytes: number };
+export type NetworkInterfaceCounters = {
+  /** Stable platform-provided identity, not an array position or aggregate total. */
+  id: string;
+  receivedBytes: number;
+  sentBytes: number;
+};
+export type NetworkCounters = { interfaces: NetworkInterfaceCounters[] };
 export type NetworkThroughput = { downloadBytesPerSecond: number; uploadBytesPerSecond: number };
 
 export function createStaleWhileRevalidateCache(
@@ -158,47 +164,68 @@ export function networkCountersFromNetstat(text: string): NetworkCounters | unde
   const headers = lines[headerIndex].split(/\s+/).map((value) => value.toLowerCase());
   const nameIndex = headers.indexOf("name");
   const networkIndex = headers.indexOf("network");
+  const addressIndex = headers.indexOf("address");
   const receivedIndex = headers.indexOf("ibytes");
   const sentIndex = headers.indexOf("obytes");
-  if ([nameIndex, networkIndex, receivedIndex, sentIndex].some((index) => index < 0)) return undefined;
+  if ([nameIndex, networkIndex, addressIndex, receivedIndex, sentIndex].some((index) => index < 0)) return undefined;
 
-  const seen = new Set<string>();
-  let receivedBytes = 0;
-  let sentBytes = 0;
+  const interfaces = new Map<string, NetworkInterfaceCounters>();
   for (const line of lines.slice(headerIndex + 1)) {
     const fields = line.split(/\s+/);
     const name = fields[nameIndex];
     const network = fields[networkIndex];
-    if (!name || name === "lo0" || seen.has(name) || !network?.toLowerCase().startsWith("<link#")) continue;
+    if (!name || name.toLowerCase() === "lo0" || !network?.toLowerCase().startsWith("<link#")) continue;
     const received = parseCounter(fields[receivedIndex]);
     const sent = parseCounter(fields[sentIndex]);
     if (received === undefined || sent === undefined) continue;
-    seen.add(name);
-    receivedBytes += received;
-    sentBytes += sent;
+    const address = fields[addressIndex]?.trim().toLowerCase();
+    const id = address && address !== "-" ? `mac:${address.replaceAll("-", ":")}` : `name:${name.toLowerCase()}`;
+    if (interfaces.has(id)) continue;
+    interfaces.set(id, { id, receivedBytes: received, sentBytes: sent });
   }
-  return seen.size > 0 ? { receivedBytes, sentBytes } : undefined;
+  return { interfaces: [...interfaces.values()] };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizedIdentityPart(value: unknown): string | undefined {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized && normalized !== "-" ? normalized : undefined;
+}
+
+function windowsNetworkInterfaceId(value: Record<string, unknown>): string | undefined {
+  const guid = normalizedIdentityPart(value.InterfaceGuid ?? value.interfaceGuid ?? value.InterfaceGUID);
+  if (guid) return `guid:${guid}`;
+
+  const mac = normalizedIdentityPart(value.MacAddress ?? value.macAddress);
+  if (mac) return `mac:${mac.replaceAll("-", ":")}`;
+
+  const index = parseCounter(value.ifIndex ?? value.IfIndex ?? value.InterfaceIndex ?? value.interfaceIndex);
+  if (index !== undefined) return `index:${index}`;
+
+  const name = normalizedIdentityPart(value.Name ?? value.name);
+  return name ? `name:${name}` : undefined;
 }
 
 /** Parse the JSON emitted by the Windows Get-NetAdapterStatistics command. */
 export function networkCountersFromWindowsJson(text: string): NetworkCounters | undefined {
   let parsed: unknown;
   try { parsed = JSON.parse(text); } catch { return undefined; }
+  const parsedArray = Array.isArray(parsed);
   const entries = Array.isArray(parsed) ? parsed : [parsed];
-  let receivedBytes = 0;
-  let sentBytes = 0;
-  let count = 0;
+  const interfaces = new Map<string, NetworkInterfaceCounters>();
   for (const entry of entries) {
-    if (!entry || typeof entry !== "object") continue;
-    const value = entry as Record<string, unknown>;
-    const received = parseCounter(value.ReceivedBytes ?? value.receivedBytes);
-    const sent = parseCounter(value.SentBytes ?? value.sentBytes);
-    if (received === undefined || sent === undefined) continue;
-    receivedBytes += received;
-    sentBytes += sent;
-    count += 1;
+    if (!isRecord(entry)) continue;
+    const id = windowsNetworkInterfaceId(entry);
+    const received = parseCounter(entry.ReceivedBytes ?? entry.receivedBytes);
+    const sent = parseCounter(entry.SentBytes ?? entry.sentBytes);
+    if (!id || received === undefined || sent === undefined || interfaces.has(id)) continue;
+    interfaces.set(id, { id, receivedBytes: received, sentBytes: sent });
   }
-  return count > 0 ? { receivedBytes, sentBytes } : undefined;
+  return interfaces.size > 0 || (parsedArray && entries.length === 0) ? { interfaces: [...interfaces.values()] } : undefined;
 }
 
 async function linuxNetworkCounters(readFile: TextFileReader, readDirectory: DirectoryReader): Promise<NetworkCounters | undefined> {
@@ -213,17 +240,17 @@ async function linuxNetworkCounters(readFile: TextFileReader, readDirectory: Dir
       ]);
       const receivedBytes = parseCounter(received.trim());
       const sentBytes = parseCounter(sent.trim());
-      return receivedBytes === undefined || sentBytes === undefined ? undefined : { receivedBytes, sentBytes };
+      return receivedBytes === undefined || sentBytes === undefined
+        ? undefined
+        : { id: `name:${name.toLowerCase()}`, receivedBytes, sentBytes };
     } catch {
       return undefined;
     }
   }));
-  const available = samples.filter((sample): sample is NetworkCounters => sample !== undefined);
+  const available = samples.filter((sample): sample is NetworkInterfaceCounters => sample !== undefined);
+  if (interfaces.length === 0) return { interfaces: [] };
   if (available.length === 0) return undefined;
-  return available.reduce((total, sample) => ({
-    receivedBytes: total.receivedBytes + sample.receivedBytes,
-    sentBytes: total.sentBytes + sample.sentBytes,
-  }), { receivedBytes: 0, sentBytes: 0 });
+  return { interfaces: available };
 }
 
 export async function readNetworkCountersForPlatform(
@@ -237,7 +264,14 @@ export async function readNetworkCountersForPlatform(
     return run("netstat", ["-ib"]).then(networkCountersFromNetstat).catch(() => undefined);
   }
   if (platform === "win32") {
-    const command = "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object Status -eq 'Up' | Get-NetAdapterStatistics -ErrorAction SilentlyContinue | Select-Object Name,ReceivedBytes,SentBytes | ConvertTo-Json -Compress";
+    const command = [
+      "$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object Status -eq 'Up';",
+      "$adapters | ForEach-Object {",
+      "$adapter = $_;",
+      "$stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue;",
+      "if ($stats) { [pscustomobject]@{ Name = $adapter.Name; MacAddress = $adapter.MacAddress; ifIndex = $adapter.ifIndex; ReceivedBytes = $stats.ReceivedBytes; SentBytes = $stats.SentBytes } }",
+      "} | ConvertTo-Json -Compress",
+    ].join(" ");
     return run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]).then(networkCountersFromWindowsJson).catch(() => undefined);
   }
   if (platform === "linux") return linuxNetworkCounters(readFile, readDirectory);
@@ -282,7 +316,7 @@ export function createNetworkRateSampler(
 ): () => Promise<NetworkThroughput | undefined> {
   const clock = options.now ?? Date.now;
   const maxGapMs = options.maxGapMs ?? 5 * 60_000;
-  let previous: { counters: NetworkCounters; sampledAt: number } | undefined;
+  let previous: { interfaces: Map<string, NetworkInterfaceCounters>; sampledAt: number } | undefined;
   return async () => {
     const counters = await read();
     const sampledAt = clock();
@@ -290,15 +324,33 @@ export function createNetworkRateSampler(
       previous = undefined;
       return undefined;
     }
+    const current = new Map<string, NetworkInterfaceCounters>();
+    for (const entry of counters.interfaces) {
+      if (!entry.id || current.has(entry.id)) continue;
+      current.set(entry.id, entry);
+    }
     const prior = previous;
-    previous = { counters, sampledAt };
+    previous = { interfaces: current, sampledAt };
     if (!prior) return undefined;
     const elapsedMs = sampledAt - prior.sampledAt;
-    if (elapsedMs <= 0 || elapsedMs > maxGapMs || counters.receivedBytes < prior.counters.receivedBytes || counters.sentBytes < prior.counters.sentBytes) return undefined;
+    if (elapsedMs <= 0 || elapsedMs > maxGapMs) return undefined;
+
+    let receivedBytes = 0;
+    let sentBytes = 0;
+    let validInterfaces = 0;
+    for (const [id, currentInterface] of current) {
+      const previousInterface = prior.interfaces.get(id);
+      if (!previousInterface) continue;
+      if (currentInterface.receivedBytes < previousInterface.receivedBytes || currentInterface.sentBytes < previousInterface.sentBytes) continue;
+      receivedBytes += currentInterface.receivedBytes - previousInterface.receivedBytes;
+      sentBytes += currentInterface.sentBytes - previousInterface.sentBytes;
+      validInterfaces += 1;
+    }
+    if (validInterfaces === 0) return undefined;
     const seconds = elapsedMs / 1_000;
     return {
-      downloadBytesPerSecond: Math.max(0, Math.round(((counters.receivedBytes - prior.counters.receivedBytes) / seconds) * 100) / 100),
-      uploadBytesPerSecond: Math.max(0, Math.round(((counters.sentBytes - prior.counters.sentBytes) / seconds) * 100) / 100),
+      downloadBytesPerSecond: Math.max(0, Math.round((receivedBytes / seconds) * 100) / 100),
+      uploadBytesPerSecond: Math.max(0, Math.round((sentBytes / seconds) * 100) / 100),
     };
   };
 }

@@ -283,7 +283,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-sdk-ui.ts`: Host-rendered UI namespace for bubbles, alerts, menu items, panels, and dynamic interaction callbacks.
 - `plugin-assets.ts`: Declared asset resolution and validation for icon/image/svg/sprite/sound references used by plugin SDK calls and catalog cards.
 - `plugin-bubble-arbiter.ts`: Priority/coalescing arbiter for transient and pinned plugin bubble slots.
-- `system-metrics.ts`: Best-effort OS metric collectors and stale-while-revalidate cache for GPU, disk, battery, and aggregate network throughput; optional fields carry extended-sample freshness metadata.
+- `system-metrics.ts`: Best-effort OS metric collectors and stale-while-revalidate cache for GPU, disk, battery, and aggregate network throughput derived from per-interface samples; optional fields carry extended-sample freshness metadata.
 - `plugin-diagnostics.ts`: Per-plugin error/quota/settings-block collector surfaced to inspector and plugin health views.
 - `plugin-events-source.ts`: Host event source adapter for pet/window/system events consumed by `plugin-sdk-events.ts`.
 - `plugin-host-capabilities.ts`: Main-process capability bundle injected into the bridge for Electron side effects.
