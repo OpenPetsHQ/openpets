@@ -884,5 +884,28 @@ setTimeout(() => {
   const voiceToggleAtIdle = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
   assert.ok(voiceToggleAtIdle, "Click on idle talk button must invoke voice toggle IPC");
 
+  eventListener!({}, {
+    type: "snapshot",
+    snapshot: {
+      conversationId: "pet-assistant",
+      items: [
+        {
+          kind: "message",
+          id: "m3",
+          turnId: "t2",
+          role: "assistant",
+          source: "typed",
+          text: "Current status:\n\n- Ready\n- Synced\n\nEverything is up to date.",
+        },
+      ],
+      activity: "idle",
+      lastSequence: 2,
+      revision: 2,
+      promptSuggestions: [],
+    },
+  });
+  assert.ok(transcript!.innerHTML.includes("Current status:<ul>"), "Assistant prose immediately before a list must not create blank chat rows");
+  assert.ok(transcript!.innerHTML.includes("</ul>Everything is up to date."), "Assistant prose immediately after a list must not create blank chat rows");
+
   console.log("pet-preload-chat-contract tests passed.");
 }, 0);

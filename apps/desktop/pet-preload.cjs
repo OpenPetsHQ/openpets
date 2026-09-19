@@ -416,7 +416,11 @@ const renderMarkdown = (text) => {
     }
   }
   if (inList) processedLines.push("</ul>");
-  return processedLines.join("\n").replace(/(?<!<\/pre>|<\/ul>|<\/li>)\n/g, "<br>");
+  const rendered = processedLines
+    .join("\n")
+    .replace(/\n\s*(?=<ul>)/g, "")
+    .replace(/<\/ul>\n\s*/g, "</ul>");
+  return rendered.replace(/(?<!<\/pre>|<\/ul>|<\/li>)\n/g, "<br>");
 };
 
 const defaultPromptSuggestions = [
