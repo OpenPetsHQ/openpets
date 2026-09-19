@@ -39,7 +39,7 @@ catalog contains eleven official plugins and five community plugins.
 | Quick Reminders | Official | Creates reminders with due/missed alerts, snooze, done, status, optional notifications, and sound. |
 | Virtual Pet | Official | Adds Tamagotchi-style state, actions, and a pinned HUD. |
 | Water Reminder | Official | Runs hydration reminders on a configurable cadence. |
-| System Resources | Official | Reports host CPU and RAM, with optional GPU and system-volume Disk metrics, in a pinned HUD. |
+| System Resources | Official | Reports host CPU, RAM, optional GPU and system-volume Disk metrics in an integrated pinned HUD, with optional battery/network reporting and configurable alerts. |
 | Vocabulary Drag & Drop | Community | Drag words to see definitions and translations in a natively scrollable HUD card. |
 | Higgsfield Watch | Community | Catalog-listed community plugin. |
 | Spotify Buddy | Community | Catalog-listed community plugin. |
@@ -53,7 +53,7 @@ enabled by default.
 ## Bundled defaults
 
 The desktop app can ship selected official plugins inside the application bundle.
-Those defaults are defined in `apps/desktop/src/plugin-service.ts`.
+Those defaults are defined in `apps/desktop/src/bundled-plugins.ts` and consumed by `apps/desktop/src/plugin-service.ts`.
 
 | Default | Plugins |
 | --- | --- |
