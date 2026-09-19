@@ -61,11 +61,21 @@ router, or participates in LAN pet presence or leases. The v1 transport is raw
 unencrypted TCP and is intended only for a trusted private network or an
 encrypted overlay with its own ACLs; CGNAT addressing alone is not encryption.
 
+The provider foundation is defined by the pure `provider-contract.ts` module.
+It owns one canonical adapter catalog and one canonical preset catalog, including
+role support, credential policy, default authentication, and adapter defaults.
+Typed adapter-specific profiles then carry only the fields valid for that
+adapter: an OpenAI Realtime profile has separate normal-text and realtime model
+fields, while network TTS profiles persist a voice.
+
 The host provider service owns exactly three independent selections: one text
-profile, one STT profile, and one TTS profile. Secret credential values are
-resolved only from `PluginSecretsStore`; optional static provider header values
-are persisted in the local provider-profile settings, while Control Center
-snapshots expose header names only. Generic
+profile, one STT profile, and one TTS profile. Realtime is derived from the
+selected text profile and is ready only for an explicit native
+`openai-realtime` profile with both models configured. Secret credential values
+are resolved only from `PluginSecretsStore`; optional static provider header
+values are persisted in local provider settings, while Control Center snapshots
+expose header names and credential presence only. TTS uses the persisted profile
+voice by default, with a request voice taking precedence. Generic
 OpenAI-compatible text covers cloud gateways and Ollama/LM Studio/vLLM, while
 native Anthropic, MiniMax speech, ElevenLabs speech, system TTS, and explicit
 Whisper-compatible transcription retain their distinct wire contracts.
@@ -143,6 +153,13 @@ retrieval, summary, preferences, network synchronization, or provider call for
 archive reads/erasure. Provider-profile management is implemented through the
 host-owned Control Center bridge.
 
+Capability tool names are readable lowercase names derived from the plugin and
+capability ids. The host normalizes punctuation, bounds names for providers,
+and adds a deterministic short suffix only for normalization collisions or
+truncation. Conversation action rows use the capability description as their
+friendly label while retaining the provider name separately for exact dispatch
+and correlation.
+
 ### Generic host voice session and Talk controls (#147, #150)
 
 The desktop owns a host controller/factory for one bounded generic session at a
@@ -181,9 +198,11 @@ composable slot, leaving unrelated plugin display and status slots intact when
 voice activity clears.
 
 Provider profile management for issue #145 is a host-owned Control Center flow:
-the renderer consumes redacted snapshots and explicit actions over preload while
-the main process owns validation, persistence, and credentials. These are the
-flows worth holding in memory. Each links to the doc that details it.
+the renderer consumes redacted snapshots and the canonical preset catalog over
+preload while the main process owns validation, persistence, migration, and
+credentials. Profiles are configured through independent role selections; the
+UI does not expose opaque secret references. These are the flows worth holding
+in memory. Each links to the doc that details it.
 
 - **Agent reaction → visible pet.** Agent activity is classified into a reaction
   category, sent via the client over IPC, the lease manager routes it to a pet
@@ -202,15 +221,20 @@ flows worth holding in memory. Each links to the doc that details it.
   permission-checked calls to pet/schedule/storage/UI/etc. See [Plugin platform](/plugins)
   and [Plugin SDK v3](/sdk).
 - **Listening through a plugin.** `voice.listen()` performs one bounded capture in
-  a host-owned temporary session, shows the privacy indicator only after microphone
+  a host-owned temporary session, records live microphone ownership only after
   acquisition succeeds, transcribes through the configured provider, and cleans up
-  on success, cancellation, timeout, teardown, or shutdown. It is never ambient.
+  on success, cancellation, timeout, teardown, or shutdown. Its transient privacy
+  indicator is shown only after acquisition and is never ambient or always-on.
 - **Realtime voice adapter.** The host contains an optional optimized OpenAI
   Realtime adapter over the same Pet Assistant conversation. A hidden sandboxed
   renderer validates and normalizes provider events; the main process validates
   them again and routes bounded tool calls through the generation-pinned
   PetAssistantService seam. Canonical capability outcomes are returned as
   structured `function_call_output` items followed by `response.create`.
+  Realtime uses the selected text profile's endpoint and credential, but its
+  negotiation model is the profile's independent realtime model rather than
+  the normal text model. A missing or incompatible derived configuration is
+  reported as status, without a provider fetch.
   Provider response IDs and input item IDs are carried through normalization and
   bound to the active canonical turn; retired response/item identities are
   dropped deterministically. Normalized transcripts and canonical activity/action
@@ -253,12 +277,23 @@ These hold everywhere; the rest of the docs assume them.
   strict CSP; plugins run in a permission-gated sandbox; local IPC over TCP is
   restricted to private/loopback addresses; remote control is separate,
   disabled-by-default, explicitly bound, authenticated, and scope-limited.
-- **Voice is bounded and visible.** Listening is one-shot, one-at-a-time,
-  explicitly cancellable, visibly indicated while a media track is live, and
-  bounded by separate microphone-acquisition and transcription timeouts.
+- **Voice is bounded and tracked.** Listening is one-shot, one-at-a-time,
+  explicitly cancellable, tracked while a media track is live without a detached
+  indicator window, and bounded by separate microphone-acquisition and
+  transcription timeouts.
 - **Voice resource ownership is centralized.** Assistant, plugin one-shot, and
   native Realtime lanes release their own leases/tracks; only the shared voice
-  resource owner destroys the privacy indicator after every lane has stopped.
+  resource owner resets live-track accounting after every lane has stopped.
+- **Generated audio routing is explicit.** Network/generated audio is played by
+  the trusted persistent voice-media player (or trusted realtime document) with
+  a per-operation output snapshot. Unsupported or rejected sink routing is
+  reported as OS-default fallback; System TTS remains OS-routed through
+  `speechSynthesis` and never claims a selected speaker.
+- **Provider configuration is canonical and bounded.** Adapter definitions and
+  presets have one pure source of truth; credentials follow adapter-specific
+  required/optional/none policies; persisted settings are versioned and invalid
+  profiles are quarantined rather than silently discarded. Control Center
+  snapshots never contain credential values, secret references, or header values.
 - **Pet Assistant lifecycle is bounded.** The host loop is stopped and active
   turns are cancelled before plugin teardown; capability handles remain pinned
   to the plugin generation that registered them.

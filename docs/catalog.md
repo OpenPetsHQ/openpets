@@ -46,9 +46,12 @@ v3 is **paginated** to keep each runtime fetch small. The flow the app follows:
    `originalsCount`, `featuredCount`), and a `pages[]` array of page URLs.
 2. Fetch **pages** on demand. Each page entry carries install + render data:
    `id`, `displayName`, `description`, `thumbnail`, `spritesheet`, `zip`,
-   `category`, optional `subcategory`, `featured`, `original`.
+   `category`, optional `subcategory`, `featured`, `original`, and optional
+   `spriteVersionNumber: 2`. Older entries omit the field and retain V1
+   behavior; any other supplied value is invalid.
 3. Use **search pages** for lightweight lookup: `id`, `displayName`,
-   `searchText`, `category`, `catalogPage`, `featured`, `original`.
+   `searchText`, `category`, `catalogPage`, `featured`, `original`, and the
+   optional `spriteVersionNumber: 2`.
 
 Only pets with a valid `category` (`western` or `asian`) appear in v3 - the
 generator drops the rest and logs a warning. To keep the app UI clean, the
@@ -66,6 +69,10 @@ contract, not any hand-written copy.
 (`catalog.v2.fixture.json`) keeps the app usable offline / in tests. The fixture
 should never be the path real users hit online; it is a last-resort floor, not a
 shipping catalog.
+
+The legacy V2 catalog may also carry the optional exact numeric
+`spriteVersionNumber: 2`; desktop V3-to-compat and V2 fallback conversion
+preserve it. Omitted markers remain V1-compatible.
 
 ## Pet generated artifacts
 
@@ -164,7 +171,9 @@ bucket with `OPENPETS_R2_BUCKET`; `--skip-r2` is for local testing only.
 ## How the app uses all this
 
 - **Browsing**: the Pets page in the Control Center pages through v3 and uses the
-  search index for filtering.
+  search index for filtering. A catalog entry with `spriteVersionNumber: 2`
+  carries the same 8×11 layout metadata as an imported/local Codex V2 pet;
+  entries without it remain V1-compatible.
 - **Installing**: see the install flow in [Pets](/pets) - catalog lookup (which allows installing any valid v3 catalog pet by ID, even if not original or featured) →
   ZIP download → validated extraction → state update → tray refresh. (Control Center UI surfaces only curated original/featured pets, but explicit install by ID allows any valid v3 pet).
 - **Plugins**: the Plugins page lists catalog v2 entries filtered by app version

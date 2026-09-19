@@ -17,6 +17,7 @@ import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
 import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
 import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
+import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
@@ -51,11 +52,24 @@ export type PetReactionOptions = { readonly showMessage?: boolean };
 // sink merges its decisions into the default pet render.
 let pluginTransientBubble: ActiveBubble | null = null;
 let pluginPinnedBubble: ActiveBubble | null = null;
+const managerCheckInBubblePluginId = "openpets.manager-check-ins";
+const managerCheckInPresentationCallbacks = new Map<string, () => void>();
+let pendingManagerCheckInPresentation: (() => void) | null = null;
 
 const defaultPetBubbleSink: PetBubbleSink = {
   present(slot, content) {
     if (slot === "pinned") pluginPinnedBubble = content;
     else pluginTransientBubble = content;
+    if (slot === "transient" && content?.pluginId === managerCheckInBubblePluginId) {
+      const onPresented = managerCheckInPresentationCallbacks.get(content.token) ?? pendingManagerCheckInPresentation;
+      if (onPresented) {
+        managerCheckInPresentationCallbacks.delete(content.token);
+        if (pendingManagerCheckInPresentation === onPresented) {
+          pendingManagerCheckInPresentation = null;
+        }
+        onPresented();
+      }
+    }
     debug("pet.default", "plugin bubble slot", { slot, token: content?.token ?? null, pluginId: content?.pluginId });
     if (content) showDefaultPetForExternalEvent();
     refreshDefaultPetContent();
@@ -187,6 +201,61 @@ export function applyExternalPetSay(message: string, reaction?: OpenPetsReaction
   setTransientDisplay({ message, reaction });
   showDefaultPetForExternalEvent();
   return { shown: isDefaultPetVisible() };
+}
+
+export function presentManagerCheckInOffer(
+  offer: ManagerCheckInOffer,
+  onOpenCheckIn: () => void,
+  onPresented: () => void,
+): { readonly shown: boolean; readonly reason?: string } {
+  if (paused) {
+    return { shown: false, reason: "paused" };
+  }
+
+  pendingManagerCheckInPresentation = onPresented;
+  let handleId: string | null = null;
+  const handle = defaultPetBubbleArbiter.show(
+    managerCheckInBubblePluginId,
+    {
+      text: `${offer.title}\n${offer.introduction}\n${t("teams.checkIn.description")}`,
+      priority: "high",
+      durationMs: 12_000,
+      actions: [
+        {
+          id: "open-manager-check-in",
+          label: t("teams.checkIn.action.checkInNow"),
+          style: "primary",
+          dismissesBubble: true,
+        },
+      ],
+    },
+    {
+      onAction: (actionId) => {
+        if (actionId === "open-manager-check-in") {
+          onOpenCheckIn();
+        }
+      },
+      onSubmit: () => undefined,
+      onDismiss: () => {
+        if (handleId) {
+          managerCheckInPresentationCallbacks.delete(handleId);
+        }
+        if (pendingManagerCheckInPresentation === onPresented) {
+          pendingManagerCheckInPresentation = null;
+        }
+      },
+    },
+  );
+  handleId = handle.id;
+
+  if (pendingManagerCheckInPresentation === onPresented) {
+    pendingManagerCheckInPresentation = null;
+    managerCheckInPresentationCallbacks.set(handle.id, onPresented);
+  }
+
+  showDefaultPetForExternalEvent();
+  const shown = defaultPetBubbleArbiter.snapshot().current?.token === handle.id;
+  return { shown, ...(shown ? {} : { reason: "queued" }) };
 }
 
 export function applyExternalPetShowMedia(options: PetShowMediaOptions): { readonly shown: boolean; readonly reason?: string } {

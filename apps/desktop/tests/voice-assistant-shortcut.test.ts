@@ -96,4 +96,16 @@ assert.equal(configureVoiceAssistantShortcut("CommandOrControl+Shift+M").status,
 unregisterResult = null;
 assert.equal(shutdownVoiceAssistantShortcut().reason, "Shortcut registration is stopped.");
 
+// Clearing: an empty accelerator releases the registration and persists as "".
+initializeVoiceAssistantShortcut(singletonRegistry, () => {}, "CommandOrControl+Shift+L");
+assert.equal(getVoiceAssistantShortcutSnapshot().status, "registered");
+const clearedSnapshot = configureVoiceAssistantShortcut("");
+assert.equal(clearedSnapshot.accelerator, "");
+assert.equal(clearedSnapshot.status, "unavailable");
+assert.equal(getVoiceAssistantShortcutSnapshot().accelerator, "");
+assert.equal(resolveVoiceAssistantShortcutPreference("CommandOrControl+Shift+L", "", clearedSnapshot), "");
+// Re-arming after a clear registers again.
+assert.equal(configureVoiceAssistantShortcut("CommandOrControl+Shift+L").status, "registered");
+shutdownVoiceAssistantShortcut();
+
 console.log("Voice assistant shortcut lifecycle and persistence verified.");

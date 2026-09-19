@@ -26,8 +26,9 @@ A pet package is small and asset-driven:
 
 There are three sources a pet can come from at runtime:
 
-1. **Built-in pet** (`built-in-pet.ts`) - a bundled spritesheet that always
-   works as a fallback, even offline with nothing installed.
+1. **Built-in pet** (`built-in-pet.ts`) - the bundled V2 Hoodie Cat spritesheet
+   that always works as a fallback, even offline with nothing installed. It uses
+   the exact 8×11 atlas and row 0, column 6 neutral pose, including V2 idle gaze.
 2. **Catalog pets** - downloaded from the public catalog and extracted into
    `userData/pets/{id}/`.
 3. **Codex pets** - locally-developed pets imported from `~/.codex/pets/`
@@ -61,11 +62,16 @@ Two distinct window roles, two controllers:
   Not lease-bound.
 
 The default carrier's compact composer and expanded chat are main-process-owned
-states. On Linux, opening the compact composer makes the carrier focusable and
+states. In expanded chat, the panel anchors 10px directly above the pet sprite and
+grows upward as content changes while the pet remains stationary at the bottom.
+Unpinned floating bubbles are suppressed during full chat, while assistant activity
+and reaction animations continue on the pet sprite without duplicating speech text.
+On Linux, opening the compact composer makes the carrier focusable and
 adds its composer rectangle to the input shape; closing it restores the passive
 pet-only focus and shape. Its shared maximum geometry contract bounds multiline
 input and error feedback so the Linux mask covers every compact control. The
-expanded panel uses the same transition seam.
+expanded panel uses the same transition seam, with dynamic height tracking for
+precise Linux hit-mask shapes.
 - **Agent pets** (`agent-pet-controller.ts`) - shown on explicit agent request,
   routed by a **lease**. The first lease opens the window; the last lease
   released closes it. This lets several agents each get their own pet without
@@ -97,13 +103,18 @@ re-arms forwarding from the main process (`screen.getCursorScreenPoint()`), whic
 keeps working even when forwarding is dead. The platform predicates live in
 `mouse-forwarding.ts`.
 
-Right-clicking any pet offers **Flip horizontally**, a checked menu item that
-mirrors that pet's sprite left/right. Speech bubbles, status badges, controls,
-and the hit area stay unmirrored and readable. The orientation is stored per
-underlying pet ID in app state (`preferences.petHorizontalFlip`) and survives
-restart; toggling one pet updates every live window of that pet (default, agent,
-plugin-spawned, and LAN visitor) and leaves other pets unchanged. There is no
-vertical or upside-down flip.
+Right-clicking any pet offers a **Size** submenu with the same global scale
+choices as Settings. The current size is checked; selecting another size saves
+the global pet and HUD scale preferences and refreshes the default and agent pet
+windows. The HUD starts at its smallest readable size for XS, then grows more
+quickly than the pet at each larger choice. The same
+menu also offers **Flip horizontally**, a checked menu item that mirrors that
+pet's sprite left/right. Speech bubbles, status badges, controls, and the hit
+area stay unmirrored and readable. The orientation is stored per underlying pet
+ID in app state (`preferences.petHorizontalFlip`) and survives restart; toggling
+one pet updates every live window of that pet (default, agent, plugin-spawned,
+and LAN visitor) and leaves other pets unchanged. There is no vertical or
+upside-down flip.
 
 ## Reactions → animations → speech
 
@@ -121,7 +132,10 @@ reaction into something visible:
    active locale (see [Internationalization](/i18n)).
 3. `pet-window.ts` renders the chosen animation via CSS sprite animation, and
    shows speech bubbles, alert indicators, pinned HUDs, and status badges as
-   requested. The transient display (bubble) expires after a few seconds while
+   requested. The sprite is sized by the pet scale preference; the pinned
+   plugin HUD is sized by the separate HUD scale preference (`hudScale`, in
+   Settings → General next to pet scale), so HUD readability is independent of
+   pet size. The transient display (bubble) expires after a few seconds while
    a busy status badge (`thinking`/`working`/`editing`/`running`/`testing`/
    `waiting`) survives much longer; when the display reaction is gone, a badge
    that resolves to a looping animation (`resolveEffectiveSpriteState`) keeps
@@ -309,6 +323,10 @@ scripts produce is in [Catalogs](/catalog), with release checks in
 
 ### Codex sprite versions
 
+The bundled default Hoodie Cat uses the same V2 atlas contract as imported
+Codex V2 pets. Its public `builtin` identity and `Hoodie Cat` display name stay
+unchanged; only the desktop asset and runtime layout have been upgraded.
+
 OpenPets preserves the original Codex V1 package shape: an unmarked
 `spritesheet.webp` with the nine standard `192×208` animation rows. It also
 imports V2 only when `pet.json` has `"spriteVersionNumber": 2` and its source
@@ -338,10 +356,24 @@ repaired/skipped counts, and skip reasons are logged, and a migration problem
 never prevents the desktop app from starting.
 
 V2's sixteen look-direction cells (rows 9–10) are retained in the imported
-atlas but are not individually selected: OpenPets currently emits only idle,
-left-run, and right-run motion, not a two-dimensional gaze target. It therefore
-does not invent directional behavior or claim full gaze support. A future gaze
-API can map those cells directly without changing the import contract.
+atlas and selected while an installed V2 pet is visually idle. OpenPets samples
+the global cursor around the pet carrier's bottom-center anchor, quantizes the
+direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
+inside a small dead zone. Reactions, movement, dragging, plugin sprite
+overrides, and paused pets suspend gaze; V1 pets retain their existing idle
+behavior. Horizontal flips compensate the selected atlas cell so the pet still
+looks toward the cursor. Control Center → Settings → General exposes the
+persisted **Idle cursor gaze** setting, enabled by default; disabling it keeps
+all V2 pets on the neutral idle pose and stops the shared ticker, without
+changing reactions, movement, or V1 behavior. When enabled, cursor movement
+drives a short glance: the current direction is held while the cursor is moving
+and for about 1.2 seconds afterward, then eligible idle V2 pets return to
+neutral. No additional blink frames are used.
+
+Catalog V2 entries may declare the same version with an exact numeric
+`spriteVersionNumber: 2`; the desktop carries that marker into Pets previews so
+their 8×11 layout is resolved consistently with imported/local V2 pets. Older
+catalog entries omit the marker and retain V1 compatibility.
 
 Codex integration remains import-only: OpenPets does not write installed or
 catalog pets back into `~/.codex/pets/`.

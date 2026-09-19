@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+let managerCheckInFormRequestPending = false;
+const managerCheckInFormRequestListeners = new Set();
+ipcRenderer.on("openpets:manager-check-in-open-form", () => {
+  managerCheckInFormRequestPending = managerCheckInFormRequestListeners.size === 0;
+  for (const listener of managerCheckInFormRequestListeners) listener();
+});
+
 const api = {
   getPetsState: () => ipcRenderer.invoke("openpets:get-pets-state"),
   getDashboardSnapshot: () => ipcRenderer.invoke("openpets:get-dashboard-snapshot"),
@@ -36,6 +43,9 @@ const api = {
     return ipcRenderer.invoke("openpets:manager-check-ins-set-scheduled-offers-paused", paused);
   },
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
+  getVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-get"),
+  refreshVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-refresh"),
+  saveVoiceDevicePreferences: (preferences) => ipcRenderer.invoke("openpets:voice-devices-save-preferences", preferences),
   getConversationHistory: () => ipcRenderer.invoke("openpets:get-conversation-history"),
   deleteConversationHistoryMessage: (id) => ipcRenderer.invoke("openpets:delete-conversation-history-message", id),
   clearConversationHistory: () => ipcRenderer.invoke("openpets:clear-conversation-history"),
@@ -64,6 +74,12 @@ const api = {
   getPluginInspector: (id) => ipcRenderer.invoke("openpets:plugins-inspector", id),
   getProviderProfiles: () => ipcRenderer.invoke("openpets:provider-profiles-get"),
   saveProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-save", input),
+  testProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-test", input),
+  beginProviderTranscriptionTest: (input) => ipcRenderer.invoke("openpets:provider-profile-test-begin", input),
+  finishProviderTranscriptionTest: (sessionId) => ipcRenderer.invoke("openpets:provider-profile-test-finish", sessionId),
+  cancelProviderTranscriptionTest: (sessionId) => ipcRenderer.invoke("openpets:provider-profile-test-cancel", sessionId),
+  playProviderPreview: (bytes, mimeType) => ipcRenderer.invoke("openpets:provider-preview-play", bytes, mimeType),
+  stopProviderPreview: () => ipcRenderer.invoke("openpets:provider-preview-stop"),
   createProviderProfile: (profile) => ipcRenderer.invoke("openpets:provider-profile-create", profile),
   updateProviderProfile: (id, patch) => ipcRenderer.invoke("openpets:provider-profile-update", id, patch),
   deleteProviderProfile: (id) => ipcRenderer.invoke("openpets:provider-profile-delete", id),
@@ -82,16 +98,30 @@ const api = {
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),
   importCodexPet: (petId) => ipcRenderer.invoke("openpets:import-codex-pet", petId),
   openGallery: () => ipcRenderer.invoke("openpets:open-gallery"),
+  openOrganizationsPage: () => ipcRenderer.invoke("openpets:open-organizations-page"),
   removePet: (petId) => ipcRenderer.invoke("openpets:remove-pet", petId),
   onRouteChange: (callback) => {
     const listener = (_event, route) => callback(route);
     ipcRenderer.on("openpets:control-center-route", listener);
     return () => ipcRenderer.removeListener("openpets:control-center-route", listener);
   },
+  onManagerCheckInOpenForm: (callback) => {
+    managerCheckInFormRequestListeners.add(callback);
+    if (managerCheckInFormRequestPending) {
+      managerCheckInFormRequestPending = false;
+      queueMicrotask(callback);
+    }
+    return () => managerCheckInFormRequestListeners.delete(callback);
+  },
   onPluginsRefresh: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("openpets:plugins-refresh", listener);
     return () => ipcRenderer.removeListener("openpets:plugins-refresh", listener);
+  },
+  onDashboardRefresh: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("openpets:dashboard-refresh", listener);
+    return () => ipcRenderer.removeListener("openpets:dashboard-refresh", listener);
   },
   getIntegrationsState: (selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-snapshot", selectedPetId, commandMode),
   runIntegrationAction: (action, selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-action", action, selectedPetId, commandMode),

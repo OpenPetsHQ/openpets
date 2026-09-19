@@ -6,7 +6,9 @@ import type { HostProviderOperations, ProviderOperationSnapshot } from "./provid
 import { VoiceConversationService, type VoiceConversationEvent, type VoiceConversationTransportFactory, type VoiceRealtimeSessionConfig } from "./voice-conversation.js";
 import type { VoiceMicrophoneArbiter } from "./voice-microphone-arbiter.js";
 import type { VoicePrivacyIndicator } from "./voice-privacy-indicator.js";
+import type { VoiceDeviceService } from "./voice-device-service.js";
 import type { VoiceAssistantSessionEvent, VoiceAssistantSessionEventInput, VoiceAssistantSessionListener, VoiceAssistantSessionSnapshot, VoiceAssistantSessionLike } from "./voice-assistant-session.js";
+import { info, warn } from "./logger.js";
 
 export type RealtimeVoiceSessionOptions = {
   readonly provider: HostProviderOperations;
@@ -14,6 +16,7 @@ export type RealtimeVoiceSessionOptions = {
   readonly microphoneArbiter: VoiceMicrophoneArbiter;
   readonly privacyIndicator: VoicePrivacyIndicator;
   readonly modalityCoordinator: PetAssistantModalityCoordinator;
+  readonly deviceService?: VoiceDeviceService;
   readonly transportFactory: (provider: ProviderOperationSnapshot) => VoiceConversationTransportFactory;
   readonly turnIdPrefix?: string;
 };
@@ -128,13 +131,18 @@ export class OpenAIRealtimeVoiceAssistantSession implements VoiceAssistantSessio
     this.#sessionController = new AbortController();
     ++this.#generation;
     try {
+      const deviceOperation = this.#options.deviceService
+        ? await this.#options.deviceService.snapshotOperation(this.#sessionController.signal)
+        : { inputDeviceId: null, outputDeviceId: null };
       // Both snapshots are captured before WebRTC negotiation and remain fixed.
       const provider = await this.#options.provider.snapshot("realtime");
       const realtime = await this.#options.assistant.openRealtimeSession(this.#sessionController.signal);
       this.#realtime = realtime;
-      const conversation = new VoiceConversationService({
+        const conversation = new VoiceConversationService({
         microphoneArbiter: this.#options.microphoneArbiter,
         privacyIndicator: this.#options.privacyIndicator,
+          inputDeviceId: deviceOperation.inputDeviceId,
+          outputDeviceId: deviceOperation.outputDeviceId,
         sessionFactory: () => buildOpenAIRealtimeSessionConfig(provider.profile.model, realtime),
         transportFactory: this.#options.transportFactory(provider),
         onEvent: (event) => this.#handleConversationEvent(event),
@@ -157,7 +165,10 @@ export class OpenAIRealtimeVoiceAssistantSession implements VoiceAssistantSessio
 
   #handleConversationEvent(event: VoiceConversationEvent): void {
     if (this.#ended) return;
-    if (event.type === "speech-started") {
+    if (event.type === "output-routing") {
+      if (event.output === "selected") info("voice", "realtime output selected");
+      else warn("voice", "realtime output fallback", { reason: event.reason ?? "no-selection" });
+    } else if (event.type === "speech-started") {
       const turn = this.#bindInputItem(event.itemId);
       if (!turn) return;
       this.#setSnapshot({ status: this.#muted ? "muted" : "active", activity: this.#muted ? null : "listening" });
@@ -316,7 +327,11 @@ export class OpenAIRealtimeVoiceAssistantSession implements VoiceAssistantSessio
     this.#lastAssistantTranscript = undefined;
     this.#responseCompleted = false;
     this.#emit({ type: "turn-settled", turnId: result.turnId, outcome: result.status });
-    this.#setSnapshot({ activity: this.#muted ? null : "listening", turnId: null });
+    this.#setSnapshot({ activity: null, turnId: null });
+    // Realtime Talk is also one-shot.  response-completed is the provider
+    // terminal boundary, so close the transport rather than allowing server
+    // VAD to open another turn without a fresh explicit Talk activation.
+    void this.#end("ended");
   }
 
   async #cancelTurn(reason: string): Promise<void> {

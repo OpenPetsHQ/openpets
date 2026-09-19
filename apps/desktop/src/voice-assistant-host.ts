@@ -1,11 +1,12 @@
 import { applyExternalPetReaction, applyExternalPetSay, applyExternalPetStatusReaction, getDefaultPetWindowForPlugins, setDefaultPetVoiceActivity, setDefaultPetVoiceTerminalFeedback } from "./default-pet-controller.js";
-import { info } from "./logger.js";
+import { isDefaultPetChatExpanded } from "./default-pet-chat.js";
+import { info, warn } from "./logger.js";
 import type { PetAssistantService } from "./pet-assistant-service.js";
 import { getPetAssistantConversationController, getPetAssistantModalityCoordinator } from "./pet-assistant-host.js";
 import { PET_ASSISTANT_CONVERSATION_ID } from "./pet-assistant-conversation.js";
 import { PetAssistantFeedbackReducer } from "./pet-assistant-feedback.js";
 import type { HostProviderOperations } from "./provider-service.js";
-import { playPetWindowTtsAudio, speakPetWindowTts, stopPetWindowTts, stopPetWindowTtsAudio, subscribePetWindowSpeechCompletion } from "./pet-window.js";
+import { speakPetWindowTts, stopPetWindowTts, subscribePetWindowSpeechCompletion } from "./pet-window.js";
 import type { VoiceAssistantPlayer, VoiceAssistantSpeech } from "./voice-assistant-session.js";
 import { VoiceAssistantSession, type VoiceAssistantSessionSnapshot } from "./voice-assistant-session.js";
 import { getVoicePlaybackTimeoutMs, VoiceAssistantPlaybackCoordinator } from "./voice-assistant-playback.js";
@@ -22,6 +23,8 @@ import { getPluginPlatformSettings } from "./plugin-platform-settings.js";
 import { createElectronVoiceRealtimeTransportFactory } from "./voice-realtime-electron.js";
 import { OpenAIRealtimeVoiceAssistantSession } from "./voice-realtime-assistant.js";
 import { getSharedVoicePrivacyIndicator } from "./plugin-voice.js";
+import { getSharedVoiceDeviceService } from "./voice-device-service.js";
+import { getSharedVoiceMediaPlayer } from "./voice-media-player.js";
 
 export type VoiceAssistantHostOptions = {
   readonly sessionId: number;
@@ -59,19 +62,22 @@ export class VoiceAssistantHost {
   constructor(options: VoiceAssistantHostOptions) {
     this.sessionId = options.sessionId;
     this.#feedbackReducer = options.feedbackReducer;
-    const input = new HostVoiceInput(options.provider, options.capture ?? getSharedVoiceCaptureService());
+    const input = new HostVoiceInput(options.provider, options.capture ?? getSharedVoiceCaptureService(), getSharedVoiceDeviceService());
     const adapter = new PetAssistantVoiceAdapter(options.assistant);
     const synthesizer = new ProviderVoiceSynthesizer(options.provider);
     this.#player = new PetWindowVoicePlayer();
     const microphoneArbiter = options.microphoneArbiter ?? getSharedVoiceMicrophoneArbiter();
     const modalityCoordinator = options.modalityCoordinator ?? getPetAssistantModalityCoordinator();
-    this.#session = isNativeRealtimeSelected()
+    const deviceService = getSharedVoiceDeviceService();
+    const nativeRealtime = isNativeRealtimeSelected();
+    this.#session = nativeRealtime
       ? new OpenAIRealtimeVoiceAssistantSession({
         provider: options.provider,
         assistant: options.assistant,
         microphoneArbiter,
-        privacyIndicator: getSharedVoicePrivacyIndicator(),
-        modalityCoordinator,
+         privacyIndicator: getSharedVoicePrivacyIndicator(),
+         modalityCoordinator,
+         deviceService,
         transportFactory: (provider) => createElectronVoiceRealtimeTransportFactory({
           negotiate: (sdp, session, signal) => options.provider.negotiateRealtime(provider, sdp, session, signal),
         }),
@@ -87,7 +93,23 @@ export class VoiceAssistantHost {
         player: this.#player,
         modalityCoordinator,
       });
+    const realtimeBrainStarts = new Map<string, number>();
+    let latestSnapshot = this.#session.snapshot();
     this.#unsubscribeSession = this.#session.subscribe((event) => {
+      if (event.type === "snapshot") {
+        latestSnapshot = event.snapshot;
+        if (nativeRealtime && event.snapshot.turnId && !realtimeBrainStarts.has(event.snapshot.turnId)) {
+          realtimeBrainStarts.set(event.snapshot.turnId, Date.now());
+          info("voice", "brain turn requested", { turnId: event.snapshot.turnId });
+        }
+      } else if (nativeRealtime && event.type === "turn-settled") {
+        const startedAt = realtimeBrainStarts.get(event.turnId);
+        realtimeBrainStarts.delete(event.turnId);
+        const elapsedMs = startedAt === undefined ? undefined : Date.now() - startedAt;
+        if (event.outcome === "completed") info("voice", "brain turn completed", { turnId: event.turnId, elapsedMs, replyChars: latestSnapshot.assistantTranscript?.length ?? 0 });
+        else if (event.outcome === "cancelled") info("voice", "brain turn cancelled", { turnId: event.turnId, elapsedMs, reason: latestSnapshot.status === "ending" ? "session" : "user" });
+        else warn("voice", "brain turn failed", { turnId: event.turnId, elapsedMs, errorCode: "assistant.turn.failed" });
+      }
       this.#feedbackReducer?.applyVoiceEvent(event);
       if (event.type === "transcript") {
         this.#conversationController?.applyNormalizedVoiceTranscript({
@@ -110,7 +132,7 @@ export class VoiceAssistantHost {
     await shutdownVoiceAssistantResources(
       () => this.#session.shutdown(),
       this.#unsubscribeSession,
-      () => this.#player.shutdown(),
+      () => this.#player.dispose(),
     );
   }
 
@@ -233,12 +255,12 @@ async function runVoiceAssistantControl(operation: (session: NonNullable<VoiceAs
 }
 
 function createIdleVoiceAssistantSnapshot(): VoiceAssistantSessionSnapshot {
-  return Object.freeze({ status: "ended", activity: null, muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 0, turnId: null, userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null });
+  return Object.freeze({ status: "ended", activity: null, muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 0, turnId: null, userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null, canSubmitRecording: false });
 }
 
 function addShortcutSnapshot(snapshot: VoiceAssistantSessionSnapshot, sessionId: number): VoiceAssistantTalkSnapshot {
   const shortcut = getVoiceAssistantShortcutSnapshot();
-  return Object.freeze({ ...snapshot, sessionId, shortcut: shortcut.accelerator, shortcutStatus: shortcut.status, shortcutReason: shortcut.reason ?? null });
+  return Object.freeze({ ...snapshot, canSubmitRecording: snapshot.canSubmitRecording ?? false, sessionId, shortcut: shortcut.accelerator, shortcutStatus: shortcut.status, shortcutReason: shortcut.reason ?? null });
 }
 
 function addShortcutToEvent(event: VoiceAssistantHostEvent): VoiceAssistantTalkEvent {
@@ -251,47 +273,96 @@ const defaultPetFeedbackTarget = {
   setActivity: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => setDefaultPetVoiceActivity(reaction),
   showReaction: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null, message?: string) => {
     if (message) applyExternalPetSay(message, reaction ?? undefined);
-    else if (reaction) applyExternalPetReaction(reaction);
+    else if (reaction) applyExternalPetReaction(reaction, { showMessage: false });
     setDefaultPetVoiceTerminalFeedback(reaction);
   },
   setStatus: (reaction: import("./local-ipc-protocol.js").OpenPetsReaction | null) => applyExternalPetStatusReaction(reaction),
+  isChatExpanded: () => isDefaultPetChatExpanded(),
 };
 
 class PetWindowVoicePlayer implements VoiceAssistantPlayer {
   readonly #coordinator = new VoiceAssistantPlaybackCoordinator();
+  readonly #mediaPlayer = getSharedVoiceMediaPlayer();
   readonly #unsubscribe = subscribePetWindowSpeechCompletion((completion) => {
     this.#coordinator.complete({ owner: completion.window, requestId: completion.requestId, kind: completion.kind, outcome: completion.outcome });
   });
+  readonly #cancelReasons = new Map<string, "user" | "session">();
+  readonly #mediaRequestIds = new Set<string>();
+  #disposed = false;
 
   play(requestId: string, speech: VoiceAssistantSpeech, signal: AbortSignal, onStarted?: () => void): Promise<void> {
+    if (this.#disposed) return Promise.reject(new Error("Voice playback owner has been disposed."));
+    const startedAt = Date.now();
     const window = getDefaultPetWindowForPlugins();
-    if (!window) return Promise.reject(new Error("No pet window is available for speech."));
-    if (signal.aborted) return Promise.reject(new Error("Voice playback was cancelled."));
+    if (signal.aborted) {
+      info("voice", "playback cancelled", { elapsedMs: Date.now() - startedAt, reason: "session" });
+      return Promise.reject(new Error("Voice playback was cancelled."));
+    }
     const kind = speech.kind;
+    const mediaFields = speech.kind === "audio" ? { mimeType: speech.mimeType, byteCount: speech.bytes.byteLength } : {};
+    if (speech.kind === "audio") {
+      this.#mediaRequestIds.add(requestId);
+      const playback = this.#mediaPlayer.play(requestId, speech.bytes, speech.mimeType, signal, (outcome) => {
+        info("voice", "playback started", { ...mediaFields, output: outcome.output, outputReason: outcome.reason ?? null });
+        onStarted?.();
+      });
+      const abort = () => { void this.#mediaPlayer.stop(requestId); };
+      signal.addEventListener("abort", abort, { once: true });
+      void playback.then(
+        () => info("voice", "playback completed", mediaFields),
+        () => warn("voice", "playback failed", { ...mediaFields, errorCode: "voice.playback.failed" }),
+      ).finally(() => {
+        signal.removeEventListener("abort", abort);
+        this.#mediaRequestIds.delete(requestId);
+      }).catch(() => undefined);
+      return playback.then(() => undefined);
+    }
+    if (!window) {
+      warn("voice", "playback failed", { elapsedMs: Date.now() - startedAt, errorCode: "voice.pet_window.missing" });
+      return Promise.reject(new Error("No pet window is available for speech."));
+    }
     const cleanupWindow = installWindowLossHandlers(window, () => this.#coordinator.failOwner(window));
     const playback = this.#coordinator.play(requestId, kind, window, {
       start: () => {
+        info("voice", "playback started", mediaFields);
         onStarted?.();
-        if (speech.kind === "audio") playPetWindowTtsAudio(window, `data:${speech.mimeType};base64,${Buffer.from(speech.bytes).toString("base64")}`, requestId);
-        else speakPetWindowTts(window, speech.text, { requestId });
+        speakPetWindowTts(window, speech.text, { requestId });
       },
       stop: () => {
-        if (kind === "audio") stopPetWindowTtsAudio(window, requestId);
-        else stopPetWindowTts(window, requestId);
+        stopPetWindowTts(window, requestId);
       },
     }, getVoicePlaybackTimeoutMs(speech));
-    const abort = () => { this.#coordinator.stop(requestId); };
+    const abort = () => { this.#cancelReasons.set(requestId, "session"); this.#coordinator.stop(requestId); };
     signal.addEventListener("abort", abort, { once: true });
-    void playback.then(() => { signal.removeEventListener("abort", abort); cleanupWindow(); }, () => { signal.removeEventListener("abort", abort); cleanupWindow(); });
+    void playback.then(() => {
+      info("voice", "playback completed", { elapsedMs: Date.now() - startedAt, ...mediaFields });
+      signal.removeEventListener("abort", abort);
+      cleanupWindow();
+      this.#cancelReasons.delete(requestId);
+    }, () => {
+      const reason = this.#cancelReasons.get(requestId);
+      if (signal.aborted || reason) info("voice", "playback cancelled", { elapsedMs: Date.now() - startedAt, reason: reason ?? "session", ...mediaFields });
+      else warn("voice", "playback failed", { elapsedMs: Date.now() - startedAt, errorCode: "voice.playback.failed", ...mediaFields });
+      signal.removeEventListener("abort", abort);
+      cleanupWindow();
+      this.#cancelReasons.delete(requestId);
+    });
     return playback;
   }
 
-  async stop(requestId: string): Promise<void> {
+  async stop(requestId: string, reason: "user" | "session" = "session"): Promise<void> {
+    this.#cancelReasons.set(requestId, reason);
     this.#coordinator.stop(requestId);
+    await this.#mediaPlayer.stop(requestId);
   }
 
-  async shutdown(): Promise<void> {
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#coordinator.shutdown();
+    await Promise.all([...this.#mediaRequestIds].map((requestId) => this.#mediaPlayer.stop(requestId)));
+    this.#mediaRequestIds.clear();
+    this.#cancelReasons.clear();
     this.#unsubscribe();
   }
 }

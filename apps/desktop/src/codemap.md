@@ -12,7 +12,7 @@ Core TypeScript source for the OpenPets desktop application. Organized into: lif
 - **Validation at Boundaries**: Catalog, ZIP entries, pet metadata, and IPC params all strictly validated
 - **Lease Pattern**: Agent pets use expiring leases (15s TTL) with heartbeats; default pet is persistent
 - **Sandboxed Renderers**: Control Center loads the Vite React/Tailwind bundle through a hardened BrowserWindow and narrow preload bridge; transparent pet windows and plugin SDK host windows stay separate
-- **Structured Logging**: Scoped logging (app, ipc, lease, pet.*, state, tray, ui) with log rotation and redaction
+- **Structured Logging**: Scoped logging (app, ipc, lease, pet.*, state, tray, ui, voice, provider) with log rotation and redaction
 - **Reaction Animation Mapping**: User-configurable mapping from reaction types to sprite animation states
 - **Plugin Runtimes**: Plugins use validated manifests, approved permissions, persisted config, safe path checks, declarative timer-triggered actions, or sandboxed JavaScript entry modules through the SDK bridge.
 - **Capability-Oriented SDK Surface**: The plugin bridge is split into focused SDK modules for audio, bus, config, events, quotas, routes, state, storage, types, and UI so permission checks and host effects stay localized.
@@ -33,6 +33,7 @@ main.ts
 ├── plugin-service.ts (plugin state/runtime init, JS host wiring)
 ├── tray.ts (tray creation)
 ├── local-ipc.ts (IPC server start)
+├── control-center-route.ts (canonical route/target validation and dev-only startup routing)
 └── windows.ts (UI handlers)
 ```
 
@@ -128,8 +129,11 @@ tray.ts → openControlCenterWindow(route) → windows.ts
 ```
 main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, ElectronPluginJsHost).start()
 ├── plugin-state.ts reads/writes userData/openpets-plugin-state.json
-├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists validated provider profiles/selections
+├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
+├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
 ├── provider-service.ts resolves redacted role operation snapshots and compatible/native text, STT, TTS, and private realtime codecs
+├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials; network probes honor caller cancellation; STT uses the host session controller
+├── provider-test-lifecycle.ts cancels all provider-test requests for a sender and serializes replacements across modal, renderer, and shutdown teardown
 ├── plugin-assets.ts validates/resolves declared plugin assets for SDK refs and rendered UI
 ├── plugin-user-sound-store.ts stores imported user sounds as plugin-scoped opaque refs
 ├── plugin-diagnostics.ts records plugin errors/quota/settings blocks for inspector/health UI
@@ -138,11 +142,11 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 │   ├── plugin-js-host.ts starts hidden sandboxed BrowserWindow hosts for JavaScript plugins
 │   └── plugin-sdk-bridge.ts dispatches namespaced SDK routes
 │       ├── plugin-sdk-audio.ts/plugin-voice.ts → renderer/OS playback, MiniMax speech synthesis, and one-shot voice surfaces
-│       │   ├── voice-capture.ts/voice-capture-electron.ts → bounded microphone ownership and cleanup
+│       │   ├── voice-capture.ts/voice-capture-electron.ts → bounded microphone ownership, cleanup, and lifecycle diagnostics
 │       │   ├── voice-capture-cancellation.ts → idempotent renderer-cancel/window-destroy ordering
-│       │   ├── voice-listening-service.ts → transcription timeout, cancellation, and empty-text guard
+│       │   ├── voice-listening-service.ts → transcription timeout, cancellation, empty-text guard, and boundary diagnostics
 │       │   ├── voice-operation-state.ts → internal tray cancellation state and phase tracking
-│       │   └── voice-privacy-indicator-electron.ts → host-owned live-track indicator
+│       │   └── voice-privacy-indicator*.ts → shared live-track accounting and the transient Electron privacy surface
 │       ├── plugin-sdk-bus.ts/plugin-sdk-events.ts → curated pub/sub and host event streams
 │       ├── plugin-sdk-config.ts/plugin-sdk-storage.ts/plugin-sdk-state.ts → config, persistent plugin data, and subscriptions
 │       ├── plugin-sdk-ui.ts/plugin-panels.ts/plugin-toast.ts → bubbles, alerts, commands, panels, and toasts
@@ -205,18 +209,19 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 ## Key Modules
 
 **Core**:
-- `main.ts`: Entry, single-instance lock, bootstrap sequence, JavaScript plugin host construction
+- `main.ts`: Entry, single-instance lock, bootstrap sequence, JavaScript plugin host construction, and dev-only Control Center route opening
 - `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance) with logging; stops plugin service, IPC, and pet windows on quit
 - `state.ts`: Simple shell pause state
-- `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, and host Pet Assistant personality preferences
-- `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, onboarding normalization
+- `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
+- `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, idle cursor-gaze default/normalization, onboarding normalization
 - `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, bounded active/archive context, archive query/erase seam, and generation-pinned capability routing
 - `pet-assistant-archive.ts`: Host-owned local terminal-text archive with atomic writes, retention/quarantine, and bounded prompt-window support
 - `pet-assistant-history-ipc.ts`: Pure narrow history list/delete/clear handler helpers, including startup and identifier validation
 - `pet-assistant-conversation.ts`: Host-owned current-session presentation projection, stable typed-chat controller, cancellation seam, and normalized voice-transcript seam
 - `pet-assistant-personality.ts`: Pure personality defaults, bounds, patch validation, and safe deterministic serialization
+- `pet-assistant-feedback.ts`: Reducer mapping assistant activity and terminal events to pet reactions, suppressing duplicate text during expanded chat while preserving sprite activity/reaction animations
 - `team-service.ts`: Teams enrollment preview lifecycle, authoritative identity/expiry snapshots, serialized enrollment/sync/leave operations, and preview-change subscriptions used to refresh an already-running Control Center route
-- `logger.ts`: Structured logging with scopes (app, ipc, lease, pet.default, pet.agent, pet.window, state, tray, ui), log rotation, redaction
+- `logger.ts`: Structured logging with scopes (app, ipc, lease, pet.default, pet.agent, pet.window, state, tray, ui, voice, provider), log rotation, redaction
 - `bundled-plugins.ts`: Canonical official plugin IDs shared by plugin seeding and packaged-output validation
 - `packaging-contract.ts`: Packaged bundled-plugin manifest/asset/locale and unpacked integration-runtime contract helpers
 - `artifact-payload.ts`: Cross-platform distributable extraction for target-aware packaged payload validation
@@ -224,18 +229,19 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 **UI**:
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
   - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
+  - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
-- `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
+- `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
-- `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the expanded attached chat panel
-- `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling attached chat expansion, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
-- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states
+- `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the bottom-anchored expanded attached chat panel
+- `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
+- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
 - `window-tracker-latch.ts`: Re-entrancy latch helper (`createLatchedTick`) that prevents overlapping async ticks from stacking; used by the window-tracking poller
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, sprite animation states, compact default-pet companion launcher, in-pet attached chat panel styles, speech bubbles, status badges, transient displays, and validated V1/V2 installed-atlas layout selection
+- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, bundled V2 and installed V1/V2 sprite animation states, shared preference-gated movement-driven V2 idle cursor-gaze ticker, compact default-pet companion launcher, bottom-anchored upward-growing attached chat panel styles, unpinned bubble suppression during full chat, status badges, transient displays, and validated atlas layout selection
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
@@ -243,7 +249,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `built-in-pet.ts`: Built-in pet constant
 - `reaction-messages.ts`: Message pools for each reaction type
-- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, canonical sprite state definitions, and derived waiting-duration state tables
+- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, bundled V2 Hoodie Cat atlas metadata, canonical sprite state definitions, and derived waiting-duration state tables
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
@@ -261,8 +267,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `codex-pets-core.ts`: Codex V1/V2 metadata, exact V2 atlas, and neutral-pose layout validation
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews
-- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback
-- `catalog-validation.ts`: CatalogV2/V3 schema validation
+- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback, and V1/V2 sprite metadata conversion
+- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 
 **Plugins**:
@@ -300,19 +306,24 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-oauth.ts`: Host-mediated OAuth/PKCE flow and token session lifecycle for plugins.
 - `plugin-panels.ts`: Sandboxed plugin panel BrowserWindow coordinator and message bridge.
 - `plugin-pet-registry.ts`: Registry for default and plugin-spawned pets, including lifecycle and SDK targeting.
-- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
-- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, and provider failures remain operation errors rather than plugin health failures.
+- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; versioned migration/quarantine; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
+- `provider-contract.ts`: Pure canonical provider adapter definitions, typed adapter-specific profiles (including native ElevenLabs Scribe STT), role support, credential policies, default auth, and preset catalog owned by the host and exposed through the renderer contract.
+- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, provider failures remain operation errors rather than plugin health failures, and text/STT/TTS/realtime requests emit bounded outbound and terminal diagnostics. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
 - `plugin-secrets.ts`: Plugin-scoped encrypted secret storage backed by Electron safe storage primitives.
 - `plugin-toast.ts`: Host toast/notification routing for plugin UI events.
 - `plugin-user-sound-store.ts`: Plugin-scoped imported user sound registry that stores opaque sound refs instead of raw filesystem paths.
-- `plugin-voice.ts`: Voice/TTS and one-shot listen facade gated by settings and permissions; owns host cancellation hooks and the private realtime conversation entry points.
-- `voice-capture.ts` / `voice-capture-electron.ts`: One-active-at-a-time microphone capture with separate acquisition timeout, media-track cleanup, and temporary-session teardown.
+ - `plugin-voice.ts`: Voice/TTS and one-shot listen facade gated by settings and permissions; owns host cancellation hooks, shared operation reservations, and the private realtime conversation entry points.
+- `provider-configuration-test-session.ts` / `voice-media-player.ts`: Bounded provider transcription session with ownership reserved before initialization, and a serialized trusted persistent-partition player for generated audio, with explicit sink-routing fallback and trusted output capability probing.
+- `provider-test-lifecycle.ts`: Shared per-sender cancellation and replacement-lane helpers ensuring rapid provider tests serialize teardown, renderer loss reaches queued/initializing work, and only the latest replacement starts capture.
+- `voice-assistant-host-core.ts` / `voice-assistant-session.ts`: Host-owned one-shot Talk toggle and generic recording state machine; submission clears its capability before capture stop settles, terminal output ends the session without automatic re-listen, and primary toggles are non-destructive during processing and native Realtime activity.
+- `voice-device-service.ts` / `voice-device-resolver.ts` / `voice-device-electron.ts` / `voice-device-permissions.ts`: Host-owned durable voice input/output preferences, capability-safe snapshots, immutable per-operation input resolution, trusted `setSinkId` probing, shared trusted media partition, and restricted audio permission boundary.
+- `voice-capture.ts` / `voice-capture-electron.ts`: One-active-at-a-time microphone capture with separate acquisition timeout, media-track cleanup, temporary-session teardown, and bounded lifecycle diagnostics.
 - `voice-microphone-arbiter.ts`: Shared lease boundary preventing one-shot and realtime microphone ownership from overlapping.
 - `voice-conversation.ts` / `voice-realtime-electron.ts`: Generation-safe host conversation lifecycle and thin hidden renderer/WebRTC adapter; intentionally not exposed through the plugin SDK.
 - `voice-capture-cancellation.ts`: Idempotent renderer-cancel/window-destroy ordering for Electron capture teardown.
-- `voice-listening-service.ts`: Transcription timeout, abort handling, whitespace-only rejection, and late-event suppression.
+- `voice-listening-service.ts`: Transcription timeout, abort handling, whitespace-only rejection, late-event suppression, capture stop/submit forwarding, and capture/transcription boundary diagnostics.
 - `voice-operation-state.ts`: Internal acquisition/recording/transcription state surfaced to host tray controls, including reservations held during asynchronous listen initialization.
-- `voice-privacy-indicator.ts` / `voice-privacy-indicator-electron.ts`: Track-driven host privacy indicator, hidden until acquisition succeeds.
+- `voice-privacy-indicator.ts`: Host-owned live microphone-track accounting shared by one-shot capture and realtime conversation; it creates no detached UI surface.
 
 **Agent Integration**:
 - `agent-setup.ts`: Claude/OpenCode/Cursor detection, OpenClaw native plugin discovery/mutation, MCP configuration, hooks management, action journaling
@@ -321,7 +332,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `update-version.ts`: Version parsing and comparison
 
 **Tests** (excluded from detailed codemap coverage per repository conventions):
-- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider profile persistence/routing is covered by `provider-profiles.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts; `pet-install-transaction.test.ts` covers staged promotion, rollback, conservative recovery, and path/marker safety
+- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider foundation persistence, migration, credential ownership, preset/role behavior, routing, TTS voice precedence, and realtime boundaries are covered by `provider-profiles.test.ts`, `provider-presets-and-roles.test.ts`, `provider-migration.test.ts`, `provider-credential-deletion.test.ts`, `provider-service.test.ts`, `voice-assistant-host-core.test.ts`, `voice-realtime-assistant.test.ts`, `voice-device-state.test.ts`, `voice-device-selection.test.ts`, `pet-assistant-feedback.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; Talk tests cover atomic recording submission, non-destructive repeated toggles, immediate response feedback, one-shot terminal cleanup, explicit next-turn activation, and Realtime response completion; voice device tests cover durable preference normalization, device resolution, operation snapshots, and selected-input propagation without OS hardware; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts; `pet-install-transaction.test.ts` covers staged promotion, rollback, conservative recovery, and path/marker safety
 - Contract tests live in `contracts/*.contract.ts` (compiled to `.test-dist/contracts/`)
 - Runtime checks (`check-*.ts`) remain in `src/` for packaging/validation (compiled to `dist/`)
 

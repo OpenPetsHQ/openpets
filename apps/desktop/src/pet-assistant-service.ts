@@ -201,7 +201,7 @@ export class PetAssistantService {
           recordToolCall: (call) => {
             if (state.terminal.value || !this.#isCurrentRealtimeTurn(state)) return;
             if (!validateRealtimeToolCall(call, this.#limits, state.seenToolCallIds)) throw new Error("Realtime tool call is invalid.");
-            const message: PetAssistantMessage = deepFreeze({ role: "assistant", toolCalls: [cloneToolCall(call)] });
+            const message: PetAssistantMessage = deepFreeze({ role: "assistant", toolCalls: [presentToolCall(toolSet, call)] });
             state.messages.push(message);
             this.#emitTranscript(PET_ASSISTANT_CONVERSATION_ID, normalizedTurnId, message);
             this.#emitActivity(PET_ASSISTANT_CONVERSATION_ID, normalizedTurnId, "acting", call.name);
@@ -387,7 +387,8 @@ export class PetAssistantService {
         if (!batch.ok) return finish(this.#failed(conversationId, turnId, batch.reason));
         for (const [key, count] of batch.repeated) repeated.set(key, count);
         toolCalls += calls.calls.length;
-        const assistant: PetAssistantMessage = deepFreeze({ role: "assistant", ...(generated.text === undefined ? {} : { content: generated.text }), toolCalls: calls.calls });
+        const presentedCalls = calls.calls.map((call) => presentToolCall(toolSet, call));
+        const assistant: PetAssistantMessage = deepFreeze({ role: "assistant", ...(generated.text === undefined ? {} : { content: generated.text }), toolCalls: presentedCalls });
         messages = [...messages, assistant];
         turnMessages.push(assistant);
         this.#emitTranscript(conversationId, turnId, assistant);
@@ -690,8 +691,21 @@ function validateRealtimeToolCall(call: PetAssistantToolCall, limits: PetAssista
   return true;
 }
 
-function cloneToolCall(call: PetAssistantToolCall): PetAssistantToolCall {
-  return deepFreeze({ id: call.id, name: call.name, arguments: cloneAndFreeze(call.arguments) });
+function presentToolCall(toolSet: PetAssistantToolSet, call: PetAssistantToolCall): PetAssistantToolCall {
+  const target = toolSet.targetsByName.get(call.name);
+  return deepFreeze({
+    id: call.id,
+    name: call.name,
+    arguments: cloneAndFreeze(call.arguments),
+    displayLabel: target === undefined
+      ? "Unavailable capability"
+      : conciseCapabilityLabel(target.description),
+  });
+}
+
+function conciseCapabilityLabel(description: string): string {
+  const normalized = description.trim().replace(/\s+/g, " ");
+  return normalized.length <= 96 ? normalized : `${normalized.slice(0, 93)}...`;
 }
 
 function combineAbortSignals(...signals: readonly AbortSignal[]): AbortSignal {

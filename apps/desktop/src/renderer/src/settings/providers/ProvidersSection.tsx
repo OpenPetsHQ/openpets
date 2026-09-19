@@ -1,27 +1,34 @@
 import { useState } from "react";
-import { ProviderGatesSection } from "./ProviderGatesSection.js";
+import { useI18n } from "../../i18n.js";
 import { ProviderLibrary } from "./ProviderLibrary.js";
 import { ProviderModal } from "./ProviderModal.js";
 import { ProviderRoleOverview } from "./ProviderRoleOverview.js";
 import type {
   ProviderControlCenterSnapshot,
-  ProviderGates,
   ProviderProfileInput,
   ProviderProfilePatch,
   ProviderProfileSummary,
   ProviderRole,
   ProviderConfigurationSaveInput,
+  ProviderConfigurationTestResult,
 } from "./types.js";
 
+// Plugin audio/microphone permission gates are deliberately NOT part of this
+// section: they only govern plugins and live in the Plugin Platform tab.
 export type ProvidersSectionApi = {
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
   saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
+  testProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderConfigurationTestResult>;
+  beginProviderTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }>;
+  finishProviderTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult>;
+  cancelProviderTranscriptionTest(sessionId?: string): Promise<{ readonly cancelled: boolean }>;
+  playProviderPreview(bytes: Uint8Array, mimeType: string): Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+  stopProviderPreview(): Promise<void>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   setProviderProfileCredential(id: string, value: string): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfileCredential(id: string): Promise<ProviderControlCenterSnapshot>;
-  updateProviderGates(patch: Partial<ProviderGates>): Promise<ProviderControlCenterSnapshot>;
 };
 
 export type ProvidersSectionProps = {
@@ -43,6 +50,7 @@ export function ProvidersSection({
   setError,
   api: injectedApi,
 }: ProvidersSectionProps) {
+  const { t } = useI18n();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ProviderProfileSummary | null>(null);
   const [initialPresetId, setInitialPresetId] = useState<string | undefined>(undefined);
@@ -65,61 +73,53 @@ export function ProvidersSection({
   }
 
   function handleSelectRole(role: ProviderRole, profileId: string | null) {
-    void run("Selecting provider profile...", async () => {
+    void run(t("settings.providers.busy.selecting"), async () => {
       try {
         const next = await getApi().selectProviderProfile(role, profileId);
         onSnapshotChange(next);
-        setMessage(profileId ? "Provider profile activated." : "Role disabled.");
+        setMessage(
+          profileId
+            ? t("settings.providers.toast.profileActivated")
+            : t("settings.providers.toast.roleDisabled"),
+        );
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to select profile.");
+        setError(err instanceof Error ? err.message : t("settings.providers.toast.selectFailed"));
       }
     });
   }
 
   function handleDeleteProfile(id: string) {
-    void run("Deleting provider profile...", async () => {
+    void run(t("settings.providers.busy.deleting"), async () => {
       try {
         const next = await getApi().deleteProviderProfile(id);
         onSnapshotChange(next);
-        setMessage("Provider profile deleted.");
+        setMessage(t("settings.providers.toast.profileDeleted"));
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to delete profile.");
+        setError(err instanceof Error ? err.message : t("settings.providers.toast.deleteFailed"));
       }
     });
   }
 
   async function handleSaveCredential(id: string, value: string) {
-    await run("Saving API credential...", async () => {
+    await run(t("settings.providers.busy.savingKey"), async () => {
       try {
         const next = await getApi().setProviderProfileCredential(id, value);
         onSnapshotChange(next);
-        setMessage("API credential saved securely.");
+        setMessage(t("settings.providers.toast.keySaved"));
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to save credential.");
+        setError(err instanceof Error ? err.message : t("settings.providers.toast.keySaveFailed"));
       }
     });
   }
 
   async function handleDeleteCredential(id: string) {
-    await run("Removing API credential...", async () => {
+    await run(t("settings.providers.busy.removingKey"), async () => {
       try {
         const next = await getApi().deleteProviderProfileCredential(id);
         onSnapshotChange(next);
-        setMessage("API credential removed.");
+        setMessage(t("settings.providers.toast.keyRemoved"));
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to delete credential.");
-      }
-    });
-  }
-
-  function handleUpdateGate(patch: Partial<ProviderGates>) {
-    void run("Updating capability permissions...", async () => {
-      try {
-        const next = await getApi().updateProviderGates(patch);
-        onSnapshotChange(next);
-        setMessage("Capability permissions updated.");
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to update permissions.");
+        setError(err instanceof Error ? err.message : t("settings.providers.toast.keyRemoveFailed"));
       }
     });
   }
@@ -128,47 +128,60 @@ export function ProvidersSection({
     const { isEditing, activatedRoles } = input;
     let failure: unknown;
     let failed = false;
-    await run(isEditing ? "Updating profile..." : "Creating profile...", async () => {
-      try {
-        const nextSnapshot = await getApi().saveProviderConfiguration(input);
-        onSnapshotChange(nextSnapshot);
-        setMessage(
-          isEditing
-            ? "Provider profile updated successfully."
-            : activatedRoles.length > 0
-              ? "Provider profile created and activated."
-              : "Provider profile created and saved to library."
-        );
-      } catch (error) {
-        failed = true;
-        failure = error;
-        throw error;
-      }
-    });
+    await run(
+      isEditing ? t("settings.providers.busy.updating") : t("settings.providers.busy.creating"),
+      async () => {
+        try {
+          const nextSnapshot = await getApi().saveProviderConfiguration(input);
+          onSnapshotChange(nextSnapshot);
+          setMessage(
+            isEditing
+              ? t("settings.providers.toast.updated")
+              : activatedRoles.length > 0
+                ? t("settings.providers.toast.createdActivated")
+                : t("settings.providers.toast.createdSaved"),
+          );
+        } catch (error) {
+          failed = true;
+          failure = error;
+          throw error;
+        }
+      },
+    );
     // `run` owns the page-level error state and deliberately swallows errors;
     // reject this modal action as well so the modal remains open and renders it.
     if (failed) throw failure;
   }
 
-  const gates = snapshot?.gates ?? {
-    allowPluginAudio: true,
-    allowDynamicSpeech: false,
-    allowPluginVoice: true,
-    allowMicrophone: false,
-    quietHours: { enabled: false, start: "22:00", end: "08:00" },
-  };
+  async function handleModalTest(
+    input: ProviderConfigurationSaveInput,
+  ): Promise<ProviderConfigurationTestResult> {
+    return getApi().testProviderConfiguration(input);
+  }
+
+  async function handleModalBeginTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }> {
+    return getApi().beginProviderTranscriptionTest(input);
+  }
+
+  async function handleModalFinishTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult> {
+    return getApi().finishProviderTranscriptionTest(sessionId);
+  }
+
+  async function handleModalCancelTranscriptionTest(sessionId?: string): Promise<void> {
+    await getApi().cancelProviderTranscriptionTest(sessionId);
+  }
 
   return (
     <div className="settings-section flex flex-col gap-5">
       {/* Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="eyebrow">PROVIDERS & CAPABILITIES</p>
-          <h2 className="settings-section-title">AI Models & Voice Providers</h2>
+          <p className="eyebrow">{t("settings.providers.eyebrow")}</p>
+          <h2 className="settings-section-title">{t("settings.providers.title")}</h2>
         </div>
       </div>
       <p className="text-sm text-slatecopy -mt-3 mb-1">
-        Configure the AI models powering your desktop companion: choose your Pet Brain for intelligence and reasoning, speech recognition for voice input, and neural speech synthesis for spoken replies.
+        {t("settings.providers.intro")}
       </p>
 
       {/* Role-First Overview */}
@@ -192,22 +205,21 @@ export function ProvidersSection({
         onDeleteCredential={handleDeleteCredential}
       />
 
-      {/* Host Capability Gates & Quiet Hours */}
-      <ProviderGatesSection
-        gates={gates}
-        busy={busy}
-        onUpdateGate={handleUpdateGate}
-      />
-
       {/* Guided Setup Modal */}
       <ProviderModal
         isOpen={modalOpen}
         editingProfile={editingProfile}
         initialPresetId={initialPresetId}
-        currentSelections={snapshot?.selections ?? { text: null, stt: null, tts: null }}
+        presets={snapshot?.presets}
         busy={busy}
         onClose={() => setModalOpen(false)}
         onSave={handleModalSave}
+        onTest={handleModalTest}
+        onBeginTranscriptionTest={handleModalBeginTranscriptionTest}
+        onFinishTranscriptionTest={handleModalFinishTranscriptionTest}
+        onCancelTranscriptionTest={handleModalCancelTranscriptionTest}
+        onPlayPreview={(bytes, mimeType) => getApi().playProviderPreview(bytes, mimeType)}
+        onStopPreview={() => getApi().stopProviderPreview()}
       />
     </div>
   );

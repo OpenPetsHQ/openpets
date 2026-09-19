@@ -1,38 +1,40 @@
-export type ProviderRole = "text" | "stt" | "tts";
+import {
+  defaultProviderAuth,
+  providerDefinition,
+  providerSupportsRole,
+  type ProviderAdapter,
+  type ProviderAuth,
+  type ProviderCredentialPolicy,
+  type ProviderHeader,
+  type ProviderHeaderPatch,
+  type ProviderPreset,
+  type ProviderProfile,
+  type ProviderRole,
+} from "../../../../provider-contract.js";
 
-export type ProviderAdapter =
-  | "openai-compatible-text"
-  | "openai-realtime"
-  | "anthropic-text"
-  | "openai-compatible-transcription"
-  | "system-tts"
-  | "minimax-tts"
-  | "elevenlabs-tts"
-  | "openai-compatible-speech";
+export {
+  defaultProviderAuth,
+  providerDefinition,
+  providerSupportsRole,
+  type ProviderAdapter,
+  type ProviderAuth,
+  type ProviderCredentialPolicy,
+  type ProviderHeader,
+  type ProviderHeaderPatch,
+  type ProviderPreset,
+  type ProviderProfile,
+  type ProviderRole,
+} from "../../../../provider-contract.js";
 
-export type ProviderHeader = {
-  readonly name: string;
-  readonly value: string;
-};
+export type CredentialPolicy = ProviderCredentialPolicy;
 
-export type ProviderHeaderPatch =
-  | { readonly op: "add"; readonly name: string; readonly value: string }
-  | { readonly op: "replace"; readonly oldName: string; readonly name: string; readonly value: string }
-  | { readonly op: "delete"; readonly name: string };
+type PublicProviderProfile<T> = T extends ProviderProfile
+  ? Omit<T, "headers" | "secretRef">
+  : never;
 
-export type ProviderAuth = {
-  readonly headerName: string;
-  readonly strategy: "bearer" | "raw";
-};
-
-export type ProviderProfileSummary = {
-  readonly id: string;
-  readonly label: string;
-  readonly adapter: ProviderAdapter;
-  readonly model: string;
-  readonly baseUrl?: string;
-  readonly secretRef?: string;
-  readonly auth?: ProviderAuth;
+export type ProviderProfileSummary = PublicProviderProfile<ProviderProfile> & {
+  readonly realtimeModel?: string;
+  readonly voice?: string;
   readonly headerNames: readonly string[];
   readonly hasCredential: boolean;
 };
@@ -51,15 +53,6 @@ export type ProviderStatus = {
   readonly code: string;
   readonly message: string;
   readonly profileId?: string;
-};
-
-export type ProviderPreset = {
-  readonly id: string;
-  readonly label: string;
-  readonly adapter: ProviderAdapter;
-  readonly model: string;
-  readonly baseUrl?: string;
-  readonly credentialMode: "required" | "none";
 };
 
 export type ProviderGates = {
@@ -86,27 +79,18 @@ export type ProviderControlCenterSnapshot = {
   readonly presets: readonly ProviderPreset[];
 };
 
-export type ProviderProfileInput = {
-  id: string;
-  label: string;
-  adapter: ProviderAdapter;
-  model: string;
-  baseUrl?: string;
-  secretRef?: string;
-  auth?: ProviderAuth;
-  headers?: ProviderHeader[];
-};
-
+export type ProviderProfileInput = ProviderProfile;
 export type ProviderProfilePatch = {
-  id?: string;
-  label?: string;
+  id?: ProviderProfile["id"];
+  label?: ProviderProfile["label"];
   adapter?: ProviderAdapter;
-  model?: string;
+  model?: ProviderProfile["model"];
+  realtimeModel?: string | null;
+  voice?: string | null;
   baseUrl?: string | null;
-  secretRef?: string | null;
   auth?: ProviderAuth | null;
-  headers?: ProviderHeader[];
-  headerPatch?: ProviderHeaderPatch[];
+  headers?: readonly ProviderHeader[];
+  headerPatch?: readonly ProviderHeaderPatch[];
 };
 
 export type ProviderConfigurationSaveInput = {
@@ -118,120 +102,76 @@ export type ProviderConfigurationSaveInput = {
   readonly deactivatedRoles: readonly ProviderRole[];
 };
 
-export function profileSupportsRole(profile: { adapter: ProviderAdapter }, role: ProviderRole): boolean {
-  if (role === "text") {
-    return (
-      profile.adapter === "openai-compatible-text" ||
-      profile.adapter === "openai-realtime" ||
-      profile.adapter === "anthropic-text"
-    );
-  }
-  if (role === "stt") {
-    return profile.adapter === "openai-compatible-transcription";
-  }
-  return (
-    profile.adapter === "system-tts" ||
-    profile.adapter === "minimax-tts" ||
-    profile.adapter === "elevenlabs-tts" ||
-    profile.adapter === "openai-compatible-speech"
-  );
+export type ProviderConfigurationTestResult =
+  | { readonly kind: "text"; readonly detail: string }
+  | { readonly kind: "stt"; readonly detail: string }
+  | { readonly kind: "tts"; readonly bytes: Uint8Array; readonly mimeType: "audio/mpeg" }
+  | { readonly kind: "realtime"; readonly detail: string }
+  | { readonly kind: "system-tts" };
+
+export function profileSupportsRole(
+  profile: { adapter: ProviderAdapter },
+  role: ProviderRole,
+): boolean {
+  return providerSupportsRole(profile.adapter, role);
 }
 
-export function getRoleDisplayName(role: ProviderRole): string {
-  switch (role) {
-    case "text":
-      return "Pet Brain";
-    case "stt":
-      return "Hearing";
-    case "tts":
-      return "Speech";
-  }
-}
-
-export function getRoleSubtitle(role: ProviderRole): string {
-  switch (role) {
-    case "text":
-      return "Text generation, conversation & tools";
-    case "stt":
-      return "Speech-to-text audio input";
-    case "tts":
-      return "Spoken companion voice";
-  }
-}
-
-export function getAdapterFriendlyLabel(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "Cloud & Local Text";
-    case "openai-realtime":
-      return "OpenAI Realtime Voice & Text";
-    case "anthropic-text":
-      return "Anthropic Claude";
-    case "openai-compatible-transcription":
-      return "Whisper Audio Transcription";
-    case "system-tts":
-      return "Built-in System Voice";
-    case "minimax-tts":
-      return "MiniMax Speech";
-    case "elevenlabs-tts":
-      return "ElevenLabs Voice";
-    case "openai-compatible-speech":
-      return "OpenAI Speech";
-    default:
-      return adapter;
-  }
-}
-
-export function getAdapterExplainer(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "Compatible with OpenRouter, OpenAI, Ollama, LM Studio, vLLM, and any OpenAI-style completions API.";
-    case "openai-realtime":
-      return "Native bidirectional WebRTC realtime session. Powers low-latency pet audio conversations.";
-    case "anthropic-text":
-      return "Direct Anthropic Messages API for Claude 3.5 and 3.7 models.";
-    case "openai-compatible-transcription":
-      return "Converts speech from your microphone into text using Whisper-compatible endpoints.";
-    case "system-tts":
-      return "Uses your operating system's built-in text-to-speech. Works offline with zero configuration and no API keys.";
-    case "minimax-tts":
-      return "High quality neural speech synthesis from MiniMax.";
-    case "elevenlabs-tts":
-      return "Ultra-expressive custom voices and voice cloning from ElevenLabs.";
-    case "openai-compatible-speech":
-      return "OpenAI audio/speech synthesis endpoint.";
-    default:
-      return "";
-  }
-}
-
-export function getDefaultAuthHeader(adapter: ProviderAdapter): string {
-  if (adapter === "anthropic-text") return "x-api-key";
-  if (adapter === "elevenlabs-tts") return "xi-api-key";
-  return "authorization";
-}
-
-export function getDefaultAuthStrategy(adapter: ProviderAdapter): "bearer" | "raw" {
-  return adapter === "anthropic-text" || adapter === "elevenlabs-tts" ? "raw" : "bearer";
-}
-
-export function isLocalOrSystemProvider(profile: {
-  adapter: ProviderAdapter;
-  baseUrl?: string;
-  secretRef?: string;
-}): boolean {
-  if (profile.adapter === "system-tts") return true;
-  if (!profile.secretRef) return true;
-  if (profile.baseUrl) {
-    const url = profile.baseUrl.toLowerCase();
+export function isLocalEndpointUrl(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
     if (
-      url.includes("127.0.0.1") ||
-      url.includes("localhost") ||
-      url.includes("::1") ||
-      url.includes(".local")
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.endsWith(".local")
     ) {
       return true;
     }
+    const octets = host.split(".").map(Number);
+    if (
+      octets.length === 4 &&
+      octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
+    ) {
+      if (
+        octets[0] === 10 ||
+        octets[0] === 127 ||
+        (octets[0] === 192 && octets[1] === 168) ||
+        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    const lower = url.toLowerCase();
+    return (
+      lower.includes("127.0.0.1") ||
+      lower.includes("localhost") ||
+      lower.includes("::1") ||
+      lower.includes(".local")
+    );
   }
   return false;
+}
+
+export function getProfileCredentialPolicy(profile: {
+  adapter: ProviderAdapter;
+  baseUrl?: string;
+  credentialMode?: ProviderCredentialPolicy;
+}): ProviderCredentialPolicy {
+  if (profile.credentialMode) return profile.credentialMode;
+  const definition = providerDefinition(profile.adapter);
+  if (definition.credentialPolicy === "none") return "none";
+  if (isLocalEndpointUrl(profile.baseUrl)) return "optional";
+  return definition.credentialPolicy;
+}
+
+export function getDefaultAuthHeader(adapter: ProviderAdapter): string {
+  return defaultProviderAuth(adapter).headerName;
+}
+
+export function getDefaultAuthStrategy(adapter: ProviderAdapter): "bearer" | "raw" {
+  return defaultProviderAuth(adapter).strategy;
 }

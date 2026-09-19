@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src blob: data:; script-src 'unsafe-inline'">
+<script>
+(() => {
+  let audio = null;
+  let stopCurrent = null;
+  let completionPromise = Promise.resolve();
+  let rejectCompletion = null;
+  globalThis.__openPetsVoicePlayer = {
+    play(base64, mimeType, sinkId) {
+      if (typeof base64 !== "string" || typeof mimeType !== "string") throw new Error("Invalid voice media payload.");
+      if (audio) { try { audio.pause(); } catch {} audio.remove(); audio = null; }
+      const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      const element = new Audio(url);
+      audio = element;
+      let stopped = false;
+      let rejectPlayback = null;
+      let cleanup = () => { URL.revokeObjectURL(url); if (audio === element) audio = null; if (stopCurrent) stopCurrent = null; };
+      stopCurrent = () => {
+        stopped = true;
+        try { element.pause(); } catch {}
+        const error = new Error("Voice media playback stopped.");
+        rejectPlayback?.(error);
+        rejectCompletion?.(error);
+        cleanup();
+      };
+      const start = async () => {
+        let output = "system-default";
+        let reason = sinkId ? "rejected" : "no-selection";
+        if (sinkId) {
+          if (typeof element.setSinkId !== "function") reason = "unsupported";
+          else {
+            try { await element.setSinkId(sinkId); output = "selected"; reason = undefined; } catch { reason = "rejected"; }
+          }
+        }
+        await element.play();
+        completionPromise = new Promise((resolve, reject) => {
+          rejectPlayback = reject;
+          rejectCompletion = reject;
+          element.addEventListener("ended", () => { cleanup(); resolve({ output, ...(reason ? { reason } : {}) }); }, { once: true });
+          element.addEventListener("error", () => { cleanup(); reject(new Error("Voice media playback failed.")); }, { once: true });
+          if (stopped) { cleanup(); reject(new Error("Voice media playback stopped.")); }
+        });
+        return { output, ...(reason ? { reason } : {}) };
+      };
+      return start();
+    },
+    wait() { return completionPromise; },
+    stop() { if (stopCurrent) stopCurrent(); return true; }
+  };
+})();
+</script>

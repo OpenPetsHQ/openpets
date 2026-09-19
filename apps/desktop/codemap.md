@@ -22,12 +22,12 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
   - Speech bubbles with reaction messages and status badges
   - User-configurable reaction-to-animation mapping
 - **Lease Manager**: 15s TTL leases for agent pet routing with heartbeat renewal
-- **Logging**: Structured logging with scopes, log rotation (2MB max), and sensitive data redaction
+- **Logging**: Structured logging with scopes, including `voice` and `provider`, log rotation (2MB max), and sensitive data redaction
 - **Plugin Subsystem**: Declarative manifest plugins and JavaScript plugin hosting with permission approval, config schemas, command/status surfaces, catalog/local installs, SDK bridge quotas, storage, schedules, restricted HTTPS fetch, and safe path/ZIP/manifest validation
 
 ## Flow
 
-**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally `showDefaultPet()`
+**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
 
 **Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping
 
@@ -65,20 +65,22 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `main.ts`: Entry point, lifecycle coordination
 - `tray.ts`: System tray icon and menu
 - `windows.ts`: Control Center BrowserWindow management, Dashboard snapshot, route targeting, IPC handlers, and internal protocols
+- `control-center-route.ts`: Canonical Control Center route validation plus unpackaged development route selection
 - `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, and Settings
 - `local-ipc.ts`: TCP/Unix socket server for CLI communication
 - `lease-manager.ts`: Pet routing lease lifecycle
-- `pet-window.ts`: Pet rendering (transparent frameless windows, CSS sprite animation, speech bubbles, status badges, compact default-pet launcher, and Linux focus/input-shape transitions)
-- `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
-- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states
-- `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and expanded attached chat panel
+- `pet-window.ts`: Pet rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
+- `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
+- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
+- `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and bottom-anchored expanded attached chat panel
+- `pet-assistant-feedback.ts`: Reducer mapping canonical assistant turns and active voice sessions to pet reactions, suppressing duplicate text when chat is open while keeping sprite activity/reaction animations
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampAllLivePetWindows()` re-clamps all live pet windows on topology changes
 - `pet-roaming-controller.ts`: Host-side roaming orchestrator — registers every live pet (default + agent) with the motion engine and applies the active physics configuration (gravity + bounce). Unregisters before window destroy to prevent the shared ticker from touching closed windows.
 - `pet-motion-engine.ts`: Shared-ticker motion engine (~60 fps) — `Map<petHandleId, MotionState>`, single `setInterval` for all pets, sub-pixel fractional accumulators, bottom-center gravity-floor anchor, `registerPet`/`unregisterPet` seams, sole continuous position writer.
 - `display.ts`: Screen-geometry helpers — `getDefaultPetInitialPosition`, `clampToVisibleWorkArea` (legacy single-display), `clampToNearestDisplayIfOffscreen` (permissive multi-display), `isOnAnyDisplay`, `setCrossDisplayRoamingEnabled`/`isCrossDisplayRoamingEnabled` flag; display list cache with `invalidateDisplayCache()`
 - `app-state.ts`: Persistent state management (JSON file)
-- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, bounded active context, and canonical terminal-text archive integration
+- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, bounded active context, readable provider-safe capability names, friendly action presentation metadata, and canonical terminal-text archive integration
 - `pet-assistant-archive.ts`: Atomic local archive with 200-message/30-day/512KiB retention, 64KiB entry cap, quarantine recovery, and bounded prompt-window support
 - `agent-setup.ts`: Claude/OpenCode/Cursor/Zed integration logic plus OpenClaw management/status actions
 - `plugin-service.ts`: Plugin orchestration for snapshots, enable/config/reload, command execution, catalog install/update/uninstall, local loading, permission approval, JavaScript host wiring, and runtime reloads
@@ -94,12 +96,12 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-js-host.ts`: Hidden sandboxed BrowserWindow host for JavaScript plugin entry modules, SDK IPC tokening, session hardening, startup handshake, and teardown
 - `plugin-sdk-bridge.ts`: Permission-checked SDK API for JavaScript plugins with quotas, plugin storage, schedules, config listeners, commands/status, logs, and restricted HTTPS fetch
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
-- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, privacy state, and teardown cleanup
+- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, and teardown cleanup
 - `pet-installation.ts`: Catalog ZIP download and extraction
 - `codex-pets.ts`: Local Codex pet import
 - `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
-- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides
+- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
 - `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, and in-pet attached chat panel), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
 - `electron-builder.yml`: Packaging configuration

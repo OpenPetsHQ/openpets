@@ -22,10 +22,12 @@ import {
   type ProviderProfileInput,
   type ProviderProfilePatch,
   type ProviderConfigurationSaveInput,
+  type ProviderConfigurationTestResult,
 } from "./settings/providers/index.js";
+import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
-import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
-import { resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
+import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
+import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 
 import claudeLogoUrl from "../../../assets/integrations/claude.svg";
 import opencodeLogoUrl from "../../../assets/integrations/opencode.svg";
@@ -37,8 +39,8 @@ import zedLogoUrl from "../../../assets/integrations/zed.svg";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
-type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
-type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured"> & { searchText?: string; catalogPage?: number };
+type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
+type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured" | "spriteVersionNumber"> & { searchText?: string; catalogPage?: number };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -55,14 +57,14 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; waitingAnimationDurationMs: number; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string }; petScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
 type LanStatusSnapshot = { mode: "off" | "server" | "client"; localHost: string; serverUrl: string; port: number; auth: "token" | "none"; authSource: "env" | "stored" | "generated" | "none"; authInsecure: boolean; tokenHint: string | null; topologyHosts: number; topologyLinks: number; topologyIssues: LanTopologyIssue[]; currentHost: string | null; clients: Array<{ host: string; lastSeen: number; position?: { x: number; y: number } }>; updatedAt: number; persistedCurrentHost: string | null; persistedUpdatedAt: number | null };
 type UpdateStatus = { state: "idle" | "checking" | "available" | "current" | "error"; currentVersion: string; latestVersion?: string; releaseUrl?: string; checkedAt?: number; error?: string };
 type DashboardActivity = { messagesSent: number; reactionsSent: number; reactionCounts: Record<string, number>; perPetActivityCounts: Record<string, number>; lastActivityAt?: number };
-type DashboardSnapshot = { defaultPet: { id: string; displayName: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
+type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
 type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
 type PluginFilter = "all" | "installed" | "catalog" | "local" | "broken";
 type PluginPermission =
@@ -167,6 +169,9 @@ type ControlCenterApi = {
   submitManagerCheckIn(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
   setManagerCheckInScheduledOffersPaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
+  getVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  refreshVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  saveVoiceDevicePreferences(preferences: { preferredInputDeviceId?: string | null; preferredOutputDeviceId?: string | null }): Promise<VoiceDevicesSnapshot>;
   getConversationHistory(): Promise<readonly PetAssistantArchivedMessage[]>;
   deleteConversationHistoryMessage(id: string): Promise<{ deleted: boolean }>;
   clearConversationHistory(): Promise<{ cleared: true }>;
@@ -198,6 +203,12 @@ type ControlCenterApi = {
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
   saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
+   testProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderConfigurationTestResult>;
+   beginProviderTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }>;
+   finishProviderTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult>;
+   cancelProviderTranscriptionTest(sessionId?: string): Promise<{ readonly cancelled: boolean }>;
+   playProviderPreview(bytes: Uint8Array, mimeType: string): Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+   stopProviderPreview(): Promise<void>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   updateProviderGates(patch: ProviderGatesPatch): Promise<ProviderControlCenterSnapshot>;
@@ -213,9 +224,11 @@ type ControlCenterApi = {
   installLocalPet(): Promise<unknown>;
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
+  openOrganizationsPage?(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
-  onRouteChange(callback: (route: Route) => void): () => void;
+  onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
   onPluginsRefresh(callback: () => void): () => void;
+  onDashboardRefresh?(callback: () => void): () => void;
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   updateIntegrationCommandPaths(patch: Partial<AgentSetupCommandPaths>): Promise<AgentSetupCommandPaths>;
@@ -455,6 +468,14 @@ const MessageIcon = ({ className }: { className?: string } = {}) => (
   </svg>
 );
 
+const MicIcon = ({ className }: { className?: string } = {}) => (
+  <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+);
+
 const HeartIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
@@ -513,7 +534,10 @@ type TeamsSnapshot = {
     source: "team";
   }>;
 };
-type Route = "dashboard" | "pets" | "settings" | "plugins" | "integrations" | "teams";
+type Route = "dashboard" | "pets" | "assistant" | "settings" | "plugins" | "integrations" | "teams";
+type ControlCenterRouteTarget =
+  | { readonly route: "assistant"; readonly assistantTab?: "providers" }
+  | { readonly route: Exclude<Route, "assistant">; readonly assistantTab?: never };
 
 
 const DashboardIcon = () => (
@@ -601,6 +625,7 @@ const TeamsIcon = () => (
 const navTabs = [
   { id: "dashboard" as const, labelKey: "nav.dashboard", icon: <DashboardIcon /> },
   { id: "pets" as const, labelKey: "nav.pets", icon: <PetsIcon /> },
+  { id: "assistant" as const, labelKey: "nav.assistant", icon: <SparklesIcon className="nav-icon" /> },
   { id: "settings" as const, labelKey: "nav.settings", icon: <SettingsIcon /> },
   { id: "plugins" as const, labelKey: "nav.plugins", icon: <PluginsIcon /> },
   { id: "integrations" as const, labelKey: "nav.integrations", icon: <IntegrationsIcon /> },
@@ -615,6 +640,10 @@ const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
   pets: {
     titleKey: "route.pets.title",
     descKey: "route.pets.description",
+  },
+  assistant: {
+    titleKey: "route.assistant.title",
+    descKey: "route.assistant.description",
   },
   settings: {
     titleKey: "route.settings.title",
@@ -649,7 +678,12 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    return api.onDashboardRefresh?.(() => {
+      void load();
+    });
+  }, []);
 
   if (!snapshot) {
     return (
@@ -666,7 +700,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
 
   // Find top pet by activity or fallback to default
   const topPetId = Object.entries(activity.perPetActivityCounts).sort(([, a], [, b]) => b - a)[0]?.[0];
-  const topPetName = topPetId === defaultPet.id ? defaultPet.displayName : (topPetId || defaultPet.displayName);
+  const topPetName = topPetId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : (topPetId || defaultPet.displayName);
 
   // Find top reaction
   const reactionEntries = Object.entries(activity.reactionCounts)
@@ -799,7 +833,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
                 </div>
                 <div className="dashboard-bars-list">
                   {topCompanionEntries.length ? topCompanionEntries.map(([petId, count]) => {
-                    const label = petId === defaultPet.id ? defaultPet.displayName : petId.replace(/[-_]/g, " ");
+                    const label = petId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : petId.replace(/[-_]/g, " ");
                     return (
                       <div key={petId} className="dashboard-bar-item">
                         <div className="dashboard-bar-labels">
@@ -926,16 +960,25 @@ const statusPillToneClass = {
 } as const;
 
 function isRoute(value: string | null | undefined): value is Route {
-  return value === "dashboard" || value === "pets" || value === "settings" || value === "plugins" || value === "integrations" || value === "teams";
+  return value === "dashboard" || value === "pets" || value === "assistant" || value === "settings" || value === "plugins" || value === "integrations" || value === "teams";
 }
 
-function initialControlCenterRoute(): Route {
+function isControlCenterRouteTarget(value: unknown): value is ControlCenterRouteTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as { readonly route?: unknown; readonly assistantTab?: unknown };
+  if (!isRoute(typeof target.route === "string" ? target.route : undefined)) return false;
+  return target.assistantTab === undefined || (target.route === "assistant" && target.assistantTab === "providers");
+}
+
+function initialControlCenterRoute(): ControlCenterRouteTarget {
   try {
     const params = new URLSearchParams(window.location.search);
     const route = params.get("route");
-    return isRoute(route) ? route : "dashboard";
+    const assistantTab = params.get("assistantTab");
+    if (!isRoute(route)) return { route: "dashboard" };
+    return route === "assistant" && assistantTab === "providers" ? { route, assistantTab } : { route };
   } catch {
-    return "dashboard";
+    return { route: "dashboard" };
   }
 }
 
@@ -1241,22 +1284,70 @@ function ReactionPreviewSprite({ settings, state }: { settings: ReactionAnimatio
   );
 }
 
-function shortcutStatusLabel(status?: VoiceAssistantShortcutStatus): string {
-  if (status === "registered") return "Active";
-  if (status === "conflict") return "Conflict";
-  if (status === "unavailable") return "Unavailable";
-  if (status === "invalid") return "Invalid";
-  return "Unknown";
+const isMacPlatform = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+
+/**
+ * Click-to-record shortcut capture. There is deliberately no free-text entry:
+ * the button arms recording and the next key combination the canonical
+ * validator accepts becomes the accelerator. Bare Escape cancels;
+ * modifier-only presses keep waiting.
+ */
+function ShortcutRecorder({ accelerator, disabled, clearable, onCapture, onClear }: {
+  accelerator: string;
+  disabled?: boolean;
+  clearable?: boolean;
+  onCapture: (accelerator: string) => void;
+  onClear?: () => void;
+}) {
+  const { t } = useI18n();
+  const [recording, setRecording] = useState(false);
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isModifierOnlyKeyEvent(event.nativeEvent)) return;
+    if (event.code === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      setRecording(false);
+      return;
+    }
+    const captured = acceleratorFromKeyboardEvent(event.nativeEvent);
+    if (!captured) return;
+    setRecording(false);
+    onCapture(captured);
+  }
+
+  const displayParts = acceleratorDisplayParts(accelerator, isMacPlatform);
+
+  return (
+    <>
+      <button
+        type="button"
+        className={`settings-select shortcut-recorder ${recording ? "shortcut-recorder-armed animate-pulse" : ""}`}
+        disabled={disabled}
+        aria-pressed={recording}
+        onClick={() => setRecording((current) => !current)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setRecording(false)}
+      >
+        {recording ? (
+          <span className="text-xs">{t("settings.shortcut.recording")}</span>
+        ) : displayParts.length > 0 ? (
+          displayParts.map((part, index) => <kbd key={index} className="shortcut-keycap">{part}</kbd>)
+        ) : (
+          <span className="text-xs opacity-70">{t("settings.shortcut.record")}</span>
+        )}
+      </button>
+      {clearable && !!accelerator && !recording && (
+        <Button variant="secondary" size="compact" disabled={disabled} onClick={onClear}>
+          {t("settings.shortcut.clear")}
+        </Button>
+      )}
+    </>
+  );
 }
 
-function shortcutBadgeClass(status?: VoiceAssistantShortcutStatus): string {
-  if (status === "registered") return "voice-badge-active";
-  if (status === "conflict") return "voice-badge-conflict";
-  if (status === "unavailable" || status === "invalid") return "voice-badge-error";
-  return "voice-badge-neutral";
-}
-
-type SettingsTab = "general" | "personality" | "history" | "reactions" | "providers" | "plugins" | "lan" | "remote";
+type SettingsTab = "general" | "reactions" | "plugins" | "lan" | "remote";
 
 const settingsNavGroups: ReadonlyArray<{
   readonly labelKey: string;
@@ -1267,14 +1358,6 @@ const settingsNavGroups: ReadonlyArray<{
     items: [
       { id: "general", labelKey: "settings.nav.general", icon: <SettingsIcon /> },
       { id: "reactions", labelKey: "settings.nav.reactions", icon: <PetsIcon /> },
-    ],
-  },
-  {
-    labelKey: "settings.nav.group.assistant",
-    items: [
-      { id: "personality", labelKey: "settings.nav.personality", icon: <MessageIcon className="settings-nav-icon" /> },
-      { id: "history", labelKey: "settings.nav.history", icon: <HistoryIcon className="settings-nav-icon" /> },
-      { id: "providers", labelKey: "settings.nav.providers", icon: <ProvidersIcon className="settings-nav-icon" /> },
     ],
   },
   {
@@ -1293,8 +1376,7 @@ const settingsNavGroups: ReadonlyArray<{
 function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void; onTokenHandoff: (result: RemotePairingResult, endpoint: string | null) => void }) {
   const { t, localePreference, availableLocales, reload: reloadI18n } = useI18n();
   const [settings, setSettings] = useState<SettingsState | null>(null);
-  const [shortcutDraft, setShortcutDraft] = useState<string | null>(null);
-  const [shortcutSaveError, setShortcutSaveError] = useState<string>("");
+  const [petToggleShortcutSaveError, setPetToggleShortcutSaveError] = useState<string>("");
   const [reactionSettings, setReactionSettings] = useState<ReactionAnimationSettings | null>(null);
   const [launchAtLogin, setLaunchAtLogin] = useState<LaunchAtLoginState | null>(null);
   const [lanStatus, setLanStatus] = useState<LanStatusSnapshot | null>(null);
@@ -1302,7 +1384,8 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [pluginsSnapshot, setPluginsSnapshot] = useState<PluginServiceSnapshot | null>(null);
   const [providerSnapshot, setProviderSnapshot] = useState<ProviderControlCenterSnapshot | null>(null);
-  const [personalityDraft, setPersonalityDraft] = useState<PetAssistantPersonality | null>(null);
+  const [voiceDevicesSnapshot, setVoiceDevicesSnapshot] = useState<VoiceDevicesSnapshot | null>(null);
+  const [refreshingVoiceDevices, setRefreshingVoiceDevices] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1310,7 +1393,7 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
 
   async function loadSettings() {
     setError("");
-    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot] = await Promise.all([
+    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot, nextVoiceDevices] = await Promise.all([
       api.getSettingsState(),
       api.getReactionAnimationSettings(),
       api.getLaunchAtLogin(),
@@ -1318,16 +1401,15 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
       api.getProviderProfiles().catch(() => null),
       api.getLanStatus().catch(() => null),
       api.getPluginsSnapshot().catch(() => null),
+      api.getVoiceDevices().catch(() => null),
     ]);
     setSettings(nextSettings);
-    setShortcutDraft(nextSettings.preferences.voiceAssistantShortcut ?? "");
-    setShortcutSaveError("");
-    setPersonalityDraft(nextSettings.preferences.personality);
     onAppearanceThemeChange(nextSettings.preferences.appearanceTheme);
     setReactionSettings(nextReactions);
     setLaunchAtLogin(nextLaunch);
     setUpdateStatus(nextUpdate);
     setProviderSnapshot(nextProvider);
+    setVoiceDevicesSnapshot(nextVoiceDevices);
     setLanStatus(nextLanStatus);
     setPluginsSnapshot(nextPluginsSnapshot);
     if (nextUpdate.state === "checking") {
@@ -1357,11 +1439,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     void run(t("settings.busy.saving"), async () => {
       const next = await api.updatePreferences(patch);
       setSettings(next);
-      if ("voiceAssistantShortcut" in patch) {
-        setShortcutDraft(next.preferences.voiceAssistantShortcut ?? "");
-        setShortcutSaveError("");
-      }
-      if ("personality" in patch) setPersonalityDraft(next.preferences.personality);
       if ("appearanceTheme" in patch) onAppearanceThemeChange(next.preferences.appearanceTheme);
       if ("reactionAnimationOverrides" in patch) {
         setReactionSettings((current) => current ? { ...current, overrides: next.preferences.reactionAnimationOverrides ?? {} } : current);
@@ -1373,35 +1450,29 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
-  function saveVoiceShortcut() {
-    const value = (shortcutDraft ?? "").trim();
-    if (!value) return;
-    setShortcutSaveError("");
+  function savePetToggleShortcut(value: string) {
+    setPetToggleShortcutSaveError("");
     void run(t("settings.busy.saving"), async () => {
       try {
-        const next = await api.updatePreferences({ voiceAssistantShortcut: value });
+        const next = await api.updatePreferences({ petToggleShortcut: value });
         setSettings(next);
-        const outcome = resolveShortcutSaveOutcome(value, next);
-        setShortcutDraft(outcome.savedAccelerator);
-        if (outcome.accepted) {
-          setShortcutSaveError("");
-          setMessage("Pet Talk shortcut saved");
+        const saved = next.preferences.petToggleShortcut ?? "";
+        const status = next.petToggleShortcutStatus;
+        const accepted = saved === value
+          && (value === "" || (status?.status === "registered" && status.accelerator === value && !status.reason));
+        if (accepted) {
+          setMessage(t("settings.toast.petToggleShortcutSaved"));
         } else {
-          const reason = outcome.reason ?? "Pet Talk shortcut was not activated.";
-          setShortcutSaveError(reason);
+          const reason = status?.reason ?? t("settings.general.petToggleShortcut.failed");
+          setPetToggleShortcutSaveError(reason);
           setError(reason);
         }
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : "Failed to save shortcut.";
-        setShortcutSaveError(errMsg);
+        const errMsg = err instanceof Error ? err.message : t("settings.general.petToggleShortcut.failed");
+        setPetToggleShortcutSaveError(errMsg);
         setError(errMsg);
       }
     });
-  }
-
-  function resetVoiceShortcut() {
-    setShortcutDraft(settings?.preferences.voiceAssistantShortcut ?? "");
-    setShortcutSaveError("");
   }
 
   function changeLocale(value: string) {
@@ -1445,14 +1516,41 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
-  function savePersonality() {
-    if (!personalityDraft) return;
-    void run(t("settings.busy.saving"), async () => {
-      const next = await api.updatePreferences({ personality: personalityDraft });
-      setSettings(next);
-      setPersonalityDraft(next.preferences.personality);
-      setMessage(t("settings.toast.personalitySaved"));
+  async function handleSelectInputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredInputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.inputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
     });
+  }
+
+  async function handleSelectOutputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredOutputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.outputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
+    });
+  }
+
+  async function handleRefreshVoiceDevices() {
+    setRefreshingVoiceDevices(true);
+    try {
+      const next = await api.refreshVoiceDevices();
+      setVoiceDevicesSnapshot(next);
+      setMessage(t("settings.voiceDevices.toast.refreshed"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.refreshFailed"));
+    } finally {
+      setRefreshingVoiceDevices(false);
+    }
   }
 
   const isMoverActive = (pluginsSnapshot?.plugins ?? []).some(
@@ -1530,6 +1628,18 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
             </div>
 
             <div className="settings-section">
+              <h2 className="settings-section-title">{t("settings.voiceDevices.sectionTitle")}</h2>
+              <VoiceDevicesSection
+                snapshot={voiceDevicesSnapshot}
+                busy={busy}
+                isRefreshing={refreshingVoiceDevices}
+                onSelectInputDevice={handleSelectInputDevice}
+                onSelectOutputDevice={handleSelectOutputDevice}
+                onRefresh={() => void handleRefreshVoiceDevices()}
+              />
+            </div>
+
+            <div className="settings-section">
               <h2 className="settings-section-title">{t("settings.petBehavior.title")}</h2>
 
               <div className="settings-group">
@@ -1542,6 +1652,23 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     {(settings?.petScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.hudScale.title")}</strong>
+                    <small>{t("settings.general.hudScale.description")}</small>
+                  </div>
+                  <select className="settings-select" value={settings?.preferences.hudScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ hudScale: Number(event.target.value) }, t("settings.toast.hudScaleSaved"))}>
+                    {(settings?.hudScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <ToggleRow
+                  title={t("settings.general.idleCursorGaze.title")}
+                  description={t("settings.general.idleCursorGaze.description")}
+                  checked={settings?.preferences.idleCursorGazeEnabled ?? true}
+                  disabled={!settings || !!busy}
+                  testId="setting-idle-cursor-gaze-toggle"
+                  onChange={(checked) => patchPreferences({ idleCursorGazeEnabled: checked }, t("settings.toast.idleCursorGazeSaved"))}
+                />
                 <ToggleRow
                   title={t("settings.petConfinement.label")}
                   description={t("settings.petConfinement.description")}
@@ -1566,6 +1693,31 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                   testId="setting-pet-gravity-toggle"
                   onChange={(checked) => patchPreferences({ petGravityEnabled: checked }, t("settings.toast.gravitySaved"))}
                 />
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.petToggleShortcut.title")}</strong>
+                    <small>{t("settings.general.petToggleShortcut.description")}</small>
+                    {Boolean(settings?.preferences.petToggleShortcut) && settings?.petToggleShortcutStatus?.reason && (
+                      <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {settings.petToggleShortcutStatus.reason}
+                      </small>
+                    )}
+                    {petToggleShortcutSaveError && (
+                      <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                        {petToggleShortcutSaveError}
+                      </small>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.petToggleShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={savePetToggleShortcut}
+                      onClear={() => savePetToggleShortcut("")}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="settings-group">
@@ -1609,6 +1761,396 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
               </div>
             </div>
           </>
+        )}
+
+        {activeTab === "reactions" && (
+          <div className="settings-section">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="eyebrow">{t("settings.reactions.eyebrow")}</p>
+                <h2 className="settings-section-title">{t("settings.reactions.title")}</h2>
+              </div>
+              <Button variant="secondary" size="compact" disabled={!settings || !!busy || !Object.keys(overrides).length} onClick={() => patchPreferences({ reactionAnimationOverrides: {} }, t("settings.toast.reactionsReset"))}>{t("settings.reactions.resetDefaults")}</Button>
+            </div>
+            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.reactions.description")}</p>
+
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.waitingAnimationDuration.title")}</strong>
+                  <small>{t("settings.waitingAnimationDuration.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.waitingAnimationDurationMs ?? ""}
+                  disabled={!reactionSettings || !settings || !!busy}
+                  data-testid="setting-waiting-animation-duration"
+                  onChange={(event) => patchPreferences({ waitingAnimationDurationMs: Number(event.target.value) }, t("settings.toast.waitingAnimationSaved"))}
+                >
+                  {(reactionSettings?.waitingAnimationDurationOptions ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="reaction-grid">
+                {(reactionSettings?.reactions ?? []).map((reaction) => {
+                  const currentAnimation = overrides[reaction.id] ?? reaction.defaultAnimation;
+                  return (
+                    <div className="reaction-row" key={reaction.id}>
+                      <div className="reaction-preview-box">
+                        {reactionSettings?.previewSpriteUrl && (
+                          <ReactionPreviewSprite settings={reactionSettings} state={currentAnimation} />
+                        )}
+                      </div>
+                      <div className="reaction-info">
+                        <strong>{reaction.label}</strong>
+                        <small>{reaction.description}</small>
+                      </div>
+                      <select
+                        className="settings-select"
+                        value={currentAnimation}
+                        disabled={!reactionSettings || !settings || !!busy}
+                        onChange={(event) => {
+                          const value = event.target.value as UserSelectableAnimationState;
+                          updateReactionOverride(reaction, value);
+                        }}
+                      >
+                        {(reactionSettings?.animations ?? []).map((animation) => (
+                          <option key={animation.id} value={animation.id}>{animation.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {activeTab === "lan" && (
+          <LanSettingsPanel status={lanStatus} onRefresh={() => void run(t("settings.busy.checking"), async () => { setLanStatus(await api.getLanStatus()); })} busy={!!busy} />
+        )}
+
+        {activeTab === "remote" && (
+          <RemoteControlSettingsPanel busy={!!busy} onSetMessage={setMessage} onSetError={setError} onTokenHandoff={onTokenHandoff} />
+        )}
+
+        {activeTab === "plugins" && (
+          <div className="settings-section">
+            <p className="eyebrow">{t("settings.plugins.eyebrow")}</p>
+            <h2 className="settings-section-title">{t("settings.plugins.title")}</h2>
+            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.plugins.description")}</p>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.plugins.audio.title")}
+                description={t("settings.plugins.audio.description")}
+                checked={providerSnapshot?.gates.allowPluginAudio ?? true}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowPluginAudio: checked }, t("settings.toast.audioSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.voice.title")}
+                description={t("settings.plugins.voice.description")}
+                checked={providerSnapshot?.gates.allowPluginVoice ?? true}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowPluginVoice: checked }, t("settings.toast.voiceSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.dynamicSpeech.title")}
+                description={t("settings.plugins.dynamicSpeech.description")}
+                checked={providerSnapshot?.gates.allowDynamicSpeech ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowDynamicSpeech: checked }, t("settings.toast.dynamicSpeechSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.microphone.title")}
+                description={t("settings.plugins.microphone.description")}
+                checked={providerSnapshot?.gates.allowMicrophone ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowMicrophone: checked }, t("settings.toast.microphoneSaved"))}
+              />
+            </div>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.plugins.quietHours.title")}
+                description={t("settings.plugins.quietHours.description")}
+                checked={providerSnapshot?.gates.quietHours.enabled ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { start: "22:00", end: "08:00" }), enabled: checked } }, t("settings.toast.quietHoursSaved"))}
+              />
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.plugins.quietWindow.title")}</strong>
+                  <small>{t("settings.plugins.quietWindow.description")}</small>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.start ?? "22:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, end: "08:00" }), start: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
+                  <span className="opacity-60">{t("common.to")}</span>
+                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.end ?? "08:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, start: "22:00" }), end: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  </div>;
+}
+
+type AssistantTab = "chat" | "personality" | "history" | "providers";
+
+const assistantNavItems: ReadonlyArray<{ readonly id: AssistantTab; readonly labelKey: string; readonly icon: React.ReactNode }> = [
+  { id: "chat", labelKey: "settings.nav.assistant", icon: <MicIcon className="settings-nav-icon" /> },
+  { id: "personality", labelKey: "settings.nav.personality", icon: <MessageIcon className="settings-nav-icon" /> },
+  { id: "history", labelKey: "settings.nav.history", icon: <HistoryIcon className="settings-nav-icon" /> },
+  { id: "providers", labelKey: "settings.nav.providers", icon: <ProvidersIcon className="settings-nav-icon" /> },
+];
+
+function AssistantView({ initialTab = "chat" }: { initialTab?: AssistantTab }) {
+  const { t } = useI18n();
+  const [activeTab, setActiveTab] = useState<AssistantTab>(initialTab);
+  const [settings, setSettings] = useState<SettingsState | null>(null);
+  const [shortcutSaveError, setShortcutSaveError] = useState<string>("");
+  const [chatShortcutSaveError, setChatShortcutSaveError] = useState<string>("");
+  const [personalityDraft, setPersonalityDraft] = useState<PetAssistantPersonality | null>(null);
+  const [providerSnapshot, setProviderSnapshot] = useState<ProviderControlCenterSnapshot | null>(null);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
+
+  useEffect(() => {
+    void (async () => {
+      const [nextSettings, nextProvider] = await Promise.all([
+        api.getSettingsState(),
+        api.getProviderProfiles().catch(() => null),
+      ]);
+      setSettings(nextSettings);
+      setShortcutSaveError("");
+      setPersonalityDraft(nextSettings.preferences.personality);
+      setProviderSnapshot(nextProvider);
+    })().catch((err) => setError(String((err as Error)?.message ?? err)));
+  }, []);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  async function run(label: string, fn: () => Promise<void>) {
+    try { setBusy(label); setError(""); setMessage(""); await fn(); }
+    catch (err) { setError(String((err as Error)?.message ?? err)); }
+    finally { setBusy(""); }
+  }
+
+  function patchPreferences(patch: PreferencePatch, success: string) {
+    void run(t("settings.busy.saving"), async () => {
+      const next = await api.updatePreferences(patch);
+      setSettings(next);
+      setMessage(success);
+    });
+  }
+
+  function saveVoiceShortcut(value: string) {
+    setShortcutSaveError("");
+    void run(t("settings.busy.saving"), async () => {
+      try {
+        const next = await api.updatePreferences({ voiceAssistantShortcut: value });
+        setSettings(next);
+        const outcome = resolveShortcutSaveOutcome(value, next);
+        if (outcome.accepted) {
+          setShortcutSaveError("");
+          setMessage(t("settings.toast.talkShortcutSaved"));
+        } else {
+          const reason = outcome.reason ?? t("settings.assistant.talkShortcut.failed");
+          setShortcutSaveError(reason);
+          setError(reason);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : t("settings.assistant.shortcut.saveFailed");
+        setShortcutSaveError(errMsg);
+        setError(errMsg);
+      }
+    });
+  }
+
+  function saveChatShortcut(value: string) {
+    setChatShortcutSaveError("");
+    void run(t("settings.busy.saving"), async () => {
+      try {
+        const next = await api.updatePreferences({ chatShortcut: value });
+        setSettings(next);
+        const saved = next.preferences.chatShortcut ?? "";
+        const status = next.chatShortcutStatus;
+        const accepted = saved === value
+          && (value === "" || (status?.status === "registered" && status.accelerator === value && !status.reason));
+        if (accepted) {
+          setMessage(t("settings.toast.chatShortcutSaved"));
+        } else {
+          const reason = status?.reason ?? t("settings.assistant.chatShortcut.failed");
+          setChatShortcutSaveError(reason);
+          setError(reason);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : t("settings.assistant.chatShortcut.failed");
+        setChatShortcutSaveError(errMsg);
+        setError(errMsg);
+      }
+    });
+  }
+
+  function savePersonality() {
+    if (!personalityDraft) return;
+    void run(t("settings.busy.saving"), async () => {
+      const next = await api.updatePreferences({ personality: personalityDraft });
+      setSettings(next);
+      setPersonalityDraft(next.preferences.personality);
+      setMessage(t("settings.toast.personalitySaved"));
+    });
+  }
+
+  return <div className="settings-layout">
+    {error && <div className="error settings-message">{error}</div>}
+    {message && <div className="settings-success settings-message">{message}</div>}
+
+    <div className="settings-container">
+      <aside className="settings-sidebar">
+        <div className="settings-nav-group">
+          {assistantNavItems.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-nav-item ${activeTab === item.id ? "active" : ""}`}
+              onClick={() => setActiveTab(item.id)}
+            >
+              {item.icon}
+              <span>{t(item.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="settings-content">
+        {activeTab === "chat" && (
+          <div className="settings-section">
+            <div>
+              <p className="eyebrow">{t("settings.assistant.eyebrow")}</p>
+              <h2 className="settings-section-title">{t("settings.assistant.title")}</h2>
+            </div>
+            <p className="text-sm text-slatecopy -mt-2 mb-1">{t("settings.assistant.intro")}</p>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.assistant.chatButton.title")}
+                description={t("settings.assistant.chatButton.description")}
+                checked={settings?.preferences.showChatButton ?? true}
+                disabled={!settings || !!busy}
+                onChange={(checked) => patchPreferences({ showChatButton: checked }, t("settings.toast.assistantButtonsSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.assistant.talkButton.title")}
+                description={t("settings.assistant.talkButton.description")}
+                checked={settings?.preferences.showTalkButton ?? true}
+                disabled={!settings || !!busy}
+                onChange={(checked) => patchPreferences({ showTalkButton: checked }, t("settings.toast.assistantButtonsSaved"))}
+              />
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.buttons.position.title")}</strong>
+                  <small>{t("settings.assistant.buttons.position.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.petButtonsPosition ?? "right"}
+                  disabled={!settings || !!busy}
+                  onChange={(event) => patchPreferences({ petButtonsPosition: event.target.value as "left" | "right" }, t("settings.toast.assistantButtonsSaved"))}
+                >
+                  <option value="right">{t("settings.assistant.buttons.position.right")}</option>
+                  <option value="left">{t("settings.assistant.buttons.position.left")}</option>
+                </select>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.buttons.size.title")}</strong>
+                  <small>{t("settings.assistant.buttons.size.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.petButtonsSize ?? "medium"}
+                  disabled={!settings || !!busy}
+                  onChange={(event) => patchPreferences({ petButtonsSize: event.target.value as "small" | "medium" | "large" }, t("settings.toast.assistantButtonsSaved"))}
+                >
+                  <option value="small">{t("settings.assistant.buttons.size.small")}</option>
+                  <option value="medium">{t("settings.assistant.buttons.size.medium")}</option>
+                  <option value="large">{t("settings.assistant.buttons.size.large")}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.talkShortcut.title")}</strong>
+                  <small>{t("settings.assistant.talkShortcut.description")}</small>
+                  {Boolean(settings?.preferences.voiceAssistantShortcut) && settings?.voiceAssistantShortcutStatus?.reason && (
+                    <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
+                      {settings.voiceAssistantShortcutStatus.reason}
+                    </small>
+                  )}
+                  {shortcutSaveError && (
+                    <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                      {shortcutSaveError}
+                    </small>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.voiceAssistantShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={(captured) => {
+                        setShortcutSaveError("");
+                        saveVoiceShortcut(captured);
+                      }}
+                      onClear={() => {
+                        setShortcutSaveError("");
+                        saveVoiceShortcut("");
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.chatShortcut.title")}</strong>
+                  <small>{t("settings.assistant.chatShortcut.description")}</small>
+                  {chatShortcutSaveError && (
+                    <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                      {chatShortcutSaveError}
+                    </small>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.chatShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={saveChatShortcut}
+                      onClear={() => saveChatShortcut("")}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === "personality" && (
@@ -1708,69 +2250,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
               </Button>
             </div>
 
-            {/* Talk hotkey saves on its own, apart from the personality draft above. */}
-            <div className="settings-group">
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <strong>Pet Talk Shortcut</strong>
-                  <small>Global hotkey to start voice conversation with your pet.</small>
-                  {settings?.voiceAssistantShortcutStatus?.reason && (
-                    <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
-                      {settings.voiceAssistantShortcutStatus.reason}
-                    </small>
-                  )}
-                  {shortcutSaveError && (
-                    <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
-                      {shortcutSaveError}
-                    </small>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-2 min-w-0">
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {settings?.voiceAssistantShortcutStatus?.status && (
-                      <span className={`voice-badge ${shortcutBadgeClass(settings.voiceAssistantShortcutStatus.status)}`}>
-                        {shortcutStatusLabel(settings.voiceAssistantShortcutStatus.status)}
-                      </span>
-                    )}
-                    <input
-                      type="text"
-                      className="settings-select w-48 font-mono text-xs"
-                      value={shortcutDraft ?? settings?.preferences.voiceAssistantShortcut ?? ""}
-                      placeholder="e.g. CommandOrControl+Shift+Space"
-                      disabled={!settings || !!busy}
-                      onChange={(event) => {
-                        setShortcutDraft(event.target.value);
-                        setShortcutSaveError("");
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          saveVoiceShortcut();
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="secondary"
-                      size="compact"
-                      disabled={!settings || !!busy || (shortcutDraft ?? "") === (settings?.preferences.voiceAssistantShortcut ?? "")}
-                      onClick={saveVoiceShortcut}
-                    >
-                      Save
-                    </Button>
-                    {(shortcutDraft ?? "") !== (settings?.preferences.voiceAssistantShortcut ?? "") && (
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!settings || !!busy}
-                        onClick={resetVoiceShortcut}
-                      >
-                        Reset
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -1783,71 +2262,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
           />
         )}
 
-        {activeTab === "reactions" && (
-          <div className="settings-section">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="eyebrow">{t("settings.reactions.eyebrow")}</p>
-                <h2 className="settings-section-title">{t("settings.reactions.title")}</h2>
-              </div>
-              <Button variant="secondary" size="compact" disabled={!settings || !!busy || !Object.keys(overrides).length} onClick={() => patchPreferences({ reactionAnimationOverrides: {} }, t("settings.toast.reactionsReset"))}>{t("settings.reactions.resetDefaults")}</Button>
-            </div>
-            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.reactions.description")}</p>
-
-            <div className="settings-group">
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <strong>{t("settings.waitingAnimationDuration.title")}</strong>
-                  <small>{t("settings.waitingAnimationDuration.description")}</small>
-                </div>
-                <select
-                  className="settings-select"
-                  value={settings?.preferences.waitingAnimationDurationMs ?? ""}
-                  disabled={!reactionSettings || !settings || !!busy}
-                  data-testid="setting-waiting-animation-duration"
-                  onChange={(event) => patchPreferences({ waitingAnimationDurationMs: Number(event.target.value) }, t("settings.toast.waitingAnimationSaved"))}
-                >
-                  {(reactionSettings?.waitingAnimationDurationOptions ?? []).map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="reaction-grid">
-                {(reactionSettings?.reactions ?? []).map((reaction) => {
-                  const currentAnimation = overrides[reaction.id] ?? reaction.defaultAnimation;
-                  return (
-                    <div className="reaction-row" key={reaction.id}>
-                      <div className="reaction-preview-box">
-                        {reactionSettings?.previewSpriteUrl && (
-                          <ReactionPreviewSprite settings={reactionSettings} state={currentAnimation} />
-                        )}
-                      </div>
-                      <div className="reaction-info">
-                        <strong>{reaction.label}</strong>
-                        <small>{reaction.description}</small>
-                      </div>
-                      <select
-                        className="settings-select"
-                        value={currentAnimation}
-                        disabled={!reactionSettings || !settings || !!busy}
-                        onChange={(event) => {
-                          const value = event.target.value as UserSelectableAnimationState;
-                          updateReactionOverride(reaction, value);
-                        }}
-                      >
-                        {(reactionSettings?.animations ?? []).map((animation) => (
-                          <option key={animation.id} value={animation.id}>{animation.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-
         {activeTab === "providers" && (
           <ProvidersSection
             snapshot={providerSnapshot}
@@ -1857,74 +2271,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
             setMessage={setMessage}
             setError={setError}
           />
-        )}
-
-        {activeTab === "lan" && (
-          <LanSettingsPanel status={lanStatus} onRefresh={() => void run(t("settings.busy.checking"), async () => { setLanStatus(await api.getLanStatus()); })} busy={!!busy} />
-        )}
-
-        {activeTab === "remote" && (
-          <RemoteControlSettingsPanel busy={!!busy} onSetMessage={setMessage} onSetError={setError} onTokenHandoff={onTokenHandoff} />
-        )}
-
-        {activeTab === "plugins" && (
-          <div className="settings-section">
-            <p className="eyebrow">{t("settings.plugins.eyebrow")}</p>
-            <h2 className="settings-section-title">{t("settings.plugins.title")}</h2>
-            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.plugins.description")}</p>
-
-            <div className="settings-group">
-              <ToggleRow
-                title={t("settings.plugins.audio.title")}
-                description={t("settings.plugins.audio.description")}
-                checked={providerSnapshot?.gates.allowPluginAudio ?? true}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowPluginAudio: checked }, t("settings.toast.audioSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.voice.title")}
-                description={t("settings.plugins.voice.description")}
-                checked={providerSnapshot?.gates.allowPluginVoice ?? true}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowPluginVoice: checked }, t("settings.toast.voiceSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.dynamicSpeech.title")}
-                description={t("settings.plugins.dynamicSpeech.description")}
-                checked={providerSnapshot?.gates.allowDynamicSpeech ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowDynamicSpeech: checked }, t("settings.toast.dynamicSpeechSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.microphone.title")}
-                description={t("settings.plugins.microphone.description")}
-                checked={providerSnapshot?.gates.allowMicrophone ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowMicrophone: checked }, t("settings.toast.microphoneSaved"))}
-              />
-            </div>
-
-            <div className="settings-group">
-              <ToggleRow
-                title={t("settings.plugins.quietHours.title")}
-                description={t("settings.plugins.quietHours.description")}
-                checked={providerSnapshot?.gates.quietHours.enabled ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { start: "22:00", end: "08:00" }), enabled: checked } }, t("settings.toast.quietHoursSaved"))}
-              />
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <strong>{t("settings.plugins.quietWindow.title")}</strong>
-                  <small>{t("settings.plugins.quietWindow.description")}</small>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.start ?? "22:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, end: "08:00" }), start: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
-                  <span className="opacity-60">{t("common.to")}</span>
-                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.end ?? "08:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, start: "22:00" }), end: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
-                </div>
-              </div>
-            </div>
-          </div>
         )}
       </main>
     </div>
@@ -4261,7 +4607,9 @@ function PluginsView() {
 
 function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void }) {
   const { t } = useI18n();
-  const [currentRoute, setCurrentRoute] = useState<Route>(() => initialControlCenterRoute());
+  const [initialTarget] = useState<ControlCenterRouteTarget>(() => initialControlCenterRoute());
+  const [currentRoute, setCurrentRoute] = useState<Route>(initialTarget.route);
+  const [assistantTab, setAssistantTab] = useState<"providers" | undefined>(initialTarget.assistantTab);
   const [remoteTokenHandoff, setRemoteTokenHandoff] = useState<RemoteTokenHandoffState>(null);
   const [state, setState] = useState<StateSnapshot | null>(null);
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
@@ -4277,8 +4625,16 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const petDetailDialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => api.onRouteChange((route) => {
-    if (isRoute(route)) setCurrentRoute(route);
+  function navigateToRoute(route: Route): void {
+    setCurrentRoute(route);
+    setAssistantTab(undefined);
+  }
+
+  useEffect(() => api.onRouteChange((target) => {
+    if (isControlCenterRouteTarget(target)) {
+      setCurrentRoute(target.route);
+      setAssistantTab(target.route === "assistant" ? target.assistantTab : undefined);
+    }
   }), []);
 
   async function loadPetsData() {
@@ -4312,10 +4668,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       const localSpritesheet = p.id && !catalogPet && !codexPet && !p.builtIn ? installedPetSpritesheetUrl(p.id) : undefined;
       const spritesheet = safePetImage(codexPet?.spritesheet) || safePetImage(catalogPet?.spritesheet) || safePetImage(localSpritesheet);
       const preview = safePetImage(codexPet?.preview) || safePetImage(catalogPet?.preview) || safePetImage(catalogPet?.thumbnail) || safePetImage(p.source && "preview" in p.source ? (p.source as { preview?: string }).preview : undefined) || safePetImage(localSpritesheet) || defaultThumbUrl;
-      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? p.spriteLayout;
+      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? getCatalogPetSpriteLayout(catalogPet?.spriteVersionNumber) ?? p.spriteLayout;
       const category = catalogPet?.category;
       const original = catalogPet?.original;
       const featured = catalogPet?.featured;
+      const spriteVersionNumber = catalogPet?.spriteVersionNumber
+        ?? codexPet?.spriteVersionNumber
+        ?? (p.spriteLayout?.version === 2 ? 2 : undefined);
       return {
         ...p,
         spritesheet,
@@ -4324,6 +4683,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         category,
         original,
         featured,
+        spriteVersionNumber,
         sourceKind: "installed" as const,
         installed: true,
       };
@@ -4335,6 +4695,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           ...p,
           preview: safePetImage(p.preview) || safePetImage(p.thumbnail) || defaultThumbUrl,
           spritesheet: safePetImage(p.spritesheet),
+          spriteLayout: getCatalogPetSpriteLayout(p.spriteVersionNumber),
           sourceKind: "catalog",
           installed: false,
         });
@@ -4517,7 +4878,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
             <button
               key={tab.id}
               className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
-              onClick={() => setCurrentRoute(tab.id)}
+              onClick={() => navigateToRoute(tab.id)}
             >
               {tab.icon}
               <span>{label}</span>
@@ -4529,7 +4890,9 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       {error && <div className="error">{error}</div>}
 
       {currentRoute === "dashboard" ? (
-        <DashboardView onNavigate={setCurrentRoute} />
+        <DashboardView onNavigate={navigateToRoute} />
+      ) : currentRoute === "assistant" ? (
+        <AssistantView initialTab={assistantTab ?? "chat"} />
       ) : currentRoute === "settings" ? (
         <SettingsView onAppearanceThemeChange={onAppearanceThemeChange} onTokenHandoff={(result, endpoint) => setRemoteTokenHandoff({ result, endpoint })} />
       ) : currentRoute === "plugins" ? (
@@ -4537,7 +4900,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       ) : currentRoute === "integrations" ? (
         <IntegrationsView />
       ) : currentRoute === "teams" ? (
-        <TeamsView api={api} onNavigate={setCurrentRoute} />
+        <TeamsView
+          api={{
+            ...api,
+            onRouteChange: (callback: (route: string) => void) => api.onRouteChange((target) => callback(target.route)),
+          }}
+          onNavigate={navigateToRoute}
+        />
       ) : (
         <div className="layout">
           <GlassCard className="gallery">
@@ -4595,7 +4964,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       <b className="card-title">{pet.displayName}</b>
                     </span>
                     <p className="card-desc">{pet.description || pet.id}</p>
-                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
+                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
 
                     <div className="pet-card-actions" onClick={(event) => event.stopPropagation()}>
                       <Button
@@ -4721,8 +5090,9 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       {selected.broken && <StatusPill tone="red">{t("pets.badge.broken")}</StatusPill>}
                       {selected.installed && !selected.broken && <StatusPill tone="green">{t("pets.badge.ready")}</StatusPill>}
                       {selected.builtIn && <StatusPill tone="orange">{t("pets.badge.originals")}</StatusPill>}
-                      {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
-                      {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
+                       {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}
                     </div>
                     {statusText && <p className="text-sm text-slatecopy mt-3 mb-0 font-medium">{statusText}</p>}
                   </div>

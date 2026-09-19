@@ -1,14 +1,21 @@
-import { BrainIcon, MicIcon, SpeakerIcon, WaveformIcon, SparklesIcon, ShieldAlertIcon, ShieldCheckIcon } from "./icons.js";
+import { useI18n } from "../../i18n.js";
 import {
-  getRoleDisplayName,
-  getRoleSubtitle,
-  isLocalOrSystemProvider,
+  BrainIcon,
+  MicIcon,
+  SpeakerIcon,
+  WaveformIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+} from "./icons.js";
+import {
+  getProfileCredentialPolicy,
   profileSupportsRole,
   type ProviderControlCenterSnapshot,
   type ProviderProfileSummary,
   type ProviderRole,
   type ProviderStatus,
 } from "./types.js";
+import { getVoiceDisplayLabel, isTtsAdapter } from "./voice-options.js";
 
 export type ProviderRoleOverviewProps = {
   readonly snapshot: ProviderControlCenterSnapshot | null;
@@ -18,6 +25,12 @@ export type ProviderRoleOverviewProps = {
   readonly onOpenEdit: (profile: ProviderProfileSummary) => void;
 };
 
+const ROLE_DEFAULT_PRESET: Record<ProviderRole, string> = {
+  text: "openrouter",
+  stt: "whisper",
+  tts: "system-tts",
+};
+
 export function ProviderRoleOverview({
   snapshot,
   busy,
@@ -25,6 +38,7 @@ export function ProviderRoleOverview({
   onOpenCreate,
   onOpenEdit,
 }: ProviderRoleOverviewProps) {
+  const { t } = useI18n();
   const profiles = snapshot?.profiles ?? [];
   const selections = snapshot?.selections ?? { text: null, stt: null, tts: null };
   const statuses = snapshot?.statuses ?? {
@@ -36,28 +50,32 @@ export function ProviderRoleOverview({
 
   const isBusy = Boolean(busy);
 
+  function roleName(role: ProviderRole): string {
+    return t(`settings.providers.role.${role}.name`);
+  }
+
   function renderStatusPill(status: ProviderStatus) {
     switch (status.state) {
       case "ready":
         return (
           <span className="pill pill-green flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Ready
+            {t("settings.providers.status.ready")}
           </span>
         );
       case "missing-secret":
         return (
           <span className="pill pill-yellow flex items-center gap-1 font-semibold">
             <ShieldAlertIcon className="w-3.5 h-3.5 text-amber-600" />
-            Needs API Key
+            {t("settings.providers.status.needsKey")}
           </span>
         );
       case "disabled":
-        return <span className="pill pill-slate">Disabled</span>;
+        return <span className="pill pill-slate">{t("settings.providers.status.off")}</span>;
       case "unsupported":
-        return <span className="pill pill-orange">Unsupported</span>;
+        return <span className="pill pill-orange">{t("settings.providers.status.unsupported")}</span>;
       case "invalid":
-        return <span className="pill pill-red">Invalid Profile</span>;
+        return <span className="pill pill-red">{t("settings.providers.status.invalid")}</span>;
       default:
         return <span className="pill pill-slate">{status.state}</span>;
     }
@@ -76,147 +94,172 @@ export function ProviderRoleOverview({
     }
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      {/* 3 Primary Role Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {roles.map((role) => {
-          const activeProfileId = selections[role];
-          const activeProfile = profiles.find((p) => p.id === activeProfileId);
-          const status = statuses[role];
-          const compatibleProfiles = profiles.filter((p) => profileSupportsRole(p, role));
-          const isLocal = activeProfile ? isLocalOrSystemProvider(activeProfile) : false;
+  function renderRoleContextLine(
+    role: ProviderRole,
+    activeProfile: ProviderProfileSummary | undefined,
+    compatibleProfileCount: number,
+  ) {
+    if (activeProfile) {
+      const policy = getProfileCredentialPolicy(activeProfile);
 
-          return (
-            <div
-              key={role}
-              className={`provider-role-card relative flex flex-col justify-between ${
-                activeProfile ? "border-blue-200/80 bg-white dark:bg-slate-900/80" : "bg-white/60 opacity-90"
-              }`}
-            >
-              <div>
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-50/80 dark:bg-slate-800/80 border border-blue-100/60 dark:border-slate-700/60 shadow-xs">
-                      {getRoleIcon(role)}
-                    </div>
-                    <div>
-                      <strong className="block text-sm font-bold text-navy dark:text-slate-100">
-                        {getRoleDisplayName(role)}
-                      </strong>
-                      <span className="text-[11px] text-slatecopy block leading-tight">
-                        {getRoleSubtitle(role)}
-                      </span>
-                    </div>
-                  </div>
-                  {renderStatusPill(status)}
-                </div>
+      let modelText = activeProfile.model || activeProfile.label;
+      if (role === "text" && activeProfile.adapter === "openai-realtime") {
+        const rt = activeProfile.realtimeModel || activeProfile.model;
+        modelText = `${activeProfile.model || "gpt-4o-mini"} (Realtime: ${rt})`;
+      } else if (role === "tts") {
+        if (activeProfile.adapter === "system-tts") {
+          modelText = `System Voice (${activeProfile.voice || "Default"})`;
+        } else if (activeProfile.voice) {
+          modelText = `${activeProfile.model || activeProfile.label} · Voice: ${getVoiceDisplayLabel(activeProfile.adapter, activeProfile.voice)}`;
+        }
+      }
 
-                {/* Profile Selector */}
-                <div className="mt-2 mb-2">
-                  <label htmlFor={`select-role-${role}`} className="block text-[11px] font-bold text-slatecopy uppercase tracking-wider mb-1">
-                    Active Profile
-                  </label>
-                  <select
-                    id={`select-role-${role}`}
-                    className="settings-select w-full text-xs font-medium"
-                    value={activeProfileId ?? ""}
-                    disabled={isBusy}
-                    onChange={(e) => onSelectRole(role, e.target.value || null)}
-                  >
-                    <option value="">Disabled / None</option>
-                    {compatibleProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label} {p.model ? `(${p.model})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Metadata & Status Guidance */}
-                {activeProfile ? (
-                  <div className="rounded-xl border border-blue-100/60 dark:border-slate-800 bg-blue-50/30 dark:bg-slate-800/40 p-2.5 flex flex-col gap-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slatecopy font-semibold truncate max-w-[150px]">
-                        {activeProfile.model || activeProfile.label}
-                      </span>
-                      {isLocal ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                          <ShieldCheckIcon className="w-3.5 h-3.5" />
-                          Local (No Key)
-                        </span>
-                      ) : activeProfile.hasCredential ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                          <ShieldCheckIcon className="w-3.5 h-3.5" />
-                          Key Stored
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-[11px] font-bold text-amber-700 hover:text-amber-800 underline cursor-pointer"
-                          disabled={isBusy}
-                          onClick={() => onOpenEdit(activeProfile)}
-                        >
-                          Set API Key →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-2.5 text-center text-xs text-slatecopy">
-                    {compatibleProfiles.length === 0 ? (
-                      <button
-                        type="button"
-                        className="text-xs font-bold text-brand hover:underline cursor-pointer"
-                        disabled={isBusy}
-                        onClick={() => onOpenCreate(role === "text" ? "openrouter" : role === "stt" ? "whisper" : "system-tts")}
-                      >
-                        + Add {getRoleDisplayName(role)} Provider
-                      </button>
-                    ) : (
-                      <span>Select a profile above to activate</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Derived Realtime Voice Callout */}
-      <div className="provider-realtime-callout flex flex-col gap-2 rounded-2xl border border-blue-200/70 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-purple-50/50 dark:border-slate-700 dark:from-slate-850 dark:to-slate-900 p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-brand/10 text-brand">
-              <WaveformIcon className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <strong className="text-sm font-bold text-navy dark:text-slate-100">
-                  Realtime Voice Mode
-                </strong>
-                <span className="pill pill-purple text-[10px] py-0.5 px-1.5">Derived</span>
-              </div>
-              <span className="text-[11px] text-slatecopy">
-                Low-latency bidirectional WebRTC voice conversation
-              </span>
-            </div>
-          </div>
-          {renderStatusPill(statuses.realtime)}
-        </div>
-        <p className="text-xs text-slatecopy m-0 pl-10 leading-relaxed">
-          {statuses.realtime.state === "ready" ? (
-            <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-              ✓ Active: Your selected Pet Brain profile provides native OpenAI Realtime audio.
+      return (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+          <span className="font-semibold text-slatecopy truncate max-w-[280px]">
+            {modelText}
+          </span>
+          {policy === "none" ? (
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+              <ShieldCheckIcon className="w-3.5 h-3.5" />
+              {t("settings.providers.role.systemNoKey")}
+            </span>
+          ) : policy === "optional" ? (
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+              <ShieldCheckIcon className="w-3.5 h-3.5" />
+              {activeProfile.hasCredential
+                ? t("settings.providers.role.keyStored")
+                : t("settings.providers.role.keyOptional")}
+            </span>
+          ) : activeProfile.hasCredential ? (
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+              <ShieldCheckIcon className="w-3.5 h-3.5" />
+              {t("settings.providers.role.keyStored")}
             </span>
           ) : (
-            <span>
-              Realtime voice availability is derived automatically when your active <strong>Pet Brain</strong> profile uses the native OpenAI Realtime adapter. Standard speech recognition and text-to-speech work with all providers.
-            </span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 font-bold text-amber-700 hover:text-amber-800 underline cursor-pointer"
+              disabled={isBusy}
+              onClick={() => onOpenEdit(activeProfile)}
+            >
+              <ShieldAlertIcon className="w-3.5 h-3.5 text-amber-600" />
+              {t("settings.providers.role.setKey")}
+            </button>
           )}
-        </p>
+        </div>
+      );
+    }
+
+    if (compatibleProfileCount === 0) {
+      return (
+        <button
+          type="button"
+          className="self-start text-[11px] font-bold text-brand hover:underline cursor-pointer"
+          disabled={isBusy}
+          onClick={() => onOpenCreate(ROLE_DEFAULT_PRESET[role])}
+        >
+          {t("settings.providers.role.addFirst", { role: roleName(role) })}
+        </button>
+      );
+    }
+
+    return (
+      <span className="text-[11px] text-slatecopy">
+        {t("settings.providers.role.choose")}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* One full-width row per companion role: identity → profile picker → status */}
+      {roles.map((role) => {
+        const activeProfileId = selections[role];
+        const activeProfile = profiles.find((p) => p.id === activeProfileId);
+        const status = statuses[role];
+        const compatibleProfiles = profiles.filter((p) => profileSupportsRole(p, role));
+
+        return (
+          <div
+            key={role}
+            className={`provider-role-card sm:flex-row sm:items-center sm:gap-5 ${
+              activeProfile ? "border-blue-200/80 bg-white dark:bg-slate-900/80" : "bg-white/60"
+            }`}
+          >
+            {/* Role identity */}
+            <div className="flex items-center gap-3 sm:w-56 shrink-0">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-blue-50/80 dark:bg-slate-800/80 border border-blue-100/60 dark:border-slate-700/60 shadow-xs">
+                {getRoleIcon(role)}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <strong className="text-sm font-bold text-navy dark:text-slate-100">
+                    {roleName(role)}
+                  </strong>
+                  <span className="sm:hidden">{renderStatusPill(status)}</span>
+                </div>
+                <span className="block text-[11px] text-slatecopy leading-tight">
+                  {t(`settings.providers.role.${role}.subtitle`)}
+                </span>
+              </div>
+            </div>
+
+            {/* Active profile picker + context */}
+            <div className="flex flex-1 min-w-0 flex-col gap-1.5">
+              <label htmlFor={`select-role-${role}`} className="sr-only">
+                {t("settings.providers.role.selectLabel", { role: roleName(role) })}
+              </label>
+              <select
+                id={`select-role-${role}`}
+                className="settings-select w-full text-xs font-medium"
+                value={activeProfileId ?? ""}
+                disabled={isBusy}
+                onChange={(e) => onSelectRole(role, e.target.value || null)}
+              >
+                <option value="">{t("settings.providers.role.selectNone")}</option>
+                {compatibleProfiles.map((p) => {
+                  let suffix = p.model ? `(${p.model})` : "";
+                  if (isTtsAdapter(p.adapter) && p.voice) {
+                    suffix = `(${getVoiceDisplayLabel(p.adapter, p.voice)})`;
+                  }
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.label} {suffix}
+                    </option>
+                  );
+                })}
+              </select>
+              {renderRoleContextLine(role, activeProfile, compatibleProfiles.length)}
+            </div>
+
+            {/* Status */}
+            <div className="hidden sm:block shrink-0">{renderStatusPill(status)}</div>
+          </div>
+        );
+      })}
+
+      {/* Realtime Voice: derived from the Pet Brain profile, shown as a compact footnote row */}
+      <div className="flex items-center gap-3 rounded-2xl border border-dashed border-blue-200/70 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-900/40 px-4 py-3">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+          <WaveformIcon className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <strong className="text-sm font-bold text-navy dark:text-slate-100">
+              {t("settings.providers.realtime.title")}
+            </strong>
+            <span className="pill pill-purple text-[10px] py-0.5 px-1.5">
+              {t("settings.providers.realtime.badge")}
+            </span>
+          </div>
+          <span className="block text-[11px] text-slatecopy leading-tight">
+            {statuses.realtime.state === "ready"
+              ? t("settings.providers.realtime.active")
+              : t("settings.providers.realtime.hint")}
+          </span>
+        </div>
+        <div className="shrink-0">{renderStatusPill(statuses.realtime)}</div>
       </div>
     </div>
   );

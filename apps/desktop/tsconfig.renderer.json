@@ -6,11 +6,16 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "rootDir": "src/renderer",
+    "rootDir": "src",
     "outDir": "dist/renderer-types",
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["vite/client", "react", "react-dom"]
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/renderer/**/*.d.ts"]
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/renderer/**/*.d.ts",
+    "src/provider-contract.ts"
+  ]
 }

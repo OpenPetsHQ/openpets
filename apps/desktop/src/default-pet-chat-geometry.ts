@@ -7,10 +7,39 @@ export const expandedPetWindowSize: WindowSize = {
 
 export const defaultPetChatPanelLayout = {
   width: 390,
+  minHeight: 220,
+  maxHeight: 500,
+  /** Legacy contract ceiling for tests/consumers */
   height: 500,
+  gap: 10,
   top: 14,
   insetX: Math.round((expandedPetWindowSize.width - 390) / 2),
 };
+
+/**
+ * Calculates the distance from the bottom of the carrier window to the bottom edge
+ * of the expanded chat panel, preserving a consistent gap above the scaled pet.
+ */
+export function calculateChatPanelBottom(
+  scaledSpriteHeight: number,
+  petBottom = 22,
+  gap = defaultPetChatPanelLayout.gap,
+  pinnedLift = 0,
+): number {
+  return Math.ceil(petBottom + scaledSpriteHeight + gap) + pinnedLift;
+}
+
+/**
+ * Calculates the top-left y coordinate for the chat panel within carrier window bounds,
+ * anchoring the panel directly above the pet so it grows upward toward maxHeight.
+ */
+export function calculateChatPanelY(
+  windowHeight: number,
+  panelHeight: number,
+  panelBottom: number,
+): number {
+  return Math.max(0, windowHeight - panelBottom - panelHeight);
+}
 
 export interface CarrierGeometryTransformOptions {
   readonly position: Point;

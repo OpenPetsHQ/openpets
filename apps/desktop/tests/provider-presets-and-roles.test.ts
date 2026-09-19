@@ -8,6 +8,7 @@ import {
   createProviderProfile,
   getPluginPlatformSettings,
   initializePluginPlatformSettings,
+  providerCatalog,
   providerPresets,
   selectProviderProfile,
   validateProviderProfile,
@@ -19,6 +20,16 @@ const dir = mkdtempSync(join(tmpdir(), "openpets-provider-presets-"));
 try {
   initializePluginPlatformSettings(dir);
 
+  // Adapter defaults are the typed source of truth for new provider drafts.
+  assert.equal(providerCatalog["minimax-tts"].defaultModel, "speech-2.8-turbo");
+  assert.equal(providerCatalog["openai-compatible-speech"].defaultModel, "tts-1");
+  assert.equal(providerCatalog["openai-compatible-transcription"].defaultModel, "whisper-1");
+  assert.equal(providerCatalog["elevenlabs-transcription"].defaultModel, "scribe_v2");
+  assert.deepEqual(providerCatalog["elevenlabs-transcription"].roles, ["stt"]);
+  assert.equal(providerCatalog["elevenlabs-transcription"].credentialPolicy, "required");
+  assert.equal(providerCatalog["elevenlabs-tts"].defaultModel, "eleven_flash_v2_5");
+  assert.equal(providerCatalog["elevenlabs-tts"].defaultVoice, "od84OdVweqzO3t6kKlWT");
+
   // 1. OpenRouter preset tests
   const openrouterPreset = providerPresets.find((p) => p.id === "openrouter");
   assert.ok(openrouterPreset, "OpenRouter preset must exist");
@@ -27,6 +38,16 @@ try {
   assert.equal(openrouterPreset.model, "openai/gpt-4o-mini");
   assert.equal(openrouterPreset.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(openrouterPreset.credentialMode, "required");
+  const elevenLabsPreset = providerPresets.find((preset) => preset.id === "elevenlabs");
+  assert.equal(elevenLabsPreset?.model, "eleven_flash_v2_5");
+  assert.equal(elevenLabsPreset?.voice, "od84OdVweqzO3t6kKlWT");
+  const elevenLabsScribePreset = providerPresets.find((preset) => preset.id === "elevenlabs-scribe");
+  assert.ok(elevenLabsScribePreset, "ElevenLabs Scribe STT preset must exist");
+  assert.equal(elevenLabsScribePreset.label, "ElevenLabs Scribe STT");
+  assert.equal(elevenLabsScribePreset.adapter, "elevenlabs-transcription");
+  assert.equal(elevenLabsScribePreset.model, "scribe_v2");
+  assert.equal(elevenLabsScribePreset.baseUrl, "https://api.elevenlabs.io/v1");
+  assert.equal(elevenLabsScribePreset.credentialMode, "required");
 
   // Verify creating an OpenRouter profile with optional headers and validating it
   const openrouterProfile = validateProviderProfile({
@@ -52,6 +73,8 @@ try {
       label: preset.label,
       adapter: preset.adapter,
       model: preset.model,
+      ...(preset.realtimeModel ? { realtimeModel: preset.realtimeModel } : {}),
+      ...(preset.voice ? { voice: preset.voice } : {}),
       ...("baseUrl" in preset && typeof preset.baseUrl === "string" ? { baseUrl: preset.baseUrl } : {}),
       ...(preset.credentialMode === "required" ? { secretRef: `ref-${preset.id}` } : {}),
     };
@@ -93,6 +116,13 @@ try {
     (profile: ProviderProfile) => profile.secretRef === "ref-openrouter",
   );
   assert.equal(snapshot2.statuses.tts.state, "missing-secret", "ElevenLabs without credential must report missing-secret");
+
+  selectProviderProfile("stt", "test-elevenlabs-scribe");
+  const snapshotScribe = buildProviderControlCenterSnapshot(
+    getPluginPlatformSettings(),
+    (profile: ProviderProfile) => profile.secretRef === "ref-openrouter",
+  );
+  assert.equal(snapshotScribe.statuses.stt.state, "missing-secret", "ElevenLabs Scribe must require a credential");
 
   // System TTS has no credential required
   selectProviderProfile("tts", "test-system-tts");

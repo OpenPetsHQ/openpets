@@ -4,14 +4,14 @@ export interface VoicePrivacyIndicatorSurface {
   destroy(): void;
 }
 
-/** Tracks live microphone ownership without coupling lifecycle tests to Electron. */
+/** Tracks live microphone ownership and owns the optional host indicator surface. */
 export class VoicePrivacyIndicator {
-  readonly #createSurface: () => VoicePrivacyIndicatorSurface;
+  readonly #createSurface: (() => VoicePrivacyIndicatorSurface) | null;
   #surface: VoicePrivacyIndicatorSurface | null = null;
   #liveTracks = 0;
 
-  constructor(createSurface: () => VoicePrivacyIndicatorSurface) {
-    this.#createSurface = createSurface;
+  constructor(createSurface?: () => VoicePrivacyIndicatorSurface) {
+    this.#createSurface = createSurface ?? null;
   }
 
   get liveTracks(): number {
@@ -20,12 +20,14 @@ export class VoicePrivacyIndicator {
 
   trackStarted(): void {
     this.#liveTracks += 1;
-    if (this.#liveTracks !== 1) return;
+    if (this.#liveTracks !== 1 || !this.#createSurface) return;
     try {
       this.#surface ??= this.#createSurface();
       this.#surface.show();
     } catch {
-      // A privacy surface must not prevent microphone cleanup or transcription.
+      const surface = this.#surface;
+      this.#surface = null;
+      try { surface?.destroy(); } catch { /* best effort */ }
     }
   }
 
@@ -40,7 +42,6 @@ export class VoicePrivacyIndicator {
     this.#liveTracks = 0;
     const surface = this.#surface;
     this.#surface = null;
-    if (!surface) return;
-    try { surface.destroy(); } catch { /* best effort */ }
+    try { surface?.destroy(); } catch { /* best effort */ }
   }
 }

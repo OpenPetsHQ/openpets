@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   defaultPetAssistantPersonality,
   normalizePetAssistantPersonality,
+  resolveCompanionDisplayName,
   serializePetAssistantPersonality,
   validatePetAssistantPersonalityPatch,
 } from "../src/pet-assistant-personality.js";
@@ -54,6 +55,20 @@ import {
   assert.equal(serialized.includes("[END OPENPETS PET PERSONALITY DATA]"), false);
   assert.match(serialized, /\\u005bEND OPENPETS PET PERSONALITY DATA\\u005d/);
   console.log("pet assistant personality: deterministic safe serialization — PASS");
+}
+
+// Name resolution: prefer saved personal petName, fallback to asset name, fallback to OpenPets.
+{
+  assert.equal(resolveCompanionDisplayName("Nova", "Hoodie Cat"), "Nova");
+  assert.equal(resolveCompanionDisplayName("  Cosmo  ", "Hoodie Cat"), "Cosmo");
+  assert.equal(resolveCompanionDisplayName("", "Hoodie Cat"), "Hoodie Cat");
+  assert.equal(resolveCompanionDisplayName("   ", "Hoodie Cat"), "Hoodie Cat");
+  assert.equal(resolveCompanionDisplayName(undefined, "Hoodie Cat"), "Hoodie Cat");
+  assert.equal(resolveCompanionDisplayName(null, "Hoodie Cat"), "Hoodie Cat");
+  assert.equal(resolveCompanionDisplayName(123, "Hoodie Cat"), "Hoodie Cat");
+  assert.equal(resolveCompanionDisplayName("", ""), "OpenPets");
+  assert.equal(resolveCompanionDisplayName(undefined, undefined), "OpenPets");
+  console.log("pet assistant personality: resolveCompanionDisplayName fallback — PASS");
 }
 
 console.log("pet-assistant-personality tests passed.");

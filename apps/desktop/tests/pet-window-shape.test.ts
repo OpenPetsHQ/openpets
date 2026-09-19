@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { calculatePetInteractiveShape, compactComposerGeometry, isRectangleContained } from "../src/pet-window-shape.js";
 import { defaultPetWindowSize } from "../src/display.js";
-import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default-pet-chat-geometry.js";
+import { calculateChatPanelBottom, defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default-pet-chat-geometry.js";
 
 // --- Collapsed Pet Interactive Shape ---
 
@@ -72,6 +72,41 @@ import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default
   assert.ok(expandedShapeInfo.petHitbox.y > (expandedShapeInfo.chatPanel?.y ?? 0));
 }
 
+// --- Expanded Pet Interactive Shape (Bottom-Anchored Upward Growth) ---
+
+{
+  const scaledHeight = 32 * 3; // 96px
+  const petBottom = 22;
+  const expectedPanelBottom = calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap);
+
+  for (const panelHeight of [defaultPetChatPanelLayout.minHeight, 350, defaultPetChatPanelLayout.maxHeight]) {
+    const shapeInfo = calculatePetInteractiveShape({
+      windowWidth: expandedPetWindowSize.width,
+      windowHeight: expandedPetWindowSize.height,
+      spriteWidth: 32,
+      spriteHeight: 32,
+      scale: 3,
+      hasBubble: true, // Should be suppressed when isExpanded: true
+      isExpanded: true,
+      panelWidth: defaultPetChatPanelLayout.width,
+      panelHeight,
+    });
+
+    assert.equal(shapeInfo.shape.length, 2, "shape must contain pet hitbox and chat panel only (no bubble)");
+    assert.notEqual(shapeInfo.chatPanel, undefined);
+    assert.equal(shapeInfo.chatPanel?.width, defaultPetChatPanelLayout.width);
+    assert.equal(shapeInfo.chatPanel?.height, panelHeight);
+
+    // Invariant: The panel bottom edge is anchored exactly above the pet sprite
+    assert.equal(shapeInfo.chatPanel!.y + shapeInfo.chatPanel!.height, expandedPetWindowSize.height - expectedPanelBottom);
+
+    // Gap between top of pet sprite and bottom of chat panel is exactly 10px
+    const petSpriteTop = expandedPetWindowSize.height - petBottom - scaledHeight;
+    const panelBottomEdge = shapeInfo.chatPanel!.y + shapeInfo.chatPanel!.height;
+    assert.equal(petSpriteTop - panelBottomEdge, defaultPetChatPanelLayout.gap);
+  }
+}
+
 // --- Compact composer input shape ---
 
 {
@@ -125,6 +160,28 @@ import { defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default
   for (const [name, part] of Object.entries({ header, error, textarea, controls })) {
     assert.ok(isRectangleContained(part, composer), `${name} must remain clickable inside the compact shape`);
   }
+}
+
+// --- Collapsed Pet with Pinned HUD ---
+
+{
+  const shapeWithPinned = calculatePetInteractiveShape({
+    windowWidth: defaultPetWindowSize.width,
+    windowHeight: defaultPetWindowSize.height,
+    spriteWidth: 32,
+    spriteHeight: 32,
+    scale: 1,
+    hasBubble: false,
+    hasPinned: true,
+    hudScale: 1.4,
+    isExpanded: false,
+  });
+
+  assert.equal(shapeWithPinned.shape.length, 2, "pinned HUD adds an interactive HUD region");
+  const hudRect = shapeWithPinned.shape[1];
+  assert.ok(hudRect.width > 0 && hudRect.width <= defaultPetWindowSize.width);
+  assert.ok(hudRect.height > 0);
+  assert.equal(hudRect.y + hudRect.height, defaultPetWindowSize.height);
 }
 
 console.log("pet-window-shape tests passed.");

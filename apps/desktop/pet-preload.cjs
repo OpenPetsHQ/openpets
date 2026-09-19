@@ -32,12 +32,76 @@ try {
 
 const allowedMotionStates = new Set(["idle", "run-left", "run-right"]);
 const allowedReactionStates = new Set(["idle", "running-right", "running-left", "waving", "jumping", "failed", "waiting", "running", "review"]);
+const allowedCodexGazeIndices = new Set(Array.from({ length: 16 }, (_value, index) => index));
 let lastInteractiveHit = null;
 let dragging = false;
 
+let latestVoiceSnapshot = {
+  sessionId: 0,
+  status: "idle",
+  activity: null,
+  muted: false,
+  conversationId: "pet-assistant",
+  generation: 0,
+  turnId: null,
+  userTranscript: null,
+  assistantTranscript: null,
+  interruptionCount: 0,
+  error: null,
+  shortcut: null,
+  shortcutStatus: "unregistered",
+  shortcutReason: null,
+};
+
+const updateOnPetTalkButton = (snapshot) => {
+  const talkBtn = document.querySelector("[data-openpets-talk-button]");
+  if (!talkBtn) return;
+  const isEnded = !snapshot || snapshot.status === "idle" || snapshot.status === "ended" || !snapshot.status;
+  const canSubmit = !isEnded && snapshot.canSubmitRecording === true;
+
+  if (!isEnded) {
+    if (canSubmit) {
+      talkBtn.classList.remove("is-processing");
+      talkBtn.classList.add("is-active");
+      talkBtn.disabled = false;
+      if (typeof talkBtn.removeAttribute === "function") {
+        talkBtn.removeAttribute("disabled");
+        talkBtn.removeAttribute("aria-disabled");
+      }
+      talkBtn.setAttribute("aria-label", "Stop recording and send");
+      talkBtn.setAttribute("title", "Stop recording and send");
+    } else {
+      talkBtn.classList.remove("is-active");
+      talkBtn.classList.add("is-processing");
+      talkBtn.disabled = true;
+      talkBtn.setAttribute("disabled", "true");
+      talkBtn.setAttribute("aria-disabled", "true");
+      const label = snapshot.activity === "speaking"
+        ? "Speaking..."
+        : snapshot.activity === "thinking"
+          ? "Thinking..."
+          : snapshot.activity === "acting"
+            ? "Acting..."
+            : "Processing...";
+      talkBtn.setAttribute("aria-label", label);
+      talkBtn.setAttribute("title", label);
+    }
+  } else {
+    talkBtn.classList.remove("is-active");
+    talkBtn.classList.remove("is-processing");
+    talkBtn.disabled = false;
+    if (typeof talkBtn.removeAttribute === "function") {
+      talkBtn.removeAttribute("disabled");
+      talkBtn.removeAttribute("aria-disabled");
+    }
+    talkBtn.setAttribute("aria-label", "Talk to companion");
+    talkBtn.setAttribute("title", "Talk to companion");
+  }
+};
+
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .bubble, .openpets-context-menu"));
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
 };
 
 const dismissBubble = (event) => {
@@ -58,7 +122,7 @@ const dismissBubble = (event) => {
   bubble.remove();
 
   const newTarget = document.elementFromPoint(event.clientX, event.clientY);
-  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher]")) || dragging;
+  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher], .openpets-pet-buttons")) || dragging;
   reportInteractiveHit(stillInteractive, "bubble-dismiss", true);
 
   ipcRenderer.send("openpets:bubble-dismissed", dismissToken);
@@ -96,12 +160,35 @@ ipcRenderer.on("openpets:pet-reaction-state", (_event, state) => {
   }
 });
 
+ipcRenderer.on("openpets:pet-gaze", (_event, payload) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "index")) return;
+  const index = payload.index;
+  if (index !== null && (!Number.isInteger(index) || !allowedCodexGazeIndices.has(index))) return;
+
+  const apply = () => {
+    document.documentElement.dataset.codexGazeIndex = index === null ? "neutral" : String(index);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", apply, { once: true });
+  } else {
+    apply();
+  }
+});
+
 ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
   if (!state || typeof state.bodyHtml !== "string" || state.bodyHtml.length > 64 * 1024 || !allowedReactionStates.has(state.reactionState)) {
     return;
   }
 
   const apply = () => {
+    if (typeof state.assetName === "string") {
+      document.documentElement.dataset.petAssetName = state.assetName;
+    }
+    if (typeof state.displayName === "string") {
+      document.documentElement.dataset.petDisplayName = state.displayName;
+      updateAssistantHeader(state.displayName, state.assetName);
+    }
     document.documentElement.dataset.reactionState = state.reactionState;
     const currentStage = document.querySelector(".stage");
     if (currentStage) {
@@ -128,6 +215,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
         shell.appendChild(spriteOverrideElement);
       }
     }
+    updateOnPetTalkButton(latestVoiceSnapshot);
   };
 
   if (document.readyState === "loading") {
@@ -137,9 +225,24 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
   }
 });
 
+const assistantHeaderFallback = "Assistant";
+
+function usablePetDisplayName(value, fallback = assistantHeaderFallback) {
+  if (typeof value !== "string") return fallback;
+  const name = value.trim();
+  return name.length > 0 ? name : fallback;
+}
+
+function updateAssistantHeader(displayName, assetName) {
+  const header = document.querySelector(".chat-title");
+  if (!header) return;
+  const fallback = usablePetDisplayName(assetName ?? document.documentElement.dataset.petAssetName, assistantHeaderFallback);
+  header.textContent = usablePetDisplayName(displayName ?? document.documentElement.dataset.petDisplayName, fallback);
+}
+
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu");
+  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu");
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -162,7 +265,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -383,13 +486,13 @@ const installDefaultPetChat = () => {
   const compactActions = document.createElement("div");
   compactActions.className = "compact-composer-actions";
 
-  const compactHistoryBtn = document.createElement("button");
-  compactHistoryBtn.type = "button";
-  compactHistoryBtn.className = "compact-composer-btn is-history";
-  compactHistoryBtn.dataset.chatHistoryBtn = "true";
-  compactHistoryBtn.setAttribute("aria-label", "View conversation history");
-  compactHistoryBtn.setAttribute("title", "Conversation history / full panel");
-  compactHistoryBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>';
+  const compactOpenChatBtn = document.createElement("button");
+  compactOpenChatBtn.type = "button";
+  compactOpenChatBtn.className = "compact-composer-btn is-open-chat";
+  compactOpenChatBtn.dataset.chatOpenBtn = "true";
+  compactOpenChatBtn.setAttribute("aria-label", "Open chat");
+  compactOpenChatBtn.setAttribute("title", "Open chat");
+  compactOpenChatBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 
   const compactCloseBtn = document.createElement("button");
   compactCloseBtn.type = "button";
@@ -399,7 +502,7 @@ const installDefaultPetChat = () => {
   compactCloseBtn.setAttribute("title", "Close (Esc)");
   compactCloseBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 
-  compactActions.appendChild(compactHistoryBtn);
+  compactActions.appendChild(compactOpenChatBtn);
   compactActions.appendChild(compactCloseBtn);
 
   compactHeader.appendChild(compactTitle);
@@ -415,12 +518,21 @@ const installDefaultPetChat = () => {
   const compactForm = document.createElement("form");
   compactForm.className = "compact-composer-form";
   compactForm.dataset.compactChatForm = "true";
+  compactForm.style.display = "flex";
+  compactForm.style.alignItems = "flex-end";
 
   const compactInput = document.createElement("textarea");
   compactInput.className = "compact-composer-textarea";
   compactInput.dataset.compactChatInput = "true";
-  compactInput.placeholder = "Message your pet...";
+  compactInput.placeholder = "Message your pet…";
   compactInput.rows = 1;
+  compactInput.style.display = "block";
+  compactInput.style.boxSizing = "border-box";
+  compactInput.style.flex = "1 1 auto";
+  compactInput.style.minWidth = "0";
+  compactInput.style.minHeight = "28px";
+  compactInput.style.height = "28px";
+  compactInput.style.margin = "0";
 
   const compactSendBtn = document.createElement("button");
   compactSendBtn.type = "submit";
@@ -429,6 +541,15 @@ const installDefaultPetChat = () => {
   compactSendBtn.setAttribute("aria-label", "Send message");
   compactSendBtn.setAttribute("title", "Send (Enter)");
   compactSendBtn.disabled = true;
+  compactSendBtn.style.display = "flex";
+  compactSendBtn.style.alignItems = "center";
+  compactSendBtn.style.justifyContent = "center";
+  compactSendBtn.style.flexShrink = "0";
+  compactSendBtn.style.width = "28px";
+  compactSendBtn.style.height = "28px";
+  compactSendBtn.style.padding = "0";
+  compactSendBtn.style.margin = "0";
+  compactSendBtn.style.boxSizing = "border-box";
   compactSendBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
 
   const compactCancelBtn = document.createElement("button");
@@ -438,6 +559,14 @@ const installDefaultPetChat = () => {
   compactCancelBtn.setAttribute("aria-label", "Cancel turn");
   compactCancelBtn.setAttribute("title", "Cancel turn");
   compactCancelBtn.style.display = "none";
+  compactCancelBtn.style.alignItems = "center";
+  compactCancelBtn.style.justifyContent = "center";
+  compactCancelBtn.style.flexShrink = "0";
+  compactCancelBtn.style.width = "28px";
+  compactCancelBtn.style.height = "28px";
+  compactCancelBtn.style.padding = "0";
+  compactCancelBtn.style.margin = "0";
+  compactCancelBtn.style.boxSizing = "border-box";
   compactCancelBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
 
   compactForm.appendChild(compactInput);
@@ -452,6 +581,7 @@ const installDefaultPetChat = () => {
   panelEl.className = "openpets-chat-panel";
   panelEl.setAttribute("role", "region");
   panelEl.setAttribute("aria-label", "Pet Assistant Chat");
+  panelEl.style.background = "#000000";
 
   // Panel Header
   const header = document.createElement("div");
@@ -465,7 +595,8 @@ const installDefaultPetChat = () => {
   avatar.textContent = "✨";
   const title = document.createElement("div");
   title.className = "chat-title";
-  title.textContent = "Assistant";
+  const initialFallback = usablePetDisplayName(document.documentElement.dataset.petAssetName, assistantHeaderFallback);
+  title.textContent = usablePetDisplayName(document.documentElement.dataset.petDisplayName, initialFallback);
   const statusPill = document.createElement("div");
   statusPill.className = "chat-status-pill";
   statusPill.dataset.statusPill = "true";
@@ -574,14 +705,31 @@ const installDefaultPetChat = () => {
   const composer = document.createElement("form");
   composer.className = "chat-composer";
   composer.dataset.chatComposer = "true";
+  composer.style.display = "flex";
+  composer.style.alignItems = "flex-end";
 
   const inputWrapper = document.createElement("div");
   inputWrapper.className = "chat-input-wrapper";
+  inputWrapper.style.display = "flex";
+  inputWrapper.style.alignItems = "flex-end";
+  inputWrapper.style.flex = "1 1 auto";
+  inputWrapper.style.minWidth = "0";
+  inputWrapper.style.margin = "0";
+  inputWrapper.style.padding = "0";
+  inputWrapper.style.lineHeight = "0";
+
   const input = document.createElement("textarea");
   input.className = "chat-textarea";
   input.dataset.chatInput = "true";
-  input.placeholder = "Message your pet... (Enter to send, Shift+Enter for newline)";
+  input.placeholder = "Message your pet…";
   input.rows = 1;
+  input.style.display = "block";
+  input.style.boxSizing = "border-box";
+  input.style.width = "100%";
+  input.style.minHeight = "36px";
+  input.style.height = "36px";
+  input.style.margin = "0";
+  input.style.lineHeight = "18px";
   inputWrapper.appendChild(input);
 
   const sendBtn = document.createElement("button");
@@ -591,6 +739,15 @@ const installDefaultPetChat = () => {
   sendBtn.setAttribute("aria-label", "Send message");
   sendBtn.setAttribute("title", "Send message (Enter)");
   sendBtn.disabled = true;
+  sendBtn.style.display = "flex";
+  sendBtn.style.alignItems = "center";
+  sendBtn.style.justifyContent = "center";
+  sendBtn.style.flexShrink = "0";
+  sendBtn.style.width = "36px";
+  sendBtn.style.height = "36px";
+  sendBtn.style.padding = "0";
+  sendBtn.style.margin = "0";
+  sendBtn.style.boxSizing = "border-box";
   sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
 
   const cancelTurnBtn = document.createElement("button");
@@ -600,6 +757,14 @@ const installDefaultPetChat = () => {
   cancelTurnBtn.setAttribute("aria-label", "Cancel turn");
   cancelTurnBtn.setAttribute("title", "Cancel turn");
   cancelTurnBtn.style.display = "none";
+  cancelTurnBtn.style.alignItems = "center";
+  cancelTurnBtn.style.justifyContent = "center";
+  cancelTurnBtn.style.flexShrink = "0";
+  cancelTurnBtn.style.width = "36px";
+  cancelTurnBtn.style.height = "36px";
+  cancelTurnBtn.style.padding = "0";
+  cancelTurnBtn.style.margin = "0";
+  cancelTurnBtn.style.boxSizing = "border-box";
   cancelTurnBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>';
 
   composer.appendChild(inputWrapper);
@@ -608,6 +773,95 @@ const installDefaultPetChat = () => {
   panelEl.appendChild(composer);
 
   document.body.appendChild(panelEl);
+
+  const composerStyle = document.createElement("style");
+  composerStyle.setAttribute("data-openpets-composer-styles", "true");
+  composerStyle.textContent = `
+    .chat-composer,
+    .compact-composer-form {
+      display: flex;
+      align-items: flex-end;
+    }
+    .chat-input-wrapper {
+      display: flex;
+      align-items: flex-end;
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      line-height: 0;
+    }
+    .chat-textarea {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 36px;
+      max-height: 96px;
+      margin: 0;
+      line-height: 18px;
+    }
+    .compact-composer-textarea {
+      display: block;
+      box-sizing: border-box;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 28px;
+      margin: 0;
+      line-height: 16px;
+    }
+    .chat-send-btn,
+    .chat-cancel-turn-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      box-sizing: border-box;
+    }
+    .compact-composer-send-btn,
+    .compact-composer-cancel-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      box-sizing: border-box;
+    }
+    .chat-send-btn:disabled,
+    .compact-composer-send-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+  `;
+  const styleTarget = document.head || document.documentElement || document.body;
+  if (styleTarget && typeof styleTarget.appendChild === "function") {
+    styleTarget.appendChild(composerStyle);
+  }
+
+  if (typeof ResizeObserver !== "undefined") {
+    const panelResizeObserver = new ResizeObserver((entries) => {
+      if (!isExpanded) return;
+      for (const entry of entries) {
+        if (entry.target === panelEl) {
+          const height = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect?.height ?? panelEl.offsetHeight);
+          if (height > 0) {
+            ipcRenderer.send("openpets:default-pet-chat-panel-resize", height);
+          }
+        }
+      }
+    });
+    panelResizeObserver.observe(panelEl);
+  }
 
   // --- Helper & State Updaters ---
   const showErrorToast = (msg) => {
@@ -699,6 +953,7 @@ const installDefaultPetChat = () => {
     if (order.sessionId < voiceOrder.sessionId || (order.sessionId === voiceOrder.sessionId && order.sequence <= voiceOrder.sequence)) return false;
     voiceOrder = order;
     voiceSnapshot = snapshot;
+    latestVoiceSnapshot = snapshot;
     renderAll();
     return true;
   };
@@ -706,11 +961,16 @@ const installDefaultPetChat = () => {
   const renderStatus = () => {
     const act = conversationSnapshot.activity;
     const isBusy = act !== "idle";
+    const activeAction = (conversationSnapshot.items || []).find((item) => item
+      && item.kind === "action"
+      && item.toolName === conversationSnapshot.activeToolName
+      && (item.status === "pending" || item.status === "running"));
+    const activeLabel = activeAction && typeof activeAction.label === "string" ? activeAction.label : undefined;
 
     // Compact header status
     if (isBusy) {
       compactStatusDot.style.display = "inline-block";
-      compactLabel.textContent = act === "thinking" ? "Thinking..." : act === "acting" ? (conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...") : "Responding...";
+      compactLabel.textContent = act === "thinking" ? "Thinking..." : act === "acting" ? (activeLabel ? `Doing: ${activeLabel}` : "Acting...") : "Responding...";
     } else {
       compactStatusDot.style.display = "none";
       compactLabel.textContent = "Chat";
@@ -723,7 +983,7 @@ const installDefaultPetChat = () => {
       statusText.textContent = "Thinking...";
     } else if (act === "acting") {
       statusPill.classList.add("is-acting");
-      statusText.textContent = conversationSnapshot.activeToolName ? `Tool: ${conversationSnapshot.activeToolName}` : "Acting...";
+      statusText.textContent = activeLabel ? `Doing: ${activeLabel}` : "Acting...";
     } else if (act === "responding") {
       statusPill.classList.add("is-responding");
       statusText.textContent = "Responding...";
@@ -837,7 +1097,7 @@ const installDefaultPetChat = () => {
             <div class="chat-action-card" data-action-id="${escapeHtml(item.id)}">
               <div class="chat-action-left">
                 <svg class="chat-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                <span class="chat-action-name">${escapeHtml(item.toolName)}</span>
+                <span class="chat-action-name">${escapeHtml(item.label || "Capability action")}</span>
               </div>
               <span class="chat-action-badge ${statusClass}">${escapeHtml(item.status)}</span>
             </div>
@@ -872,6 +1132,7 @@ const installDefaultPetChat = () => {
     renderSuggestions();
     updateSendButtonState();
     updateCompactSendButtonState();
+    updateOnPetTalkButton(voiceSnapshot);
   };
 
   // --- Transcript scroll detection ---
@@ -960,7 +1221,7 @@ const installDefaultPetChat = () => {
     ipcRenderer.invoke("openpets:default-pet-chat-cancel-turn").catch(() => {});
   });
 
-  compactHistoryBtn.addEventListener("click", (event) => {
+  compactOpenChatBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     preservedDraft = compactInput.value;
@@ -1028,6 +1289,23 @@ const installDefaultPetChat = () => {
     showErrorToast(null);
   });
 
+  // --- Talk Button Click (toggles a voice session) ---
+  document.addEventListener("click", (event) => {
+    const talkButton = event.target?.closest?.("[data-openpets-talk-button]");
+    if (!talkButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      talkButton.disabled ||
+      (typeof talkButton.hasAttribute === "function" && talkButton.hasAttribute("disabled")) ||
+      talkButton.getAttribute("aria-disabled") === "true" ||
+      (talkButton.classList && talkButton.classList.contains("is-processing"))
+    ) {
+      return;
+    }
+    ipcRenderer.invoke("openpets:default-pet-chat-voice-toggle").catch(() => {});
+  }, true);
+
   // --- Launcher Button Click ---
   document.addEventListener("click", (event) => {
     const launcher = event.target?.closest?.("[data-openpets-companion-launcher]");
@@ -1056,6 +1334,7 @@ const installDefaultPetChat = () => {
 
   // --- Expansion Changed Listener ---
   ipcRenderer.on("openpets:default-pet-chat-expansion-changed", (_event, expanded) => {
+    const wasExpanded = isExpanded;
     isExpanded = Boolean(expanded);
     document.documentElement.dataset.chatExpanded = isExpanded ? "true" : "false";
     if (isExpanded) {
@@ -1066,7 +1345,13 @@ const installDefaultPetChat = () => {
       autoResizeCompactInput();
       renderAll();
       setTimeout(() => input.focus(), 60);
+      if (panelEl && typeof panelEl.offsetHeight === "number" && panelEl.offsetHeight > 0) {
+        ipcRenderer.send("openpets:default-pet-chat-panel-resize", Math.round(panelEl.offsetHeight));
+      }
     } else {
+      if (wasExpanded && input) {
+        preservedDraft = input.value;
+      }
       renderAll();
     }
   });
@@ -1271,15 +1556,11 @@ let generatedTtsRequest = 0;
 let activeTts = null;
 
 const sendTtsCompletion = (request, outcome) => {
-  try { ipcRenderer.send(request.kind === "audio" ? "openpets:tts-audio-finished" : "openpets:tts-speech-finished", { requestId: request.requestId, kind: request.kind, outcome }); } catch { /* main process observes renderer loss separately */ }
+  try { ipcRenderer.send("openpets:tts-speech-finished", { requestId: request.requestId, kind: "system", outcome }); } catch { /* main process observes renderer loss separately */ }
 };
 
 const stopTtsMedia = (request) => {
   if (!request) return;
-  if (request.kind === "audio") {
-    try { request.media.pause(); } catch { /* noop */ }
-    return;
-  }
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* noop */ }
 };
 
@@ -1330,29 +1611,6 @@ ipcRenderer.on("openpets:tts-speak", (_event, payload) => {
 
 ipcRenderer.on("openpets:tts-stop", (_event, payload) => {
   stopMatchingTts(typeof payload?.requestId === "string" ? payload.requestId : undefined, "system");
-});
-
-ipcRenderer.on("openpets:tts-audio", (_event, payload) => {
-  try {
-    if (!payload || typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:audio/")) return;
-    settleTts(activeTts, "stopped");
-    const element = new Audio(payload.dataUrl);
-    const request = { requestId: typeof payload.requestId === "string" ? payload.requestId : `renderer-tts-${++generatedTtsRequest}`, kind: "audio", media: element };
-    activeTts = request;
-    element.addEventListener("ended", () => {
-      settleTts(request, "ended");
-    });
-    element.addEventListener("error", () => {
-      settleTts(request, "error");
-    });
-    void element.play().catch(() => {
-      settleTts(request, "error");
-    });
-  } catch { settleTts(activeTts, "error"); }
-});
-
-ipcRenderer.on("openpets:tts-audio-stop", (_event, payload) => {
-  stopMatchingTts(typeof payload?.requestId === "string" ? payload.requestId : undefined, "audio");
 });
 
 const installLayerShellContextMenu = () => {
@@ -1474,7 +1732,12 @@ const installMouseInterop = () => {
     if (event.button !== 0 || !target) return;
     if (isInteractivePanelOrBubble(target)) return;
     if (!target.closest(".pet-hitbox, .pet-shell")) return;
-    if (usesNativePetDrag()) return;
+    if (usesNativePetDrag()) {
+      dragging = true;
+      dragStartPoint = { screenX: event.screenX, screenY: event.screenY };
+      ipcRenderer.send("openpets:pet-drag-start", { screenX: event.screenX, screenY: event.screenY });
+      return;
+    }
     event.preventDefault();
     dragging = true;
     dragStartPoint = { screenX: event.screenX, screenY: event.screenY };
@@ -1489,7 +1752,7 @@ const installMouseInterop = () => {
       suppressClickUntil = Date.now() + 300;
     }
     dragStartPoint = null;
-    if (!usesNativePetDrag()) ipcRenderer.send("openpets:pet-drag-end");
+    ipcRenderer.send("openpets:pet-drag-end");
   });
 
   document.addEventListener("mouseleave", () => {

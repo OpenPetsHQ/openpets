@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { app } from "electron";
 
-import { validateCatalogV2, validateCatalogV3Index, validateCatalogV3Page, validateCatalogV3SearchIndex, validateCatalogV3SearchPage, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
+import { toCatalogPetV2Compat, validateCatalogV2, validateCatalogV3Index, validateCatalogV3Page, validateCatalogV3SearchIndex, validateCatalogV3SearchPage, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
 
 export const catalogUrl = "https://openpets.dev/pets/catalog.v2.json";
 export const catalogV3Url = "https://openpets.dev/pets/catalog.v3.json";
@@ -239,24 +239,6 @@ async function getRemoteCatalogV3Search(index: CatalogV3Index): Promise<readonly
     return pets;
   });
   return await v3SearchPromise;
-}
-
-function toCatalogPetV2Compat(pet: { readonly id: string; readonly displayName: string; readonly description: string; readonly thumbnail: string; readonly spritesheet: string; readonly zip: string; readonly category: "western" | "asian"; readonly subcategory?: string; readonly original?: boolean; readonly featured?: boolean }): CatalogPetV2 {
-  const entry: CatalogPetV2 = {
-    id: pet.id,
-    displayName: pet.displayName,
-    description: pet.description,
-    preview: pet.thumbnail,
-    spritesheet: pet.spritesheet,
-    zip: pet.zip,
-    category: pet.category,
-  };
-  return {
-    ...entry,
-    ...(pet.subcategory ? { subcategory: pet.subcategory } : {}),
-    ...(pet.original === undefined ? {} : { original: pet.original }),
-    ...(pet.featured === undefined ? {} : { featured: pet.featured }),
-  };
 }
 
 async function tryLoadRemoteCatalog(): Promise<{ readonly ok: true; readonly catalog: CatalogV2 } | { readonly ok: false; readonly error: string }> {

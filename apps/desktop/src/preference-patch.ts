@@ -5,7 +5,7 @@
  * without an Electron process context.
  */
 
-import { normalizeAppearanceTheme, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type PetButtonsPosition, type PetButtonsSize, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
 import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -16,7 +16,9 @@ export type PreferencePatch = {
   locale?: LocalePreference;
   appearanceTheme?: AppearanceTheme;
   petScale?: number;
+  hudScale?: number;
   waitingAnimationDurationMs?: WaitingAnimationDurationMs;
+  idleCursorGazeEnabled?: boolean;
   reactionAnimationOverrides?: ReturnType<typeof validateReactionAnimationOverrides>;
   petPoolEnabled?: boolean;
   petConfinementEnabled?: boolean;
@@ -24,6 +26,14 @@ export type PreferencePatch = {
   petGravityEnabled?: boolean;
   personality?: PetAssistantPersonalityPatch;
   voiceAssistantShortcut?: string;
+  /** Empty string disables the chat shortcut; otherwise a canonical accelerator. */
+  chatShortcut?: string;
+  /** Empty string disables the pet visibility shortcut; otherwise a canonical accelerator. */
+  petToggleShortcut?: string;
+  showChatButton?: boolean;
+  showTalkButton?: boolean;
+  petButtonsPosition?: PetButtonsPosition;
+  petButtonsSize?: PetButtonsSize;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,6 +72,11 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
     patch.petGravityEnabled = value.petGravityEnabled;
   }
 
+  if ("idleCursorGazeEnabled" in value) {
+    if (typeof value.idleCursorGazeEnabled !== "boolean") throw new Error("Invalid idle-cursor-gaze-enabled value.");
+    patch.idleCursorGazeEnabled = value.idleCursorGazeEnabled;
+  }
+
   if ("petCrossDisplayEnabled" in value) {
     if (typeof value.petCrossDisplayEnabled !== "boolean") throw new Error("Invalid pet-cross-display-enabled value.");
     patch.petCrossDisplayEnabled = value.petCrossDisplayEnabled;
@@ -84,6 +99,12 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
     patch.petScale = scale;
   }
 
+  if ("hudScale" in value) {
+    const scale = normalizeHudScale(value.hudScale);
+    if (scale !== value.hudScale) throw new Error("Invalid HUD scale value.");
+    patch.hudScale = scale;
+  }
+
   if ("waitingAnimationDurationMs" in value) {
     const durationMs = normalizeWaitingAnimationDurationMs(value.waitingAnimationDurationMs);
     if (durationMs !== value.waitingAnimationDurationMs) throw new Error("Invalid waiting animation duration value.");
@@ -99,7 +120,46 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
   }
 
   if ("voiceAssistantShortcut" in value) {
-    patch.voiceAssistantShortcut = validateVoiceAssistantShortcut(value.voiceAssistantShortcut);
+    // Clearable: an empty accelerator disables the Talk shortcut.
+    patch.voiceAssistantShortcut = value.voiceAssistantShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.voiceAssistantShortcut);
+  }
+
+  if ("chatShortcut" in value) {
+    // Unlike the Talk shortcut, the chat shortcut can be cleared entirely.
+    patch.chatShortcut = value.chatShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.chatShortcut);
+  }
+
+  if ("petToggleShortcut" in value) {
+    // Clearable like the chat shortcut.
+    patch.petToggleShortcut = value.petToggleShortcut === ""
+      ? ""
+      : validateVoiceAssistantShortcut(value.petToggleShortcut);
+  }
+
+  if ("showChatButton" in value) {
+    if (typeof value.showChatButton !== "boolean") throw new Error("Invalid chat button visibility value.");
+    patch.showChatButton = value.showChatButton;
+  }
+
+  if ("showTalkButton" in value) {
+    if (typeof value.showTalkButton !== "boolean") throw new Error("Invalid talk button visibility value.");
+    patch.showTalkButton = value.showTalkButton;
+  }
+
+  if ("petButtonsPosition" in value) {
+    const position = normalizePetButtonsPosition(value.petButtonsPosition);
+    if (position !== value.petButtonsPosition) throw new Error("Invalid pet buttons position value.");
+    patch.petButtonsPosition = position;
+  }
+
+  if ("petButtonsSize" in value) {
+    const size = normalizePetButtonsSize(value.petButtonsSize);
+    if (size !== value.petButtonsSize) throw new Error("Invalid pet buttons size value.");
+    patch.petButtonsSize = size;
   }
 
   return patch;

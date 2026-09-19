@@ -14,6 +14,7 @@ export type PetAssistantFeedbackTarget = {
   setActivity(reaction: OpenPetsReaction | null): void;
   showReaction(reaction: OpenPetsReaction | null, message?: string): void;
   setStatus(reaction: OpenPetsReaction | null): void;
+  isChatExpanded?(): boolean;
 };
 
 export function feedbackForVoiceActivity(activity: "listening" | "thinking" | "acting" | "speaking"): PetAssistantFeedback {
@@ -44,14 +45,25 @@ export function feedbackForAssistantEvent(event: PetAssistantEvent): PetAssistan
   return { state: "success", ...(response ? { message: response } : {}) };
 }
 
-export function applyPetAssistantFeedback(target: PetAssistantFeedbackTarget, feedback: PetAssistantFeedback | null): void {
+export function applyPetAssistantFeedback(
+  target: PetAssistantFeedbackTarget,
+  feedback: PetAssistantFeedback | null,
+  options?: { isChatExpanded?: boolean },
+): void {
   if (!feedback) return;
+  const isChatOpen = options?.isChatExpanded ?? target.isChatExpanded?.() ?? false;
   if (feedback.state === "listening" || feedback.state === "thinking" || feedback.state === "acting" || feedback.state === "speaking") {
     target.setActivity(feedback.reaction ?? null);
     return;
   }
   target.setActivity(null);
   target.setStatus(feedback.reaction ?? null);
+  if (isChatOpen) {
+    if (feedback.reaction) {
+      target.showReaction(feedback.reaction, undefined);
+    }
+    return;
+  }
   if (feedback.message || feedback.reaction) {
     target.showReaction(feedback.reaction ?? null, feedback.message);
   }
@@ -60,25 +72,37 @@ export function applyPetAssistantFeedback(target: PetAssistantFeedbackTarget, fe
 /** One host-owned reducer for typed canonical events and the active voice lane. */
 export class PetAssistantFeedbackReducer {
   readonly #target: PetAssistantFeedbackTarget;
+  readonly #isChatExpanded?: () => boolean;
   readonly #voiceTurns = new Set<string>();
   readonly #settledVoiceTurns = new Set<string>();
+  readonly #voiceFeedbackShown = new Set<string>();
   readonly #pendingVoiceTerminal = new Map<string, PetAssistantFeedback | null>();
   readonly #voiceErrors = new Set<string>();
   static readonly #maxTrackedVoiceTurns = 64;
 
-  constructor(target: PetAssistantFeedbackTarget) {
+  constructor(target: PetAssistantFeedbackTarget, isChatExpanded?: () => boolean) {
     this.#target = target;
+    this.#isChatExpanded = isChatExpanded;
+  }
+
+  #applyFeedback(feedback: PetAssistantFeedback | null): void {
+    const isChatOpen = this.#isChatExpanded?.() ?? this.#target.isChatExpanded?.() ?? false;
+    applyPetAssistantFeedback(this.#target, feedback, { isChatExpanded: isChatOpen });
   }
 
   applyAssistantEvent(event: PetAssistantEvent): void {
     if (event.type === "activity" && this.#voiceTurns.has(event.turnId)) {
       if (event.activity === "cancelled") this.#target.setActivity(null);
       else if (event.activity === "failed") this.#voiceErrors.add(event.turnId);
-      else applyPetAssistantFeedback(this.#target, feedbackForAssistantEvent(event));
+      else this.#applyFeedback(feedbackForAssistantEvent(event));
       return;
     }
     if (event.type === "terminal" && this.#voiceTurns.has(event.result.turnId)) {
       if (this.#settledVoiceTurns.has(event.result.turnId)) return;
+      if (this.#voiceFeedbackShown.has(event.result.turnId)) {
+        this.#pendingVoiceTerminal.delete(event.result.turnId);
+        return;
+      }
       this.#pendingVoiceTerminal.set(event.result.turnId, feedbackForAssistantEvent(event));
       return;
     }
@@ -90,7 +114,7 @@ export class PetAssistantFeedbackReducer {
       this.#target.setActivity(null);
       return;
     }
-    applyPetAssistantFeedback(this.#target, feedbackForAssistantEvent(event));
+    this.#applyFeedback(feedbackForAssistantEvent(event));
   }
 
   applyVoiceEvent(event: VoiceAssistantSessionEvent): void {
@@ -103,8 +127,15 @@ export class PetAssistantFeedbackReducer {
           return;
         }
       }
-      if (event.snapshot.activity) applyPetAssistantFeedback(this.#target, feedbackForVoiceActivity(event.snapshot.activity));
+      if (event.snapshot.activity) this.#applyFeedback(feedbackForVoiceActivity(event.snapshot.activity));
       else this.#target.setActivity(null);
+      return;
+    }
+    if (event.type === "transcript" && event.speaker === "assistant" && event.kind === "final" && this.#voiceTurns.has(event.turnId) && !this.#settledVoiceTurns.has(event.turnId)) {
+      const feedback = this.#pendingVoiceTerminal.get(event.turnId) ?? { state: "success" as const, message: event.text };
+      this.#pendingVoiceTerminal.delete(event.turnId);
+      this.#remember(this.#voiceFeedbackShown, event.turnId);
+      this.#applyFeedback(feedback);
       return;
     }
     if (event.type === "turn-settled") {
@@ -116,19 +147,21 @@ export class PetAssistantFeedbackReducer {
       const failed = event.outcome === "failed" || hadVoiceError;
       if (event.outcome === "cancelled") {
         this.#target.setActivity(null);
-      } else {
-        applyPetAssistantFeedback(this.#target, failed ? { state: "failure", reaction: "error", message: "I couldn't complete that." } : (pending ?? null));
+      } else if (!this.#voiceFeedbackShown.has(event.turnId)) {
+        this.#applyFeedback(failed ? { state: "failure", reaction: "error", message: "I couldn't complete that." } : (pending ?? null));
       }
       return;
     }
     if (event.type === "ended" || event.type === "interrupted") {
       if (event.type === "ended") {
         for (const turnId of this.#voiceTurns) this.#remember(this.#settledVoiceTurns, turnId);
+        this.#voiceFeedbackShown.clear();
         this.#pendingVoiceTerminal.clear();
         this.#voiceErrors.clear();
       }
       if (event.type === "interrupted" && event.turnId) {
         this.#pendingVoiceTerminal.delete(event.turnId);
+        this.#voiceFeedbackShown.delete(event.turnId);
         this.#voiceErrors.delete(event.turnId);
         this.#remember(this.#settledVoiceTurns, event.turnId);
       }
@@ -149,6 +182,7 @@ export class PetAssistantFeedbackReducer {
     this.#target.setActivity(null);
     this.#voiceTurns.clear();
     this.#settledVoiceTurns.clear();
+    this.#voiceFeedbackShown.clear();
     this.#pendingVoiceTerminal.clear();
     this.#voiceErrors.clear();
   }

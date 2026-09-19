@@ -34,6 +34,7 @@ export function TeamsView({ api }: TeamsViewProps) {
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [expandedPluginDetails, setExpandedPluginDetails] = useState<Record<string, boolean>>({});
+  const [managerCheckInFormRequest, setManagerCheckInFormRequest] = useState(0);
 
   const loadSnapshot = useCallback(
     async (clearErrors = false) => {
@@ -67,6 +68,13 @@ export function TeamsView({ api }: TeamsViewProps) {
       if (route === "teams") void loadSnapshot();
     });
   }, [api, loadSnapshot]);
+
+  useEffect(() => {
+    if (!api.onManagerCheckInOpenForm) return undefined;
+    return api.onManagerCheckInOpenForm(() => {
+      setManagerCheckInFormRequest((current) => current + 1);
+    });
+  }, [api]);
 
   useEffect(() => {
     if (!successMessage) return;
@@ -331,6 +339,7 @@ export function TeamsView({ api }: TeamsViewProps) {
           onEnrollSubmit={(e) => void handleEnrollSubmit(e)}
           onRefreshStatus={() => void handleRefreshStatus()}
           onDiscardEnrollment={() => void handleDiscardEnrollment()}
+          onOpenOrganizationsPage={() => void api.openOrganizationsPage?.()}
         />
       ) : (
         /* Enrolled State (Active Organization) */
@@ -343,7 +352,10 @@ export function TeamsView({ api }: TeamsViewProps) {
             onOpenLeaveModal={() => setShowLeaveModal(true)}
           />
 
-          <TeamManagerCheckInSection api={api} />
+          <TeamManagerCheckInSection
+            api={api}
+            openFormRequest={managerCheckInFormRequest}
+          />
 
           <TeamPetsSection pets={snapshot.teamPets} />
 

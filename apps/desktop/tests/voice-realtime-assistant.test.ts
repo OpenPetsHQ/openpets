@@ -7,16 +7,11 @@ import { petAssistantToolName } from "../src/pet-assistant-tools.js";
 import type { PetAssistantCapabilityRuntime, PetAssistantGenerationHandle, PetAssistantTextModel } from "../src/pet-assistant-types.js";
 import type { HostProviderOperations, ProviderOperationSnapshot } from "../src/provider-service.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
-import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
+import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 import { OpenAIRealtimeVoiceAssistantSession, buildOpenAIRealtimeSessionConfig } from "../src/voice-realtime-assistant.js";
 import { createOpenAIRealtimeToolResultEvents, parseStrictJsonObject } from "../src/voice-realtime-protocol.js";
 import type { VoiceConversationEvent, VoiceConversationTransport, VoiceConversationTransportContext } from "../src/voice-conversation.js";
-
-class Surface implements VoicePrivacyIndicatorSurface {
-  show(): void {}
-  hide(): void {}
-  destroy(): void {}
-}
+import { VoiceAssistantHostController } from "../src/voice-assistant-host-core.js";
 
 class Transport implements VoiceConversationTransport {
   readonly context: VoiceConversationTransportContext;
@@ -42,7 +37,7 @@ const capability = { pluginId: "focus.buddy", capability: { id: "start", descrip
 const toolName = petAssistantToolName("focus.buddy", "start");
 
 function provider(): HostProviderOperations {
-  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
+  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-4o-mini", realtimeModel: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
   return {
     snapshot: async () => snapshot,
     negotiateRealtime: async () => "v=0\r\no=answer",
@@ -58,8 +53,7 @@ async function flush(): Promise<void> {
 function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime } = {}) {
   const runtime = options.runtime ?? { snapshot: () => ({ capabilities: [capability] }), execute: async () => ({ ok: true, result: { started: true } }) };
   const assistant = new PetAssistantService(model(), runtime);
-  const surface = new Surface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   const transports: Transport[] = [];
   const session = new OpenAIRealtimeVoiceAssistantSession({
     provider: provider(),
@@ -84,6 +78,39 @@ function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime } =
   const withTools = buildOpenAIRealtimeSessionConfig("gpt-realtime-2.1", { instructions: "rules", tools: [{ name: "op_tool", description: "Tool", inputSchema: { type: "object" } }] });
   assert.deepEqual(withTools.tools, [{ type: "function", name: "op_tool", description: "Tool", parameters: { type: "object" } }]);
   assert.equal(withTools.tool_choice, "auto");
+}
+
+// Native Realtime has no generic recording-submit operation.  Its primary Talk
+// toggle is therefore non-destructive while active; explicit end owns teardown.
+{
+  const current = fixture();
+  const controller = new VoiceAssistantHostController(() => ({ session: current.session, shutdown: () => current.session.shutdown() }));
+  await controller.activate();
+  assert.equal(current.session.snapshot().canSubmitRecording, undefined);
+  assert.equal(await controller.toggle(), current.session);
+  assert.equal(await controller.toggle(), current.session);
+  assert.equal(current.session.snapshot().status, "active");
+  assert.equal(current.transports[0]?.closeCount, 0);
+  await controller.end();
+  assert.equal(current.session.snapshot().status, "ended");
+  await current.assistant.stop();
+}
+
+// A completed Realtime response is the safe one-shot terminal boundary.  The
+// transport closes instead of letting server VAD create another turn.
+{
+  const current = fixture();
+  await current.session.start();
+  const transport = current.transports[0]!;
+  transport.emit({ type: "speech-started", itemId: "one-shot-input" });
+  transport.emit({ type: "response-started", responseId: "one-shot-response" });
+  transport.emit({ type: "transcript", entryId: "one-shot-output", itemId: "one-shot-output", responseId: "one-shot-response", speaker: "assistant", status: "final", text: "One-shot response." });
+  transport.emit({ type: "response-completed", responseId: "one-shot-response" });
+  await flush();
+  assert.equal(current.session.snapshot().status, "ended");
+  assert.equal(current.session.snapshot().activity, null);
+  assert.equal(transport.closeCount, 1);
+  await current.assistant.stop();
 }
 
 // Tool output uses function_call_output followed by response.create, preserving structured status.

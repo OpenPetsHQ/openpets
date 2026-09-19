@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { useI18n } from "../../i18n.js";
 import {
   BrainIcon,
-  CheckIcon,
   CloudIcon,
   EditIcon,
   KeyIcon,
@@ -15,13 +15,13 @@ import {
   TrashIcon,
 } from "./icons.js";
 import {
-  getAdapterFriendlyLabel,
-  isLocalOrSystemProvider,
+  getProfileCredentialPolicy,
   profileSupportsRole,
   type ProviderControlCenterSnapshot,
   type ProviderProfileSummary,
   type ProviderRole,
 } from "./types.js";
+import { getVoiceDisplayLabel, isTtsAdapter } from "./voice-options.js";
 
 export type ProviderLibraryProps = {
   readonly snapshot: ProviderControlCenterSnapshot | null;
@@ -44,15 +44,19 @@ export function ProviderLibrary({
   onSaveCredential,
   onDeleteCredential,
 }: ProviderLibraryProps) {
+  const { t } = useI18n();
   const profiles = snapshot?.profiles ?? [];
   const selections = snapshot?.selections ?? { text: null, stt: null, tts: null };
-  const presets = snapshot?.presets ?? [];
 
   const [activeKeyDrawerId, setActiveKeyDrawerId] = useState<string | null>(null);
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
 
   const isBusy = Boolean(busy) || keySaving;
+
+  function roleName(role: ProviderRole): string {
+    return t(`settings.providers.role.${role}.name`);
+  }
 
   async function handleInlineKeySubmit(profileId: string) {
     if (!keyDraft.trim()) return;
@@ -83,22 +87,49 @@ export function ProviderLibrary({
     if (profile.adapter === "system-tts") {
       return <SpeakerIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
     }
-    if (isLocalOrSystemProvider(profile)) {
+    const policy = getProfileCredentialPolicy(profile);
+    if (policy === "optional") {
       return <ServerIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" />;
     }
     return <CloudIcon className="w-5 h-5 text-brand" />;
   }
 
+  function renderAssignButton(profile: ProviderProfileSummary, role: ProviderRole, icon: ReactNode) {
+    const isSelected = selections[role] === profile.id;
+    return (
+      <button
+        type="button"
+        className={`btn btn-compact text-xs flex items-center gap-1 ${
+          isSelected ? "btn-success" : "btn-secondary"
+        }`}
+        disabled={isBusy}
+        title={
+          isSelected
+            ? t("settings.providers.library.assignHintActive", { role: roleName(role) })
+            : t("settings.providers.library.assignHintInactive", { role: roleName(role) })
+        }
+        onClick={() => onSelectRole(role, isSelected ? null : profile.id)}
+      >
+        {icon}
+        <span>
+          {isSelected
+            ? t("settings.providers.library.assigned", { role: roleName(role) })
+            : t("settings.providers.library.assign", { role: roleName(role) })}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 mt-2">
-      {/* Library Header & Quick Add */}
+      {/* Library Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-monoDisplay text-lg font-black text-navy dark:text-slate-100 m-0">
-            Configured Providers ({profiles.length})
+            {t("settings.providers.library.title", { count: profiles.length })}
           </h3>
           <p className="text-xs text-slatecopy m-0">
-            Manage your saved AI model configurations and API credentials.
+            {t("settings.providers.library.subtitle")}
           </p>
         </div>
         <button
@@ -108,41 +139,8 @@ export function ProviderLibrary({
           onClick={() => onOpenCreate()}
         >
           <PlusIcon className="w-4 h-4" />
-          <span>Add Provider</span>
+          <span>{t("settings.providers.library.add")}</span>
         </button>
-      </div>
-
-      {/* Quick Add Presets Bar */}
-      <div className="rounded-2xl border border-blue-100/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-3.5 shadow-xs">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-bold text-slatecopy uppercase tracking-wider">
-            Quick Add Templates
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {presets.map((preset) => {
-            const isFeatured = preset.id === "openrouter";
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                className={`provider-preset-chip text-xs ${
-                  isFeatured
-                    ? "border-purple-200 bg-purple-50/80 text-purple-900 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-200 font-bold hover:border-purple-400"
-                    : ""
-                }`}
-                disabled={isBusy}
-                onClick={() => onOpenCreate(preset.id)}
-              >
-                {isFeatured && <OpenRouterLogo className="w-3.5 h-3.5" />}
-                <span>+ {preset.label}</span>
-                <span className="opacity-60 text-[10px] font-mono">
-                  ({preset.credentialMode === "none" ? "Local" : "Cloud"})
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Profiles List */}
@@ -153,10 +151,10 @@ export function ProviderLibrary({
           </div>
           <div>
             <strong className="block text-sm font-bold text-navy dark:text-slate-100">
-              No Provider Profiles Configured
+              {t("settings.providers.library.empty.title")}
             </strong>
             <p className="text-xs text-slatecopy max-w-md mt-1">
-              Add your first AI model or voice provider using one of the templates above or by creating a custom endpoint.
+              {t("settings.providers.library.empty.body")}
             </p>
           </div>
           <button
@@ -165,7 +163,7 @@ export function ProviderLibrary({
             disabled={isBusy}
             onClick={() => onOpenCreate("openrouter")}
           >
-            Add OpenRouter (Recommended)
+            {t("settings.providers.library.empty.cta")}
           </button>
         </div>
       ) : (
@@ -175,125 +173,102 @@ export function ProviderLibrary({
             const isSelectedStt = selections.stt === profile.id;
             const isSelectedTts = selections.tts === profile.id;
             const isSelectedAny = isSelectedText || isSelectedStt || isSelectedTts;
-            const isLocal = isLocalOrSystemProvider(profile);
+            const policy = getProfileCredentialPolicy(profile);
             const isKeyDrawerOpen = activeKeyDrawerId === profile.id;
-
-            const supportsText = profileSupportsRole(profile, "text");
-            const supportsStt = profileSupportsRole(profile, "stt");
-            const supportsTts = profileSupportsRole(profile, "tts");
 
             return (
               <div
                 key={profile.id}
                 className="provider-profile-card rounded-[22px] border border-blue-100/80 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs transition-all hover:border-blue-200 dark:hover:border-slate-700"
               >
-                {/* Main Card Header */}
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
+                {/* Header: identity on the left, manage actions on the right */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
                     <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50/70 dark:bg-slate-800 border border-blue-100/50 dark:border-slate-700">
                       {getProfileIcon(profile)}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-sm font-bold text-navy dark:text-slate-100">
                           {profile.label}
                         </strong>
-                        <span className="pill pill-slate font-mono text-[10px] py-0.5">
-                          {profile.id}
-                        </span>
                         <span className="pill pill-blue text-[10px] py-0.5">
-                          {getAdapterFriendlyLabel(profile.adapter)}
+                          {t(`settings.providers.adapter.${profile.adapter}`)}
                         </span>
-                        {profile.adapter === "openai-realtime" && (
-                          <span className="pill pill-purple text-[10px] py-0.5">
-                            Realtime Voice
-                          </span>
-                        )}
                       </div>
 
-                      {/* Model & Endpoint Subtitle */}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slatecopy mt-1 font-medium">
-                        {profile.model && (
-                          <span>
-                            Model: <code className="font-mono text-navy dark:text-slate-200 font-semibold">{profile.model}</code>
+                      {/* Model, Voice & Endpoint Subtitle */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slatecopy mt-1 font-medium">
+                        {profile.adapter === "openai-realtime" ? (
+                          <>
+                            {profile.model && (
+                              <span className="truncate max-w-full">
+                                {t("settings.providers.library.textModel")}{" "}
+                                <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                  {profile.model}
+                                </code>
+                              </span>
+                            )}
+                            {profile.realtimeModel && (
+                              <span className="truncate max-w-full">
+                                {t("settings.providers.library.realtimeModel")}{" "}
+                                <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                  {profile.realtimeModel}
+                                </code>
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          profile.model && (
+                            <span className="truncate max-w-full">
+                              {t("settings.providers.library.model")}{" "}
+                              <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                {profile.model}
+                              </code>
+                            </span>
+                          )
+                        )}
+
+                        {isTtsAdapter(profile.adapter) && (
+                          <span className="truncate max-w-full">
+                            {t("settings.providers.library.voice")}{" "}
+                            <span className="font-semibold text-navy dark:text-slate-200">
+                              {getVoiceDisplayLabel(profile.adapter, profile.voice)}
+                            </span>
                           </span>
                         )}
+
                         {profile.baseUrl && (
-                          <span>
-                            Endpoint: <code className="font-mono text-navy dark:text-slate-200 opacity-80">{profile.baseUrl}</code>
+                          <span className="truncate max-w-full">
+                            {t("settings.providers.library.endpoint")}{" "}
+                            <code className="font-mono text-navy dark:text-slate-200 opacity-80">
+                              {profile.baseUrl}
+                            </code>
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Actions Toolbar */}
-                  <div className="flex items-center gap-1.5">
-                    {/* Quick Assign Buttons */}
-                    {supportsText && (
-                      <button
-                        type="button"
-                        className={`btn btn-compact text-xs flex items-center gap-1 ${
-                          isSelectedText ? "btn-success" : "btn-secondary"
-                        }`}
-                        disabled={isBusy}
-                        title={isSelectedText ? "Currently active as Pet Brain (Click to unassign)" : "Set as active Pet Brain"}
-                        onClick={() => onSelectRole("text", isSelectedText ? null : profile.id)}
-                      >
-                        <BrainIcon className="w-3.5 h-3.5" />
-                        <span>{isSelectedText ? "Brain ✓" : "Set Brain"}</span>
-                      </button>
-                    )}
-                    {supportsStt && (
-                      <button
-                        type="button"
-                        className={`btn btn-compact text-xs flex items-center gap-1 ${
-                          isSelectedStt ? "btn-success" : "btn-secondary"
-                        }`}
-                        disabled={isBusy}
-                        title={isSelectedStt ? "Currently active as Hearing (Click to unassign)" : "Set as active Hearing"}
-                        onClick={() => onSelectRole("stt", isSelectedStt ? null : profile.id)}
-                      >
-                        <MicIcon className="w-3.5 h-3.5" />
-                        <span>{isSelectedStt ? "Hearing ✓" : "Set Hearing"}</span>
-                      </button>
-                    )}
-                    {supportsTts && (
-                      <button
-                        type="button"
-                        className={`btn btn-compact text-xs flex items-center gap-1 ${
-                          isSelectedTts ? "btn-success" : "btn-secondary"
-                        }`}
-                        disabled={isBusy}
-                        title={isSelectedTts ? "Currently active as Speech (Click to unassign)" : "Set as active Speech"}
-                        onClick={() => onSelectRole("tts", isSelectedTts ? null : profile.id)}
-                      >
-                        <SpeakerIcon className="w-3.5 h-3.5" />
-                        <span>{isSelectedTts ? "Speech ✓" : "Set Speech"}</span>
-                      </button>
-                    )}
-
-                    {/* Edit Profile */}
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       className="btn btn-secondary btn-compact text-xs flex items-center gap-1"
                       disabled={isBusy}
                       onClick={() => onOpenEdit(profile)}
-                      title="Edit profile settings"
+                      title={t("settings.providers.library.editHint")}
                     >
                       <EditIcon className="w-3.5 h-3.5" />
-                      <span>Edit</span>
+                      <span>{t("settings.providers.library.edit")}</span>
                     </button>
-
-                    {/* Delete Profile */}
                     <button
                       type="button"
                       className="btn btn-secondary btn-compact text-xs text-red-600 hover:text-red-700 hover:border-red-200"
                       disabled={isBusy || isSelectedAny}
                       title={
                         isSelectedAny
-                          ? "Cannot delete profile while assigned to active roles. Unassign first."
-                          : "Delete this provider profile"
+                          ? t("settings.providers.library.deleteBlocked")
+                          : t("settings.providers.library.deleteHint")
                       }
                       onClick={() => onDeleteProfile(profile.id)}
                     >
@@ -302,48 +277,71 @@ export function ProviderLibrary({
                   </div>
                 </div>
 
-                {/* Status Bar / Key info */}
+                {/* Footer: role assignment toggles + key status */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-50/70 dark:border-slate-800 text-xs">
-                  {/* Left: Active Role Badges */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-bold text-slatecopy uppercase tracking-wider mr-1">
-                      Role:
-                    </span>
-                    {isSelectedText && (
-                      <span className="pill pill-green flex items-center gap-1 text-[11px]">
-                        <BrainIcon className="w-3 h-3 text-emerald-700 dark:text-emerald-300" />
-                        Pet Brain
-                      </span>
-                    )}
-                    {isSelectedStt && (
-                      <span className="pill pill-green flex items-center gap-1 text-[11px]">
-                        <MicIcon className="w-3 h-3 text-emerald-700 dark:text-emerald-300" />
-                        Hearing
-                      </span>
-                    )}
-                    {isSelectedTts && (
-                      <span className="pill pill-green flex items-center gap-1 text-[11px]">
-                        <SpeakerIcon className="w-3 h-3 text-emerald-700 dark:text-emerald-300" />
-                        Speech
-                      </span>
-                    )}
-                    {!isSelectedAny && (
-                      <span className="pill pill-slate text-[11px]">Not assigned</span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {profileSupportsRole(profile, "text") &&
+                      renderAssignButton(profile, "text", <BrainIcon className="w-3.5 h-3.5" />)}
+                    {profileSupportsRole(profile, "stt") &&
+                      renderAssignButton(profile, "stt", <MicIcon className="w-3.5 h-3.5" />)}
+                    {profileSupportsRole(profile, "tts") &&
+                      renderAssignButton(profile, "tts", <SpeakerIcon className="w-3.5 h-3.5" />)}
                   </div>
 
-                  {/* Right: Key Status & Fast Key Affordance */}
+                  {/* Right: Key Status & Affordance */}
                   <div className="flex items-center gap-2">
-                    {isLocal ? (
+                    {policy === "none" ? (
                       <span className="inline-flex items-center gap-1 text-xs text-slatecopy font-semibold">
                         <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600" />
-                        Local / System (No key needed)
+                        {t("settings.providers.library.systemNoKey")}
                       </span>
+                    ) : policy === "optional" ? (
+                      profile.hasCredential ? (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
+                            <ShieldCheckIcon className="w-3.5 h-3.5" />
+                            {t("settings.providers.library.keySaved")}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[11px] font-bold text-brand hover:underline cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setActiveKeyDrawerId(isKeyDrawerOpen ? null : profile.id);
+                              setKeyDraft("");
+                            }}
+                          >
+                            {isKeyDrawerOpen
+                              ? t("settings.providers.library.closeKey")
+                              : t("settings.providers.library.changeKey")}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-slatecopy font-semibold">
+                            <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            {t("settings.providers.library.localKeyOptional")}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[11px] font-bold text-brand hover:underline cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setActiveKeyDrawerId(isKeyDrawerOpen ? null : profile.id);
+                              setKeyDraft("");
+                            }}
+                          >
+                            {isKeyDrawerOpen
+                              ? t("settings.providers.library.closeKey")
+                              : t("settings.providers.library.setKey")}
+                          </button>
+                        </div>
+                      )
                     ) : profile.hasCredential ? (
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
                           <ShieldCheckIcon className="w-3.5 h-3.5" />
-                          API Key Saved
+                          {t("settings.providers.library.keySaved")}
                         </span>
                         <button
                           type="button"
@@ -354,14 +352,16 @@ export function ProviderLibrary({
                             setKeyDraft("");
                           }}
                         >
-                          {isKeyDrawerOpen ? "Close" : "Change Key"}
+                          {isKeyDrawerOpen
+                            ? t("settings.providers.library.closeKey")
+                            : t("settings.providers.library.changeKey")}
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-semibold">
                           <ShieldAlertIcon className="w-3.5 h-3.5" />
-                          Key Missing
+                          {t("settings.providers.library.keyMissing")}
                         </span>
                         <button
                           type="button"
@@ -372,7 +372,7 @@ export function ProviderLibrary({
                             setKeyDraft("");
                           }}
                         >
-                          Set Key
+                          {t("settings.providers.library.setKey")}
                         </button>
                       </div>
                     )}
@@ -380,22 +380,21 @@ export function ProviderLibrary({
                 </div>
 
                 {/* Inline Fast Key Drawer */}
-                {isKeyDrawerOpen && profile.secretRef && (
+                {isKeyDrawerOpen && policy !== "none" && (
                   <div className="mt-3 rounded-xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-800/60 p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <strong className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1.5">
                         <KeyIcon className="w-3.5 h-3.5 text-brand" />
-                        {profile.hasCredential ? "Update API Credential" : "Enter API Credential"}
+                        {profile.hasCredential
+                          ? t("settings.providers.library.drawer.update")
+                          : t("settings.providers.library.drawer.enter")}
                       </strong>
-                      <span className="text-[11px] font-mono text-slatecopy">
-                        ref: {profile.secretRef}
-                      </span>
                     </div>
                     <div className="flex gap-2 items-center">
                       <input
                         type="password"
                         className="settings-select flex-1 text-xs font-mono"
-                        placeholder="Paste secret API key (e.g. sk-or-v1-...)"
+                        placeholder={t("settings.providers.library.drawer.placeholder")}
                         value={keyDraft}
                         disabled={isBusy}
                         onChange={(e) => setKeyDraft(e.target.value)}
@@ -409,7 +408,9 @@ export function ProviderLibrary({
                         disabled={isBusy || !keyDraft.trim()}
                         onClick={() => void handleInlineKeySubmit(profile.id)}
                       >
-                        {keySaving ? "Saving..." : "Save Key"}
+                        {keySaving
+                          ? t("settings.providers.library.drawer.saving")
+                          : t("settings.providers.library.drawer.save")}
                       </button>
                       {profile.hasCredential && (
                         <button
@@ -418,7 +419,7 @@ export function ProviderLibrary({
                           disabled={isBusy}
                           onClick={() => void handleInlineKeyDelete(profile.id)}
                         >
-                          Remove Key
+                          {t("settings.providers.library.drawer.remove")}
                         </button>
                       )}
                       <button
@@ -427,11 +428,11 @@ export function ProviderLibrary({
                         disabled={isBusy}
                         onClick={() => setActiveKeyDrawerId(null)}
                       >
-                        Cancel
+                        {t("settings.providers.library.drawer.cancel")}
                       </button>
                     </div>
                     <p className="text-[11px] text-slatecopy m-0">
-                      Keys are stored securely in your OS keychain / host secret store and never exposed in snapshots.
+                      {t("settings.providers.library.drawer.note")}
                     </p>
                   </div>
                 )}

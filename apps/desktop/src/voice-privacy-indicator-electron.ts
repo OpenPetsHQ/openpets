@@ -42,7 +42,9 @@ class ElectronVoicePrivacyIndicatorSurface implements VoicePrivacyIndicatorSurfa
       window = created;
       void created.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml)}`).then(() => {
         if (this.#visible && this.#window === created && !created.isDestroyed()) created.showInactive();
-      }).catch(() => undefined);
+      }).catch(() => {
+        if (this.#window === created && !created.isDestroyed()) created.destroy();
+      });
     }
     if (!this.#topmostTimer) {
       this.#topmostTimer = setInterval(() => {

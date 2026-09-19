@@ -6,7 +6,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 
 ## Design
 
-- **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
+- **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `assistant`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
 - **Teams**: Modularized under `teams/` to manage organization membership, synchronization, and security controls while strictly isolating personal content:
   - `teams/TeamsView.tsx`: Top-level container component orchestrating snapshot retrieval, synchronization, permission approval actions, optional plugin enable/disable toggling, error banner/toast presentation, and child section rendering.
   - `teams/TeamEnrollmentSection.tsx`: Presentational view for deep-link invitation enrollment (device display name entry), authoritative preview/expiry gating for acceptance, and un-enrolled onboarding guides with personal isolation assurances.
@@ -22,18 +22,27 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
 - **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
-- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, conversation archive management, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Assistant**: Top-level route owning the Pet Assistant feature surfaces — chat/talk button and shortcut preferences, personality authoring, conversation archive management, and model/speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS) with realtime status. Deep links target it via `assistantTab` (currently `providers`).
+- **Settings**: Startup, launch-at-login, pet scale, persisted idle cursor-gaze toggle, voice devices hardware routing, reaction-animation mapping, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **General Settings**: Modularized under `settings/general/` for host-wide hardware preferences:
+  - `settings/general/VoiceDevicesSection.tsx`: Hardware audio device routing controls for microphone input and speaker output with truthful disconnected-fallback badges, capability gating, and refresh trigger.
+  - `settings/general/types.ts`: TypeScript contracts for voice device descriptions, resolutions, and snapshots.
+  - `settings/general/icons.tsx`: Dedicated SVG icons for audio devices and actions.
+  - `settings/general/index.ts`: Module entry.
 - **Conversation Archive Settings**: Modularized under `settings/history/` to provide Settings-owned management of the local persisted conversation history:
   - `settings/history/ConversationArchiveSection.tsx`: Settings-owned archive management view with privacy boundary notice, search filter, message list, turn metadata, single-entry delete, clear-all confirmation modal, and immediate state refresh.
   - `settings/history/types.ts`: Archive message models and bridge API contracts.
   - `settings/history/index.ts`: Module entry.
 - **Provider Settings**: Modularized under `settings/providers/` to present a role-first overview with compact saved profile cards and guided configuration modal:
   - `settings/providers/ProvidersSection.tsx`: Top-level orchestrator connecting provider role cards, compact library, guided setup modal, and capability gates.
-  - `settings/providers/ProviderRoleOverview.tsx`: Role-first status cards for Pet Brain (Text), Hearing (STT), Speech (TTS), and derived Realtime voice.
-  - `settings/providers/ProviderLibrary.tsx`: Configured profile library cards showing active role pills, endpoint details, credential status ("No key needed" for local/system), inline key updates, and role activation toggles.
-  - `settings/providers/ProviderModal.tsx`: Guided setup modal featuring template picker (including OpenRouter preset), endpoint/model inputs, inline credential entry, static request headers, and role activation checkboxes.
+  - `settings/providers/ProviderRoleOverview.tsx`: Role-first status cards for Pet Brain (Text), Hearing (STT), Speech (TTS), and derived Realtime voice, including adapter-aware model/voice and readiness details.
+  - `settings/providers/ProviderLibrary.tsx`: Configured profile library cards showing active role pills, endpoint details, credential-policy status, persisted TTS voice, inline credential updates, and role activation toggles.
+   - `settings/providers/ProviderModal.tsx`: Guided setup modal featuring the canonical preset catalog, adapter-specific model/voice controls, inline credential entry, static request headers, role activation checkboxes, and non-persisting adapter-specific setup tests.
+  - `settings/providers/ModelControls.tsx`: Separate normal-text and realtime model fields for OpenAI Realtime profiles.
+  - `settings/providers/VoiceControl.tsx`: Curated/custom voice selection for network TTS profiles and system-default voice presentation.
+  - `settings/providers/AdvancedConnectionSettings.tsx`: Host-applied custom auth and redacted-header editing controls; opaque credential references are not exposed.
   - `settings/providers/ProviderGatesSection.tsx`: Host capability toggles for audio playback, dynamic speech, voice output, microphone capture, and quiet hours.
-  - `settings/providers/presets.ts`: Provider preset catalog with OpenRouter, OpenAI, Anthropic, Ollama, LM Studio, vLLM, MiniMax, Whisper, ElevenLabs, and System Voice.
+  - `settings/providers/presets.ts`: Renderer adapter for the canonical snapshot preset catalog, with a fallback for unavailable snapshots.
   - `settings/providers/types.ts`: TypeScript contracts for provider adapters, roles, snapshots, inputs, and form draft states.
   - `settings/providers/icons.tsx`: Custom SVG icons for provider roles and UI actions.
 - **Bridge Contract**: All data and actions go through `window.openPetsControlCenter`; page snapshots intentionally omit raw install paths and unrelated app state.
@@ -41,6 +50,6 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 ## Key Files
 
 - `main.tsx`: Existing route shell and management pages for Dashboard, Pets, Plugins, Integrations, Teams, and Settings.
-- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation and selects V2's neutral frame.
+- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation, selects V2's neutral frame, and resolves catalog V2 sprite metadata.
 - `styles.css`: Tailwind base/components/utilities plus glass-card layout, navigation, galleries, modals, status pills, previews, and notifications.
 - `vite-env.d.ts`: Vite/TypeScript renderer environment declarations.

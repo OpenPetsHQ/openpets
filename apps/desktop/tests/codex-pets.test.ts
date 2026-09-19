@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import sharp from "sharp";
 
-import { codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, validateCodexPetMetadata, validateCodexPetSpritesheet } from "../src/codex-pets-core.js";
+import { codexV2GazeDeadZonePx, codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition, getCodexV2GazeSpritePosition, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, validateCodexPetMetadata, validateCodexPetSpritesheet } from "../src/codex-pets-core.js";
 import { getConfiguredSpriteStates } from "../src/reaction-animation-mapping.js";
 import { codexV1Fixture, codexV2Fixture } from "./codex-pet-fixtures.js";
 
@@ -36,6 +36,26 @@ const configuredStates = getConfiguredSpriteStates();
 assert.deepEqual(getCodexPetSpritePosition(codexV2SpriteLayout, configuredStates.idle, true), { row: 0, startColumn: 6, endColumn: 6, animated: false });
 assert.deepEqual(getCodexPetSpritePosition(codexV2SpriteLayout, configuredStates["running-right"]), { row: 1, startColumn: 0, endColumn: 8, animated: true });
 assert.deepEqual(getCodexPetSpritePosition(getCodexPetSpriteLayout(valid), configuredStates.idle), { row: 0, startColumn: 0, endColumn: 6, animated: true });
+
+const gazeAnchor = { x: 100, y: 100 };
+assert.equal(quantizeCodexV2GazeDirection({ x: 100, y: 50 }, gazeAnchor), 0);
+assert.equal(quantizeCodexV2GazeDirection({ x: 150, y: 100 }, gazeAnchor), 4);
+assert.equal(quantizeCodexV2GazeDirection({ x: 100, y: 150 }, gazeAnchor), 8);
+assert.equal(quantizeCodexV2GazeDirection({ x: 50, y: 100 }, gazeAnchor), 12);
+assert.equal(quantizeCodexV2GazeDirection({ x: 150, y: 50 }, gazeAnchor), 2);
+assert.equal(quantizeCodexV2GazeDirection({ x: 50, y: 150 }, gazeAnchor), 10);
+assert.equal(quantizeCodexV2GazeDirection({ x: 100 + codexV2GazeDeadZonePx, y: 100 }, gazeAnchor), null);
+assert.equal(quantizeCodexV2GazeDirection({ x: 100 + codexV2GazeDeadZonePx + 1, y: 100 }, gazeAnchor), 4);
+assert.equal(quantizeCodexV2GazeDirection({ x: 100 + 9, y: 100 - 50 }, gazeAnchor), 0);
+assert.equal(quantizeCodexV2GazeDirection({ x: 100 + 11, y: 100 - 50 }, gazeAnchor), 1);
+for (let index = 0; index < 16; index += 1) {
+  assert.deepEqual(getCodexV2GazeSpritePosition(index), index < 8 ? { row: 9, column: index } : { row: 10, column: index - 8 });
+}
+assert.equal(mirrorCodexV2GazeIndex(0), 0);
+assert.equal(mirrorCodexV2GazeIndex(1), 15);
+assert.equal(mirrorCodexV2GazeIndex(15), 1);
+assert.deepEqual(getCodexV2GazeSpritePosition(1, true), { row: 10, column: 7 });
+assert.equal(getCodexV2GazeSpritePosition(16), null);
 
 for (const marker of [1, 3, "2", null, undefined]) {
   const malformed = { ...codexV2Fixture, spriteVersionNumber: marker };

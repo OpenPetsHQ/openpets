@@ -75,6 +75,12 @@ jitter, and stops before plugin shutdown. Snapshots expose separated Team
 pets/plugins and status, never credentials, enrollment tokens, proofs, or full
 server packs.
 
+The Teams Control Center view presents a distinct empty-state when not joined:
+a compact marketing CTA with feature highlights links externally to
+`https://openpets.dev/organizations` via `openpets:open-organizations-page`,
+accompanied by member deep-link enrollment guidance and the personal content
+isolation guarantee.
+
 Team synchronization, installation, and leave operations are serialized. Leaving
 invalidates queued and in-flight Team work, so a late sync or install cannot
 reapply organization state after departure. A Team Pack stays pending and is not
@@ -105,13 +111,18 @@ prompt snapshot with the submission, so historical wording and labels remain
 meaningful after settings change.
 
 When the organization enables the weekly offer, the mascot may offer it when
-OpenPets is already open on the enrolled desktop's local weekday. The service
-tracks the offer per local week; a successful manual submission also suppresses
-that desktop's scheduled offer for the current local week. The employee can
-pause or resume scheduled offers on that device; **Check in now** remains
-available while paused, and the pause is not sent to the dashboard as a
-response or activity signal. Dismissing or not using an offer creates no
-check-in entry.
+OpenPets is already open on the enrolled desktop's local weekday. The offer is a
+host-owned actionable pet bubble using the synced title and introduction, with
+a voluntary **Check in now** action. That action opens/focuses Control Center
+on Teams and opens the existing Manager Check-in form; the pet never collects
+the feeling or note and never submits directly. The service tracks the offer
+per local week only after the bubble is actually presented; dismissal, timeout,
+or an offer blocked behind another bubble is not presentation. A successful
+manual submission also suppresses that desktop's scheduled offer for the
+current local week. The employee can pause or resume scheduled offers on that
+device; **Check in now** remains available while paused, and the pause is not
+sent to the dashboard as a response or activity signal. Dismissing or not using
+an offer creates no check-in entry.
 
 Each active enrolled desktop has one employee identity in V1. Submitted
 check-ins are identified and visible to authenticated users in that employee's
@@ -204,12 +215,40 @@ organization membership or policy cannot silently approve it. Team Packs remain
 pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
-`control-center-preload.cjs` without a generic patch route: list profiles,
-presets, role status, and derived realtime status; atomically save a profile,
-credential, and selected roles; create/update/delete a profile; select a
-profile independently for each role; update platform gates; and
-set/check/delete a profile credential. Responses contain only credential
-presence and header names.
+`control-center-preload.cjs` without a generic renderer-side settings store:
+list profiles, the canonical adapter/preset catalog, role status, and derived
+realtime status; atomically save a typed profile, credential, and selected roles;
+create/update/delete a profile; select a profile independently for each role;
+ update platform gates; set/check/delete a profile credential; and test an
+  unsaved profile draft. The Hearing role supports both generic
+  OpenAI-compatible transcription and the native ElevenLabs Scribe STT preset;
+  the latter sends bounded multipart audio to ElevenLabs with `model_id` and
+  `xi-api-key` authentication. A setup test resolves its inline credential only for
+ that one request: it never writes the profile, role selection, headers, or
+ credential. Text sends a tiny completion, TTS returns a short configured-voice
+  preview through the trusted host player, STT uses a host-owned bounded transcription
+  session on the shared microphone arbiter (ownership is reserved before
+  device enumeration, and renderer loss/modal close/replacement/shutdown
+  cancel every in-flight setup request and recording; the renderer never owns
+  `getUserMedia` or `MediaRecorder`), Realtime creates a minimal session
+  configuration, and system TTS uses the selected local speech-synthesis voice.
+  Network speech previews and Talk/realtime remote audio use the persistent
+  trusted voice-media player with a serialized per-operation ownership claim and
+   output snapshot. Initialization cancellation cannot start late audio. Output
+   capability is reported only after a bounded probe of
+   `HTMLAudioElement.setSinkId` in the trusted player document, with explicit
+   unavailable/unsupported states. Unsupported
+   or rejected sink routing is reported as OS-default fallback; System TTS stays
+   on `speechSynthesis` and does not claim speaker routing. Control Center
+   Settings → General exposes a cohesive Voice Devices routing section allowing
+   the user to inspect discovered inputs/outputs, select preferred devices with
+   truthful disconnected fallbacks, and refresh hardware lists; microphone changes apply
+   to the next turn without mutating in-progress audio. Responses contain only credential
+   presence and header names, never secret references or header values.
+   Ending one Talk session disposes only that session's playback owner and stops
+   its request; it does not shut down the shared media player. Permanent shared
+   player shutdown is reserved for application voice shutdown, so later Talk,
+   preview, and plugin-generated speech remain usable.
 
 ### Pet Assistant In-Pet Attached Chat & Compact Composer
 
@@ -222,13 +261,24 @@ rendering directly to the pet speech bubble.
 
 When full history is explicitly opened via the transcript affordance, the carrier window expands to
 420×640 using bijective coordinate transforms from `default-pet-chat-geometry.ts` that
-preserve the pet's on-screen anchor point. The attached chat panel and pet move as a single
-native unit, remaining interactive during motion and dragging. Preserved draft input is
-synchronized across the compact composer and expanded chat views.
+preserve the pet's on-screen anchor point. The attached chat panel is anchored directly above
+the scaled pet sprite with a 10px gap, growing upward from 220px to 500px as content changes
+while the pet remains stationary at the bottom. Non-pinned floating speech bubbles and quick
+launcher buttons are suppressed while full chat is open; pinned HUD bubbles remain visible and
+lift the bottom anchor cleanly.
+
+Assistant turn feedback routes operational context (header state, tool cards, turn status) inside
+the expanded chat. Duplicate speech bubbles are suppressed while chat is open, while pet reaction
+and activity animations (`thinking`, `working`, `error`) continue to play on the sprite.
+Closing the chat never replays closed conversation turns; normal ambient speech bubbles resume
+cleanly for subsequent turns. Draft text is preserved across open/close lifecycles, whether
+triggered by Escape, the close button, launcher toggles, or carrier collapse.
 
 On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed,
 compact-composer, and expanded carrier states, keeping mouse passthrough and focus
-semantics correct under X11 and Wayland. Compact open/close is owned by the main
+semantics correct under X11 and Wayland. For expanded chat, the mask aligns with the
+bottom-anchored panel bounds, tracking dynamic panel height reported from the renderer via
+`ResizeObserver`. Compact open/close is owned by the main
 process alongside expansion: opening makes the carrier focusable and adds the
 composer rectangle to the input shape; closing restores the passive pet shape and
 focus policy. The compact composer has one shared maximum geometry contract: its
@@ -248,11 +298,16 @@ Normalized voice transcript events remain an
 integration seam for #147: their adapter must provide a process-lifetime
 monotonic sequence within the voice source; voice ordering is deliberately
 independent from the canonical assistant event sequence.
-Provider updates use sparse patches: omitted fields preserve current values and
-`null` clears `baseUrl`, `secretRef`, or `auth`. The modal's atomic save uses
-host-owned header `add`/`replace`/`delete` operations against stored values;
-omitted header edits preserve untouched values, while direct `headers: []`
-intentionally clears the list.
+The provider UI is role-first: each of Text, STT, and TTS has its own selected
+profile and readiness state, while Realtime is shown as a derived status from
+the selected text profile. The guided modal renders adapter-specific controls,
+including separate normal-text/realtime models for OpenAI Realtime and a
+persistent voice control for network TTS. Credential changes use dedicated
+host actions; opaque secret references are host-managed and are not editable in
+Control Center. Existing static headers are redacted to names in snapshots and
+edited through host-applied `add`/`replace`/`delete` operations, so their values
+never need to cross into the renderer. The host commits profile, credential,
+and role changes atomically.
 
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
@@ -264,15 +319,33 @@ unregistration failures are never presented as active, and a failed unregister
 retains ownership so a replacement cannot create an untracked shortcut. The
 default is the canonical `CommandOrControl+Shift+Space`. Replacing a preference
 unregisters the exact previous accelerator before attempting the new one. Pet,
-tray, and shortcut entry points all use one host-owned toggle (start when
-inactive, end when active). The contract reports only host-observed session
+Pet, tray, and shortcut entry points all use one host-owned toggle (start when
+inactive, submit the active generic recording when one is available, and become
+an idempotent no-op once processing has begun). Ending is explicit through the
+End Talk control or terminal one-shot completion; the native Realtime lane
+likewise never ends from its primary toggle while active. A second, independent
+global shortcut
+(`chat-shortcut.ts`, preference `chatShortcut`, disabled by default via an
+empty accelerator) toggles the compact pet chat composer using the same
+manager/rollback semantics. Both shortcuts, plus the on-pet chat and talk
+buttons (visibility, corner, and size — `showChatButton`, `showTalkButton`,
+`petButtonsPosition`, `petButtonsSize`), are configured in the Settings →
+Chat & Voice tab. The talk button uses the same host-owned voice toggle; the
+buttons hide during transient bubbles but stay visible alongside pinned plugin
+HUDs. The contract reports only host-observed session
 state, not fabricated microphone device metadata. Ending voice releases
 voice-only state while preserving the shared assistant conversation.
-Canonical voice terminal feedback is held by `turnId` until synthesis and
-playback settle, then applied once; late activity snapshots cannot overwrite
-the settled result. The tray subscribes to the same authoritative Talk
-snapshots so its Talk/End Talk label follows session transitions without
-duplicating lifecycle state.
+Snapshots may include the optional `canSubmitRecording` capability flag for
+the separate Talk UI lane; native Realtime leaves it unavailable.
+The generic recording submit atomically clears `canSubmitRecording` and moves the
+canonical snapshot out of `listening` before capture `stop()` settles. While STT,
+the assistant, synthesis, or playback owns that one turn, primary Talk clicks do
+not cancel, end, or start another turn. The collapsed response bubble is applied
+once the final assistant transcript is available, before TTS starts or while it
+plays; playback settlement only performs terminal cleanup/status handling. Late
+activity snapshots cannot overwrite the settled result. The tray subscribes to
+the same authoritative Talk snapshots so its Talk/End Talk label follows session
+transitions without duplicating lifecycle state.
 Typed chat and Talk share one host-owned modality lease for the current
 conversation. A competing turn is rejected before capture or model work with
 an actionable busy error; leases release on terminal settlement, end, or
@@ -342,7 +415,14 @@ installed pets, the default-pet config, reaction→animation overrides, onboardi
 state, locale preference, the pet pool preference (ordered pet list +
 `petPoolEnabled` toggle), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
 `petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
-preference and canonical `voiceAssistantShortcut` accelerator. That duration is normalized to `1010` ms (Normal) or `2200` ms
+preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
+`voiceAssistantShortcut` accelerator. Idle cursor gaze defaults to enabled and
+is configurable in Control Center → Settings → General. Eligible V2 pets treat
+cursor movement as a short glance: they follow direction changes and return to
+neutral after about 1.2 seconds without movement. Disabling it promptly returns
+eligible V2 pets to their neutral idle pose and stops the shared gaze ticker;
+enabling it resumes tracking. Reactions, motion, dragging, pausing, explicit
+presentation overrides, and V1 pets are unaffected. That duration is normalized to `1010` ms (Normal) or `2200` ms
 (Relaxed), with `1010` ms as the default. `app-state-core.ts` and
 `pet-assistant-personality.ts` hold pure normalization helpers that are testable
 without Electron.
@@ -391,14 +471,21 @@ install, assets, panels, diagnostics, and platform settings. Fully documented in
 [Plugin platform](/plugins) and [Plugin SDK v3](/sdk).
 
 The plugin voice foundation is deliberately smaller than a conversation platform.
-`voice-capture-electron.ts` owns a hidden, sandboxed microphone window and
-isolated session; `voice-capture.ts` owns exactly-once cleanup and cancellation; and
-`voice-privacy-indicator-electron.ts` shows the host-owned **OpenPets is listening**
-surface only after `getUserMedia()` succeeds. A capture is one-shot and one-at-a-
+  `voice-device-service.ts` owns durable opaque input/output preferences, capability
+snapshots, and immutable per-operation input resolution. Its Electron companion
+enumerates devices in one trusted, persistent `openpets-voice-media` partition and
+  limits `media` permission to the capture and realtime documents; the media
+  player receives only `speaker-selection`. `voice-capture-electron.ts`
+owns a hidden, sandboxed microphone window and shared session; `voice-capture.ts` owns exactly-once cleanup and cancellation; and
+`voice-privacy-indicator.ts` tracks live microphone ownership after
+`getUserMedia()` succeeds and drives the transient Electron privacy surface. The
+surface is reference-counted across one-shot and Realtime owners, appears only
+while at least one microphone track is live, and is destroyed during shared
+voice shutdown. A capture is one-shot and one-at-a-
 time, with a 15-second acquisition timeout, a separate 30-second transcription
 timeout, and an explicit host cancellation path. Plugin teardown and app shutdown
 cancel the active capture, abort transcription, stop tracks, destroy the capture
-window, clear its temporary session data, and hide the indicator. No ambient or
+window and clear the live-track accounting. No ambient or
 wake-word listening is implemented. While active, the existing tray menu exposes
 **Stop microphone listening** during acquisition/recording and **Cancel
 transcription** while provider transcription is pending; the control disappears
@@ -406,12 +493,13 @@ when the operation settles.
 
 The private `VoiceConversationService` and hidden, sandboxed realtime renderer
 remain host infrastructure. When the explicitly selected text profile uses the
-native `openai-realtime` adapter, the Talk surface creates the optional
+native `openai-realtime` adapter and the derived realtime status is ready, the
+Talk surface creates the optional
 `OpenAIRealtimeVoiceAssistantSession`; other text profiles keep the generic
 STT -> Pet Assistant -> TTS path. The realtime lane shares the microphone and
 modality leases, tracks interruptions and mute state, rejects stale events, and
-releases only its own resources on close. It never destroys the shared privacy
-indicator; `voice-resource-owner.ts` performs final teardown after every lane
+releases only its own resources on close. It never resets shared live-track
+accounting; `voice-resource-owner.ts` performs final teardown after every lane
 stops. The renderer owns `getUserMedia`, WebRTC, the data channel, and remote
 audio. It emits only bounded normalized transcripts and tool-call requests; the
 host keeps credentials, builds canonical tools, executes capabilities through
@@ -437,7 +525,12 @@ host-owned. A single app-lifetime feedback reducer consumes typed and
 voice canonical events plus listening and actual playback transitions. Canonical
 `responding` remains thinking, speaking is emitted only after playback starts,
 cancellation is not failure, and missing-information is shown only when the
-canonical outcome explicitly marks it.
+canonical outcome explicitly marks it. Talk is one-shot: after the submitted
+recording reaches terminal synthesis/playback completion or failure, the voice
+session ends, releases its resources, and does not reopen capture. A fresh
+explicit Talk activation is required for the next recording. Native Realtime
+uses `response-completed` as its safe terminal boundary and closes its transport
+after that response; its primary toggle remains non-destructive while active.
 
 Pet-window playback is request-scoped by `{ requestId, kind }`. Renderer audio and
 system speech settle replacement, matching/unscoped stop, error, close, renderer
@@ -495,6 +588,18 @@ synchronization, or provider call for archive reads. Provider-profile management
 is implemented in the Control Center
 through the host-owned bridge.
 
+Capability tools use readable lowercase provider names derived from plugin and
+capability ids. The host adds a deterministic suffix only when normalization
+collides or a provider length limit requires truncation. The in-pet action row
+shows the capability description as a friendly label while retaining the exact
+provider name separately for dispatch and event correlation.
+The attached chat header and Dashboard hero title use the companion's personal
+display name from the saved personality `petName` (falling back to the active
+pet asset name if the personal name is unusable, and `Assistant` if neither is
+available). Pet manager cards, the pet catalog, and system tray continue to display
+the pet asset name. Personality preference updates broadcast to the Control Center
+and pet carrier to refresh the hero title and chat header live.
+
 The plugin subsystem also owns **display deliveries**: a lazy, transparent,
 host-owned surface used by `ctx.ui.delivery`. A delivery is rendered as a single
 courier-and-banner surface on the cursor display, rather than as a spawned pet
@@ -542,11 +647,25 @@ and Dashboard; `update-version.ts` does version parsing/comparison.
 
 ### Logging
 
-`logger.ts` provides scoped, structured logging (scopes: `app`, `ipc`, `lease`,
-`pet.*`, `state`, `tray`, `ui`) with log rotation (~2MB) and redaction of
+`logger.ts` provides scoped, structured logging (scopes include `app`, `ipc`, `lease`,
+`pet.*`, `state`, `tray`, `ui`, `voice`, and `provider`) with log rotation (~2MB) and redaction of
 sensitive data, written to `userData/logs/openpets.log`. Renderer diagnostics
 should be routed here so failures are visible in the log file, not only DevTools
 (see the logging guidance in `AGENTS.md`).
+
+Talk diagnostics make the one-shot path readable in production logs: session start;
+capture requested/acquired/finished, cancelled, or failed; STT requested/succeeded,
+cancelled, or failed; brain turn requested/completed, cancelled, or failed; speech
+synthesis requested/returned or failed; and playback started/completed, cancelled,
+or failed, followed by session end. Provider diagnostics independently record the
+outbound and terminal lifecycle of text, STT, TTS, and realtime requests, including
+role, adapter, profile ID, safe API path, status/elapsed time, and bounded output
+size or transcript/reply character counts.
+
+Diagnostics deliberately exclude credentials and auth headers, base URLs, request
+payloads, raw user or assistant text, audio bytes, and full provider responses.
+Cancellation records include the available reason (`user`, `session`, or `capture`)
+so a user stop, teardown, and capture failure are not conflated.
 
 ## Security model
 

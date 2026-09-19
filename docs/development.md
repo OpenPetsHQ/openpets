@@ -76,6 +76,13 @@ catch.
   that contains `openpets.plugin.json` through `OPENPETS_DEV_PLUGIN_ROOTS`, with
   the plugin catalog disabled. Non-plugin folders are ignored, and changes to a
   discovered plugin's manifest or entry file hot-reload it.
+- To open the Control Center on a route during development, set
+   `OPENPETS_DEV_ROUTE` before starting the Control Center-focused dev command,
+   for example `OPENPETS_DEV_ROUTE=teams pnpm dev:desktop:control-center`.
+   Use one of the canonical `ControlCenterRoute` values (`dashboard`, `pets`,
+   `settings`, `plugins`, `integrations`, or `teams`). To open Settings directly
+   on its Providers subtab, use `OPENPETS_DEV_ROUTE=providers pnpm dev:desktop:control-center`.
+   The variable is ignored by packaged builds.
 - Logs land in `userData/logs/openpets.log` (path varies by OS). Route renderer
   diagnostics into the app log, not just DevTools (per `AGENTS.md`).
 
@@ -95,6 +102,43 @@ states, boundary decisions). Avoid noisy permanent logs, secrets, full payload
 dumps, or logging inside animation/render loops. The logger
 (`apps/desktop/src/logger.ts`) provides scopes and redaction. This is an explicit
 repo convention (`AGENTS.md`), not optional polish.
+
+### Talk/provider diagnostics
+
+Voice device preferences are host-owned and persist only opaque browser-scoped
+input/output IDs. Enumeration reports unavailable or permission-required states
+without acquiring a microphone at startup; labels and IDs are not written to Talk
+logs. Each generic, plugin, and native Realtime operation resolves its input once
+before acquisition or negotiation, so a preference change applies only to future
+operations. Output selection remains unsupported and never claims to control
+System TTS in this phase.
+
+Generic one-shot Talk lifecycle diagnostics use the `voice` scope and follow the bounded sequence
+`talk session started` → capture requested/acquired/finished (or cancelled/failed)
+→ STT requested/succeeded (or cancelled/failed) → brain turn requested/completed
+(or cancelled/failed) → speech synthesis requested/returned (or failed) → playback
+started/completed (or cancelled/failed) → `talk session ended`. Provider network
+operations use the `provider` scope and log an outbound event plus a terminal event
+for text, STT, TTS, and realtime negotiation. Terminal records include elapsed time,
+HTTP status when available, and only output byte counts or transcript/reply character
+counts.
+
+When the active generic Talk recording is submitted by a second toggle, the host
+atomically leaves the listening snapshot and clears its submit capability before
+using the capture handle's `stop()` path. It continues through STT, Pet Assistant,
+and synthesis; further primary toggles are idempotent while that turn is active.
+After playback or terminal synthesis/playback failure, the one-shot session ends
+and the next recording requires a fresh explicit Talk activation.
+It records bounded capture-submit requested/succeeded/failed diagnostics; this is
+distinct from capture cancellation. Native Realtime keeps its transport-owned
+explicit end behavior because it has no generic recording to commit, while its
+primary toggle is non-destructive.
+
+These logs intentionally omit credentials, authorization headers, base URLs, raw
+prompts, transcripts, assistant replies, request payloads, audio data, and full
+provider responses. Cancellation records use the available reason (`user`,
+`session`, or `capture`) so a stopped Talk attempt is distinguishable from a
+provider or capture failure without exposing content.
 
 ## Release flows
 

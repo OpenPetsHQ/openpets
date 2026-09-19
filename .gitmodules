@@ -1,0 +1,6 @@
+[submodule "plugins/community/regis.usage-buddy"]
+	path = plugins/community/regis.usage-buddy
+	url = https://github.com/regisbsb/openpets-plugin-usage-buddy.git
+[submodule "plugins/official/openpets.system-resources"]
+	path = plugins/official/openpets.system-resources
+	url = https://github.com/OpenPetsHQ/Openpets-system-resources.git

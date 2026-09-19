@@ -25,6 +25,9 @@ type ActiveListen = {
   cancelError: Error | null;
   transcriptionController: AbortController | null;
   transcriptionTimedOut: boolean;
+  recording: Awaited<ReturnType<VoiceCaptureService["start"]>> | null;
+  stopPromise: Promise<VoiceCaptureResult> | null;
+  submitRequested: boolean;
 };
 
 export type VoiceListeningServiceOptions = {
@@ -46,7 +49,7 @@ export class VoiceListeningService {
     this.#onPhaseChange = options.onPhaseChange;
   }
 
-  listenOnce(recordingDurationMs: number, microphoneReservation?: VoiceMicrophoneReservation): Promise<{ text: string }> {
+  listenOnce(recordingDurationMs: number, microphoneReservation?: VoiceMicrophoneReservation, inputDeviceId: string | null = null): Promise<{ text: string }> {
     if (this.#active) throw new Error("A voice capture is already in progress.");
     const done = deferred<void>();
     let rejectCancel!: (error: unknown) => void;
@@ -60,10 +63,13 @@ export class VoiceListeningService {
       cancelError: null,
       transcriptionController: null,
       transcriptionTimedOut: false,
+      recording: null,
+      stopPromise: null,
+      submitRequested: false,
     };
     this.#active = active;
     this.#onPhaseChange?.("acquiring");
-    const run = this.#run(active, recordingDurationMs, microphoneReservation).finally(async () => {
+    const run = this.#run(active, recordingDurationMs, microphoneReservation, inputDeviceId).finally(async () => {
       await this.#capture.cancelActive(active.cancelError?.message ?? "Voice listening finished.").catch(() => undefined);
       if (this.#active === active) this.#active = null;
       active.done.resolve(undefined);
@@ -84,18 +90,37 @@ export class VoiceListeningService {
     await active.done.promise;
   }
 
+  /**
+   * Finish the active recording through stop(), preserving the normal
+   * transcription and assistant pipeline. Acquisition may still be pending;
+   * in that case the request is remembered and applied as soon as recording
+   * becomes available.
+   */
+  async submit(): Promise<boolean> {
+    const active = this.#active;
+    if (!active || active.cancelled) return false;
+    // The capture has already been submitted by the time transcription owns
+    // the stage. Treat a repeated submit as idempotent rather than ending the
+    // session and cancelling the in-flight STT request.
+    if (active.capturePhase === "transcription") return true;
+    active.submitRequested = true;
+    if (active.recording) await this.#stopRecording(active);
+    return true;
+  }
+
   async shutdown(): Promise<void> {
     await this.cancel("OpenPets is shutting down.");
   }
 
-  async #run(active: ActiveListen, recordingDurationMs: number, microphoneReservation?: VoiceMicrophoneReservation): Promise<{ text: string }> {
+  async #run(active: ActiveListen, recordingDurationMs: number, microphoneReservation?: VoiceMicrophoneReservation, inputDeviceId: string | null = null): Promise<{ text: string }> {
     try {
-      const startPromise = this.#capture.start(recordingDurationMs, microphoneReservation);
+      const startPromise = this.#capture.start(recordingDurationMs, microphoneReservation, inputDeviceId);
       void startPromise.catch(() => undefined);
       const handle = await Promise.race([startPromise, active.cancelPromise]);
       active.capturePhase = "recording";
+      active.recording = handle;
       this.#onPhaseChange?.("recording");
-      const capturePromise = handle.result;
+      const capturePromise = active.submitRequested ? this.#stopRecording(active) : handle.result;
       void capturePromise.catch(() => undefined);
       const capture = await Promise.race([capturePromise, active.cancelPromise]);
 
@@ -130,6 +155,13 @@ export class VoiceListeningService {
       if (isAbortError(error)) throw new Error(VOICE_TRANSCRIPTION_CANCELLED_ERROR);
       throw normalizeError(error);
     }
+  }
+
+  #stopRecording(active: ActiveListen): Promise<VoiceCaptureResult> {
+    if (active.stopPromise) return active.stopPromise;
+    if (!active.recording) return Promise.reject(new Error("Voice recording is not available."));
+    active.stopPromise = active.recording.stop();
+    return active.stopPromise;
   }
 }
 

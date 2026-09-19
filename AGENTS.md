@@ -55,6 +55,10 @@ regression—not a record of the implementation that happened to be written.
 - Keep one behavior-focused purpose per test. Remove no-op assertions,
   duplicate coverage, and brittle snapshots/regexes that fail on harmless
   refactors or copy changes.
+- Never assert by reading source files and matching regexes or slicing on
+  code text (e.g. `readFileSync` a `.tsx` + `assert.match`). Such tests pin
+  the implementation, not behavior; delete them on sight instead of updating
+  them after a refactor.
 - When fixing a bug, add the narrowest regression test that fails without the
   fix. When reviewing existing tests, delete or rewrite tests that do not
   protect a plausible failure mode.
@@ -67,6 +71,9 @@ single-line expressions. Use conventional multi-line formatting, named
 intermediate values, focused helpers, and explicit branches when they make the
 state transition or boundary decision clearer. Prefer a readable function over
 a clever expression; do not trade clarity for fewer lines.
+
+Besides this kind of regex based tests, should contain specific codes and shit in tests or ocntracts are bullshit don't do that plz anymore, i'm willing to actually remove that kind of meaningless
+dumb tests.
 
 ## Catalog Direction
 

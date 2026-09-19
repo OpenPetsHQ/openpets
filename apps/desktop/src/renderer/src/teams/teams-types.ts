@@ -103,6 +103,7 @@ export type TeamsApi = {
   submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
   syncTeamsNow(): Promise<TeamsSnapshot>;
   leaveTeams(): Promise<TeamsSnapshot>;
+  openOrganizationsPage?(): Promise<void>;
   approveTeamPluginPermissions?(id: string, approvalToken?: string): Promise<TeamsSnapshot>;
   setTeamPluginEnabled?(id: string, enabled: boolean): Promise<TeamsSnapshot>;
   onRouteChange?(callback: (route: string) => void): () => void;
@@ -111,6 +112,7 @@ export type TeamsApi = {
   getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;
   submitManagerCheckIn?(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
   setManagerCheckInScheduledOffersPaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
+  onManagerCheckInOpenForm?(callback: () => void): () => void;
 };
 
 export type TeamsNavigationRoute =

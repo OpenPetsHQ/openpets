@@ -9,6 +9,8 @@
   const MAX_SIGNAL_BYTES = 256 * 1024;
   let sessionId = "";
   let generation = 0;
+  let inputDeviceId = null;
+  let outputDeviceId = null;
   let stream = null;
   let peer = null;
   let channel = null;
@@ -23,6 +25,7 @@
   const closedInputItemIds = new Set();
   const transcriptBuffers = new Map();
   const emittedToolCalls = new Set();
+  let outputRoutingReported = false;
 
   const emit = (event) => {
     try { bridge.emit({ sessionId, ...event }); } catch { /* host teardown may race renderer cleanup */ }
@@ -49,6 +52,7 @@
       audio.remove();
       audio = null;
     }
+    outputRoutingReported = false;
     try { sessionStorage.clear(); localStorage.clear(); } catch { /* ephemeral partition cleanup is host-owned */ }
     if (notify) emit({ type: "closed" });
   };
@@ -173,7 +177,17 @@
     if (started || closing) return;
     started = true;
     try {
-      const acquired = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      const defaultAudioConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      const selectedAudioConstraints = { deviceId: { exact: inputDeviceId }, ...defaultAudioConstraints };
+      let acquired;
+      try {
+        acquired = await navigator.mediaDevices.getUserMedia({ audio: inputDeviceId === null ? defaultAudioConstraints : selectedAudioConstraints, video: false });
+      } catch (error) {
+        const name = error && typeof error === "object" && typeof error.name === "string" ? error.name : "";
+        if (inputDeviceId === null || (name !== "NotFoundError" && name !== "OverconstrainedError")) throw error;
+        if (closing) return;
+        acquired = await navigator.mediaDevices.getUserMedia({ audio: defaultAudioConstraints, video: false });
+      }
       if (closing) { stopTracks(acquired); return; }
       stream = acquired;
       emit({ type: "microphone-acquired" });
@@ -182,9 +196,24 @@
         if (closing) return;
         const remote = event.streams?.[0] ?? new MediaStream([event.track]);
         audio ??= document.body.appendChild(document.createElement("audio"));
-        audio.autoplay = true;
+        audio.autoplay = false;
         audio.srcObject = remote;
-        void audio.play().catch(() => undefined);
+        const playRemoteAudio = async () => {
+          let output = "system-default";
+          let reason = outputDeviceId ? "rejected" : "no-selection";
+          if (outputDeviceId) {
+            if (typeof audio.setSinkId !== "function") reason = "unsupported";
+            else {
+              try { await audio.setSinkId(outputDeviceId); output = "selected"; reason = undefined; } catch { reason = "rejected"; }
+            }
+          }
+          if (!outputRoutingReported) {
+            outputRoutingReported = true;
+            emit({ type: "output-routing", output, ...(reason ? { reason } : {}) });
+          }
+          await audio.play();
+        };
+        void playRemoteAudio().catch(() => undefined);
       });
       peer.addEventListener("connectionstatechange", () => {
         if (closing) return;
@@ -214,6 +243,9 @@
     if (command.type === "start") {
       sessionId = typeof command.sessionId === "string" ? command.sessionId : "";
       generation = Number.isSafeInteger(command.generation) ? command.generation : 0;
+      inputDeviceId = typeof command.inputDeviceId === "string" && command.inputDeviceId.length > 0 && command.inputDeviceId !== "default" ? command.inputDeviceId : null;
+      outputDeviceId = typeof command.outputDeviceId === "string" && command.outputDeviceId.length > 0 && command.outputDeviceId !== "default" ? command.outputDeviceId : null;
+      outputRoutingReported = false;
       void start();
     } else if (command.type === "answer" && typeof command.sdp === "string" && command.sdp.length <= MAX_SIGNAL_BYTES && peer) {
       void peer.setRemoteDescription({ type: "answer", sdp: command.sdp }).catch(fail);

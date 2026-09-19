@@ -110,6 +110,19 @@ class MockElement {
     }
   }
 
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name);
+    if (name.startsWith("data-")) {
+      const camelKey = name.slice(5).replace(/-([a-z])/g, (_, l) => l.toUpperCase());
+      delete this.dataset[camelKey];
+      delete this.dataset[name];
+    }
+  }
+
   getAttribute(name: string) {
     return this.attributes.get(name) ?? null;
   }
@@ -243,6 +256,7 @@ class MockElement {
 const documentListeners = new Map<string, Function[]>();
 const documentElement = new MockElement("html");
 documentElement.dataset.petRole = "default";
+documentElement.dataset.petDisplayName = "Hoodie Cat";
 const body = new MockElement("body");
 const initialStage = new MockElement("div");
 initialStage.className = "stage";
@@ -251,12 +265,18 @@ petHitbox.className = "pet-hitbox";
 const launcher = new MockElement("button");
 launcher.className = "openpets-companion-launcher";
 launcher.setAttribute("data-openpets-companion-launcher", "true");
+const talkButton = new MockElement("button");
+talkButton.className = "openpets-companion-launcher openpets-talk-button";
+talkButton.setAttribute("data-openpets-talk-button", "true");
+talkButton.setAttribute("aria-label", "Talk to companion");
+talkButton.setAttribute("title", "Talk to companion");
 const petShell = new MockElement("div");
 petShell.className = "pet-shell";
 const sprite = new MockElement("div");
 sprite.className = "sprite";
 petShell.appendChild(sprite);
 petHitbox.appendChild(launcher);
+petHitbox.appendChild(talkButton);
 petHitbox.appendChild(petShell);
 initialStage.appendChild(petHitbox);
 body.appendChild(initialStage);
@@ -281,6 +301,29 @@ class MockTemplateElement extends MockElement {
       newLauncher.className = "openpets-companion-launcher";
       newLauncher.setAttribute("data-openpets-companion-launcher", "true");
       newHitbox.appendChild(newLauncher);
+    }
+    if (val.includes("openpets-talk-button") && !val.includes("bubble")) {
+      const newTalk = new MockElement("button");
+      newTalk.className = val.includes("is-active")
+        ? "openpets-companion-launcher openpets-talk-button is-active"
+        : val.includes("is-processing")
+          ? "openpets-companion-launcher openpets-talk-button is-processing"
+          : "openpets-companion-launcher openpets-talk-button";
+      newTalk.setAttribute("data-openpets-talk-button", "true");
+      if (val.includes("is-processing") || val.includes("disabled")) {
+        newTalk.disabled = true;
+        newTalk.setAttribute("disabled", "true");
+        newTalk.setAttribute("aria-disabled", "true");
+        newTalk.setAttribute("aria-label", "Processing...");
+        newTalk.setAttribute("title", "Processing...");
+      } else if (val.includes("is-active")) {
+        newTalk.setAttribute("aria-label", "Stop recording and send");
+        newTalk.setAttribute("title", "Stop recording and send");
+      } else {
+        newTalk.setAttribute("aria-label", "Talk to companion");
+        newTalk.setAttribute("title", "Talk to companion");
+      }
+      newHitbox.appendChild(newTalk);
     }
     const newShell = new MockElement("div");
     newShell.className = "pet-shell";
@@ -343,6 +386,17 @@ assert.ok(listeners.has("openpets:default-pet-chat-expansion-changed"));
 assert.ok(listeners.has("openpets:default-pet-chat-event"));
 assert.ok(listeners.has("openpets:default-pet-chat-voice-event"));
 assert.ok(listeners.has("openpets:pet-content-state"));
+assert.ok(listeners.has("openpets:pet-gaze"));
+const gazeListener = listeners.get("openpets:pet-gaze")!;
+assert.equal(documentElement.dataset.codexGazeIndex, undefined);
+gazeListener!({}, { index: 4 });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "valid gaze payload updates only the gaze data attribute");
+gazeListener!({}, { index: 16 });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "out-of-range gaze payload is ignored");
+gazeListener!({}, { index: 4, extra: true });
+assert.equal(documentElement.dataset.codexGazeIndex, "4", "extra gaze payload fields are ignored");
+gazeListener!({}, { index: null });
+assert.equal(documentElement.dataset.codexGazeIndex, "neutral", "null gaze payload restores the neutral frame");
 
 // Verify both compact composer and full chat panel exist in DOM
 const compactComposer = documentElement.querySelector(".openpets-compact-composer");
@@ -352,22 +406,90 @@ assert.ok(body.contains(compactComposer), "Compact composer must be attached to 
 const fullPanel = documentElement.querySelector(".openpets-chat-panel");
 assert.ok(fullPanel, "Full chat panel must be present in DOM");
 assert.ok(body.contains(fullPanel), "Full chat panel must be attached to body");
+assert.equal(fullPanel!.style.background, "#000000", "Full chat panel must have a solid black background");
+const chatTitle = fullPanel!.querySelector(".chat-title") as MockElement;
+assert.ok(chatTitle, "Chat title must exist");
+assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must use the active pet display name");
+const headerContentStateListener = listeners.get("openpets:pet-content-state");
+assert.ok(headerContentStateListener);
+const headerRefreshBody = '<div class="stage"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-talk-button" data-openpets-talk-button="true"></button></div>';
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "Calico", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Calico", "Chat header must react to an updated pet display name");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Assistant", "Chat header must fall back when the pet display name is unusable");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", assetName: "Hoodie Cat", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Hoodie Cat", "Chat header must fall back to asset name when personal display name is unusable");
+headerContentStateListener!({}, { bodyHtml: headerRefreshBody, displayName: "   ", assetName: "   ", reactionState: "idle" });
+assert.equal(chatTitle.textContent, "Assistant", "Chat header must fall back to Assistant when neither display name nor asset name is usable");
 const voiceBtnLabel = fullPanel!.querySelector("[data-voice-btn-label]") as MockElement;
 assert.ok(voiceBtnLabel, "Talk button label must exist");
 
 const compactInput = compactComposer!.querySelector("[data-compact-chat-input]") as MockElement;
 assert.ok(compactInput, "Compact chat input must exist");
-assert.equal(compactInput.placeholder, "Message your pet...", "Compact composer placeholder must be concise and natural");
+assert.equal(compactInput.placeholder, "Message your pet…", "Compact composer placeholder must be concise and natural");
 
 const fullInput = fullPanel!.querySelector("[data-chat-input]") as MockElement;
 assert.ok(fullInput, "Full chat input must exist");
-assert.equal(fullInput.placeholder, "Message your pet... (Enter to send, Shift+Enter for newline)", "Full panel placeholder must match message prefix");
+assert.equal(fullInput.placeholder, "Message your pet…", "Full panel placeholder must match the compact composer");
 
-const historyBtn = compactComposer!.querySelector("[data-chat-history-btn]") as MockElement;
-assert.ok(historyBtn, "Explicit history/transcript affordance button must exist in compact composer");
+const openChatBtn = compactComposer!.querySelector("[data-chat-open-btn]") as MockElement;
+assert.ok(openChatBtn, "Open-chat affordance button must exist in compact composer");
+assert.equal(openChatBtn.getAttribute("aria-label"), "Open chat", "Compact launcher button must have 'Open chat' aria-label");
+assert.equal(openChatBtn.getAttribute("title"), "Open chat", "Compact launcher button must have 'Open chat' title");
 
 const compactCloseBtn = compactComposer!.querySelector("[data-chat-composer-close-btn]") as MockElement;
 assert.ok(compactCloseBtn, "Compact composer close button must exist");
+
+// Visual-contract: unified flex alignment, geometry, and visual centerline between inputs and send buttons
+const compactForm = compactComposer!.querySelector("[data-compact-chat-form]") as MockElement;
+const compactSendBtn = compactComposer!.querySelector("[data-compact-chat-send-btn]") as MockElement;
+const fullComposer = fullPanel!.querySelector("[data-chat-composer]") as MockElement;
+const fullSendBtn = fullPanel!.querySelector("[data-chat-send-btn]") as MockElement;
+const inputWrapper = fullPanel!.querySelector(".chat-input-wrapper") as MockElement;
+
+assert.ok(compactForm, "Compact composer form must exist");
+assert.ok(compactSendBtn, "Compact composer send button must exist");
+assert.ok(fullComposer, "Full chat composer form must exist");
+assert.ok(fullSendBtn, "Full chat send button must exist");
+assert.ok(inputWrapper, "Full chat input wrapper must exist");
+
+// Flex containers share bottom alignment for consistent multi-line behavior
+assert.equal(fullComposer.style.display, "flex", "Full composer must use flex display");
+assert.equal(fullComposer.style.alignItems, "flex-end", "Full composer must align items to flex-end");
+assert.equal(compactForm.style.display, "flex", "Compact composer must use flex display");
+assert.equal(compactForm.style.alignItems, "flex-end", "Compact composer must align items to flex-end");
+
+// Input wrapper in full composer eliminates inline-block baseline gap / descent
+assert.equal(inputWrapper.style.display, "flex", "Input wrapper must be a flex container to eliminate baseline gap");
+assert.equal(inputWrapper.style.alignItems, "flex-end", "Input wrapper must align items to flex-end");
+assert.equal(inputWrapper.style.lineHeight, "0", "Input wrapper must zero out line-height strut");
+
+// Inputs share block layout and border-box sizing
+assert.equal(fullInput.style.display, "block", "Full input must be display block");
+assert.equal(fullInput.style.boxSizing, "border-box", "Full input must use border-box");
+assert.equal(compactInput.style.display, "block", "Compact input must be display block");
+assert.equal(compactInput.style.boxSizing, "border-box", "Compact input must use border-box");
+
+// Send buttons share zero padding/margin, flex centering, and exact heights
+assert.equal(fullSendBtn.style.padding, "0", "Full send button must zero padding");
+assert.equal(fullSendBtn.style.margin, "0", "Full send button must zero margin");
+assert.equal(fullSendBtn.style.boxSizing, "border-box", "Full send button must use border-box");
+assert.equal(compactSendBtn.style.padding, "0", "Compact send button must zero padding");
+assert.equal(compactSendBtn.style.margin, "0", "Compact send button must zero margin");
+assert.equal(compactSendBtn.style.boxSizing, "border-box", "Compact send button must use border-box");
+
+// Exact visual centerline match in resting / disabled single-line state
+assert.equal(fullInput.style.height, "36px", "Full input single-line height must be 36px");
+assert.equal(fullSendBtn.style.height, "36px", "Full send button height must be 36px");
+assert.equal(fullSendBtn.disabled, true, "Full send button must be initially disabled when input is empty");
+const fullCenterlineOffset = Math.abs(parseInt(fullInput.style.height, 10) / 2 - parseInt(fullSendBtn.style.height, 10) / 2);
+assert.equal(fullCenterlineOffset, 0, "Full input and send button must share an exact visual centerline (0px offset)");
+
+assert.equal(compactInput.style.height, "28px", "Compact input single-line height must be 28px");
+assert.equal(compactSendBtn.style.height, "28px", "Compact send button height must be 28px");
+assert.equal(compactSendBtn.disabled, true, "Compact send button must be initially disabled when input is empty");
+const compactCenterlineOffset = Math.abs(parseInt(compactInput.style.height, 10) / 2 - parseInt(compactSendBtn.style.height, 10) / 2);
+assert.equal(compactCenterlineOffset, 0, "Compact input and send button must share an exact visual centerline (0px offset)");
 
 // 2. Test opening compact composer via launcher button click
 const clickListeners = documentListeners.get("click") ?? [];
@@ -387,11 +509,11 @@ compactInput.value = "Draft message from compact composer";
 compactInput.dispatchEvent({ type: "input" });
 assert.equal(fullInput.value, "Draft message from compact composer", "Draft must synchronize to full panel composer");
 
-// 4. Test explicit history trigger from compact composer to expand full panel
+// 4. Test explicit open-chat trigger from compact composer to expand full panel
 sent.length = 0;
-historyBtn.dispatchEvent({ type: "click", button: 0, preventDefault: () => {}, stopPropagation: () => {} });
+openChatBtn.dispatchEvent({ type: "click", button: 0, preventDefault: () => {}, stopPropagation: () => {} });
 const expandSent = sent.find((s) => s.channel === "openpets:default-pet-chat-expand");
-assert.ok(expandSent, "Clicking history affordance must send default-pet-chat-expand to host");
+assert.ok(expandSent, "Clicking open-chat affordance must send default-pet-chat-expand to host");
 assert.equal(documentElement.dataset.compactComposerOpen, "false", "Opening full panel closes compact composer");
 
 // Simulate host expanding window
@@ -457,9 +579,97 @@ voiceEventListener!({}, {
   },
 });
 assert.equal(voiceBtnLabel.textContent, "Listening", "authoritative active Talk snapshot should label listening activity");
+const onPetTalkBtn = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(onPetTalkBtn, "on-pet talk button must exist");
+assert.ok(onPetTalkBtn!.classList.contains("is-processing"), "processing talk button without canSubmitRecording has is-processing class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-active"), "processing talk button without canSubmitRecording must not have is-active class");
+assert.equal(onPetTalkBtn!.disabled, true, "processing talk button must be disabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Processing...", "processing talk button without canSubmitRecording has 'Processing...' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Processing...", "processing talk button without canSubmitRecording has 'Processing...' title");
+
+// Click while in processing state must be suppressed and not dispatched over IPC
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileProcessing = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.strictEqual(voiceToggleWhileProcessing, undefined, "Click on disabled/processing talk button must NOT toggle voice session or dispatch IPC");
+
+// Voice snapshot with canSubmitRecording: true updates talk button to 'Stop recording and send' (active recording state)
 voiceEventListener!({}, {
   type: "snapshot",
   sequence: 2,
+  snapshot: {
+    sessionId: 1,
+    status: "active",
+    activity: "listening",
+    canSubmitRecording: true,
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: null,
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.ok(onPetTalkBtn!.classList.contains("is-active"), "recording talk button with canSubmitRecording has is-active class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-processing"), "recording talk button with canSubmitRecording does not have is-processing class");
+assert.equal(onPetTalkBtn!.disabled, false, "recording talk button with canSubmitRecording is enabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Stop recording and send", "talk button with canSubmitRecording has 'Stop recording and send' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Stop recording and send", "talk button with canSubmitRecording has 'Stop recording and send' title");
+
+// Click while in recording active state triggers voice toggle IPC
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileActive = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.ok(voiceToggleWhileActive, "Click on active recording talk button must invoke voice toggle IPC");
+
+// Speaking activity updates talk button to subdued 'Speaking...' state
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 3,
+  snapshot: {
+    sessionId: 1,
+    status: "active",
+    activity: "speaking",
+    canSubmitRecording: false,
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: "I am responding now.",
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.ok(onPetTalkBtn!.classList.contains("is-processing"), "speaking talk button has is-processing class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-active"), "speaking talk button does not have is-active class");
+assert.equal(onPetTalkBtn!.disabled, true, "speaking talk button is disabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Speaking...", "speaking talk button has 'Speaking...' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Speaking...", "speaking talk button has 'Speaking...' title");
+
+// Click while speaking is suppressed
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileSpeaking = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.strictEqual(voiceToggleWhileSpeaking, undefined, "Click on speaking talk button must NOT invoke voice toggle");
+
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 4,
   snapshot: {
     sessionId: 1,
     status: "muted",
@@ -510,11 +720,19 @@ compactInput.dispatchEvent({ type: "input" });
 
 contentStateListener!({}, {
   reactionState: "running-right",
-  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-companion-launcher openpets-talk-button is-processing" data-openpets-talk-button="true" disabled aria-disabled="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
 });
 
 // Verify reaction state was updated on root
 assert.equal(documentElement.dataset.reactionState, "running-right");
+
+// Verify talk button state was reapplied after content-state DOM replacement (from active voice snapshot seq 4)
+const talkAfterRefresh = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(talkAfterRefresh, "Talk button must exist after pet-content-state update");
+assert.ok(talkAfterRefresh!.classList.contains("is-processing"), "Talk button must retain is-processing class across DOM refresh");
+assert.equal(talkAfterRefresh!.disabled, true, "Talk button must retain disabled state across DOM refresh");
+assert.equal(talkAfterRefresh!.getAttribute("aria-label"), "Processing...", "Talk button aria-label must be reapplied across DOM refresh");
+assert.equal(talkAfterRefresh!.getAttribute("title"), "Processing...", "Talk button title must be reapplied across DOM refresh");
 
 // Verify compact composer and chat panel are STILL attached to document body and NOT wiped out
 const compactAfterRefresh = documentElement.querySelector(".openpets-compact-composer");
@@ -539,10 +757,15 @@ assert.strictEqual(documentElement.querySelector("[data-openpets-companion-launc
 
 contentStateListener!({}, {
   reactionState: "idle",
-  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-companion-launcher openpets-talk-button is-processing" data-openpets-talk-button="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
 });
 assert.strictEqual(documentElement.querySelector(".bubble"), null, "Bubble must be absent after clearing");
 assert.ok(documentElement.querySelector("[data-openpets-companion-launcher]"), "Chat launcher must be restored when message bubble clears");
+const talkRestored = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(talkRestored, "Talk button must be restored when message bubble clears");
+assert.ok(talkRestored!.classList.contains("is-processing"), "Talk button re-applies processing state when restored");
+assert.equal(talkRestored!.disabled, true, "Talk button re-applies disabled state when restored");
+assert.equal(talkRestored!.getAttribute("aria-label"), "Processing...", "Talk button re-applies aria-label when restored");
 
 // 9. REGRESSION TEST: Interaction isolation - compact composer & chat panel do NOT reach pet drag/click path
 sent.length = 0;
@@ -571,6 +794,29 @@ assert.strictEqual(petDoubleClickedSent, undefined, "Double-click on compact com
 sent.length = 0;
 const currentPetShell = documentElement.querySelector(".pet-shell")!;
 assert.ok(currentPetShell);
+
+// A stationary drag still has an explicit start/end lifetime on both drag paths.
+sent.length = 0;
+for (const listener of mousedownListeners) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100, preventDefault: () => {} });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-start"), "stationary manual drag must publish its start");
+for (const listener of documentListeners.get("mouseup") ?? []) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100 });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-end"), "stationary manual drag must publish its end");
+
+documentElement.dataset.nativePetDrag = "wayland";
+sent.length = 0;
+for (const listener of mousedownListeners) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100, preventDefault: () => {} });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-start"), "stationary native drag must publish its start");
+for (const listener of documentListeners.get("mouseup") ?? []) {
+  listener({ button: 0, target: currentPetShell, screenX: 100, screenY: 100, clientX: 100, clientY: 100 });
+}
+assert.ok(sent.some((message) => message.channel === "openpets:pet-drag-end"), "stationary native drag must publish its end");
+delete documentElement.dataset.nativePetDrag;
 
 for (const l of clickListeners) {
   l({ button: 0, target: currentPetShell, preventDefault: () => {}, stopPropagation: () => {} });
@@ -601,5 +847,43 @@ resolveInitialVoice({
 setTimeout(() => {
   assert.ok(transcript!.innerHTML.includes("Hello human!"), "a late initial conversation snapshot must not overwrite streamed state");
   assert.equal(voiceBtnLabel.textContent, "Unmute", "a late initial Talk snapshot must not overwrite streamed state");
+  const talkBtnAtEnd = documentElement.querySelector("[data-openpets-talk-button]");
+  assert.ok(talkBtnAtEnd, "talk button exists");
+  assert.ok(talkBtnAtEnd!.classList.contains("is-processing"), "talk button remains in processing state before end event");
+
+  voiceEventListener!({}, {
+    type: "snapshot",
+    sequence: 5,
+    snapshot: {
+      sessionId: 1,
+      status: "ended",
+      activity: null,
+      muted: false,
+      conversationId: "pet-assistant",
+      generation: 1,
+      turnId: null,
+      userTranscript: null,
+      assistantTranscript: null,
+      interruptionCount: 0,
+      error: null,
+      shortcut: null,
+      shortcutStatus: "registered",
+      shortcutReason: null,
+    },
+  });
+  assert.ok(!talkBtnAtEnd!.classList.contains("is-active"), "Ended talk session removes is-active class");
+  assert.ok(!talkBtnAtEnd!.classList.contains("is-processing"), "Ended talk session removes is-processing class");
+  assert.equal(talkBtnAtEnd!.disabled, false, "Ended talk session enables talk button");
+  assert.equal(talkBtnAtEnd!.getAttribute("aria-label"), "Talk to companion", "Ended talk session resets aria-label to Talk to companion");
+  assert.equal(talkBtnAtEnd!.getAttribute("title"), "Talk to companion", "Ended talk session resets title to Talk to companion");
+
+  // Click on idle talk button dispatches voice toggle IPC
+  invoked.length = 0;
+  for (const l of clickListeners) {
+    l({ button: 0, target: talkBtnAtEnd, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+  }
+  const voiceToggleAtIdle = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+  assert.ok(voiceToggleAtIdle, "Click on idle talk button must invoke voice toggle IPC");
+
   console.log("pet-preload-chat-contract tests passed.");
 }, 0);

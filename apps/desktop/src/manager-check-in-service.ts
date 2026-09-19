@@ -31,6 +31,10 @@ export type ManagerCheckInHistoryPage = {
   readonly submissions: readonly ManagerCheckInSubmission[];
   readonly nextCursor: string | null;
 };
+export type ManagerCheckInOffer = {
+  readonly title: string;
+  readonly introduction: string;
+};
 type ManagerCheckInBinding = {
   readonly organizationId: string;
   readonly employeeIdentityId: string | null;
@@ -47,14 +51,17 @@ export type ManagerCheckInServiceOptions = {
   readonly now?: () => Date;
   readonly pollMs?: number;
   readonly log?: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void;
-  readonly offerWeeklyCheckIn?: ExternalPetSay;
+  readonly offerWeeklyCheckIn?: ManagerCheckInOfferPresentation;
 };
 
 type ManagerCheckInApiClient = Pick<
   TeamApiClient,
   "getManagerCheckInSync" | "submitManagerCheckIn" | "setScheduledOffersPaused"
 >;
-type ExternalPetSay = (message: string) => {
+export type ManagerCheckInOfferPresentation = (
+  offer: ManagerCheckInOffer,
+  onPresented: () => void,
+) => {
   readonly shown: boolean;
   readonly reason?: string;
 };
@@ -69,7 +76,7 @@ export class ManagerCheckInService {
   readonly #now: () => Date;
   readonly #pollMs: number;
   readonly #log: NonNullable<ManagerCheckInServiceOptions["log"]>;
-  readonly #offerWeeklyCheckIn: ExternalPetSay | null;
+  readonly #offerWeeklyCheckIn: ManagerCheckInOfferPresentation | null;
   readonly #controllers = new Set<AbortController>();
   #timer: NodeJS.Timeout | null = null;
   #syncSession: AbortController | null = null;
@@ -376,10 +383,22 @@ export class ManagerCheckInService {
 
     const localWeek = localWeekKey(this.#now());
     try {
-      const say = this.#offerWeeklyCheckIn ?? (await import("./default-pet-controller.js")).applyExternalPetSay;
-      const result = say("How are you feeling this week? You can check in whenever you're ready.");
-      if (result.shown) {
+      const offer: ManagerCheckInOffer = {
+        title: snapshot.settings?.title ?? "",
+        introduction: snapshot.settings?.introduction ?? "",
+      };
+      let markedPresented = false;
+      const markPresented = () => {
+        if (markedPresented) return;
+        markedPresented = true;
         this.stateStore.markWeeklyOfferPresented(localWeek);
+      };
+      const say = this.#offerWeeklyCheckIn;
+      const result = say
+        ? say(offer, markPresented)
+        : { shown: false, reason: "presentation_unavailable" };
+      if (result.shown) {
+        markPresented();
       }
     } catch {
       // Presentation is optional and must not turn a successful sync into a failure.

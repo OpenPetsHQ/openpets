@@ -49,6 +49,7 @@ export class VoiceOperationState {
     return { phase: this.#operation.phase, cancel: this.#operation.cancel };
   }
 
+
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);

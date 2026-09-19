@@ -26,6 +26,7 @@ import { getLocalMondayWeekKey } from "./manager-check-ins-state.js";
 
 export type TeamManagerCheckInSectionProps = {
   readonly api: TeamsApi;
+  readonly openFormRequest?: number;
 };
 
 function deduplicateSubmissions(
@@ -45,7 +46,7 @@ function deduplicateSubmissions(
   return result;
 }
 
-export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProps) {
+export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamManagerCheckInSectionProps) {
   const { t } = useI18n();
 
   const [snapshot, setSnapshot] = useState<ManagerCheckInSnapshot | null>(null);
@@ -204,6 +205,13 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    if (openFormRequest > 0) {
+      setIsFormOpen(true);
+      setAcknowledgementMessage("");
+    }
+  }, [openFormRequest]);
 
   const handleSubmitCheckIn = async (input: ManagerCheckInSubmitInput) => {
     if (!api.submitManagerCheckIn) {
