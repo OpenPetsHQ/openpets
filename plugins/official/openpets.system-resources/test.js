@@ -33,6 +33,16 @@ for (const [lang, catalog] of Object.entries(LOCALES)) {
   assert.deepEqual(catalog, CATALOGS[lang], `${lang} catalog matches locale file`);
 }
 
+// The desktop host packages these locales even though the plugin's optional
+// language picker currently exposes only its standalone catalogs. Keep the
+// host-supported catalogs present and complete so a bundle sync cannot remove
+// localized manifest, settings, or command text.
+const HOST_SUPPORTED_LOCALES = ["es-419", "ja", "ko", "pt-BR", "zh-Hans", "zh-Hant"];
+for (const language of HOST_SUPPORTED_LOCALES) {
+  const catalog = JSON.parse(await readFile(new URL(`./locales/${language}.json`, import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(catalog).sort(), requiredKeys.slice().sort(), `${language} host locale keys`);
+}
+
 assert.equal(resolveLanguage("auto", "fr-FR"), "fr");
 assert.equal(resolveLanguage("de", "en-US"), "de");
 assert.equal(resolveLanguage("nope", "nl-NL"), "nl");
