@@ -31,6 +31,13 @@ Plugin source is split by publishing intent:
 - `plugins/dev/` - local experiments only. The catalog generator ignores this
   lane; move a plugin to `community/` or `official/` before publishing.
 
+Plugin source folders under `plugins/official/` or `plugins/community/` may be
+pinned Git submodules. Clone this repository with `--recurse-submodules`, or run
+`git submodule update --init --recursive` before development, testing, or a
+release. An upstream change does not enter OpenPets automatically: review it,
+intentionally advance the pinned submodule commit, update community provenance
+when applicable, then run the normal release validation.
+
 ## Mental model
 
 A plugin is a **package** validated by a **manifest**, run inside a **sandbox**,
@@ -274,14 +281,14 @@ in-flight capture. TTS playback is host-owned and request-scoped, including
 bounded system-utterance chunking, duration-aware deadlines, renderer-loss and
 navigation handling, and completion/error/stop handling. Voice activity uses a
 separate host-owned pet slot and does not clear plugin-owned display or status
-state. Plugins do not own the microphone, privacy surface, renderer playback
-lifecycle, or generic assistant session.
+state. Plugins do not own the microphone, microphone lifecycle accounting,
+renderer playback lifecycle, or generic assistant session.
 
 `voice-resource-owner.ts` is the sole owner of the shared microphone arbiter,
-capture service, and privacy indicator. Plugin one-shot listening, the native
+capture service, and live-track accounting. Plugin one-shot listening, the native
 Realtime lane, and the generic assistant lane release only their own tracks and
-leases. The shared owner destroys the privacy surface once, after every lane has
-stopped during app teardown. The optional Realtime adapter remains host-private;
+leases. The shared owner resets the accounting once, after every lane has stopped
+during app teardown; no detached privacy window is created. The optional Realtime adapter remains host-private;
 it does not add a public voice conversation API or make Realtime part of the
 plugin contract.
 
@@ -309,9 +316,9 @@ is pinned for the active session; generic STT -> Pet Assistant -> TTS remains
 the path for other text profiles.
 
 The public plugin-facing `voice.listen` capability remains one-shot push-to-talk,
-never ambient. The host captures in a hidden, isolated microphone window and displays
-**OpenPets is listening** only after
-microphone acquisition succeeds. It accepts only one active capture, clamps the
+never ambient. The host captures in a hidden, isolated microphone window and records
+live microphone ownership only after acquisition succeeds; it does not create a
+detached privacy indicator window. It accepts only one active capture, clamps the
 recording duration to 1-30 seconds, times microphone acquisition out after 15
 seconds, and bounds transcription separately at 30 seconds. The host can cancel
 during acquisition, recording, or transcription; cancellation stops media tracks,
@@ -331,7 +338,7 @@ validates those events again, while the host Pet Assistant service owns current
 capability discovery, canonical provider-safe tool names, generation-pinned
 execution, structured results, and Conversation projection. One-shot capture,
 generic voice, and Realtime share exclusive microphone/modality ownership and
-the host privacy indicator. Realtime cleanup participates in the shared
+the host live-track accounting. Realtime cleanup participates in the shared
 shutdown path; provider failures and stale generations cannot become successful
 capability outcomes. There is no public SDK Realtime API, unrestricted machine
 access, semantic memory, or wake-word behavior.
@@ -426,8 +433,9 @@ replacement generation's deliveries, pets, or motion.
 - `voice-capture-cancellation.ts` - idempotent renderer-cancel/window-destroy
   ordering.
 - `voice-operation-state.ts` - internal tray cancellation state and phase tracking.
-- `voice-privacy-indicator-electron.ts` - the shared host-owned microphone
-  privacy indicator used by one-shot capture and realtime conversation.
+- `voice-privacy-indicator.ts` - shared host-owned live microphone-track
+  accounting used by one-shot capture and realtime conversation; it has no UI
+  surface.
 - `plugin-user-sound-store.ts` - stores imported user sounds as opaque refs, not
   raw filesystem paths.
 - `plugin-i18n.ts` - resolves plugin locales, manifest `$t:`, and `ctx.t()`.

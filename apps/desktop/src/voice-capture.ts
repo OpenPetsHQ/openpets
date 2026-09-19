@@ -1,5 +1,6 @@
 import type { VoicePrivacyIndicator } from "./voice-privacy-indicator.js";
 import type { VoiceMicrophoneArbiter, VoiceMicrophoneReservation, VoiceMicrophoneTrackLease } from "./voice-microphone-arbiter.js";
+import { info, warn } from "./logger.js";
 
 export const VOICE_ACQUISITION_TIMEOUT_MS = 15_000;
 export const VOICE_MIN_RECORDING_DURATION_MS = 1_000;
@@ -25,7 +26,7 @@ export interface VoiceCaptureAttempt {
   dispose(): Promise<void>;
 }
 
-export type VoiceCaptureFactory = (durationMs: number, onAcquired: () => boolean) => VoiceCaptureAttempt;
+export type VoiceCaptureFactory = (durationMs: number, onAcquired: () => boolean, inputDeviceId: string | null) => VoiceCaptureAttempt;
 
 export class VoiceCaptureCancelledError extends Error {
   constructor(message = "Voice capture was cancelled.") {
@@ -55,6 +56,9 @@ type ActiveCapture = {
   finishing: Promise<VoiceCaptureResult> | null;
   cleaned: boolean;
   microphoneLease: VoiceMicrophoneTrackLease | null;
+  readonly requestedAt: number;
+  acquiredLogged: boolean;
+  terminalLogged: boolean;
 };
 
 export type VoiceCaptureServiceOptions = {
@@ -76,14 +80,17 @@ export class VoiceCaptureService {
     this.#microphoneArbiter = options.microphoneArbiter;
   }
 
-  async start(timeoutMs: number, microphoneReservation?: VoiceMicrophoneReservation): Promise<{
+  async start(timeoutMs: number, microphoneReservation?: VoiceMicrophoneReservation, inputDeviceId: string | null = null): Promise<{
     readonly result: Promise<VoiceCaptureResult>;
     stop(): Promise<VoiceCaptureResult>;
     cancel(reason?: string): Promise<void>;
   }> {
     if (this.#active) throw new Error("A voice capture is already in progress.");
 
+    const effectiveInputDeviceId = inputDeviceId === "default" ? null : inputDeviceId;
     const durationMs = normalizeRecordingDuration(timeoutMs);
+    const requestedAt = Date.now();
+    info("voice", "capture requested", { durationMs });
     const result = deferred<VoiceCaptureResult>();
     const done = deferred<void>();
     let rejectCancel!: (error: unknown) => void;
@@ -102,6 +109,9 @@ export class VoiceCaptureService {
       finishing: null,
       cleaned: false,
       microphoneLease: null,
+      requestedAt,
+      acquiredLogged: false,
+      terminalLogged: false,
     };
 
     try {
@@ -116,9 +126,14 @@ export class VoiceCaptureService {
         if (active.cancelled || this.#active !== active) return false;
         active.indicatorLive = true;
         this.#indicator.trackStarted();
+        if (!active.acquiredLogged) {
+          active.acquiredLogged = true;
+          info("voice", "capture acquired", { elapsedMs: Date.now() - active.requestedAt });
+        }
         return true;
-      });
+      }, effectiveInputDeviceId);
     } catch (error) {
+      this.#logTerminal(active, "failed", { errorCode: error instanceof Error ? error.name : "unknown" });
       active.microphoneLease?.release();
       active.microphoneLease = null;
       done.resolve(undefined);
@@ -129,7 +144,7 @@ export class VoiceCaptureService {
     // its rejection observed even when no capture handle reaches the caller.
     void result.promise.catch(() => undefined);
 
-    const acquisition = Promise.resolve().then(() => active.attempt.acquire());
+    const acquisition = Promise.resolve().then(() => this.#acquireWithDefaultFallback(active, durationMs, effectiveInputDeviceId));
     void acquisition.then((recording) => {
       if (active.cancelled || this.#active !== active) {
         void recording.cancel().catch(() => undefined);
@@ -165,12 +180,13 @@ export class VoiceCaptureService {
       };
     } catch (error) {
       await this.#cleanup(active);
+      if (!active.terminalLogged) this.#logTerminal(active, "failed", { errorCode: error instanceof Error ? error.name : "unknown" });
       throw normalizeError(error);
     }
   }
 
-  async captureOneShot(timeoutMs: number, microphoneReservation?: VoiceMicrophoneReservation): Promise<VoiceCaptureResult> {
-    const handle = await this.start(timeoutMs, microphoneReservation);
+  async captureOneShot(timeoutMs: number, microphoneReservation?: VoiceMicrophoneReservation, inputDeviceId: string | null = null): Promise<VoiceCaptureResult> {
+    const handle = await this.start(timeoutMs, microphoneReservation, inputDeviceId);
     return handle.result;
   }
 
@@ -191,7 +207,32 @@ export class VoiceCaptureService {
     active.cancelled = true;
     active.cancelError = error;
     active.rejectCancel(error);
+    this.#logTerminal(active, "cancelled", { reason: cancellationReason(error.message) });
     if (!active.recording) void active.attempt.cancel().catch(() => undefined);
+  }
+
+  async #acquireWithDefaultFallback(active: ActiveCapture, durationMs: number, inputDeviceId: string | null): Promise<VoiceCaptureRecording> {
+    try {
+      return await active.attempt.acquire();
+    } catch (error) {
+      if (active.cancelled || active.indicatorLive || inputDeviceId === null || !isSelectedInputUnavailableError(error)) {
+        throw error;
+      }
+
+      await active.attempt.dispose().catch(() => undefined);
+      if (active.cancelled) throw active.cancelError ?? new VoiceCaptureCancelledError();
+      active.attempt = this.#factory(durationMs, () => {
+        if (active.cancelled || this.#active !== active) return false;
+        active.indicatorLive = true;
+        this.#indicator.trackStarted();
+        if (!active.acquiredLogged) {
+          active.acquiredLogged = true;
+          info("voice", "capture acquired", { elapsedMs: Date.now() - active.requestedAt });
+        }
+        return true;
+      }, null);
+      return await active.attempt.acquire();
+    }
   }
 
   async #cancelHandle(active: ActiveCapture, reason: string): Promise<void> {
@@ -221,18 +262,29 @@ export class VoiceCaptureService {
       }
       await this.#cleanup(active);
       if (failure) {
+        if (!active.terminalLogged) this.#logTerminal(active, "failed", { errorCode: failure.name });
         active.result.reject(failure);
         throw failure;
       }
       if (!capture) {
         const missing = new Error("Voice capture produced no audio.");
+        this.#logTerminal(active, "failed", { errorCode: "voice.capture.empty" });
         active.result.reject(missing);
         throw missing;
       }
+      this.#logTerminal(active, "finished", { mimeType: capture.mimeType, byteCount: capture.bytes.byteLength });
       active.result.resolve(capture);
       return capture;
     })();
     return active.finishing;
+  }
+
+  #logTerminal(active: ActiveCapture, outcome: "finished" | "cancelled" | "failed", fields: Record<string, unknown> = {}): void {
+    if (active.terminalLogged) return;
+    active.terminalLogged = true;
+    const logFields = { elapsedMs: Date.now() - active.requestedAt, ...fields };
+    if (outcome === "failed") warn("voice", "capture failed", logFields);
+    else info("voice", outcome === "finished" ? "capture finished" : "capture cancelled", logFields);
   }
 
   async #cleanup(active: ActiveCapture): Promise<void> {
@@ -272,6 +324,18 @@ function deferred<T>(): Deferred<T> {
 
 function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function cancellationReason(message: string): "user" | "session" | "capture" {
+  if (/shutdown|session|ended/i.test(message)) return "session";
+  if (/timed out|recording/i.test(message)) return "capture";
+  return "user";
+}
+
+function isSelectedInputUnavailableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = "name" in error && typeof error.name === "string" ? error.name : "";
+  return name === "NotFoundError" || name === "OverconstrainedError";
 }
 
 function toTrackLease(lease: { readonly generation: number; release(): void } | undefined): VoiceMicrophoneTrackLease | null {

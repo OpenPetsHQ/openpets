@@ -5,12 +5,17 @@ import {
   type HostProviderOperations,
 } from "./provider-service.js";
 import { TextModelClient } from "./text-model-client.js";
+import type { ProviderTranscriptionTestSession } from "./provider-configuration-test-session.js";
 
 const previewText = "This is an OpenPets provider configuration test.";
 
-export type ProviderTestAudio = {
+export type ProviderTranscriptionAudio = {
   readonly bytes: Uint8Array;
   readonly mimeType: string;
+};
+
+export type ProviderTranscriptionTestStart = {
+  readonly session: ProviderTranscriptionTestSession;
 };
 
 export type ProviderConfigurationTestResult =
@@ -23,7 +28,7 @@ export type ProviderConfigurationTestResult =
 export async function testProviderConfiguration(
   profile: ProviderProfile,
   credential: string | undefined,
-  audio?: ProviderTestAudio,
+  signal?: AbortSignal,
 ): Promise<ProviderConfigurationTestResult> {
   const service = new HostProviderService({ get: async () => undefined } as never, { timeoutMs: 20_000 });
 
@@ -49,12 +54,7 @@ export async function testProviderConfiguration(
   }
 
   if (profile.adapter === "openai-compatible-transcription" || profile.adapter === "elevenlabs-transcription") {
-    if (!audio || audio.bytes.byteLength === 0) {
-      throw new Error("Record a short sample before testing transcription.");
-    }
-    const operation = createProviderOperationSnapshot(profile, "stt", credential);
-    const transcript = await service.transcribe(operation, audio.bytes, audio.mimeType);
-    return { kind: "stt", detail: transcript || "Transcription completed (no speech detected)." };
+    throw new Error("Transcription tests must use a host capture session.");
   }
 
   const operation = createProviderOperationSnapshot(profile, "tts", credential);
@@ -63,6 +63,31 @@ export async function testProviderConfiguration(
     throw new Error("The selected provider did not return speech audio.");
   }
   return { kind: "tts", bytes: speech.bytes, mimeType: speech.mimeType };
+}
+
+export async function transcribeProviderConfigurationAudio(
+  profile: ProviderProfile,
+  credential: string | undefined,
+  audio: ProviderTranscriptionAudio,
+  signal?: AbortSignal,
+): Promise<ProviderConfigurationTestResult> {
+  if (audio.bytes.byteLength === 0) throw new Error("Provider transcription audio is empty.");
+  const service = new HostProviderService({ get: async () => undefined } as never, { timeoutMs: 20_000 });
+  const operation = createProviderOperationSnapshot(profile, "stt", credential);
+  const transcript = await service.transcribe(operation, audio.bytes, audio.mimeType, signal);
+  return { kind: "stt", detail: transcript || "Transcription completed (no speech detected)." };
+}
+
+export async function beginProviderTranscriptionTest(
+  profile: ProviderProfile,
+  credential: string | undefined,
+): Promise<ProviderTranscriptionTestStart> {
+  const { startProviderTranscriptionTest } = await import("./provider-configuration-test-session.js");
+  const operation = createProviderOperationSnapshot(profile, "stt", credential);
+  const service = new HostProviderService({ get: async () => undefined } as never, { timeoutMs: 20_000 });
+  const session = startProviderTranscriptionTest((capture, signal) =>
+    service.transcribe(operation, capture.bytes, capture.mimeType, signal));
+  return { session };
 }
 
 function operationFacade(

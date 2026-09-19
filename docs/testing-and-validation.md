@@ -37,8 +37,8 @@ dist checks. Three buckets:
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
-  mapping, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for the
-  privacy indicator, capture cancellation/cleanup races, separate timeouts,
+  mapping, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
+  microphone-track accounting, capture cancellation/cleanup races, separate timeouts,
   empty transcripts, and shutdown behavior. `remote-control.test.ts` covers
   secure opt-in configuration, verifier-only persistence, authentication,
   scopes, malformed/oversized requests, rate limiting, rotation, revocation,
@@ -58,10 +58,26 @@ dist checks. Three buckets:
    fake-endpoint routing, native ElevenLabs Scribe multipart transcription,
    configured TTS voice previews, temporary draft
    credentials, native versus compatible codecs, operation snapshots,
-  redacted status, and no-fetch unsupported realtime. Tests use fake fetches and
-  no credentials. The provider settings tests also cover atomic save rollback
-  after credential failure, redacted-header add/delete edits, and preservation
-  of secrets outside Control Center snapshots.
+   redacted status, and no-fetch unsupported realtime. Tests use fake fetches and
+   no credentials. The provider settings tests also cover atomic save rollback
+   after credential failure, redacted-header add/delete edits, and preservation
+    of secrets outside Control Center snapshots.
+- Voice Talk behavior tests cover the atomic recording-to-processing transition,
+  double/triple primary toggles without cancellation or parallel turns, capture
+  stop followed by STT/assistant/synthesis, immediate response bubbles before TTS
+  settles, no automatic re-listen after completed speech, explicit activation for
+  the next turn, and the non-destructive native Realtime primary toggle plus its
+  response-completed shutdown boundary. They assert outcomes rather than
+  diagnostic log wording.
+- Voice device tests cover preference normalization/persistence, preferred/default/
+  unavailable resolution, immutable operation snapshots, selected-input propagation
+  through generic capture and Realtime transport, the truthful unsupported-output
+  snapshot, and Control Center voice devices UI/preload contracts (`control-center-voice-devices.test.ts` and `control-center-preload.test.ts`). They use injected device lists and do not depend on OS hardware.
+- Talk/provider lifecycle diagnostics are validated through the existing focused
+  voice and provider behavior tests by preserving their observable cancellation,
+  timeout, output, and cleanup outcomes. Logging tests should not assert exact log
+  wording or raw content; when diagnostics change, validate the relevant focused
+  behavior and the desktop typecheck instead.
 - **Contract** (`apps/desktop/contracts/*.contract.ts`): the public boundaries - - `catalog-fixture.contract.ts` - catalog validation against fixture data.
   - `local-ipc-protocol.contract.ts` - IPC request/response parsing
     ([IPC and remote control](/ipc)).

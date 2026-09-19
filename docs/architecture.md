@@ -214,9 +214,10 @@ in memory. Each links to the doc that details it.
   permission-checked calls to pet/schedule/storage/UI/etc. See [Plugin platform](/plugins)
   and [Plugin SDK v3](/sdk).
 - **Listening through a plugin.** `voice.listen()` performs one bounded capture in
-  a host-owned temporary session, shows the privacy indicator only after microphone
+  a host-owned temporary session, records live microphone ownership only after
   acquisition succeeds, transcribes through the configured provider, and cleans up
-  on success, cancellation, timeout, teardown, or shutdown. It is never ambient.
+  on success, cancellation, timeout, teardown, or shutdown. It creates no detached
+  privacy window and is never ambient.
 - **Realtime voice adapter.** The host contains an optional optimized OpenAI
   Realtime adapter over the same Pet Assistant conversation. A hidden sandboxed
   renderer validates and normalizes provider events; the main process validates
@@ -269,12 +270,18 @@ These hold everywhere; the rest of the docs assume them.
   strict CSP; plugins run in a permission-gated sandbox; local IPC over TCP is
   restricted to private/loopback addresses; remote control is separate,
   disabled-by-default, explicitly bound, authenticated, and scope-limited.
-- **Voice is bounded and visible.** Listening is one-shot, one-at-a-time,
-  explicitly cancellable, visibly indicated while a media track is live, and
-  bounded by separate microphone-acquisition and transcription timeouts.
+- **Voice is bounded and tracked.** Listening is one-shot, one-at-a-time,
+  explicitly cancellable, tracked while a media track is live without a detached
+  indicator window, and bounded by separate microphone-acquisition and
+  transcription timeouts.
 - **Voice resource ownership is centralized.** Assistant, plugin one-shot, and
   native Realtime lanes release their own leases/tracks; only the shared voice
-  resource owner destroys the privacy indicator after every lane has stopped.
+  resource owner resets live-track accounting after every lane has stopped.
+- **Generated audio routing is explicit.** Network/generated audio is played by
+  the trusted persistent voice-media player (or trusted realtime document) with
+  a per-operation output snapshot. Unsupported or rejected sink routing is
+  reported as OS-default fallback; System TTS remains OS-routed through
+  `speechSynthesis` and never claims a selected speaker.
 - **Provider configuration is canonical and bounded.** Adapter definitions and
   presets have one pure source of truth; credentials follow adapter-specific
   required/optional/none policies; persisted settings are versioned and invalid

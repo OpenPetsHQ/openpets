@@ -22,7 +22,9 @@ export type LogScope =
   | "teams"
   | "terminal-focus"
   | "window-tracker"
-  | "capabilities";
+  | "capabilities"
+  | "voice"
+  | "provider";
 
 type LogFields = Record<string, unknown>;
 

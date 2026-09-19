@@ -24,7 +24,6 @@ import {
   type ProviderAuth,
   type ProviderHeaderPatch,
   type ProviderConfigurationSaveInput,
-  type ProviderConfigurationTestAudio,
   type ProviderConfigurationTestResult,
   type ProviderPreset,
   type ProviderProfileInput,
@@ -54,8 +53,12 @@ export type ProviderModalProps = {
   readonly onSave: (params: ProviderConfigurationSaveInput) => Promise<void>;
   readonly onTest: (
     params: ProviderConfigurationSaveInput,
-    audio?: ProviderConfigurationTestAudio,
   ) => Promise<ProviderConfigurationTestResult>;
+  readonly onBeginTranscriptionTest: (params: ProviderConfigurationSaveInput) => Promise<{ readonly sessionId: string }>;
+  readonly onFinishTranscriptionTest: (sessionId: string) => Promise<ProviderConfigurationTestResult>;
+  readonly onCancelTranscriptionTest: (sessionId?: string) => Promise<void>;
+  readonly onPlayPreview: (bytes: Uint8Array, mimeType: string) => Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+  readonly onStopPreview: () => Promise<void>;
 };
 
 const ADAPTER_OPTIONS: readonly ProviderAdapter[] = [
@@ -107,6 +110,11 @@ export function ProviderModal({
   onClose,
   onSave,
   onTest,
+  onBeginTranscriptionTest,
+  onFinishTranscriptionTest,
+  onCancelTranscriptionTest,
+  onPlayPreview,
+  onStopPreview,
 }: ProviderModalProps) {
   const { t } = useI18n();
   const presets = getPresetCatalog(rawPresets ? { presets: rawPresets } : null);
@@ -136,7 +144,8 @@ export function ProviderModal({
   const [isSaving, setIsSaving] = useState(false);
   const [testStage, setTestStage] = useState<"idle" | "recording" | "testing">("idle");
   const [testResult, setTestResult] = useState<string | null>(null);
-  const testRecorderRef = useRef<MediaRecorder | null>(null);
+  const testSessionIdRef = useRef<string | null>(null);
+  const transcriptionStartGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -254,10 +263,29 @@ export function ProviderModal({
   const isSystem = adapter === "system-tts";
 
   useEffect(() => {
-    return () => {
-      testRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
-    };
+    if (isOpen) return;
+    const sessionId = testSessionIdRef.current;
+    testSessionIdRef.current = null;
+    void onCancelTranscriptionTest(sessionId ?? undefined).catch(() => undefined);
+    void onStopPreview().catch(() => undefined);
+  }, [isOpen]);
+
+  useEffect(() => () => {
+    transcriptionStartGenerationRef.current += 1;
+    const sessionId = testSessionIdRef.current;
+    testSessionIdRef.current = null;
+    void onCancelTranscriptionTest(sessionId ?? undefined).catch(() => undefined);
+    void onStopPreview().catch(() => undefined);
   }, []);
+
+  async function handleClose(): Promise<void> {
+    transcriptionStartGenerationRef.current += 1;
+    const sessionId = testSessionIdRef.current;
+    testSessionIdRef.current = null;
+    await onCancelTranscriptionTest(sessionId ?? undefined).catch(() => undefined);
+    await onStopPreview().catch(() => undefined);
+    onClose();
+  }
 
   function buildConfigurationInput(shouldActivateRoles: boolean): ProviderConfigurationSaveInput | null {
     setFormError(null);
@@ -383,16 +411,19 @@ export function ProviderModal({
 
   async function runProviderTest(
     input: ProviderConfigurationSaveInput,
-    audio?: ProviderConfigurationTestAudio,
   ) {
     setTestStage("testing");
     setFormError(null);
     setTestResult(null);
     try {
-      const result = await onTest(input, audio);
+      const result = await onTest(input);
       if (result.kind === "tts") {
-        playPreviewAudio(result.bytes, result.mimeType);
-        setTestResult(t("settings.providers.modal.test.voicePreviewReady"));
+        const playback = await onPlayPreview(result.bytes, result.mimeType);
+        setTestResult(
+          playback.output === "selected"
+            ? t("settings.providers.modal.test.voicePreviewReady")
+            : `${t("settings.providers.modal.test.voicePreviewReady")} Output fallback: ${playback.reason ?? "system default"}.`,
+        );
       } else if (result.kind === "system-tts") {
         playSystemVoicePreview(voice);
         setTestResult(t("settings.providers.modal.test.voicePreviewReady"));
@@ -407,27 +438,14 @@ export function ProviderModal({
   }
 
   async function startTranscriptionTest(input: ProviderConfigurationSaveInput) {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setFormError(t("settings.providers.modal.test.recordingUnavailable"));
-      return;
-    }
+    const generation = ++transcriptionStartGenerationRef.current;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(stream);
-      testRecorderRef.current = recorder;
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      });
-      recorder.addEventListener("stop", () => {
-        stream.getTracks().forEach((track) => track.stop());
-        testRecorderRef.current = null;
-        const mimeType = recorder.mimeType || "audio/webm";
-        void new Blob(chunks, { type: mimeType }).arrayBuffer().then((buffer) =>
-          runProviderTest(input, { bytes: new Uint8Array(buffer), mimeType }),
-        );
-      }, { once: true });
-      recorder.start();
+      const { sessionId } = await onBeginTranscriptionTest(input);
+      if (generation !== transcriptionStartGenerationRef.current || !isOpen) {
+        await onCancelTranscriptionTest(sessionId).catch(() => undefined);
+        return;
+      }
+      testSessionIdRef.current = sessionId;
       setTestStage("recording");
       setTestResult(t("settings.providers.modal.test.recording"));
     } catch (error: unknown) {
@@ -437,8 +455,15 @@ export function ProviderModal({
 
   function handleTest() {
     if (testStage === "recording") {
-      testRecorderRef.current?.stop();
+      const sessionId = testSessionIdRef.current;
+      if (!sessionId) return;
+      testSessionIdRef.current = null;
       setTestStage("testing");
+      void onFinishTranscriptionTest(sessionId).then((result) => {
+        setTestResult(result.kind === "stt" ? result.detail : t("settings.providers.modal.test.failed"));
+      }).catch((error: unknown) => {
+        setFormError(error instanceof Error ? error.message : t("settings.providers.modal.test.failed"));
+      }).finally(() => setTestStage("idle"));
       return;
     }
     const input = buildConfigurationInput(false);
@@ -448,16 +473,6 @@ export function ProviderModal({
       return;
     }
     void runProviderTest(input);
-  }
-
-  function playPreviewAudio(bytes: Uint8Array, mimeType: string) {
-    const audioBytes = bytes.slice().buffer as ArrayBuffer;
-    const url = URL.createObjectURL(new Blob([audioBytes], { type: mimeType }));
-    const audio = new Audio(url);
-    const release = () => URL.revokeObjectURL(url);
-    audio.addEventListener("ended", release, { once: true });
-    audio.addEventListener("error", release, { once: true });
-    void audio.play().catch(release);
   }
 
   function playSystemVoicePreview(selectedVoice: string) {
@@ -519,7 +534,7 @@ export function ProviderModal({
         className="plugin-config-backdrop"
         type="button"
         aria-label="Close dialog"
-        onClick={() => !isBusy && onClose()}
+        onClick={() => !Boolean(busy) && !isSaving && void handleClose()}
       />
       <div className="relative z-10 flex max-h-[calc(100vh-4rem)] w-[min(640px,calc(100vw-3rem))] flex-col gap-4 rounded-[28px] border border-blue-100/80 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-2xl overflow-y-auto">
         {/* Modal Header */}
@@ -542,8 +557,8 @@ export function ProviderModal({
           <button
             type="button"
             className="text-slatecopy hover:text-navy dark:hover:text-slate-100 cursor-pointer p-1"
-            disabled={isBusy}
-            onClick={onClose}
+            disabled={Boolean(busy) || isSaving}
+            onClick={() => void handleClose()}
             aria-label="Close"
           >
             <CloseIcon />
@@ -792,8 +807,8 @@ export function ProviderModal({
             <button
               type="button"
               className="btn btn-secondary btn-compact text-xs"
-              disabled={isBusy}
-              onClick={onClose}
+              disabled={Boolean(busy) || isSaving}
+              onClick={() => void handleClose()}
             >
               {t("settings.providers.modal.cancel")}
             </button>

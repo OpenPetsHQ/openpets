@@ -2,7 +2,7 @@ import { app, globalShortcut, powerMonitor } from "electron";
 import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
-import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock } from "./app-state.js";
+import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock, updatePreferences } from "./app-state.js";
 import { createAppIcon } from "./assets.js";
 import { summarizeLegacyCodexV2MigrationSkips } from "./codex-pet-migration.js";
 import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
@@ -27,7 +27,7 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterManagerCheckInForm, openControlCenterWindow } from "./windows.js";
+import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterManagerCheckInForm, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
 import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeChatShortcut } from "./chat-shortcut.js";
@@ -35,6 +35,9 @@ import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
 import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
 import { findTeamEnrollmentLink } from "./team-protocol.js";
+import { resolveDevControlCenterRoute } from "./control-center-route.js";
+import { getSharedVoiceDeviceService } from "./voice-device-service.js";
+import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
 
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
@@ -156,6 +159,21 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
+    getSharedVoiceDeviceService({
+      enumerate: enumerateTrustedVoiceDevices,
+      probeOutputSelection: probeTrustedVoiceOutput,
+      getPreferences: () => {
+        const preferences = getAppStateSnapshot().preferences;
+        return {
+          preferredInputDeviceId: preferences.preferredVoiceInputDeviceId,
+          preferredOutputDeviceId: preferences.preferredVoiceOutputDeviceId,
+        };
+      },
+      savePreferences: (preferences) => updatePreferences({
+        ...(preferences.preferredInputDeviceId === undefined ? {} : { preferredVoiceInputDeviceId: preferences.preferredInputDeviceId }),
+        ...(preferences.preferredOutputDeviceId === undefined ? {} : { preferredVoiceOutputDeviceId: preferences.preferredOutputDeviceId }),
+      }),
+    });
     await recoverPetInstallTransactions({
       petsRoot: getPetsRoot(),
       onWarning: ({ message, petId }) => warn("state", message, petId ? { petId } : undefined),
@@ -315,6 +333,16 @@ if (!gotSingleInstanceLock) {
     })().catch((error) => logError("app", "plugin service startup failed", error));
     void checkForGitHubReleaseUpdate().then(() => refreshTrayMenu());
     info("app", "startup complete", { logFile: getLogFilePath(), openDefaultPetOnLaunch: shouldOpenDefaultPetOnLaunch() });
+    const devRoute = app.isPackaged
+      ? null
+      : resolveDevControlCenterRoute(process.env.OPENPETS_DEV_ROUTE, false);
+    if (devRoute?.kind === "invalid") {
+      warn("ui", "ignored invalid OPENPETS_DEV_ROUTE", { value: devRoute.rawValue });
+    } else if (devRoute?.kind === "route") {
+      openControlCenterWindow(devRoute.route);
+    } else if (devRoute?.kind === "target") {
+      openControlCenterWindowTarget(devRoute.target);
+    }
     console.log("OpenPets desktop shell ready.");
   }).catch((error: unknown) => {
     releaseStartupInstallLock();

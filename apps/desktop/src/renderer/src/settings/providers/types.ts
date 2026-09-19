@@ -102,11 +102,6 @@ export type ProviderConfigurationSaveInput = {
   readonly deactivatedRoles: readonly ProviderRole[];
 };
 
-export type ProviderConfigurationTestAudio = {
-  readonly bytes: Uint8Array;
-  readonly mimeType: string;
-};
-
 export type ProviderConfigurationTestResult =
   | { readonly kind: "text"; readonly detail: string }
   | { readonly kind: "stt"; readonly detail: string }

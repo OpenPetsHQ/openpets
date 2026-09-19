@@ -22,9 +22,9 @@ import {
   type ProviderProfileInput,
   type ProviderProfilePatch,
   type ProviderConfigurationSaveInput,
-  type ProviderConfigurationTestAudio,
   type ProviderConfigurationTestResult,
 } from "./settings/providers/index.js";
+import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
 import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
 import { resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
@@ -169,6 +169,9 @@ type ControlCenterApi = {
   submitManagerCheckIn(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
   setManagerCheckInScheduledOffersPaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
+  getVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  refreshVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  saveVoiceDevicePreferences(preferences: { preferredInputDeviceId?: string | null; preferredOutputDeviceId?: string | null }): Promise<VoiceDevicesSnapshot>;
   getConversationHistory(): Promise<readonly PetAssistantArchivedMessage[]>;
   deleteConversationHistoryMessage(id: string): Promise<{ deleted: boolean }>;
   clearConversationHistory(): Promise<{ cleared: true }>;
@@ -200,7 +203,12 @@ type ControlCenterApi = {
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
   saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
-  testProviderConfiguration(input: ProviderConfigurationSaveInput, audio?: ProviderConfigurationTestAudio): Promise<ProviderConfigurationTestResult>;
+   testProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderConfigurationTestResult>;
+   beginProviderTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }>;
+   finishProviderTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult>;
+   cancelProviderTranscriptionTest(sessionId?: string): Promise<{ readonly cancelled: boolean }>;
+   playProviderPreview(bytes: Uint8Array, mimeType: string): Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+   stopProviderPreview(): Promise<void>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   updateProviderGates(patch: ProviderGatesPatch): Promise<ProviderControlCenterSnapshot>;
@@ -217,7 +225,7 @@ type ControlCenterApi = {
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
-  onRouteChange(callback: (route: Route) => void): () => void;
+  onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
   onPluginsRefresh(callback: () => void): () => void;
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
@@ -525,6 +533,9 @@ type TeamsSnapshot = {
   }>;
 };
 type Route = "dashboard" | "pets" | "settings" | "plugins" | "integrations" | "teams";
+type ControlCenterRouteTarget =
+  | { readonly route: "settings"; readonly settingsTab?: "providers" }
+  | { readonly route: Exclude<Route, "settings">; readonly settingsTab?: never };
 
 
 const DashboardIcon = () => (
@@ -940,13 +951,22 @@ function isRoute(value: string | null | undefined): value is Route {
   return value === "dashboard" || value === "pets" || value === "settings" || value === "plugins" || value === "integrations" || value === "teams";
 }
 
-function initialControlCenterRoute(): Route {
+function isControlCenterRouteTarget(value: unknown): value is ControlCenterRouteTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as { readonly route?: unknown; readonly settingsTab?: unknown };
+  if (!isRoute(typeof target.route === "string" ? target.route : undefined)) return false;
+  return target.settingsTab === undefined || (target.route === "settings" && target.settingsTab === "providers");
+}
+
+function initialControlCenterRoute(): ControlCenterRouteTarget {
   try {
     const params = new URLSearchParams(window.location.search);
     const route = params.get("route");
-    return isRoute(route) ? route : "dashboard";
+    const settingsTab = params.get("settingsTab");
+    if (!isRoute(route)) return { route: "dashboard" };
+    return route === "settings" && settingsTab === "providers" ? { route, settingsTab } : { route };
   } catch {
-    return "dashboard";
+    return { route: "dashboard" };
   }
 }
 
@@ -1302,7 +1322,7 @@ const settingsNavGroups: ReadonlyArray<{
   },
 ];
 
-function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void; onTokenHandoff: (result: RemotePairingResult, endpoint: string | null) => void }) {
+function SettingsView({ initialTab = "general", onAppearanceThemeChange, onTokenHandoff }: { initialTab?: SettingsTab; onAppearanceThemeChange: (theme: AppearanceTheme) => void; onTokenHandoff: (result: RemotePairingResult, endpoint: string | null) => void }) {
   const { t, localePreference, availableLocales, reload: reloadI18n } = useI18n();
   const [settings, setSettings] = useState<SettingsState | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState<string | null>(null);
@@ -1313,9 +1333,11 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
   const [launchAtLogin, setLaunchAtLogin] = useState<LaunchAtLoginState | null>(null);
   const [lanStatus, setLanStatus] = useState<LanStatusSnapshot | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [pluginsSnapshot, setPluginsSnapshot] = useState<PluginServiceSnapshot | null>(null);
   const [providerSnapshot, setProviderSnapshot] = useState<ProviderControlCenterSnapshot | null>(null);
+  const [voiceDevicesSnapshot, setVoiceDevicesSnapshot] = useState<VoiceDevicesSnapshot | null>(null);
+  const [refreshingVoiceDevices, setRefreshingVoiceDevices] = useState(false);
   const [personalityDraft, setPersonalityDraft] = useState<PetAssistantPersonality | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -1324,7 +1346,7 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
 
   async function loadSettings() {
     setError("");
-    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot] = await Promise.all([
+    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot, nextVoiceDevices] = await Promise.all([
       api.getSettingsState(),
       api.getReactionAnimationSettings(),
       api.getLaunchAtLogin(),
@@ -1332,6 +1354,7 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
       api.getProviderProfiles().catch(() => null),
       api.getLanStatus().catch(() => null),
       api.getPluginsSnapshot().catch(() => null),
+      api.getVoiceDevices().catch(() => null),
     ]);
     setSettings(nextSettings);
     setShortcutDraft(nextSettings.preferences.voiceAssistantShortcut ?? "");
@@ -1343,6 +1366,7 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     setLaunchAtLogin(nextLaunch);
     setUpdateStatus(nextUpdate);
     setProviderSnapshot(nextProvider);
+    setVoiceDevicesSnapshot(nextVoiceDevices);
     setLanStatus(nextLanStatus);
     setPluginsSnapshot(nextPluginsSnapshot);
     if (nextUpdate.state === "checking") {
@@ -1351,6 +1375,8 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
   }
 
   useEffect(() => { void loadSettings().catch((err) => setError(String(err?.message ?? err))); }, []);
+
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
 
   useEffect(() => api.onPluginsRefresh(() => {
     void api.getPluginsSnapshot().then(setPluginsSnapshot).catch((err) => setError(String(err?.message ?? err)));
@@ -1505,6 +1531,43 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
+  async function handleSelectInputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredInputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.inputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
+    });
+  }
+
+  async function handleSelectOutputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredOutputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.outputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
+    });
+  }
+
+  async function handleRefreshVoiceDevices() {
+    setRefreshingVoiceDevices(true);
+    try {
+      const next = await api.refreshVoiceDevices();
+      setVoiceDevicesSnapshot(next);
+      setMessage(t("settings.voiceDevices.toast.refreshed"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.refreshFailed"));
+    } finally {
+      setRefreshingVoiceDevices(false);
+    }
+  }
+
   const isMoverActive = (pluginsSnapshot?.plugins ?? []).some(
     (p) => p.enabled && p.approvedPermissions.includes("pet:move")
   );
@@ -1577,6 +1640,18 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                 </div>
               </div>
 
+            </div>
+
+            <div className="settings-section">
+              <h2 className="settings-section-title">{t("settings.voiceDevices.sectionTitle")}</h2>
+              <VoiceDevicesSection
+                snapshot={voiceDevicesSnapshot}
+                busy={busy}
+                isRefreshing={refreshingVoiceDevices}
+                onSelectInputDevice={handleSelectInputDevice}
+                onSelectOutputDevice={handleSelectOutputDevice}
+                onRefresh={() => void handleRefreshVoiceDevices()}
+              />
             </div>
 
             <div className="settings-section">
@@ -4437,7 +4512,9 @@ function PluginsView() {
 
 function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void }) {
   const { t } = useI18n();
-  const [currentRoute, setCurrentRoute] = useState<Route>(() => initialControlCenterRoute());
+  const [initialTarget] = useState<ControlCenterRouteTarget>(() => initialControlCenterRoute());
+  const [currentRoute, setCurrentRoute] = useState<Route>(initialTarget.route);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(initialTarget.settingsTab);
   const [remoteTokenHandoff, setRemoteTokenHandoff] = useState<RemoteTokenHandoffState>(null);
   const [state, setState] = useState<StateSnapshot | null>(null);
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
@@ -4453,8 +4530,16 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const petDetailDialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => api.onRouteChange((route) => {
-    if (isRoute(route)) setCurrentRoute(route);
+  function navigateToRoute(route: Route): void {
+    setCurrentRoute(route);
+    setSettingsTab(undefined);
+  }
+
+  useEffect(() => api.onRouteChange((target) => {
+    if (isControlCenterRouteTarget(target)) {
+      setCurrentRoute(target.route);
+      setSettingsTab(target.route === "settings" ? target.settingsTab : undefined);
+    }
   }), []);
 
   async function loadPetsData() {
@@ -4693,7 +4778,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
             <button
               key={tab.id}
               className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
-              onClick={() => setCurrentRoute(tab.id)}
+              onClick={() => navigateToRoute(tab.id)}
             >
               {tab.icon}
               <span>{label}</span>
@@ -4705,15 +4790,21 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       {error && <div className="error">{error}</div>}
 
       {currentRoute === "dashboard" ? (
-        <DashboardView onNavigate={setCurrentRoute} />
+        <DashboardView onNavigate={navigateToRoute} />
       ) : currentRoute === "settings" ? (
-        <SettingsView onAppearanceThemeChange={onAppearanceThemeChange} onTokenHandoff={(result, endpoint) => setRemoteTokenHandoff({ result, endpoint })} />
+        <SettingsView initialTab={settingsTab ?? "general"} onAppearanceThemeChange={onAppearanceThemeChange} onTokenHandoff={(result, endpoint) => setRemoteTokenHandoff({ result, endpoint })} />
       ) : currentRoute === "plugins" ? (
         <PluginsView />
       ) : currentRoute === "integrations" ? (
         <IntegrationsView />
       ) : currentRoute === "teams" ? (
-        <TeamsView api={api} onNavigate={setCurrentRoute} />
+        <TeamsView
+          api={{
+            ...api,
+            onRouteChange: (callback: (route: string) => void) => api.onRouteChange((target) => callback(target.route)),
+          }}
+          onNavigate={navigateToRoute}
+        />
       ) : (
         <div className="layout">
           <GlassCard className="gallery">

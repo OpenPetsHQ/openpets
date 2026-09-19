@@ -1,6 +1,7 @@
 import type { PluginSecretsStore } from "./plugin-secrets.js";
 import { defaultProviderAuth, getPluginPlatformSettings, profileSupportsRole, type ProviderProfile, type ProviderRole } from "./plugin-platform-settings.js";
 import { providerDefinition } from "./provider-contract.js";
+import { info, warn } from "./logger.js";
 
 export const hostSecretsOwner = "__openpets-host";
 export const providerSecretKey = (ref: string): string => `provider:${ref}`;
@@ -8,6 +9,14 @@ export const MINIMAX_MAX_AUDIO_BYTES = 64 * 1024 * 1024;
 const MINIMAX_MAX_RESPONSE_BYTES = MINIMAX_MAX_AUDIO_BYTES * 2 + 16 * 1024;
 const PROVIDER_ERROR_MAX_BYTES = 16 * 1024;
 const PROVIDER_ERROR_MAX_LENGTH = 1_024;
+
+type ProviderTerminalFields = {
+  readonly outcome?: "succeeded" | "failed" | "cancelled";
+  readonly outputBytes?: number;
+  readonly transcriptChars?: number;
+  readonly replyChars?: number;
+  readonly errorCode?: string;
+};
 
 export type ProviderOperationSnapshot = {
   readonly role: ProviderRole | "realtime";
@@ -91,7 +100,13 @@ export class HostProviderService implements HostProviderOperations {
     try {
       if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
       const text = await boundedText(request.response, maxBytes, request.abortPromise);
-      try { return JSON.parse(text) as unknown; } catch { throw providerError("Provider returned malformed JSON.", "provider.response.invalid"); }
+      let parsed: unknown;
+      try { parsed = JSON.parse(text) as unknown; } catch { throw providerError("Provider returned malformed JSON.", "provider.response.invalid"); }
+      request.finish({ outputBytes: byteLength(text), replyChars: providerReplyCharacterCount(parsed) });
+      return parsed;
+    } catch (error) {
+      request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
+      throw error;
     } finally { await request.release(); }
   }
 
@@ -99,7 +114,12 @@ export class HostProviderService implements HostProviderOperations {
     const request = await this.#request(snapshot, path, { method: "POST", headers: { "content-type": "application/json", accept: "audio/mpeg" }, body: JSON.stringify(body) }, signal);
     try {
       if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
-      return readBoundedBytes(request.response, 64 * 1024 * 1024, request.abortPromise, "Provider audio response is too large.");
+      const bytes = await readBoundedBytes(request.response, 64 * 1024 * 1024, request.abortPromise, "Provider audio response is too large.");
+      request.finish({ outputBytes: bytes.byteLength });
+      return bytes;
+    } catch (error) {
+      request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
+      throw error;
     } finally { await request.release(); }
   }
 
@@ -108,7 +128,11 @@ export class HostProviderService implements HostProviderOperations {
     try {
       if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
       if (!request.response.body) throw providerError(`Provider request failed with HTTP ${request.response.status}.`, "provider.request.failed");
-      await readSseStream(request.response.body, onData, request.abortPromise);
+      const streamResult = await readSseStream(request.response.body, onData, request.abortPromise);
+      request.finish({ outputBytes: streamResult.bytes, replyChars: streamResult.replyChars });
+    } catch (error) {
+      request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
+      throw error;
     } finally { await request.release(); }
   }
 
@@ -122,7 +146,12 @@ export class HostProviderService implements HostProviderOperations {
     try {
       if (!request.response.ok) throw await providerRequestError(request.response, "Transcription failed", request.abortPromise);
       const parsed = JSON.parse(await boundedText(request.response, 2 * 1024 * 1024, request.abortPromise)) as { text?: unknown };
-      return typeof parsed.text === "string" ? parsed.text : "";
+      const transcript = typeof parsed.text === "string" ? parsed.text : "";
+      request.finish({ transcriptChars: transcript.length });
+      return transcript;
+    } catch (error) {
+      request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
+      throw error;
     } finally { await request.release(); }
   }
 
@@ -155,18 +184,37 @@ export class HostProviderService implements HostProviderOperations {
     try {
       if (!request.response.ok) throw await providerRequestError(request.response, "Realtime negotiation failed", request.abortPromise);
       const answer = await boundedText(request.response, 2 * 1024 * 1024, request.abortPromise);
+      request.finish({ outputBytes: byteLength(answer) });
       return answer;
+    } catch (error) {
+      request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
+      throw error;
     } finally { await request.release(); }
   }
 
-  async #request(snapshot: ProviderOperationSnapshot, path: string, init: RequestInit, signal?: AbortSignal): Promise<{ readonly response: Response; readonly abortPromise: Promise<never>; readonly release: () => Promise<void> }> {
+  async #request(snapshot: ProviderOperationSnapshot, path: string, init: RequestInit, signal?: AbortSignal): Promise<{ readonly response: Response; readonly abortPromise: Promise<never>; readonly finish: (fields?: ProviderTerminalFields) => void; readonly release: () => Promise<void> }> {
     const controller = new AbortController();
     let rejectAbort!: (error: unknown) => void;
     const abortPromise = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
     let timedOut = false;
     let handedOff = false;
+    let terminalLogged = false;
+    const startedAt = Date.now();
+    let responseStatus: number | undefined;
+    const operation = providerOperation(snapshot);
+    const safePath = safeProviderPath(path);
+    info("provider", "provider operation requested", providerLogFields(snapshot, operation, safePath));
+    const finish = (fields: ProviderTerminalFields = {}): void => {
+      if (terminalLogged) return;
+      terminalLogged = true;
+      const terminalFields = { ...providerLogFields(snapshot, operation, safePath), status: responseStatus, elapsedMs: Date.now() - startedAt, outcome: fields.outcome ?? "succeeded", ...fields };
+      (terminalFields.outcome === "succeeded" ? info : warn)("provider", "provider operation finished", terminalFields);
+    };
     const abort = () => { controller.abort(); rejectAbort(providerError("Provider request was cancelled.", "provider.cancelled")); };
-    if (signal?.aborted) throw providerError("Provider request was cancelled.", "provider.cancelled");
+    if (signal?.aborted) {
+      finish({ outcome: "cancelled", errorCode: "provider.cancelled" });
+      throw providerError("Provider request was cancelled.", "provider.cancelled");
+    }
     signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); rejectAbort(providerError("Provider request timed out.", "provider.timeout")); }, this.#timeoutMs);
     try {
@@ -180,17 +228,26 @@ export class HostProviderService implements HostProviderOperations {
       const url = endpoint(snapshot.profile, path);
       const response = await Promise.race([this.#fetch(url, { ...init, headers, redirect: "error", signal: controller.signal }), abortPromise]);
       handedOff = true;
+      responseStatus = response.status;
       let released = false;
-      return { response, abortPromise, release: async () => {
+      return { response, abortPromise, finish, release: async () => {
         if (released) return;
         released = true;
+        finish({});
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);
         await response.body?.cancel().catch(() => undefined);
       } };
     } catch (error) {
-      if (signal?.aborted) throw providerError("Provider request was cancelled.", "provider.cancelled");
-      if (timedOut) throw providerError("Provider request timed out.", "provider.timeout");
+      if (signal?.aborted) {
+        finish({ outcome: "cancelled", errorCode: "provider.cancelled" });
+        throw providerError("Provider request was cancelled.", "provider.cancelled");
+      }
+      if (timedOut) {
+        finish({ outcome: "failed", errorCode: "provider.timeout" });
+        throw providerError("Provider request timed out.", "provider.timeout");
+      }
+      finish({ outcome: "failed", errorCode: providerErrorCode(error) });
       throw error;
     } finally { if (!handedOff) { clearTimeout(timeout); signal?.removeEventListener("abort", abort); } }
   }
@@ -247,8 +304,61 @@ function isProviderLifecycleError(error: unknown): boolean {
 }
 async function boundedText(response: Response, maxBytes: number, abortPromise: Promise<never>): Promise<string> { const length = Number(response.headers.get("content-length")); if (Number.isFinite(length) && length > maxBytes) throw providerError("Provider response is too large.", "provider.response.too_large"); if (!response.body) return ""; const bytes = await readBoundedBytes(response, maxBytes, abortPromise, "Provider response is too large."); return new TextDecoder().decode(bytes); }
 async function readBoundedBytes(response: Response, maxBytes: number, abortPromise: Promise<never>, message: string): Promise<Uint8Array> { const length = Number(response.headers.get("content-length")); if (Number.isFinite(length) && length > maxBytes) throw providerError(message, "provider.response.too_large"); if (!response.body) return new Uint8Array(); const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let bytes = 0; try { for (;;) { const { done, value } = await Promise.race([reader.read(), abortPromise]); if (done) break; bytes += value.byteLength; if (bytes > maxBytes) throw providerError(message, "provider.response.too_large"); chunks.push(value); } } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); } const result = new Uint8Array(bytes); let offset = 0; for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; } return result; }
-async function readSseStream(body: ReadableStream<Uint8Array>, onData: (data: string) => void, abortPromise: Promise<never>): Promise<void> { const reader = body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let bytes = 0; try { for (;;) { const { done, value } = await Promise.race([reader.read(), abortPromise]); if (done) break; bytes += value.byteLength; if (bytes > 32 * 1024 * 1024) throw providerError("Provider stream is too large.", "provider.response.too_large"); buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() ?? ""; for (const line of lines) { const item = line.trim(); if (item.startsWith("data:")) onData(item.slice(5).trim()); } } } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); } }
+async function readSseStream(body: ReadableStream<Uint8Array>, onData: (data: string) => void, abortPromise: Promise<never>): Promise<{ readonly bytes: number; readonly replyChars: number }> { const reader = body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let bytes = 0; let replyChars = 0; try { for (;;) { const { done, value } = await Promise.race([reader.read(), abortPromise]); if (done) break; bytes += value.byteLength; if (bytes > 32 * 1024 * 1024) throw providerError("Provider stream is too large.", "provider.response.too_large"); buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() ?? ""; for (const line of lines) { const item = line.trim(); if (item.startsWith("data:")) { const data = item.slice(5).trim(); replyChars += providerStreamReplyCharacterCount(data); onData(data); } } } } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); } return { bytes, replyChars }; }
 function extension(mime: string): string { const base = mime.toLowerCase().split(";", 1)[0] ?? ""; return base.includes("ogg") ? "ogg" : base.includes("wav") ? "wav" : base.includes("mp4") ? "mp4" : "webm"; }
+
+function providerOperation(snapshot: ProviderOperationSnapshot): "text" | "stt" | "tts" | "realtime" {
+  return snapshot.role === "realtime" ? "realtime" : snapshot.role;
+}
+
+function providerLogFields(snapshot: ProviderOperationSnapshot, operation: ReturnType<typeof providerOperation>, path: string): Record<string, unknown> {
+  return { operation, role: snapshot.role, adapter: snapshot.profile.adapter, profileId: snapshot.profile.id, path };
+}
+
+function safeProviderPath(path: string): string {
+  const withoutQuery = path.split(/[?#]/, 1)[0] ?? path;
+  if (/^\/text-to-speech\/[^/]+$/.test(withoutQuery)) return "/text-to-speech/:voice";
+  return /^\/[A-Za-z0-9._:/-]+$/.test(withoutQuery) ? withoutQuery : "/unknown";
+}
+
+function providerOutcome(error: unknown): "failed" | "cancelled" {
+  return providerErrorCode(error) === "provider.cancelled" ? "cancelled" : "failed";
+}
+
+function providerErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function providerReplyCharacterCount(value: unknown): number | undefined {
+  if (!isRecord(value)) return undefined;
+  if (Array.isArray(value.choices)) {
+    let count = 0;
+    let found = false;
+    for (const choice of value.choices) {
+      if (!isRecord(choice)) continue;
+      const message = isRecord(choice.message) ? choice.message : isRecord(choice.delta) ? choice.delta : choice;
+      for (const key of ["content", "text"]) {
+        if (typeof message[key] === "string") { count += message[key].length; found = true; }
+      }
+    }
+    return found ? count : undefined;
+  }
+  if (Array.isArray(value.content)) {
+    const texts = value.content.filter(isRecord).map((item) => item.text).filter((text): text is string => typeof text === "string");
+    return texts.length > 0 ? texts.reduce((total, text) => total + text.length, 0) : undefined;
+  }
+  return undefined;
+}
+
+function providerStreamReplyCharacterCount(data: string): number {
+  if (data === "[DONE]") return 0;
+  try { return providerReplyCharacterCount(JSON.parse(data) as unknown) ?? 0; } catch { return 0; }
+}
+
+function byteLength(value: string): number { return new TextEncoder().encode(value).byteLength; }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
 export async function deleteProviderCredentialForProfile(
   secretsStore: { delete(owner: string, key: string): Promise<void> },

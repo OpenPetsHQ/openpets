@@ -22,7 +22,12 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
 - **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
-- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, conversation archive management, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **Settings**: Startup, launch-at-login, pet scale, host Pet Assistant personality, voice devices hardware routing, conversation archive management, reaction-animation mapping, model and speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS), realtime status, host capability gates, update check, default-pet position reset, and pet reaction previews.
+- **General Settings**: Modularized under `settings/general/` for host-wide hardware preferences:
+  - `settings/general/VoiceDevicesSection.tsx`: Hardware audio device routing controls for microphone input and speaker output with truthful disconnected-fallback badges, capability gating, and refresh trigger.
+  - `settings/general/types.ts`: TypeScript contracts for voice device descriptions, resolutions, and snapshots.
+  - `settings/general/icons.tsx`: Dedicated SVG icons for audio devices and actions.
+  - `settings/general/index.ts`: Module entry.
 - **Conversation Archive Settings**: Modularized under `settings/history/` to provide Settings-owned management of the local persisted conversation history:
   - `settings/history/ConversationArchiveSection.tsx`: Settings-owned archive management view with privacy boundary notice, search filter, message list, turn metadata, single-entry delete, clear-all confirmation modal, and immediate state refresh.
   - `settings/history/types.ts`: Archive message models and bridge API contracts.

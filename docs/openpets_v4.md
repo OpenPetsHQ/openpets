@@ -118,8 +118,8 @@ pet slot so cleanup does not erase unrelated plugin display state.
 An activation owns one session and its microphone reservation. Ending releases
 that reservation; a later activation creates a fresh session. Assistant,
 plugin one-shot and native Realtime lane release only their own work. A
-shared host resource owner destroys the privacy indicator only after all lanes
-have stopped. #150 adds activation controls and the shared Conversation
+shared host resource owner resets live microphone-track accounting only after all
+lanes have stopped; no detached privacy window is created. #150 adds activation controls and the shared Conversation
 projection hookup while keeping provider authority host-owned;
 retained history is host-owned, owner-deletable in the Control Center, and
 remains separate from the active projection.

@@ -18,19 +18,9 @@ import {
   VOICE_TRANSCRIPTION_TIMEOUT_MS,
   VoiceListeningService,
 } from "../src/voice-listening-service.js";
-import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
+import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 import { VoiceOperationState } from "../src/voice-operation-state.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
-
-class FakeSurface implements VoicePrivacyIndicatorSurface {
-  showCount = 0;
-  hideCount = 0;
-  destroyCount = 0;
-
-  show(): void { this.showCount += 1; }
-  hide(): void { this.hideCount += 1; }
-  destroy(): void { this.destroyCount += 1; }
-}
 
 class FakeRecording implements VoiceCaptureRecording {
   readonly result: Promise<VoiceCaptureResult>;
@@ -115,7 +105,6 @@ class ControlledAttempt implements VoiceCaptureAttempt {
 }
 
 type Fixture = {
-  readonly surface: FakeSurface;
   readonly indicator: VoicePrivacyIndicator;
   readonly capture: VoiceCaptureService;
   readonly listening: VoiceListeningService;
@@ -126,15 +115,14 @@ function fixture(
   transcriber: (capture: VoiceCaptureResult, signal: AbortSignal) => Promise<string> = async () => "  hello  ",
   options: { acquisitionTimeoutMs?: number; transcriptionTimeoutMs?: number; onPhaseChange?: (phase: "acquiring" | "recording" | "transcribing") => void; microphoneArbiter?: VoiceMicrophoneArbiter } = {},
 ): Fixture {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   let attempt: ControlledAttempt | undefined;
   const capture = new VoiceCaptureService((_, onAcquired) => {
     attempt = new ControlledAttempt(onAcquired);
     return attempt;
   }, indicator, { acquisitionTimeoutMs: options.acquisitionTimeoutMs, microphoneArbiter: options.microphoneArbiter });
   const listening = new VoiceListeningService(capture, transcriber, { transcriptionTimeoutMs: options.transcriptionTimeoutMs, onPhaseChange: options.onPhaseChange });
-  return { surface, indicator, capture, listening, getAttempt: () => attempt! };
+  return { indicator, capture, listening, getAttempt: () => attempt! };
 }
 
 async function flush(): Promise<void> {
@@ -220,17 +208,13 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
 }
 
 {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   indicator.trackStarted();
   indicator.trackStarted();
   indicator.trackStopped();
   indicator.trackStopped();
   indicator.trackStopped();
   indicator.shutdown();
-  assert.equal(surface.showCount, 1);
-  assert.equal(surface.hideCount, 1);
-  assert.equal(surface.destroyCount, 1);
   assert.equal(indicator.liveTracks, 0);
 }
 
@@ -239,18 +223,32 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   const current = fixture(async () => "  hello  ", { onPhaseChange: (phase) => phases.push(phase) });
   const pending = current.listening.listenOnce(45_000);
   await flush();
-  assert.equal(current.surface.showCount, 0, "the indicator stays hidden while acquisition is pending");
+  assert.equal(current.indicator.liveTracks, 0, "microphone ownership stays inactive while acquisition is pending");
   assert.deepEqual(phases, ["acquiring"]);
   current.getAttempt().resolveAcquisition();
   await flush();
-  assert.equal(current.surface.showCount, 1, "the indicator starts only after microphone acquisition");
+  assert.equal(current.indicator.liveTracks, 1, "microphone ownership starts only after acquisition");
   assert.deepEqual(phases, ["acquiring", "recording"]);
   current.getAttempt().recording.resolveCapture();
   assert.deepEqual(await pending, { text: "hello" });
   assert.deepEqual(phases, ["acquiring", "recording", "transcribing"]);
-  assert.equal(current.surface.hideCount, 1);
+  assert.equal(current.indicator.liveTracks, 0);
   assert.equal(current.getAttempt().recording.closeCount, 1);
   assert.equal(current.getAttempt().disposeCount, 1);
+}
+
+// Submitting an active recording uses the recording stop path and continues
+// into transcription instead of cancelling the capture.
+{
+  const current = fixture(async () => "submitted text");
+  const pending = current.listening.listenOnce(45_000);
+  await flush();
+  current.getAttempt().resolveAcquisition();
+  await flush();
+  assert.equal(await current.listening.submit(), true);
+  assert.equal(current.getAttempt().recording.stopCount, 1);
+  assert.equal(current.getAttempt().recording.cancelCount, 0);
+  assert.deepEqual(await pending, { text: "submitted text" });
 }
 
 {
@@ -259,7 +257,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   await flush();
   await current.listening.cancel();
   await assert.rejects(pending, new RegExp(VOICE_CAPTURE_CANCELLED_ERROR));
-  assert.equal(current.surface.showCount, 0);
+  assert.equal(current.indicator.liveTracks, 0);
   assert.ok(current.getAttempt().cancelCount >= 1);
   assert.equal(current.getAttempt().disposeCount, 1);
 
@@ -267,7 +265,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   // resurrecting the indicator or the cancelled listen operation.
   current.getAttempt().resolveAcquisition();
   await flush();
-  assert.equal(current.surface.showCount, 0);
+  assert.equal(current.indicator.liveTracks, 0);
   assert.ok(current.getAttempt().recording.cancelCount >= 1);
   assert.ok(current.getAttempt().recording.closeCount >= 1);
 }
@@ -278,11 +276,11 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   await flush();
   current.getAttempt().resolveAcquisition();
   await flush();
-  assert.equal(current.surface.showCount, 1);
+  assert.equal(current.indicator.liveTracks, 1);
   await current.listening.cancel("The plugin was stopped.");
   await assert.rejects(pending, /The plugin was stopped\./);
   assert.ok(current.getAttempt().recording.cancelCount >= 1);
-  assert.equal(current.surface.hideCount, 1);
+  assert.equal(current.indicator.liveTracks, 0);
   assert.equal(current.getAttempt().disposeCount, 1);
 }
 
@@ -305,7 +303,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   assert.equal(signal?.aborted, true);
   resolveTranscription("late text");
   await flush();
-  assert.equal(current.surface.hideCount, 1);
+  assert.equal(current.indicator.liveTracks, 0);
 }
 
 {
@@ -314,7 +312,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   await assert.rejects(pending, /Microphone acquisition timed out\./);
   assert.ok(current.getAttempt().cancelCount >= 1);
   assert.equal(current.getAttempt().disposeCount, 1);
-  assert.equal(current.surface.showCount, 0);
+  assert.equal(current.indicator.liveTracks, 0);
 }
 
 {
@@ -330,7 +328,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   current.getAttempt().recording.resolveCapture();
   await assert.rejects(pending, new RegExp(VOICE_TRANSCRIPTION_TIMEOUT_ERROR));
   assert.equal(signal?.aborted, true);
-  assert.equal(current.surface.hideCount, 1);
+  assert.equal(current.indicator.liveTracks, 0);
 }
 
 {
@@ -360,7 +358,7 @@ assert.equal(VOICE_MAX_RECORDING_DURATION_MS, 30_000);
   await flush();
   await current.listening.shutdown();
   await assert.rejects(pending, /OpenPets is shutting down\./);
-  assert.equal(current.surface.destroyCount, 0, "shared privacy indicator teardown belongs to the host");
+  assert.equal(current.indicator.liveTracks, 0, "capture shutdown releases microphone ownership without destroying shared state");
   assert.equal(current.getAttempt().disposeCount, 1);
 }
 

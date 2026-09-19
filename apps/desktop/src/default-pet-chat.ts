@@ -199,7 +199,8 @@ export function installDefaultPetChatIpcHandlers(): void {
     return startVoiceAssistant();
   });
 
-  // Talk button on the pet: one click starts a session, one click ends it.
+  // Talk button on the pet: a second click submits an active generic recording
+  // and otherwise ends the session.
   handleChat("openpets:default-pet-chat-voice-toggle", () => {
     return toggleVoiceAssistant();
   });

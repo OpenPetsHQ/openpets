@@ -37,7 +37,8 @@ import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } f
 import { getRemoteControlService } from "./remote-control-service.js";
 import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
 import { deleteProviderCredentialForProfile } from "./provider-service.js";
-import { testProviderConfiguration, type ProviderTestAudio } from "./provider-configuration-test.js";
+import { beginProviderTranscriptionTest, testProviderConfiguration } from "./provider-configuration-test.js";
+import type { ProviderTranscriptionTestSession } from "./provider-configuration-test-session.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
@@ -62,30 +63,26 @@ import {
   type ProviderProfileInput,
   type ProviderConfigurationSaveInput,
 } from "./plugin-platform-settings.js";
+import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type ControlCenterRoute, type ControlCenterRouteTarget } from "./control-center-route.js";
+import { getSharedVoiceDeviceService } from "./voice-device-service.js";
+import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
+import { getSharedVoiceMediaPlayer } from "./voice-media-player.js";
+import { cancelProviderTranscriptionTestsForSender as cancelProviderTestsForSender, ProviderTestReplacementLanes, registerProviderTestInitialization } from "./provider-test-lifecycle.js";
 
 type InternalUiWindowKind = "control-center";
-export type ControlCenterRoute =
-  | "dashboard"
-  | "pets"
-  | "settings"
-  | "plugins"
-  | "integrations"
-  | "teams";
-
-const controlCenterRoutes = new Set<ControlCenterRoute>([
-  "dashboard",
-  "pets",
-  "settings",
-  "plugins",
-  "integrations",
-  "teams",
-]);
+export type { ControlCenterRoute } from "./control-center-route.js";
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
-let pendingControlCenterRoute: ControlCenterRoute | null = null;
+let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingManagerCheckInFormRequest = false;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
+let nextProviderTestSessionId = 0;
+const providerTestSessions = new Map<string, { readonly senderId: number; readonly session: ProviderTranscriptionTestSession }>();
+const providerTestInitializations = new Map<number, Set<AbortController>>();
+const providerTestReplacementLanes = new ProviderTestReplacementLanes();
+let providerPreviewRequestId: string | null = null;
+let nextProviderPreviewId = 0;
 const dockHideShowCooldownMs = 1100;
 
 function hasOpenInternalUiWindows(): boolean {
@@ -251,6 +248,7 @@ export function installInternalUiHandlers(): void {
   }
 
   internalUiHandlersInstalled = true;
+  app.on("before-quit", () => { void cancelAllProviderTranscriptionTests("OpenPets is shutting down."); });
 
   // Apply the persisted petConfinementEnabled preference as the initial value
   // for the confinement-manager flag. This runs once after app-state is loaded.
@@ -267,6 +265,30 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:get-settings-state", (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getSettingsStateSnapshot();
+  });
+
+  ipcMain.handle("openpets:voice-devices-get", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getSharedVoiceDeviceService().refresh();
+  });
+
+  ipcMain.handle("openpets:voice-devices-refresh", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getSharedVoiceDeviceService().refresh();
+  });
+
+  ipcMain.handle("openpets:voice-devices-save-preferences", (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Voice device preferences must be an object.");
+    const value = input as { readonly preferredInputDeviceId?: unknown; readonly preferredOutputDeviceId?: unknown };
+    if (value.preferredInputDeviceId !== undefined && value.preferredInputDeviceId !== null && typeof value.preferredInputDeviceId !== "string") throw new Error("Preferred input device id is invalid.");
+    if (value.preferredOutputDeviceId !== undefined && value.preferredOutputDeviceId !== null && typeof value.preferredOutputDeviceId !== "string") throw new Error("Preferred output device id is invalid.");
+    if (typeof value.preferredInputDeviceId === "string" && normalizeVoiceDeviceId(value.preferredInputDeviceId) === null) throw new Error("Preferred input device id is invalid.");
+    if (typeof value.preferredOutputDeviceId === "string" && normalizeVoiceDeviceId(value.preferredOutputDeviceId) === null) throw new Error("Preferred output device id is invalid.");
+    return getSharedVoiceDeviceService().savePreferences({
+      ...(value.preferredInputDeviceId === undefined ? {} : { preferredInputDeviceId: value.preferredInputDeviceId === null ? null : normalizeVoiceDeviceId(value.preferredInputDeviceId) }),
+      ...(value.preferredOutputDeviceId === undefined ? {} : { preferredOutputDeviceId: value.preferredOutputDeviceId === null ? null : normalizeVoiceDeviceId(value.preferredOutputDeviceId) }),
+    });
   });
 
   ipcMain.handle("openpets:get-lan-status", (event) => {
@@ -425,7 +447,7 @@ export function installInternalUiHandlers(): void {
     });
     return getProviderControlCenterSnapshot();
   });
-  ipcMain.handle("openpets:provider-profile-test", async (event, input: unknown, audio: unknown) => {
+  ipcMain.handle("openpets:provider-profile-test", async (event, input: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     const save = validateProviderConfigurationSaveInput(input);
     const profile = previewProviderConfiguration(save);
@@ -438,7 +460,83 @@ export function installInternalUiHandlers(): void {
       ?? (profile.secretRef
         ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
         : undefined);
-    return testProviderConfiguration(profile, credential, validateProviderTestAudio(audio));
+    return testProviderConfiguration(profile, credential);
+  });
+  ipcMain.handle("openpets:provider-profile-test-begin", async (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    const initializationController = new AbortController();
+    const unregisterInitialization = registerProviderTestInitialization(providerTestInitializations, event.sender.id, initializationController);
+    const preemption = cancelProviderTranscriptionTestsForSender(event.sender.id, "Provider transcription test was preempted.", initializationController);
+    try {
+      return await providerTestReplacementLanes.enqueue(event.sender.id, async () => {
+        await preemption;
+        if (initializationController.signal.aborted) throw new Error("Provider transcription test was cancelled.");
+        const save = validateProviderConfigurationSaveInput(input);
+        const profile = previewProviderConfiguration(save);
+        if (profile.adapter !== "openai-compatible-transcription" && profile.adapter !== "elevenlabs-transcription") {
+          throw new Error("The selected provider does not support transcription tests.");
+        }
+        const capabilities = getProviderCapabilities();
+        const credential = save.credentialValue
+          ?? (profile.secretRef
+            ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
+            : undefined);
+        if (initializationController.signal.aborted) throw new Error("Provider transcription test was cancelled.");
+        const { session } = await beginProviderTranscriptionTest(profile, credential);
+        if (initializationController.signal.aborted) {
+          await session.cancel("Provider transcription test was cancelled.");
+          throw new Error("Provider transcription test was cancelled.");
+        }
+        const id = `provider-test-${++nextProviderTestSessionId}`;
+        const entry = { senderId: event.sender.id, session };
+        providerTestSessions.set(id, entry);
+        void session.result.finally(() => {
+          if (providerTestSessions.get(id) === entry) providerTestSessions.delete(id);
+        }).catch(() => undefined);
+        return { sessionId: id };
+      });
+    } finally {
+      unregisterInitialization();
+    }
+  });
+  ipcMain.handle("openpets:provider-profile-test-finish", async (event, sessionId: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    const entry = getProviderTestSession(event.sender.id, sessionId);
+    const result = await entry.session.finish();
+    providerTestSessions.delete(sessionId as string);
+    return { kind: "stt", detail: result.text || "Transcription completed (no speech detected)." } as const;
+  });
+  ipcMain.handle("openpets:provider-profile-test-cancel", async (event, sessionId: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (sessionId === undefined || sessionId === null) {
+      await cancelProviderTranscriptionTestsForSender(event.sender.id, "Provider transcription test was cancelled.");
+      return { cancelled: true } as const;
+    }
+    if (typeof sessionId !== "string") return { cancelled: false } as const;
+    const entry = providerTestSessions.get(sessionId);
+    if (!entry || entry.senderId !== event.sender.id) return { cancelled: false } as const;
+    providerTestSessions.delete(sessionId);
+    await entry.session.cancel("Provider transcription test was cancelled.");
+    return { cancelled: true } as const;
+  });
+  ipcMain.handle("openpets:provider-preview-play", async (event, bytes: unknown, mimeType: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024 || typeof mimeType !== "string" || mimeType.length === 0) {
+      throw new Error("Invalid provider preview audio.");
+    }
+    const requestId = `provider-preview-${++nextProviderPreviewId}`;
+    providerPreviewRequestId = requestId;
+    try {
+      return await getSharedVoiceMediaPlayer().play(requestId, bytes, mimeType);
+    } finally {
+      if (providerPreviewRequestId === requestId) providerPreviewRequestId = null;
+    }
+  });
+  ipcMain.handle("openpets:provider-preview-stop", (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    const requestId = providerPreviewRequestId;
+    providerPreviewRequestId = null;
+    return requestId ? getSharedVoiceMediaPlayer().stop(requestId) : undefined;
   });
   ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
     assertAllowedSender(event, ["control-center"]);
@@ -867,13 +965,17 @@ export function installInternalUiProtocol(): void {
 const controlCenterZoomFactor = 0.9;
 
 export function openControlCenterWindow(route: ControlCenterRoute = "dashboard"): void {
-  const safeRoute = normalizeControlCenterRoute(route);
+  openControlCenterWindowTarget({ route: normalizeControlCenterRoute(route) });
+}
+
+export function openControlCenterWindowTarget(target: ControlCenterRouteTarget): void {
+  const safeTarget = normalizeControlCenterRouteTarget(target);
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     syncDockVisibilityForInternalUi();
     if (controlCenterWindow.isMinimized()) controlCenterWindow.restore();
     controlCenterWindow.show();
     controlCenterWindow.focus();
-    routeControlCenterWindow(controlCenterWindow, safeRoute);
+    routeControlCenterWindow(controlCenterWindow, safeTarget);
     return;
   }
 
@@ -917,10 +1019,15 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
+    void cancelProviderTranscriptionTestsForSender(window.webContents.id, "Control Center renderer was lost.");
   });
-  window.on("closed", () => { controlCenterWindow = null; syncDockVisibilityForInternalUi(); });
+  window.on("closed", () => {
+    void cancelProviderTranscriptionTestsForSender(window.webContents.id, "Control Center window was closed.");
+    controlCenterWindow = null;
+    syncDockVisibilityForInternalUi();
+  });
   window.once("ready-to-show", () => { window.show(); window.focus(); });
-  pendingControlCenterRoute = safeRoute;
+  pendingControlCenterRouteTarget = safeTarget;
   window.webContents.on("did-finish-load", () => {
     // Chromium remembers per-host zoom, which can override the initial
     // webPreferences value after reloads; pin it on every load.
@@ -929,7 +1036,7 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
   });
 
   const devUrl = getSafeControlCenterDevUrl();
-  const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeRoute)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: { route: safeRoute } });
+  const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeTarget)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: controlCenterRouteQuery(safeTarget) });
   load.catch((error: unknown) => {
     console.error("Failed to load Control Center.", error);
   });
@@ -949,13 +1056,9 @@ export function focusOpenTaskWindows(): void {
   }
 }
 
-function normalizeControlCenterRoute(route: unknown): ControlCenterRoute {
-  return typeof route === "string" && controlCenterRoutes.has(route as ControlCenterRoute) ? route as ControlCenterRoute : "dashboard";
-}
-
-function sendControlCenterRoute(window: BrowserWindow, route: ControlCenterRoute): void {
+function sendControlCenterRoute(window: BrowserWindow, target: ControlCenterRouteTarget): void {
   if (window.isDestroyed()) return;
-  window.webContents.send("openpets:control-center-route", route);
+  window.webContents.send("openpets:control-center-route", target);
 }
 
 function sendManagerCheckInFormRequest(window: BrowserWindow): void {
@@ -970,25 +1073,30 @@ function broadcastPluginRecordsRefresh(): void {
   }
 }
 
-function routeControlCenterWindow(window: BrowserWindow, route: ControlCenterRoute): void {
-  pendingControlCenterRoute = route;
+function routeControlCenterWindow(window: BrowserWindow, target: ControlCenterRouteTarget): void {
+  pendingControlCenterRouteTarget = target;
   if (window.webContents.isLoading()) return;
   flushPendingControlCenterRoute(window);
 }
 
 function flushPendingControlCenterRoute(window: BrowserWindow): void {
-  if (window.isDestroyed() || !pendingControlCenterRoute) return;
-  const route = pendingControlCenterRoute;
+  if (window.isDestroyed() || !pendingControlCenterRouteTarget) return;
+  const target = pendingControlCenterRouteTarget;
   const openManagerCheckInForm = pendingManagerCheckInFormRequest;
-  pendingControlCenterRoute = null;
+  pendingControlCenterRouteTarget = null;
   pendingManagerCheckInFormRequest = false;
-  sendControlCenterRoute(window, route);
+  sendControlCenterRoute(window, target);
   if (openManagerCheckInForm) sendManagerCheckInFormRequest(window);
 }
 
-function withControlCenterRoute(rawUrl: string, route: ControlCenterRoute): string {
+function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; settingsTab?: string } {
+  return target.settingsTab ? { route: target.route, settingsTab: target.settingsTab } : { route: target.route };
+}
+
+function withControlCenterRoute(rawUrl: string, target: ControlCenterRouteTarget): string {
   const url = new URL(rawUrl);
-  url.searchParams.set("route", route);
+  url.searchParams.set("route", target.route);
+  if (target.settingsTab) url.searchParams.set("settingsTab", target.settingsTab);
   return url.toString();
 }
 
@@ -1082,16 +1190,25 @@ function validateProviderConfigurationSaveInput(value: unknown): ProviderConfigu
   };
 }
 
-function validateProviderTestAudio(value: unknown): ProviderTestAudio | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (!isPlainObject(value) || typeof value.mimeType !== "string" || value.mimeType.length === 0) {
-    throw new Error("Invalid provider test recording.");
+function getProviderTestSession(senderId: number, value: unknown): { readonly senderId: number; readonly session: ProviderTranscriptionTestSession } {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) throw new Error("Invalid provider test session.");
+  const entry = providerTestSessions.get(value);
+  if (!entry || entry.senderId !== senderId) throw new Error("Provider test session is no longer active.");
+  return entry;
+}
+
+async function cancelProviderTranscriptionTestsForSender(senderId: number, reason: string, exceptController?: AbortController): Promise<void> {
+  await cancelProviderTestsForSender(senderId, reason, providerTestInitializations, providerTestSessions, exceptController);
+}
+
+async function cancelAllProviderTranscriptionTests(reason: string): Promise<void> {
+  for (const controllers of providerTestInitializations.values()) {
+    for (const controller of controllers) controller.abort(reason);
   }
-  const bytes = value.bytes;
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) {
-    throw new Error("Provider test recording is invalid or too large.");
-  }
-  return { bytes, mimeType: value.mimeType };
+  const entries = [...providerTestSessions.entries()];
+  providerTestSessions.clear();
+  for (const [, entry] of entries) await entry.session.cancel(reason).catch(() => undefined);
+  await providerTestReplacementLanes.waitForAll();
 }
 
 function getControlCenterPreloadPath(): string {

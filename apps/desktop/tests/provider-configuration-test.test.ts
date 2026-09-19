@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ProviderProfile } from "../src/provider-contract.js";
-import { testProviderConfiguration } from "../src/provider-configuration-test.js";
+import { testProviderConfiguration, transcribeProviderConfigurationAudio } from "../src/provider-configuration-test.js";
 import {
   getPluginPlatformSettings,
   initializePluginPlatformSettings,
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     assert.equal(tts.kind, "tts");
     assert.deepEqual(Array.from(tts.bytes), [1, 2, 3]);
 
-    const stt = await testProviderConfiguration({
+    const stt = await transcribeProviderConfigurationAudio({
       id: "stt-test",
       label: "STT test",
       adapter: "openai-compatible-transcription",
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     assert.deepEqual(stt, { kind: "stt", detail: "heard you" });
 
     const elevenLabsRequestStart = requests.length;
-    const elevenLabsStt = await testProviderConfiguration({
+    const elevenLabsStt = await transcribeProviderConfigurationAudio({
       id: "elevenlabs-stt-test",
       label: "ElevenLabs STT test",
       adapter: "elevenlabs-transcription",
@@ -76,19 +76,6 @@ async function main(): Promise<void> {
     assert.deepEqual(requests.slice(elevenLabsRequestStart), [
       "https://provider.test/v1/speech-to-text",
     ]);
-
-    const noAudioRequestStart = requests.length;
-    await assert.rejects(
-      () => testProviderConfiguration({
-        id: "elevenlabs-stt-no-audio-test",
-        label: "ElevenLabs STT no-audio test",
-        adapter: "elevenlabs-transcription",
-        model: "scribe_v2",
-        baseUrl: "https://provider.test/v1",
-      }, "test-key"),
-      /Record a short sample before testing transcription\./,
-    );
-    assert.deepEqual(requests.slice(noAudioRequestStart), []);
 
     const realtime = await testProviderConfiguration({
       id: "realtime-test",

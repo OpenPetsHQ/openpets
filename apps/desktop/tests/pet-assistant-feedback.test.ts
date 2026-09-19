@@ -100,10 +100,11 @@ const voiceReducer = new PetAssistantFeedbackReducer({
 voiceReducer.applyVoiceEvent({ type: "snapshot", sequence: 1, snapshot: { status: "active", activity: "thinking", muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 1, turnId: "voice-turn-1", userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null } });
 voiceReducer.applyAssistantEvent({ type: "activity", sequence: 2, conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "voice-turn-1", activity: "responding" });
 voiceReducer.applyAssistantEvent({ type: "terminal", sequence: 3, result: { conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "voice-turn-1", status: "completed", response: "Voice answer." } });
-assert.equal(voiceDeferred.some((entry) => entry.startsWith("reaction:")), false, "voice terminal feedback waits for playback settlement");
-voiceReducer.applyVoiceEvent({ type: "turn-settled", sequence: 4, turnId: "voice-turn-1", outcome: "completed" });
+voiceReducer.applyVoiceEvent({ type: "transcript", sequence: 4, turnId: "voice-turn-1", speaker: "assistant", kind: "final", text: "Voice answer." });
+assert.deepEqual(voiceDeferred.filter((entry) => entry.startsWith("reaction:")), ["reaction:null:Voice answer."], "the response bubble appears as soon as the final transcript is available");
 voiceReducer.applyVoiceEvent({ type: "turn-settled", sequence: 5, turnId: "voice-turn-1", outcome: "completed" });
-voiceReducer.applyVoiceEvent({ type: "snapshot", sequence: 6, snapshot: { status: "active", activity: "listening", muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 1, turnId: "voice-turn-1", userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null } });
-assert.deepEqual(voiceDeferred.filter((entry) => entry.startsWith("reaction:")), ["reaction:null:Voice answer."], "settled terminal feedback is delivered exactly once without generic success reaction");
+voiceReducer.applyVoiceEvent({ type: "turn-settled", sequence: 6, turnId: "voice-turn-1", outcome: "completed" });
+voiceReducer.applyVoiceEvent({ type: "snapshot", sequence: 7, snapshot: { status: "active", activity: "listening", muted: false, conversationId: PET_ASSISTANT_CONVERSATION_ID, generation: 1, turnId: "voice-turn-1", userTranscript: null, assistantTranscript: null, interruptionCount: 0, error: null } });
+assert.deepEqual(voiceDeferred.filter((entry) => entry.startsWith("reaction:")), ["reaction:null:Voice answer."], "playback settlement does not show the response a second time");
 
 console.log("Pet assistant feedback mapping verified.");

@@ -76,6 +76,7 @@ export interface PetTransientDisplay {
   readonly message?: string;
   readonly reactionMessage?: string;
   readonly suppressReactionMessage?: boolean;
+  readonly canSubmitRecording?: boolean;
   readonly dismissToken?: string;
   /** Absolute path to a validated local image shown inside the bubble (pet.showMedia). */
   readonly mediaPath?: string;
@@ -114,7 +115,7 @@ const petWindowDragging = new WeakMap<BrowserWindow, boolean>();
 export type PetWindowSpeechCompletion = {
   readonly window: BrowserWindow;
   readonly requestId: string;
-  readonly kind: "audio" | "system";
+  readonly kind: "system";
   readonly outcome: "ended" | "error" | "stopped";
 };
 const petWindowSpeechCompletionListeners = new Set<(completion: PetWindowSpeechCompletion) => void>();
@@ -724,7 +725,7 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
 
   const handleSpeechCompletion = (event: IpcMainEvent, payload: unknown): void => {
     if (!isFromWindow(event) || !isRecord(payload) || typeof payload.requestId !== "string" || payload.requestId.length === 0) return;
-    if ((payload.kind !== "audio" && payload.kind !== "system") || (payload.outcome !== "ended" && payload.outcome !== "error" && payload.outcome !== "stopped")) return;
+    if (payload.kind !== "system" || (payload.outcome !== "ended" && payload.outcome !== "error" && payload.outcome !== "stopped")) return;
     const completion: PetWindowSpeechCompletion = { window, requestId: payload.requestId, kind: payload.kind, outcome: payload.outcome };
     for (const listener of [...petWindowSpeechCompletionListeners]) {
       try { listener(completion); } catch { /* observers cannot affect pet-window cleanup */ }
@@ -773,7 +774,6 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
     ipcMain.off("openpets:bubble-submit", handleBubbleSubmit);
     ipcMain.off("openpets:pet-event", handlePetEvent);
     ipcMain.off("openpets:tts-speech-finished", handleSpeechCompletion);
-    ipcMain.off("openpets:tts-audio-finished", handleSpeechCompletion);
     clearRearmTimers();
     clearForwardingWatch();
     petMouseInteropRecovery.delete(window);
@@ -799,7 +799,6 @@ function installMousePassthroughAndDrag(window: BrowserWindow, hooks: PetWindowI
   ipcMain.on("openpets:bubble-submit", handleBubbleSubmit);
   ipcMain.on("openpets:pet-event", handlePetEvent);
   ipcMain.on("openpets:tts-speech-finished", handleSpeechCompletion);
-  ipcMain.on("openpets:tts-audio-finished", handleSpeechCompletion);
   webContents.on("did-start-navigation", resetForNavigation);
   webContents.on("did-start-loading", resetForNavigation);
   webContents.on("did-finish-load", rearmAfterLoad);
@@ -984,7 +983,8 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded() || isDefaultPetChatCompactOpen());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
   const hasPinned = Boolean(pluginBubbles?.pinned);
-  const hasBubble = Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || paused || pluginBubbles?.transient);
+  const bubbleHtml = createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles);
+  const hasBubble = Boolean(bubbleHtml.trim());
   applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, hasBubble, hasPinned);
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
   await loadPetHtmlFile(window, render.html, "default", sequence).then(() => {
@@ -1022,7 +1022,8 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
         "agent",
       );
     const hasPinned = Boolean(pluginBubbles?.pinned);
-    const hasBubble = Boolean(display?.message || display?.reactionMessage || display?.reaction || display?.mediaPath || badge || pluginBubbles?.transient);
+    const bubbleHtml = createBubbleMarkup(display, false, badge, dismissToken, pluginBubbles);
+    const hasBubble = Boolean(bubbleHtml.trim());
     applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned);
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
@@ -1123,17 +1124,6 @@ export function speakPetWindowTts(window: BrowserWindow, text: string, opts: { r
 export function stopPetWindowTts(window: BrowserWindow, requestId?: string): void {
   if (window.isDestroyed()) return;
   window.webContents.send("openpets:tts-stop", { requestId });
-}
-
-/** Play synthesized speech without sharing the plugin sound playback channel. */
-export function playPetWindowTtsAudio(window: BrowserWindow, dataUrl: string, requestId?: string): void {
-  if (window.isDestroyed()) return;
-  window.webContents.send("openpets:tts-audio", { dataUrl, requestId });
-}
-
-export function stopPetWindowTtsAudio(window: BrowserWindow, requestId?: string): void {
-  if (window.isDestroyed()) return;
-  window.webContents.send("openpets:tts-audio-stop", { requestId });
 }
 
 function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRender, name: string, sequence: number): boolean {
@@ -1249,7 +1239,7 @@ export function refreshDefaultPetFocusPolicy(window: BrowserWindow): void {
   applyPetWindowFocusPolicy(window, expanded || isDefaultPetChatCompactOpen());
 }
 
-async function createDefaultPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<PetContentRender> {
+export async function createDefaultPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<PetContentRender> {
   const installedPetRender = await tryCreateInstalledPetRender(paused, display, badge, dismissToken, pluginBubbles);
   if (installedPetRender) {
     return installedPetRender;
@@ -1263,7 +1253,9 @@ async function createDefaultPetRender(paused: boolean, display: PetTransientDisp
 function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null, petRole: "default" | "agent" = "default"): PetContentRender {
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
-  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
+  const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
+  const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
+  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
@@ -1366,7 +1358,9 @@ async function createInstalledPetRender(
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
-  const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole);
+  const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
+  const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
+  const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="installed-card" role="img" aria-label="${escapeHtml(displayName)}"><div class="installed-sprite"></div></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
@@ -1427,7 +1421,16 @@ function petButtonsCacheToken(): string {
   return `btn${preferences.showChatButton ? 1 : 0}${preferences.showTalkButton ? 1 : 0}:${preferences.petButtonsPosition}:${preferences.petButtonsSize}`;
 }
 
-function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false, petRole: "default" | "agent" = "default"): string {
+export function createPetBodyMarkup(
+  stageLabel: string,
+  bubble: string,
+  spriteMarkup: string,
+  pinnedBubble = "",
+  hasPinned = false,
+  petRole: "default" | "agent" = "default",
+  isVoiceActive = false,
+  canSubmitRecording = false,
+): string {
   const launcherSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   const talkSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
   // Only a transient bubble (which expires) suppresses the assistant buttons.
@@ -1438,8 +1441,25 @@ function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: s
   const chatButton = preferences.showChatButton
     ? `<button type="button" class="openpets-companion-launcher" data-openpets-companion-launcher aria-label="Open companion chat" title="Open companion chat">${launcherSvg}</button>`
     : "";
-  const talkButton = preferences.showTalkButton
-    ? `<button type="button" class="openpets-companion-launcher openpets-talk-button" data-openpets-talk-button aria-label="Talk to companion" title="Talk to companion">${talkSvg}</button>`
+  let talkAriaLabel = "Talk to companion";
+  let talkTitle = "Talk to companion";
+  let talkClass = "openpets-companion-launcher openpets-talk-button";
+  let talkDisabled = "";
+  if (isVoiceActive) {
+    if (canSubmitRecording) {
+      talkAriaLabel = "Stop recording and send";
+      talkTitle = "Stop recording and send";
+      talkClass = "openpets-companion-launcher openpets-talk-button is-active";
+    } else {
+      talkAriaLabel = "Processing...";
+      talkTitle = "Processing...";
+      talkClass = "openpets-companion-launcher openpets-talk-button is-processing";
+      talkDisabled = ' disabled aria-disabled="true"';
+    }
+  }
+  const showTalk = Boolean(preferences.showTalkButton || isVoiceActive);
+  const talkButton = showTalk
+    ? `<button type="button" class="${talkClass}" data-openpets-talk-button aria-label="${talkAriaLabel}" title="${talkTitle}"${talkDisabled}>${talkSvg}</button>`
     : "";
   const assistantButtons = (petRole === "default" && !hasMessageOrBubble && (chatButton || talkButton))
     ? `<div class="openpets-pet-buttons">${chatButton}${talkButton}</div>`
@@ -1488,7 +1508,37 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
     .openpets-companion-launcher:active { transform: scale(0.95); }
     .openpets-talk-button { color: #059669; }
-    .openpets-talk-button:hover { color: #047857; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
+    .openpets-talk-button:hover:not(:disabled):not(.is-processing) { color: #047857; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
+    .openpets-talk-button.is-active {
+      background: #ef4444;
+      border-color: rgba(220, 38, 38, 0.85);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(239, 68, 68, 0.38), 0 1px 2px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      animation: talk-pulse 1.8s ease-in-out infinite;
+    }
+    .openpets-talk-button.is-active:hover {
+      background: #dc2626;
+      border-color: #b91c1c;
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.48), 0 1px 3px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    }
+    .openpets-talk-button.is-processing,
+    .openpets-talk-button:disabled {
+      background: linear-gradient(135deg, rgba(248, 250, 252, 0.94) 0%, rgba(241, 245, 249, 0.92) 100%);
+      border-color: rgba(203, 213, 225, 0.85);
+      color: #94a3b8;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      cursor: not-allowed;
+      animation: processing-breathe 2s ease-in-out infinite;
+    }
+    .openpets-talk-button.is-processing:hover,
+    .openpets-talk-button:disabled:hover {
+      transform: none;
+      background: linear-gradient(135deg, rgba(248, 250, 252, 0.94) 0%, rgba(241, 245, 249, 0.92) 100%);
+      border-color: rgba(203, 213, 225, 0.85);
+      color: #94a3b8;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
     /* Hide the assistant buttons while a transient bubble or the chat UI is
        showing. A pinned plugin HUD is NOT in this list: it never expires, so
        hiding on has-pinned would remove the buttons permanently. */
@@ -2435,7 +2485,15 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     }
     @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
     @keyframes status-pulse { 0%, 100% { opacity: 0.52; } 50% { opacity: 1; } }
-    @media (prefers-reduced-motion: reduce) { .sprite, .installed-sprite, .bubble, .bubble-status-icon::before { animation: none !important; } }
+    @keyframes talk-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.44), 0 2px 8px rgba(239, 68, 68, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+      50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12), 0 2px 10px rgba(239, 68, 68, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+    }
+    @keyframes processing-breathe {
+      0%, 100% { opacity: 0.65; }
+      50% { opacity: 0.95; }
+    }
+    @media (prefers-reduced-motion: reduce) { .sprite, .installed-sprite, .bubble, .bubble-status-icon::before, .openpets-talk-button.is-active, .openpets-talk-button.is-processing { animation: none !important; } }
   `;
 }
 

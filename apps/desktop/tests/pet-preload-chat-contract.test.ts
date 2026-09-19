@@ -110,6 +110,19 @@ class MockElement {
     }
   }
 
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name);
+    if (name.startsWith("data-")) {
+      const camelKey = name.slice(5).replace(/-([a-z])/g, (_, l) => l.toUpperCase());
+      delete this.dataset[camelKey];
+      delete this.dataset[name];
+    }
+  }
+
   getAttribute(name: string) {
     return this.attributes.get(name) ?? null;
   }
@@ -251,12 +264,18 @@ petHitbox.className = "pet-hitbox";
 const launcher = new MockElement("button");
 launcher.className = "openpets-companion-launcher";
 launcher.setAttribute("data-openpets-companion-launcher", "true");
+const talkButton = new MockElement("button");
+talkButton.className = "openpets-companion-launcher openpets-talk-button";
+talkButton.setAttribute("data-openpets-talk-button", "true");
+talkButton.setAttribute("aria-label", "Talk to companion");
+talkButton.setAttribute("title", "Talk to companion");
 const petShell = new MockElement("div");
 petShell.className = "pet-shell";
 const sprite = new MockElement("div");
 sprite.className = "sprite";
 petShell.appendChild(sprite);
 petHitbox.appendChild(launcher);
+petHitbox.appendChild(talkButton);
 petHitbox.appendChild(petShell);
 initialStage.appendChild(petHitbox);
 body.appendChild(initialStage);
@@ -281,6 +300,29 @@ class MockTemplateElement extends MockElement {
       newLauncher.className = "openpets-companion-launcher";
       newLauncher.setAttribute("data-openpets-companion-launcher", "true");
       newHitbox.appendChild(newLauncher);
+    }
+    if (val.includes("openpets-talk-button") && !val.includes("bubble")) {
+      const newTalk = new MockElement("button");
+      newTalk.className = val.includes("is-active")
+        ? "openpets-companion-launcher openpets-talk-button is-active"
+        : val.includes("is-processing")
+          ? "openpets-companion-launcher openpets-talk-button is-processing"
+          : "openpets-companion-launcher openpets-talk-button";
+      newTalk.setAttribute("data-openpets-talk-button", "true");
+      if (val.includes("is-processing") || val.includes("disabled")) {
+        newTalk.disabled = true;
+        newTalk.setAttribute("disabled", "true");
+        newTalk.setAttribute("aria-disabled", "true");
+        newTalk.setAttribute("aria-label", "Processing...");
+        newTalk.setAttribute("title", "Processing...");
+      } else if (val.includes("is-active")) {
+        newTalk.setAttribute("aria-label", "Stop recording and send");
+        newTalk.setAttribute("title", "Stop recording and send");
+      } else {
+        newTalk.setAttribute("aria-label", "Talk to companion");
+        newTalk.setAttribute("title", "Talk to companion");
+      }
+      newHitbox.appendChild(newTalk);
     }
     const newShell = new MockElement("div");
     newShell.className = "pet-shell";
@@ -457,9 +499,97 @@ voiceEventListener!({}, {
   },
 });
 assert.equal(voiceBtnLabel.textContent, "Listening", "authoritative active Talk snapshot should label listening activity");
+const onPetTalkBtn = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(onPetTalkBtn, "on-pet talk button must exist");
+assert.ok(onPetTalkBtn!.classList.contains("is-processing"), "processing talk button without canSubmitRecording has is-processing class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-active"), "processing talk button without canSubmitRecording must not have is-active class");
+assert.equal(onPetTalkBtn!.disabled, true, "processing talk button must be disabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Processing...", "processing talk button without canSubmitRecording has 'Processing...' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Processing...", "processing talk button without canSubmitRecording has 'Processing...' title");
+
+// Click while in processing state must be suppressed and not dispatched over IPC
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileProcessing = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.strictEqual(voiceToggleWhileProcessing, undefined, "Click on disabled/processing talk button must NOT toggle voice session or dispatch IPC");
+
+// Voice snapshot with canSubmitRecording: true updates talk button to 'Stop recording and send' (active recording state)
 voiceEventListener!({}, {
   type: "snapshot",
   sequence: 2,
+  snapshot: {
+    sessionId: 1,
+    status: "active",
+    activity: "listening",
+    canSubmitRecording: true,
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: null,
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.ok(onPetTalkBtn!.classList.contains("is-active"), "recording talk button with canSubmitRecording has is-active class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-processing"), "recording talk button with canSubmitRecording does not have is-processing class");
+assert.equal(onPetTalkBtn!.disabled, false, "recording talk button with canSubmitRecording is enabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Stop recording and send", "talk button with canSubmitRecording has 'Stop recording and send' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Stop recording and send", "talk button with canSubmitRecording has 'Stop recording and send' title");
+
+// Click while in recording active state triggers voice toggle IPC
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileActive = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.ok(voiceToggleWhileActive, "Click on active recording talk button must invoke voice toggle IPC");
+
+// Speaking activity updates talk button to subdued 'Speaking...' state
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 3,
+  snapshot: {
+    sessionId: 1,
+    status: "active",
+    activity: "speaking",
+    canSubmitRecording: false,
+    muted: false,
+    conversationId: "pet-assistant",
+    generation: 1,
+    turnId: "voice-turn-1",
+    userTranscript: null,
+    assistantTranscript: "I am responding now.",
+    interruptionCount: 0,
+    error: null,
+    shortcut: null,
+    shortcutStatus: "registered",
+    shortcutReason: null,
+  },
+});
+assert.ok(onPetTalkBtn!.classList.contains("is-processing"), "speaking talk button has is-processing class");
+assert.ok(!onPetTalkBtn!.classList.contains("is-active"), "speaking talk button does not have is-active class");
+assert.equal(onPetTalkBtn!.disabled, true, "speaking talk button is disabled");
+assert.equal(onPetTalkBtn!.getAttribute("aria-label"), "Speaking...", "speaking talk button has 'Speaking...' aria-label");
+assert.equal(onPetTalkBtn!.getAttribute("title"), "Speaking...", "speaking talk button has 'Speaking...' title");
+
+// Click while speaking is suppressed
+invoked.length = 0;
+for (const l of clickListeners) {
+  l({ button: 0, target: onPetTalkBtn, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+}
+const voiceToggleWhileSpeaking = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+assert.strictEqual(voiceToggleWhileSpeaking, undefined, "Click on speaking talk button must NOT invoke voice toggle");
+
+voiceEventListener!({}, {
+  type: "snapshot",
+  sequence: 4,
   snapshot: {
     sessionId: 1,
     status: "muted",
@@ -510,11 +640,19 @@ compactInput.dispatchEvent({ type: "input" });
 
 contentStateListener!({}, {
   reactionState: "running-right",
-  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-companion-launcher openpets-talk-button is-processing" data-openpets-talk-button="true" disabled aria-disabled="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
 });
 
 // Verify reaction state was updated on root
 assert.equal(documentElement.dataset.reactionState, "running-right");
+
+// Verify talk button state was reapplied after content-state DOM replacement (from active voice snapshot seq 4)
+const talkAfterRefresh = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(talkAfterRefresh, "Talk button must exist after pet-content-state update");
+assert.ok(talkAfterRefresh!.classList.contains("is-processing"), "Talk button must retain is-processing class across DOM refresh");
+assert.equal(talkAfterRefresh!.disabled, true, "Talk button must retain disabled state across DOM refresh");
+assert.equal(talkAfterRefresh!.getAttribute("aria-label"), "Processing...", "Talk button aria-label must be reapplied across DOM refresh");
+assert.equal(talkAfterRefresh!.getAttribute("title"), "Processing...", "Talk button title must be reapplied across DOM refresh");
 
 // Verify compact composer and chat panel are STILL attached to document body and NOT wiped out
 const compactAfterRefresh = documentElement.querySelector(".openpets-compact-composer");
@@ -539,10 +677,15 @@ assert.strictEqual(documentElement.querySelector("[data-openpets-companion-launc
 
 contentStateListener!({}, {
   reactionState: "idle",
-  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
+  bodyHtml: `<div class="stage" aria-label="OpenPets default pet" data-pet-role="default"><div class="pet-hitbox"><button class="openpets-companion-launcher" data-openpets-companion-launcher="true"></button><button class="openpets-companion-launcher openpets-talk-button is-processing" data-openpets-talk-button="true"></button><div class="pet-shell"><div class="sprite"></div></div></div></div>`,
 });
 assert.strictEqual(documentElement.querySelector(".bubble"), null, "Bubble must be absent after clearing");
 assert.ok(documentElement.querySelector("[data-openpets-companion-launcher]"), "Chat launcher must be restored when message bubble clears");
+const talkRestored = documentElement.querySelector("[data-openpets-talk-button]");
+assert.ok(talkRestored, "Talk button must be restored when message bubble clears");
+assert.ok(talkRestored!.classList.contains("is-processing"), "Talk button re-applies processing state when restored");
+assert.equal(talkRestored!.disabled, true, "Talk button re-applies disabled state when restored");
+assert.equal(talkRestored!.getAttribute("aria-label"), "Processing...", "Talk button re-applies aria-label when restored");
 
 // 9. REGRESSION TEST: Interaction isolation - compact composer & chat panel do NOT reach pet drag/click path
 sent.length = 0;
@@ -601,5 +744,43 @@ resolveInitialVoice({
 setTimeout(() => {
   assert.ok(transcript!.innerHTML.includes("Hello human!"), "a late initial conversation snapshot must not overwrite streamed state");
   assert.equal(voiceBtnLabel.textContent, "Unmute", "a late initial Talk snapshot must not overwrite streamed state");
+  const talkBtnAtEnd = documentElement.querySelector("[data-openpets-talk-button]");
+  assert.ok(talkBtnAtEnd, "talk button exists");
+  assert.ok(talkBtnAtEnd!.classList.contains("is-processing"), "talk button remains in processing state before end event");
+
+  voiceEventListener!({}, {
+    type: "snapshot",
+    sequence: 5,
+    snapshot: {
+      sessionId: 1,
+      status: "ended",
+      activity: null,
+      muted: false,
+      conversationId: "pet-assistant",
+      generation: 1,
+      turnId: null,
+      userTranscript: null,
+      assistantTranscript: null,
+      interruptionCount: 0,
+      error: null,
+      shortcut: null,
+      shortcutStatus: "registered",
+      shortcutReason: null,
+    },
+  });
+  assert.ok(!talkBtnAtEnd!.classList.contains("is-active"), "Ended talk session removes is-active class");
+  assert.ok(!talkBtnAtEnd!.classList.contains("is-processing"), "Ended talk session removes is-processing class");
+  assert.equal(talkBtnAtEnd!.disabled, false, "Ended talk session enables talk button");
+  assert.equal(talkBtnAtEnd!.getAttribute("aria-label"), "Talk to companion", "Ended talk session resets aria-label to Talk to companion");
+  assert.equal(talkBtnAtEnd!.getAttribute("title"), "Talk to companion", "Ended talk session resets title to Talk to companion");
+
+  // Click on idle talk button dispatches voice toggle IPC
+  invoked.length = 0;
+  for (const l of clickListeners) {
+    l({ button: 0, target: talkBtnAtEnd, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} });
+  }
+  const voiceToggleAtIdle = invoked.find((inv) => inv.channel === "openpets:default-pet-chat-voice-toggle");
+  assert.ok(voiceToggleAtIdle, "Click on idle talk button must invoke voice toggle IPC");
+
   console.log("pet-preload-chat-contract tests passed.");
 }, 0);

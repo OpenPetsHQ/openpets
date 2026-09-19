@@ -35,6 +35,69 @@ const allowedReactionStates = new Set(["idle", "running-right", "running-left", 
 let lastInteractiveHit = null;
 let dragging = false;
 
+let latestVoiceSnapshot = {
+  sessionId: 0,
+  status: "idle",
+  activity: null,
+  muted: false,
+  conversationId: "pet-assistant",
+  generation: 0,
+  turnId: null,
+  userTranscript: null,
+  assistantTranscript: null,
+  interruptionCount: 0,
+  error: null,
+  shortcut: null,
+  shortcutStatus: "unregistered",
+  shortcutReason: null,
+};
+
+const updateOnPetTalkButton = (snapshot) => {
+  const talkBtn = document.querySelector("[data-openpets-talk-button]");
+  if (!talkBtn) return;
+  const isEnded = !snapshot || snapshot.status === "idle" || snapshot.status === "ended" || !snapshot.status;
+  const canSubmit = !isEnded && snapshot.canSubmitRecording === true;
+
+  if (!isEnded) {
+    if (canSubmit) {
+      talkBtn.classList.remove("is-processing");
+      talkBtn.classList.add("is-active");
+      talkBtn.disabled = false;
+      if (typeof talkBtn.removeAttribute === "function") {
+        talkBtn.removeAttribute("disabled");
+        talkBtn.removeAttribute("aria-disabled");
+      }
+      talkBtn.setAttribute("aria-label", "Stop recording and send");
+      talkBtn.setAttribute("title", "Stop recording and send");
+    } else {
+      talkBtn.classList.remove("is-active");
+      talkBtn.classList.add("is-processing");
+      talkBtn.disabled = true;
+      talkBtn.setAttribute("disabled", "true");
+      talkBtn.setAttribute("aria-disabled", "true");
+      const label = snapshot.activity === "speaking"
+        ? "Speaking..."
+        : snapshot.activity === "thinking"
+          ? "Thinking..."
+          : snapshot.activity === "acting"
+            ? "Acting..."
+            : "Processing...";
+      talkBtn.setAttribute("aria-label", label);
+      talkBtn.setAttribute("title", label);
+    }
+  } else {
+    talkBtn.classList.remove("is-active");
+    talkBtn.classList.remove("is-processing");
+    talkBtn.disabled = false;
+    if (typeof talkBtn.removeAttribute === "function") {
+      talkBtn.removeAttribute("disabled");
+      talkBtn.removeAttribute("aria-disabled");
+    }
+    talkBtn.setAttribute("aria-label", "Talk to companion");
+    talkBtn.setAttribute("title", "Talk to companion");
+  }
+};
+
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
@@ -128,6 +191,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
         shell.appendChild(spriteOverrideElement);
       }
     }
+    updateOnPetTalkButton(latestVoiceSnapshot);
   };
 
   if (document.readyState === "loading") {
@@ -699,6 +763,7 @@ const installDefaultPetChat = () => {
     if (order.sessionId < voiceOrder.sessionId || (order.sessionId === voiceOrder.sessionId && order.sequence <= voiceOrder.sequence)) return false;
     voiceOrder = order;
     voiceSnapshot = snapshot;
+    latestVoiceSnapshot = snapshot;
     renderAll();
     return true;
   };
@@ -872,6 +937,7 @@ const installDefaultPetChat = () => {
     renderSuggestions();
     updateSendButtonState();
     updateCompactSendButtonState();
+    updateOnPetTalkButton(voiceSnapshot);
   };
 
   // --- Transcript scroll detection ---
@@ -1034,6 +1100,14 @@ const installDefaultPetChat = () => {
     if (!talkButton) return;
     event.preventDefault();
     event.stopPropagation();
+    if (
+      talkButton.disabled ||
+      (typeof talkButton.hasAttribute === "function" && talkButton.hasAttribute("disabled")) ||
+      talkButton.getAttribute("aria-disabled") === "true" ||
+      (talkButton.classList && talkButton.classList.contains("is-processing"))
+    ) {
+      return;
+    }
     ipcRenderer.invoke("openpets:default-pet-chat-voice-toggle").catch(() => {});
   }, true);
 
@@ -1280,15 +1354,11 @@ let generatedTtsRequest = 0;
 let activeTts = null;
 
 const sendTtsCompletion = (request, outcome) => {
-  try { ipcRenderer.send(request.kind === "audio" ? "openpets:tts-audio-finished" : "openpets:tts-speech-finished", { requestId: request.requestId, kind: request.kind, outcome }); } catch { /* main process observes renderer loss separately */ }
+  try { ipcRenderer.send("openpets:tts-speech-finished", { requestId: request.requestId, kind: "system", outcome }); } catch { /* main process observes renderer loss separately */ }
 };
 
 const stopTtsMedia = (request) => {
   if (!request) return;
-  if (request.kind === "audio") {
-    try { request.media.pause(); } catch { /* noop */ }
-    return;
-  }
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* noop */ }
 };
 
@@ -1339,29 +1409,6 @@ ipcRenderer.on("openpets:tts-speak", (_event, payload) => {
 
 ipcRenderer.on("openpets:tts-stop", (_event, payload) => {
   stopMatchingTts(typeof payload?.requestId === "string" ? payload.requestId : undefined, "system");
-});
-
-ipcRenderer.on("openpets:tts-audio", (_event, payload) => {
-  try {
-    if (!payload || typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:audio/")) return;
-    settleTts(activeTts, "stopped");
-    const element = new Audio(payload.dataUrl);
-    const request = { requestId: typeof payload.requestId === "string" ? payload.requestId : `renderer-tts-${++generatedTtsRequest}`, kind: "audio", media: element };
-    activeTts = request;
-    element.addEventListener("ended", () => {
-      settleTts(request, "ended");
-    });
-    element.addEventListener("error", () => {
-      settleTts(request, "error");
-    });
-    void element.play().catch(() => {
-      settleTts(request, "error");
-    });
-  } catch { settleTts(activeTts, "error"); }
-});
-
-ipcRenderer.on("openpets:tts-audio-stop", (_event, payload) => {
-  stopMatchingTts(typeof payload?.requestId === "string" ? payload.requestId : undefined, "audio");
 });
 
 const installLayerShellContextMenu = () => {

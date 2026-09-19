@@ -10,7 +10,6 @@ import type {
   ProviderProfileSummary,
   ProviderRole,
   ProviderConfigurationSaveInput,
-  ProviderConfigurationTestAudio,
   ProviderConfigurationTestResult,
 } from "./types.js";
 
@@ -21,7 +20,12 @@ export type ProvidersSectionApi = {
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
   saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
-  testProviderConfiguration(input: ProviderConfigurationSaveInput, audio?: ProviderConfigurationTestAudio): Promise<ProviderConfigurationTestResult>;
+  testProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderConfigurationTestResult>;
+  beginProviderTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }>;
+  finishProviderTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult>;
+  cancelProviderTranscriptionTest(sessionId?: string): Promise<{ readonly cancelled: boolean }>;
+  playProviderPreview(bytes: Uint8Array, mimeType: string): Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+  stopProviderPreview(): Promise<void>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   setProviderProfileCredential(id: string, value: string): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfileCredential(id: string): Promise<ProviderControlCenterSnapshot>;
@@ -151,9 +155,20 @@ export function ProvidersSection({
 
   async function handleModalTest(
     input: ProviderConfigurationSaveInput,
-    audio?: ProviderConfigurationTestAudio,
   ): Promise<ProviderConfigurationTestResult> {
-    return getApi().testProviderConfiguration(input, audio);
+    return getApi().testProviderConfiguration(input);
+  }
+
+  async function handleModalBeginTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }> {
+    return getApi().beginProviderTranscriptionTest(input);
+  }
+
+  async function handleModalFinishTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult> {
+    return getApi().finishProviderTranscriptionTest(sessionId);
+  }
+
+  async function handleModalCancelTranscriptionTest(sessionId?: string): Promise<void> {
+    await getApi().cancelProviderTranscriptionTest(sessionId);
   }
 
   return (
@@ -200,6 +215,11 @@ export function ProvidersSection({
         onClose={() => setModalOpen(false)}
         onSave={handleModalSave}
         onTest={handleModalTest}
+        onBeginTranscriptionTest={handleModalBeginTranscriptionTest}
+        onFinishTranscriptionTest={handleModalFinishTranscriptionTest}
+        onCancelTranscriptionTest={handleModalCancelTranscriptionTest}
+        onPlayPreview={(bytes, mimeType) => getApi().playProviderPreview(bytes, mimeType)}
+        onStopPreview={() => getApi().stopProviderPreview()}
       />
     </div>
   );

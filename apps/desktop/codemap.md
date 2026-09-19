@@ -22,12 +22,12 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
   - Speech bubbles with reaction messages and status badges
   - User-configurable reaction-to-animation mapping
 - **Lease Manager**: 15s TTL leases for agent pet routing with heartbeat renewal
-- **Logging**: Structured logging with scopes, log rotation (2MB max), and sensitive data redaction
+- **Logging**: Structured logging with scopes, including `voice` and `provider`, log rotation (2MB max), and sensitive data redaction
 - **Plugin Subsystem**: Declarative manifest plugins and JavaScript plugin hosting with permission approval, config schemas, command/status surfaces, catalog/local installs, SDK bridge quotas, storage, schedules, restricted HTTPS fetch, and safe path/ZIP/manifest validation
 
 ## Flow
 
-**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally `showDefaultPet()`
+**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
 
 **Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping
 
@@ -65,6 +65,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `main.ts`: Entry point, lifecycle coordination
 - `tray.ts`: System tray icon and menu
 - `windows.ts`: Control Center BrowserWindow management, Dashboard snapshot, route targeting, IPC handlers, and internal protocols
+- `control-center-route.ts`: Canonical Control Center route validation plus unpackaged development route selection
 - `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, and Settings
 - `local-ipc.ts`: TCP/Unix socket server for CLI communication
 - `lease-manager.ts`: Pet routing lease lifecycle

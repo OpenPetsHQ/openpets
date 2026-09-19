@@ -15,6 +15,7 @@ import {
   getTeamPetDir,
 } from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
+import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { defaultPetAssistantPersonality, mergePetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -89,8 +90,12 @@ export interface OpenPetsStateV1 {
     readonly petGravityEnabled: boolean;
     /** Owner-authored communication preferences for the host Pet Assistant. */
     readonly personality: PetAssistantPersonality;
-    /** Canonical Electron accelerator used to start the bounded Talk session. */
-    readonly voiceAssistantShortcut: string;
+     /** Canonical Electron accelerator used to start the bounded Talk session. */
+     readonly voiceAssistantShortcut: string;
+     /** Opaque browser-scoped microphone device id used by future voice operations. */
+     readonly preferredVoiceInputDeviceId: string | null;
+     /** Opaque browser-scoped output device id reserved for future controllable audio paths. */
+     readonly preferredVoiceOutputDeviceId: string | null;
     /** Canonical Electron accelerator that toggles the compact pet chat composer; empty disables it. */
     readonly chatShortcut: string;
     /** Show the chat launcher button on the default pet. */
@@ -633,7 +638,9 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petCrossDisplayEnabled: normalizePetCrossDisplayEnabled(value.petCrossDisplayEnabled, defaultState.preferences.petCrossDisplayEnabled),
     petGravityEnabled: normalizePetGravityEnabled(value.petGravityEnabled, defaultState.preferences.petGravityEnabled),
     personality: normalizePetAssistantPersonality(value.personality),
-    voiceAssistantShortcut: isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+     voiceAssistantShortcut: isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+     preferredVoiceInputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceInputDeviceId),
+     preferredVoiceOutputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceOutputDeviceId),
     chatShortcut: isCanonicalVoiceAssistantShortcut(value.chatShortcut) ? value.chatShortcut : "",
     showChatButton: typeof value.showChatButton === "boolean" ? value.showChatButton : true,
     showTalkButton: typeof value.showTalkButton === "boolean" ? value.showTalkButton : true,
@@ -735,6 +742,8 @@ function createDefaultState(): OpenPetsStateV1 {
       petGravityEnabled: false,
       personality: defaultPetAssistantPersonality,
       voiceAssistantShortcut: DEFAULT_VOICE_ASSISTANT_SHORTCUT,
+      preferredVoiceInputDeviceId: null,
+      preferredVoiceOutputDeviceId: null,
       chatShortcut: "",
       showChatButton: true,
       showTalkButton: true,
