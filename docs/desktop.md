@@ -265,7 +265,7 @@ preserve the pet's on-screen anchor point. The attached chat panel is anchored d
 the scaled pet sprite with a 10px gap, growing upward from 220px to 500px as content changes
 while the pet remains stationary at the bottom. Non-pinned floating speech bubbles and quick
 launcher buttons are suppressed while full chat is open; pinned HUD bubbles remain visible and
-lift the bottom anchor cleanly.
+lift both chat surfaces with the pet, regardless of HUD scale.
 
 Assistant turn feedback routes operational context (header state, tool cards, turn status) inside
 the expanded chat. Duplicate speech bubbles are suppressed while chat is open, while pet reaction

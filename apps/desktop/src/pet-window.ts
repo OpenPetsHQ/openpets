@@ -2009,8 +2009,8 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     .bubble.is-pinned.accent-slate { background: linear-gradient(135deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.92)); }
     .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
-    .stage.has-pinned .openpets-compact-composer { bottom: ${compactComposerBottom + pinnedLift}px; }
-    .stage.has-pinned .openpets-chat-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
+    .stage.has-pinned ~ .openpets-compact-composer { bottom: ${compactComposerBottom + pinnedLift}px; }
+    .stage.has-pinned ~ .openpets-chat-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
     .bubble.is-plugin.accent-green { background: linear-gradient(135deg, rgba(220, 252, 231, 0.97), rgba(187, 247, 208, 0.94)); }
@@ -2368,14 +2368,14 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      background: #0f172a;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 13px;
       color: #fff;
       flex-shrink: 0;
-      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
     }
     .chat-title {
       font-size: 13px;
