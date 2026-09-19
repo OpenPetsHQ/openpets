@@ -37,7 +37,7 @@ let dragging = false;
 
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .bubble, .openpets-context-menu"));
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
 };
 
 const dismissBubble = (event) => {
@@ -58,7 +58,7 @@ const dismissBubble = (event) => {
   bubble.remove();
 
   const newTarget = document.elementFromPoint(event.clientX, event.clientY);
-  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher]")) || dragging;
+  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher], .openpets-pet-buttons")) || dragging;
   reportInteractiveHit(stillInteractive, "bubble-dismiss", true);
 
   ipcRenderer.send("openpets:bubble-dismissed", dismissToken);
@@ -139,7 +139,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
 
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu");
+  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu");
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -162,7 +162,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -1027,6 +1027,15 @@ const installDefaultPetChat = () => {
   errorDismiss.addEventListener("click", () => {
     showErrorToast(null);
   });
+
+  // --- Talk Button Click (toggles a voice session) ---
+  document.addEventListener("click", (event) => {
+    const talkButton = event.target?.closest?.("[data-openpets-talk-button]");
+    if (!talkButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    ipcRenderer.invoke("openpets:default-pet-chat-voice-toggle").catch(() => {});
+  }, true);
 
   // --- Launcher Button Click ---
   document.addEventListener("click", (event) => {

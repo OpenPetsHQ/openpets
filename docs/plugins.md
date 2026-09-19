@@ -207,25 +207,56 @@ capability the current manifest no longer declares.
 ### Host provider profiles (#145, backend/bridge status)
 
 The host no longer reads the legacy single `PluginPlatformSettings.ai` object.
-It persists provider profiles plus exactly three independent selections: one
-`text`, one `stt`, and one `tts` profile, while retaining audio, dynamic speech,
-microphone, voice, and quiet-hour gates. Profiles contain an adapter, model,
-validated base URL, an opaque secret reference, validated auth header
-placement/strategy, and bounded optional static headers. Static header names and
-values are persisted in the local provider-profile settings; secret credential
-values are stored only through `PluginSecretsStore`. Profile/status snapshots
-expose header names and credential presence, never header values or secret
-values.
+The pure `provider-contract.ts` module is the one canonical source for adapter
+definitions and presets: supported roles, credential policy, default auth, and
+adapter defaults are not duplicated between the main process and renderer.
+`plugin-platform-settings.ts` persists typed adapter-specific profiles plus
+exactly three independent selections: one `text`, one `stt`, and one `tts`
+profile, while retaining audio, dynamic speech, microphone, voice, and
+quiet-hour gates.
 
-Provider profile updates are sparse patches: omitted or `undefined` fields keep
-their existing values; `null` explicitly clears `baseUrl`, `secretRef`, or
-`auth`. The Control Center modal submits one host-owned configuration
-transaction that commits the profile, credential, and role selections together.
-Existing static headers are never sent to the renderer: header edits use
-explicit host-applied `add`/`replace`/`delete` operations keyed by header name,
-so untouched values survive redacted snapshots. Direct backend profile updates
-may still replace headers intentionally with a full list or clear them with an
-explicit empty array.
+Profiles use an exhaustive adapter-specific shape. Text adapters carry their
+normal model; an `openai-realtime` profile carries both its normal text model
+and its separate realtime model; network TTS adapters carry a persisted voice;
+system TTS has no network configuration. Profiles may also carry a validated
+endpoint, auth placement/strategy, and bounded static headers. Secret values
+are stored only through `PluginSecretsStore`; the opaque secret reference is a
+host-owned implementation detail. Static header names and credential presence
+are safe to expose, but header values, credential values, and secret references
+never appear in Control Center snapshots.
+
+The Control Center uses one host-owned configuration transaction for profile
+fields, an optional credential value, and role activation. Credential changes
+also have dedicated set/delete actions. Existing static headers are never sent
+to the renderer: the host applies explicit `add`/`replace`/`delete` edits keyed
+by header name, preserving untouched values without making them editable through
+a redacted snapshot. The renderer is not a generic secret-reference or sparse
+settings editor.
+
+The configuration modal also has a non-persisting **Test setup** action. The
+main process first validates an ephemeral candidate profile using the same
+profile rules as save, then resolves either the inline draft credential or the
+already stored credential for that profile. It does not update settings,
+selections, or the secret store. Tests are adapter-specific: a minimal text
+completion; a configured-voice TTS preview; a recorded STT sample; or a
+minimal Realtime session configuration. System TTS plays through renderer-local
+speech synthesis with the selected installed voice.
+
+The persisted provider document is explicitly versioned. Startup migrates the
+legacy unversioned shape, assigns defaults for newly required TTS voices, and
+preserves the old Realtime model as the realtime model rather than inventing a
+normal text model. Profiles that fail the current typed validation are retained
+in a quarantine record with their reason and original value; a damaged document
+is moved aside before defaults are used. Quarantined IDs cannot be silently
+reused by a new profile.
+
+Readiness is evaluated per selected role and separately for derived Realtime:
+disabled, invalid, unsupported, missing-secret, and ready are distinct states.
+Required adapters need a stored credential, optional adapters may operate
+without one (but a dangling configured credential is not ready), and adapters
+with no credential policy never require a secret. Realtime additionally needs
+the selected text profile to be native OpenAI Realtime with both model fields
+present.
 
 Before that transaction commits, the host validates every existing role selection
 against the complete candidate profile map. Editing a selected profile to an
@@ -234,7 +265,9 @@ even when the renderer supplies no role directive; an incompatible selection is
 never reported as a successful persisted configuration.
 
 The host voice lanes consume these profiles independently: text reasoning,
-final-only STT, and TTS each take their own operation snapshot. The generic voice
+final-only STT, and TTS each take their own operation snapshot. A system TTS
+profile may retain an installed operating-system voice name; no name means the
+system default voice. The generic voice
 session pins STT before capture starts and passes the same snapshot through
 transcription; changing provider settings affects a later activation, not an
 in-flight capture. TTS playback is host-owned and request-scoped, including
@@ -254,19 +287,26 @@ plugin contract.
 
 Generic `openai-compatible-text` is the codec for OpenAI, Ollama, LM Studio,
 vLLM, MiniMax chat, and cloud gateways. Anthropic remains native because its
-messages/tool wire format differs. STT is an explicit
+messages/tool wire format differs. Generic STT is an explicit
 `openai-compatible-transcription` profile; Ollama is never inferred to support
-audio. TTS is explicit system voice, MiniMax hex audio, ElevenLabs audio, or a
-bounded OpenAI-compatible speech profile. An external TTS error is surfaced and
-does not silently fall back to system speech.
+audio. ElevenLabs Scribe STT is a separate typed
+`elevenlabs-transcription` profile using bounded multipart upload to
+`/speech-to-text` with the required `model_id` field and `xi-api-key`
+credential. TTS is explicit system voice, MiniMax hex audio, ElevenLabs audio,
+or a bounded OpenAI-compatible speech profile. Each network TTS profile uses
+its persisted voice unless a request supplies an override; the request voice
+wins. An external TTS error is surfaced and does not silently fall back to
+system speech.
 
 Realtime is an optional host-private optimized adapter and derives only from
 the selected text profile. It requires an explicitly native
-`openai-realtime` profile, reuses that profile's model, base URL, credential,
-and allowed headers, and fails with `provider.realtime.unsupported` without
-fetching for other profiles. The selected profile is pinned for the active
-session; generic STT -> Pet Assistant -> TTS remains the path for other text
-profiles.
+`openai-realtime` profile with both a normal text model and a separate realtime
+model. It reuses that profile's endpoint, credential, and allowed headers, but
+the operation snapshot substitutes the realtime model for negotiation. It fails
+with `provider.realtime.unsupported` without fetching for other profiles, and
+reports incomplete readiness when either model is missing. The selected profile
+is pinned for the active session; generic STT -> Pet Assistant -> TTS remains
+the path for other text profiles.
 
 The public plugin-facing `voice.listen` capability remains one-shot push-to-talk,
 never ambient. The host captures in a hidden, isolated microphone window and displays

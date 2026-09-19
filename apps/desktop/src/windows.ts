@@ -37,6 +37,7 @@ import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } f
 import { getRemoteControlService } from "./remote-control-service.js";
 import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
 import { deleteProviderCredentialForProfile } from "./provider-service.js";
+import { testProviderConfiguration, type ProviderTestAudio } from "./provider-configuration-test.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
@@ -50,6 +51,7 @@ import {
   getPluginPlatformSettings,
   isProviderSecretRefReferenced,
   isProviderRole,
+  previewProviderConfiguration,
   selectProviderProfile,
   saveProviderConfiguration,
   updateProviderProfile,
@@ -423,6 +425,21 @@ export function installInternalUiHandlers(): void {
     });
     return getProviderControlCenterSnapshot();
   });
+  ipcMain.handle("openpets:provider-profile-test", async (event, input: unknown, audio: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    const save = validateProviderConfigurationSaveInput(input);
+    const profile = previewProviderConfiguration(save);
+    debug("plugin", "Testing unsaved provider configuration", {
+      profileId: profile.id,
+      adapter: profile.adapter,
+    });
+    const capabilities = getProviderCapabilities();
+    const credential = save.credentialValue
+      ?? (profile.secretRef
+        ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
+        : undefined);
+    return testProviderConfiguration(profile, credential, validateProviderTestAudio(audio));
+  });
   ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     if (typeof id !== "string") throw new Error("Invalid provider profile id.");
@@ -447,9 +464,19 @@ export function installInternalUiHandlers(): void {
   ipcMain.handle("openpets:provider-profile-credential-set", async (event, id: unknown, value: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     if (typeof id !== "string" || typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 || value.length === 0) throw new Error("Invalid provider credential.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    if (!profile?.secretRef) throw new Error("Provider profile has no credential reference.");
-    await getProviderCapabilities().secretsStore.set("__openpets-host", `provider:${profile.secretRef}`, value);
+    const capabilities = getProviderCapabilities();
+    await saveProviderConfiguration({
+      isEditing: true,
+      profileId: id,
+      payload: { id },
+      credentialValue: value,
+      activatedRoles: [],
+      deactivatedRoles: [],
+    }, {
+      get: (ref) => capabilities.secretsStore.get("__openpets-host", `provider:${ref}`),
+      set: (ref, credential) => capabilities.secretsStore.set("__openpets-host", `provider:${ref}`, credential),
+      delete: (ref) => capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`),
+    });
     return getProviderControlCenterSnapshot();
   });
   ipcMain.handle("openpets:provider-profile-credential-status", async (event, id: unknown) => {
@@ -1053,6 +1080,18 @@ function validateProviderConfigurationSaveInput(value: unknown): ProviderConfigu
     activatedRoles: value.activatedRoles as ProviderConfigurationSaveInput["activatedRoles"],
     deactivatedRoles: value.deactivatedRoles as ProviderConfigurationSaveInput["deactivatedRoles"],
   };
+}
+
+function validateProviderTestAudio(value: unknown): ProviderTestAudio | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isPlainObject(value) || typeof value.mimeType !== "string" || value.mimeType.length === 0) {
+    throw new Error("Invalid provider test recording.");
+  }
+  const bytes = value.bytes;
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) {
+    throw new Error("Provider test recording is invalid or too large.");
+  }
+  return { bytes, mimeType: value.mimeType };
 }
 
 function getControlCenterPreloadPath(): string {

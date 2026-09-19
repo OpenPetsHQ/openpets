@@ -209,12 +209,21 @@ organization membership or policy cannot silently approve it. Team Packs remain
 pending/not current until that approval succeeds.
 
 Provider-profile bridge operations are exposed by
-`control-center-preload.cjs` without a generic patch route: list profiles,
-presets, role status, and derived realtime status; atomically save a profile,
-credential, and selected roles; create/update/delete a profile; select a
-profile independently for each role; update platform gates; and
-set/check/delete a profile credential. Responses contain only credential
-presence and header names.
+`control-center-preload.cjs` without a generic renderer-side settings store:
+list profiles, the canonical adapter/preset catalog, role status, and derived
+realtime status; atomically save a typed profile, credential, and selected roles;
+create/update/delete a profile; select a profile independently for each role;
+ update platform gates; set/check/delete a profile credential; and test an
+  unsaved profile draft. The Hearing role supports both generic
+  OpenAI-compatible transcription and the native ElevenLabs Scribe STT preset;
+  the latter sends bounded multipart audio to ElevenLabs with `model_id` and
+  `xi-api-key` authentication. A setup test resolves its inline credential only for
+ that one request: it never writes the profile, role selection, headers, or
+ credential. Text sends a tiny completion, TTS returns a short configured-voice
+ preview for renderer playback, STT transcribes a user-recorded short sample,
+ Realtime creates a minimal session configuration, and system TTS uses the
+ selected local speech-synthesis voice. Responses contain only credential
+ presence and header names, never secret references or header values.
 
 ### Pet Assistant In-Pet Attached Chat & Compact Composer
 
@@ -253,11 +262,16 @@ Normalized voice transcript events remain an
 integration seam for #147: their adapter must provide a process-lifetime
 monotonic sequence within the voice source; voice ordering is deliberately
 independent from the canonical assistant event sequence.
-Provider updates use sparse patches: omitted fields preserve current values and
-`null` clears `baseUrl`, `secretRef`, or `auth`. The modal's atomic save uses
-host-owned header `add`/`replace`/`delete` operations against stored values;
-omitted header edits preserve untouched values, while direct `headers: []`
-intentionally clears the list.
+The provider UI is role-first: each of Text, STT, and TTS has its own selected
+profile and readiness state, while Realtime is shown as a derived status from
+the selected text profile. The guided modal renders adapter-specific controls,
+including separate normal-text/realtime models for OpenAI Realtime and a
+persistent voice control for network TTS. Credential changes use dedicated
+host actions; opaque secret references are host-managed and are not editable in
+Control Center. Existing static headers are redacted to names in snapshots and
+edited through host-applied `add`/`replace`/`delete` operations, so their values
+never need to cross into the renderer. The host commits profile, credential,
+and role changes atomically.
 
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
@@ -270,7 +284,15 @@ retains ownership so a replacement cannot create an untracked shortcut. The
 default is the canonical `CommandOrControl+Shift+Space`. Replacing a preference
 unregisters the exact previous accelerator before attempting the new one. Pet,
 tray, and shortcut entry points all use one host-owned toggle (start when
-inactive, end when active). The contract reports only host-observed session
+inactive, end when active). A second, independent global shortcut
+(`chat-shortcut.ts`, preference `chatShortcut`, disabled by default via an
+empty accelerator) toggles the compact pet chat composer using the same
+manager/rollback semantics. Both shortcuts, plus the on-pet chat and talk
+buttons (visibility, corner, and size — `showChatButton`, `showTalkButton`,
+`petButtonsPosition`, `petButtonsSize`), are configured in the Settings →
+Chat & Voice tab. The talk button uses the same host-owned voice toggle; the
+buttons hide during transient bubbles but stay visible alongside pinned plugin
+HUDs. The contract reports only host-observed session
 state, not fabricated microphone device metadata. Ending voice releases
 voice-only state while preserving the shared assistant conversation.
 Canonical voice terminal feedback is held by `turnId` until synthesis and
@@ -411,7 +433,8 @@ when the operation settles.
 
 The private `VoiceConversationService` and hidden, sandboxed realtime renderer
 remain host infrastructure. When the explicitly selected text profile uses the
-native `openai-realtime` adapter, the Talk surface creates the optional
+native `openai-realtime` adapter and the derived realtime status is ready, the
+Talk surface creates the optional
 `OpenAIRealtimeVoiceAssistantSession`; other text profiles keep the generic
 STT -> Pet Assistant -> TTS path. The realtime lane shares the microphone and
 modality leases, tracks interruptions and mute state, rejects stale events, and

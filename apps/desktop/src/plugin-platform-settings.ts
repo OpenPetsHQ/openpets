@@ -1,61 +1,64 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  defaultProviderAuth,
+  providerCatalog,
+  providerDefinition,
+  providerPresets,
+  providerSupportsRole,
+  type ProviderAdapter,
+  type ProviderAuth,
+  type ProviderCredentialPolicy,
+  type ProviderHeader,
+  type ProviderHeaderPatch,
+  type ProviderPresetCredentialMode,
+  type ProviderProfile,
+  type ProviderRole,
+} from "./provider-contract.js";
+
+export {
+  defaultProviderAuth,
+  providerCatalog,
+  providerPresets,
+  type ProviderAdapter,
+  type ProviderAuth,
+  type ProviderCredentialPolicy,
+  type ProviderHeader,
+  type ProviderHeaderPatch,
+  type ProviderPresetCredentialMode,
+  type ProviderProfile,
+  type ProviderRole,
+} from "./provider-contract.js";
 
 /** Host gates and provider-profile selections. Secret values never belong here. */
 
-/** Text, speech-to-text, and text-to-speech are the three selectable roles. */
-export type ProviderRole = "text" | "stt" | "tts";
-export type ProviderAdapter =
-  | "openai-compatible-text"
-  | "openai-realtime"
-  | "anthropic-text"
-  | "openai-compatible-transcription"
-  | "system-tts"
-  | "minimax-tts"
-  | "elevenlabs-tts"
-  | "openai-compatible-speech";
-
-export type ProviderHeader = { readonly name: string; readonly value: string };
 /** A host-applied edit against stored headers. Values from existing headers are never sent to the renderer. */
-export type ProviderHeaderPatch =
-  | { readonly op: "add"; readonly name: string; readonly value: string }
-  | { readonly op: "replace"; readonly oldName: string; readonly name: string; readonly value: string }
-  | { readonly op: "delete"; readonly name: string };
-export type ProviderAuth = { readonly headerName: string; readonly strategy: "bearer" | "raw" };
-export type ProviderProfile = {
-  readonly id: string;
-  readonly label: string;
-  readonly adapter: ProviderAdapter;
-  readonly model: string;
-  readonly baseUrl?: string;
-  /** Opaque key into PluginSecretsStore. It is not a secret value. */
-  readonly secretRef?: string;
-  /** Credential placement for providers that do not use Bearer auth. */
-  readonly auth?: ProviderAuth;
-  readonly headers?: readonly ProviderHeader[];
-};
-
 export type ProviderSelections = { readonly text: string | null; readonly stt: string | null; readonly tts: string | null };
+export type ProviderQuarantine = { readonly reason: string; readonly value: unknown };
 export type PluginPlatformSettings = {
+  readonly version: typeof PROVIDER_SETTINGS_VERSION;
   readonly allowPluginAudio: boolean;
   readonly allowDynamicSpeech: boolean;
   readonly allowPluginVoice: boolean;
   readonly allowMicrophone: boolean;
   readonly quietHours: { readonly enabled: boolean; readonly start: string; readonly end: string };
   readonly profiles: Readonly<Record<string, ProviderProfile>>;
+  readonly quarantinedProfiles: Readonly<Record<string, ProviderQuarantine>>;
   readonly selections: ProviderSelections;
 };
 
-export type ProviderProfileInput = Omit<ProviderProfile, "id"> & { readonly id: string };
-export type ProviderProfilePatch = Partial<Omit<ProviderProfile, "id" | "baseUrl" | "secretRef" | "auth">> & {
+export type ProviderProfileInput = ProviderProfile;
+export type ProviderProfilePatch = {
   readonly id?: string;
-  /** null explicitly clears the optional endpoint field; omission preserves it. */
+  readonly label?: string;
+  readonly adapter?: ProviderAdapter;
+  readonly model?: string;
+  readonly realtimeModel?: string | null;
+  readonly voice?: string | null;
+  readonly headers?: readonly ProviderHeader[];
   readonly baseUrl?: string | null;
-  /** null explicitly clears the opaque credential reference; omission preserves it. */
   readonly secretRef?: string | null;
-  /** null explicitly clears custom credential placement; omission preserves it. */
   readonly auth?: ProviderAuth | null;
-  /** Apply edits to stored headers without requiring their values in the renderer. */
   readonly headerPatch?: readonly ProviderHeaderPatch[];
 };
 export type ProviderConfigurationSaveInput = {
@@ -80,8 +83,7 @@ export type ProviderStatus = {
   readonly message: string;
   readonly profileId?: string;
 };
-export type ProviderProfileSummary = Omit<ProviderProfile, "headers"> & { readonly headerNames: readonly string[]; readonly hasCredential: boolean };
-export type ProviderPresetCredentialMode = "required" | "none";
+export type ProviderProfileSummary = Omit<ProviderProfile, "headers" | "secretRef"> & { readonly headerNames: readonly string[]; readonly hasCredential: boolean };
 export type ProviderControlCenterSnapshot = {
   readonly gates: Pick<PluginPlatformSettings, "allowPluginAudio" | "allowDynamicSpeech" | "allowPluginVoice" | "allowMicrophone" | "quietHours">;
   readonly profiles: readonly ProviderProfileSummary[];
@@ -99,15 +101,23 @@ const MAX_LABEL_BYTES = 160;
 const MAX_MODEL_BYTES = 256;
 const MAX_BASE_URL_BYTES = 512;
 const MAX_SECRET_REF_BYTES = 160;
+export const PROVIDER_SETTINGS_VERSION = 1;
+/** Stable host-owned reference for credentials first saved without a legacy reference. */
+export function providerSecretReference(profileId: string): string {
+  assertProfileId(profileId);
+  return `profile:${profileId}`;
+}
 const reservedHeaders = new Set(["authorization", "proxy-authorization", "content-type", "content-length", "host", "connection", "keep-alive", "proxy-authenticate", "te", "trailer", "transfer-encoding", "upgrade", "cookie", "set-cookie", "user-agent"]);
 
 export const defaultPluginPlatformSettings: PluginPlatformSettings = {
+  version: PROVIDER_SETTINGS_VERSION,
   allowPluginAudio: true,
   allowDynamicSpeech: false,
   allowPluginVoice: true,
   allowMicrophone: false,
   quietHours: { enabled: false, start: "22:00", end: "08:00" },
   profiles: {},
+  quarantinedProfiles: {},
   selections: { text: null, stt: null, tts: null },
 };
 
@@ -115,23 +125,21 @@ const settingsFileName = "openpets-plugin-platform.json";
 let settingsPath: string | null = null;
 let cached: PluginPlatformSettings = defaultPluginPlatformSettings;
 
-export const providerPresets = Object.freeze([
-  { id: "openrouter", label: "OpenRouter", adapter: "openai-compatible-text" as const, model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1", credentialMode: "required" as const },
-  { id: "openai", label: "OpenAI", adapter: "openai-realtime" as const, model: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1", credentialMode: "required" as const },
-  { id: "anthropic", label: "Anthropic", adapter: "anthropic-text" as const, model: "claude-haiku-4-5-20251001", baseUrl: "https://api.anthropic.com", credentialMode: "required" as const },
-  { id: "ollama", label: "Ollama", adapter: "openai-compatible-text" as const, model: "llama3.2", baseUrl: "http://127.0.0.1:11434/v1", credentialMode: "none" as const },
-  { id: "lm-studio", label: "LM Studio", adapter: "openai-compatible-text" as const, model: "local-model", baseUrl: "http://127.0.0.1:1234/v1", credentialMode: "none" as const },
-  { id: "vllm", label: "vLLM", adapter: "openai-compatible-text" as const, model: "local-model", baseUrl: "http://127.0.0.1:8000/v1", credentialMode: "none" as const },
-  { id: "minimax-chat", label: "MiniMax chat", adapter: "openai-compatible-text" as const, model: "MiniMax-M3", baseUrl: "https://api.minimax.io/v1", credentialMode: "required" as const },
-  { id: "whisper", label: "Whisper-compatible STT", adapter: "openai-compatible-transcription" as const, model: "whisper-1", baseUrl: "https://api.openai.com/v1", credentialMode: "required" as const },
-  { id: "elevenlabs", label: "ElevenLabs TTS", adapter: "elevenlabs-tts" as const, model: "eleven_multilingual_v2", baseUrl: "https://api.elevenlabs.io/v1", credentialMode: "required" as const },
-  { id: "system-tts", label: "System voice", adapter: "system-tts" as const, model: "", credentialMode: "none" as const },
-] as const);
-
 export function initializePluginPlatformSettings(userDataPath: string): PluginPlatformSettings {
   const path = join(userDataPath, settingsFileName);
   settingsPath = path;
-  cached = readSettingsFile(path);
+  try {
+    cached = readSettingsFile(path);
+    if (existsSync(path)) {
+      const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+      if (!isRecord(raw) || raw.version !== PROVIDER_SETTINGS_VERSION) writeSettingsFile(path, cached);
+    }
+  } catch (error) {
+    // A damaged document is moved aside before future saves. The original is
+    // therefore recoverable and can never be silently overwritten.
+    if (existsSync(path)) renameSync(path, `${path}.corrupt`);
+    cached = defaultPluginPlatformSettings;
+  }
   return cached;
 }
 
@@ -159,6 +167,7 @@ export function validateProviderGatesPatch(value: unknown): ProviderGatesPatch {
 export function createProviderProfile(input: ProviderProfileInput): PluginPlatformSettings {
   const profile = validateProviderProfile(input);
   if (cached.profiles[profile.id]) throw new Error("Provider profile id is already in use.");
+  if (cached.quarantinedProfiles[profile.id]) throw new Error("Provider profile id is quarantined and must be recovered explicitly.");
   cached = persist({ ...cached, profiles: { ...cached.profiles, [profile.id]: profile } });
   return cached;
 }
@@ -213,27 +222,48 @@ export function validateProviderProfile(input: unknown): ProviderProfile {
   const label = boundedString(input.label, "Provider profile label", MAX_LABEL_BYTES);
   const adapter = input.adapter;
   if (!isAdapter(adapter)) throw new Error("Provider profile adapter is invalid.");
-  const model = boundedString(input.model, "Provider profile model", MAX_MODEL_BYTES, true);
-  if (adapter !== "system-tts" && model.length === 0) throw new Error("Provider profile model is required.");
+  const allowedFields = new Set(["id", "label", "adapter", "model", "baseUrl", "secretRef", "auth", "headers"]);
+  if (adapter === "openai-realtime") allowedFields.add("realtimeModel");
+  if (adapter === "system-tts" || adapter === "minimax-tts" || adapter === "elevenlabs-tts" || adapter === "openai-compatible-speech") allowedFields.add("voice");
+  for (const key of Object.keys(input)) if (!allowedFields.has(key)) throw new Error(`Provider profile field ${key} is not supported for ${adapter}.`);
+  const model = boundedString(input.model, "Provider profile model", MAX_MODEL_BYTES, adapter === "system-tts" || adapter === "openai-realtime");
+  if (adapter !== "system-tts" && adapter !== "openai-realtime" && model.length === 0) throw new Error("Provider profile model is required.");
+  if (adapter === "system-tts" && model !== "") throw new Error("System TTS profiles must not define a model.");
   const baseUrl = input.baseUrl === undefined || input.baseUrl === "" ? undefined : validateProviderBaseUrl(input.baseUrl);
   const secretRef = input.secretRef === undefined || input.secretRef === "" ? undefined : boundedString(input.secretRef, "Provider secret reference", MAX_SECRET_REF_BYTES);
   const headers = validateProviderHeaders(input.headers);
   const auth = validateProviderAuth(input.auth, adapter, secretRef);
   if (auth && headers.some((header) => header.name.toLowerCase() === auth.headerName.toLowerCase())) throw new Error("Provider auth header must not also be declared as a static header.");
-  if (adapter === "system-tts" && (baseUrl || secretRef || auth || headers.length > 0)) throw new Error("System TTS profiles cannot define a network endpoint or credential.");
-  if ((adapter === "anthropic-text" || adapter === "minimax-tts" || adapter === "elevenlabs-tts") && !baseUrl) throw new Error("This provider profile requires a base URL.");
-  if ((adapter === "openai-compatible-text" || adapter === "openai-realtime" || adapter === "openai-compatible-transcription" || adapter === "openai-compatible-speech") && !baseUrl) throw new Error("OpenAI-compatible provider profiles require a base URL.");
-  return Object.freeze({ id, label, adapter, model, ...(baseUrl ? { baseUrl } : {}), ...(secretRef ? { secretRef } : {}), ...(auth ? { auth } : {}), ...(headers.length > 0 ? { headers: Object.freeze(headers) } : {}) });
+  const definition = providerDefinition(adapter);
+  if (definition.requiresBaseUrl && !baseUrl) throw new Error("This provider profile requires a base URL.");
+  if (!definition.requiresBaseUrl && (baseUrl || secretRef || auth || headers.length > 0)) throw new Error("System TTS profiles cannot define a network endpoint or credential.");
+  if (adapter === "system-tts") {
+    const voice = input.voice === undefined || input.voice === ""
+      ? undefined
+      : boundedString(input.voice, "System TTS voice", MAX_MODEL_BYTES);
+    return Object.freeze({ id, label, adapter, model: "", ...(voice ? { voice } : {}) });
+  }
+  if (adapter === "openai-realtime") {
+    const realtimeModel = boundedString(input.realtimeModel, "Provider realtime model", MAX_MODEL_BYTES);
+    return Object.freeze({ id, label, adapter, model, realtimeModel, baseUrl: baseUrl!, ...(secretRef ? { secretRef } : {}), ...(auth ? { auth } : {}), ...(headers.length > 0 ? { headers: Object.freeze(headers) } : {}) });
+  }
+  if (adapter === "minimax-tts" || adapter === "elevenlabs-tts" || adapter === "openai-compatible-speech") {
+    const voice = boundedString(input.voice, "Provider voice", MAX_MODEL_BYTES);
+    return Object.freeze({ id, label, adapter, model, voice, baseUrl: baseUrl!, ...(secretRef ? { secretRef } : {}), ...(auth ? { auth } : {}), ...(headers.length > 0 ? { headers: Object.freeze(headers) } : {}) }) as ProviderProfile;
+  }
+  return Object.freeze({ id, label, adapter, model, baseUrl: baseUrl!, ...(secretRef ? { secretRef } : {}), ...(auth ? { auth } : {}), ...(headers.length > 0 ? { headers: Object.freeze(headers) } : {}) }) as ProviderProfile;
 }
 
 export function validateProviderProfilePatch(value: unknown): ProviderProfilePatch {
   if (!isRecord(value)) throw new Error("Provider profile patch must be an object.");
-  const allowed = new Set(["id", "label", "adapter", "model", "baseUrl", "secretRef", "auth", "headers", "headerPatch"]);
+  const allowed = new Set(["id", "label", "adapter", "model", "realtimeModel", "voice", "baseUrl", "secretRef", "auth", "headers", "headerPatch"]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`Provider profile patch field ${key} is not supported.`);
   if (value.id !== undefined) assertProfileId(value.id);
   if (value.label !== undefined) boundedString(value.label, "Provider profile label", MAX_LABEL_BYTES);
   if (value.adapter !== undefined && !isAdapter(value.adapter)) throw new Error("Provider profile adapter is invalid.");
   if (value.model !== undefined) boundedString(value.model, "Provider profile model", MAX_MODEL_BYTES, true);
+  if (value.realtimeModel !== undefined && value.realtimeModel !== null) boundedString(value.realtimeModel, "Provider realtime model", MAX_MODEL_BYTES);
+  if (value.voice !== undefined && value.voice !== null) boundedString(value.voice, "Provider voice", MAX_MODEL_BYTES);
   if (value.baseUrl !== undefined && value.baseUrl !== null) validateProviderBaseUrl(value.baseUrl);
   if (value.secretRef !== undefined && value.secretRef !== null) boundedString(value.secretRef, "Provider secret reference", MAX_SECRET_REF_BYTES);
   if (value.auth !== undefined && value.auth !== null) validateProviderAuth(value.auth, "openai-compatible-text", "patch-secret");
@@ -283,7 +313,8 @@ export function applyProviderHeaderPatches(existing: readonly ProviderHeader[], 
  */
 export async function saveProviderConfiguration(input: ProviderConfigurationSaveInput, secrets: ProviderCredentialStore): Promise<PluginPlatformSettings> {
   const before = cached;
-  const candidate = prepareProviderConfiguration(before, input);
+  const preparedInput = prepareProviderConfigurationInput(before, input);
+  const candidate = prepareProviderConfiguration(before, preparedInput);
   const previousProfile = before.profiles[input.profileId];
   const nextProfile = candidate.profiles[input.profileId];
   const refs = new Set<string>();
@@ -322,10 +353,19 @@ export async function saveProviderConfiguration(input: ProviderConfigurationSave
   }
 }
 
+/** Validates an unsaved profile draft against the current stored profile without persisting it. */
+export function previewProviderConfiguration(input: ProviderConfigurationSaveInput): ProviderProfile {
+  const candidate = prepareProviderConfiguration(
+    cached,
+    prepareProviderConfigurationInput(cached, input),
+  );
+  const profile = candidate.profiles[input.profileId];
+  if (!profile) throw new Error("Provider profile was not found.");
+  return profile;
+}
+
 export function profileSupportsRole(profile: ProviderProfile, role: ProviderRole): boolean {
-  if (role === "text") return profile.adapter === "openai-compatible-text" || profile.adapter === "openai-realtime" || profile.adapter === "anthropic-text";
-  if (role === "stt") return profile.adapter === "openai-compatible-transcription";
-  return profile.adapter === "system-tts" || profile.adapter === "minimax-tts" || profile.adapter === "elevenlabs-tts" || profile.adapter === "openai-compatible-speech";
+  return providerSupportsRole(profile.adapter, role);
 }
 
 export function validateProviderBaseUrl(value: unknown): string {
@@ -369,25 +409,22 @@ export function validateProviderAuth(value: unknown, adapter: ProviderAdapter, s
   return Object.freeze({ headerName, strategy });
 }
 
-export function defaultProviderAuth(adapter: ProviderAdapter): ProviderAuth {
-  if (adapter === "anthropic-text") return { headerName: "x-api-key", strategy: "raw" };
-  if (adapter === "elevenlabs-tts") return { headerName: "xi-api-key", strategy: "raw" };
-  return { headerName: "authorization", strategy: "bearer" };
-}
-
 export function profileStatus(settings: PluginPlatformSettings, role: ProviderRole, hasCredential: (profile: ProviderProfile) => boolean): ProviderStatus {
   const id = settings.selections[role];
   if (!id) return { role, state: "disabled", code: "provider.role.disabled", message: `No ${role} provider profile is selected.` };
   const profile = settings.profiles[id];
   if (!profile) return { role, state: "invalid", code: "provider.profile.missing", message: "The selected provider profile no longer exists.", profileId: id };
   if (!profileSupportsRole(profile, role)) return { role, state: "unsupported", code: "provider.role.unsupported", message: `The selected provider profile does not support ${role}.`, profileId: id };
-  if (profile.adapter !== "system-tts" && profile.secretRef && !hasCredential(profile)) return { role, state: "missing-secret", code: "provider.credential.missing", message: "The selected provider profile has no credential.", profileId: id };
+  if (!profileIsReadyForRole(profile, role)) return { role, state: "invalid", code: "provider.profile.incomplete", message: "The selected provider profile needs a model configuration before it can be used.", profileId: id };
+  const credentialPolicy = providerDefinition(profile.adapter).credentialPolicy;
+  if (credentialPolicy === "required" && (!profile.secretRef || !hasCredential(profile))) return { role, state: "missing-secret", code: "provider.credential.missing", message: "The selected provider profile requires a credential.", profileId: id };
+  if (credentialPolicy === "optional" && profile.secretRef && !hasCredential(profile)) return { role, state: "missing-secret", code: "provider.credential.missing", message: "The selected provider profile has no credential.", profileId: id };
   return { role, state: "ready", code: "provider.ready", message: "Provider profile is ready.", profileId: id };
 }
 
 function getNormalizedProfileSummaries(settings: PluginPlatformSettings, hasCredential: (profile: ProviderProfile) => boolean): readonly ProviderProfileSummary[] {
   return Object.values(settings.profiles).map((profile) => {
-    const { headers: _headers, ...safeProfile } = profile;
+    const { headers: _headers, secretRef: _secretRef, ...safeProfile } = profile;
     return Object.freeze({ ...safeProfile, headerNames: Object.freeze((profile.headers ?? []).map((header) => header.name)), hasCredential: Boolean(profile.secretRef && hasCredential(profile)) });
   });
 }
@@ -407,7 +444,8 @@ export function realtimeStatus(settings: PluginPlatformSettings, hasCredential: 
   if (!id) return { role: "realtime", state: "disabled", code: "provider.realtime.disabled", message: "Realtime is unavailable because no text profile is selected." };
   const profile = settings.profiles[id];
   if (!profile || profile.adapter !== "openai-realtime") return { role: "realtime", state: "unsupported", code: "provider.realtime.unsupported", message: "Realtime requires an explicit native OpenAI realtime profile.", profileId: id };
-  if (profile.secretRef && !hasCredential(profile)) return { role: "realtime", state: "missing-secret", code: "provider.credential.missing", message: "The selected realtime profile has no credential.", profileId: id };
+  if (!profile.model || !profile.realtimeModel) return { role: "realtime", state: "invalid", code: "provider.profile.incomplete", message: "The realtime profile needs both a text model and a realtime model.", profileId: id };
+  if (providerDefinition(profile.adapter).credentialPolicy === "required" && (!profile.secretRef || !hasCredential(profile))) return { role: "realtime", state: "missing-secret", code: "provider.credential.missing", message: "The selected realtime profile requires a credential.", profileId: id };
   return { role: "realtime", state: "ready", code: "provider.ready", message: "Realtime profile is ready.", profileId: id };
 }
 
@@ -442,6 +480,7 @@ function prepareProviderConfiguration(settings: PluginPlatformSettings, input: P
   } else {
     const profile = validateProviderProfile(input.payload);
     if (profiles[profile.id]) throw new Error("Provider profile id is already in use.");
+    if (settings.quarantinedProfiles[profile.id]) throw new Error("Provider profile id is quarantined and must be recovered explicitly.");
     profiles[profile.id] = profile;
   }
 
@@ -467,22 +506,71 @@ function prepareProviderConfiguration(settings: PluginPlatformSettings, input: P
   return { ...settings, profiles, selections };
 }
 
+function prepareProviderConfigurationInput(
+  settings: PluginPlatformSettings,
+  input: ProviderConfigurationSaveInput,
+): ProviderConfigurationSaveInput {
+  const existingProfile = settings.profiles[input.profileId];
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const requestedSecretRef = "secretRef" in payload ? payload.secretRef : existingProfile?.secretRef;
+  if (input.credentialValue === undefined || requestedSecretRef) return input;
+  return {
+    ...input,
+    payload: { ...input.payload, secretRef: providerSecretReference(input.profileId) },
+  };
+}
+
 function normalizeSettings(value: unknown): PluginPlatformSettings {
   const raw = isRecord(value) ? value : {};
+  const isLegacyDocument = raw.version === undefined;
   const quiet = isRecord(raw.quietHours) ? raw.quietHours : {};
   const profiles: Record<string, ProviderProfile> = {};
-  if (isRecord(raw.profiles)) for (const [id, profile] of Object.entries(raw.profiles)) { try { const normalized = validateProviderProfile({ ...(isRecord(profile) ? profile : {}), id }); profiles[id] = normalized; } catch { /* invalid persisted profiles are surfaced by the missing selection/status path */ } }
+  const quarantinedProfiles: Record<string, ProviderQuarantine> = isRecord(raw.quarantinedProfiles) ? { ...raw.quarantinedProfiles } as Record<string, ProviderQuarantine> : {};
+  if (isRecord(raw.profiles)) for (const [id, profile] of Object.entries(raw.profiles)) {
+    try {
+      const migrated = isLegacyDocument ? migrateProfile(profile) : profile;
+      profiles[id] = validateProviderProfile({ ...(isRecord(migrated) ? migrated : {}), id });
+    } catch (error) {
+      quarantinedProfiles[id] = { reason: error instanceof Error ? error.message : "Provider profile is invalid.", value: profile };
+    }
+  }
   const selections = isRecord(raw.selections) ? { text: selection(raw.selections.text), stt: selection(raw.selections.stt), tts: selection(raw.selections.tts) } : defaultPluginPlatformSettings.selections;
-  return { allowPluginAudio: raw.allowPluginAudio !== false, allowDynamicSpeech: raw.allowDynamicSpeech === true, allowPluginVoice: raw.allowPluginVoice !== false, allowMicrophone: raw.allowMicrophone === true, quietHours: { enabled: quiet.enabled === true, start: validTime(quiet.start) ? quiet.start as string : "22:00", end: validTime(quiet.end) ? quiet.end as string : "08:00" }, profiles, selections };
+  return { version: PROVIDER_SETTINGS_VERSION, allowPluginAudio: raw.allowPluginAudio !== false, allowDynamicSpeech: raw.allowDynamicSpeech === true, allowPluginVoice: raw.allowPluginVoice !== false, allowMicrophone: raw.allowMicrophone === true, quietHours: { enabled: quiet.enabled === true, start: validTime(quiet.start) ? quiet.start as string : "22:00", end: validTime(quiet.end) ? quiet.end as string : "08:00" }, profiles, quarantinedProfiles, selections };
+}
+
+function migrateProfile(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const migrated = { ...value };
+  const adapter = migrated.adapter;
+  if (adapter === "openai-realtime" && typeof migrated.model === "string" && typeof migrated.realtimeModel !== "string") {
+    // The old document had only one model field and it was the realtime
+    // model. Never pretend it was a normal text model.
+    migrated.realtimeModel = migrated.model;
+    migrated.model = "";
+  }
+  if ((adapter === "elevenlabs-tts" || adapter === "minimax-tts" || adapter === "openai-compatible-speech") && typeof migrated.voice !== "string") {
+    migrated.voice = providerDefinition(adapter).defaultVoice;
+  }
+  return migrated;
+}
+
+function profileIsReadyForRole(profile: ProviderProfile, role: ProviderRole): boolean {
+  if (role === "text") return profile.model.length > 0;
+  if (role === "stt") return profile.model.length > 0;
+  return profile.adapter === "system-tts" || (profile.adapter === "minimax-tts" || profile.adapter === "elevenlabs-tts" || profile.adapter === "openai-compatible-speech") && profile.voice.length > 0;
 }
 
 function persist(settings: PluginPlatformSettings): PluginPlatformSettings { if (settingsPath) writeSettingsFile(settingsPath, settings); cached = settings; return settings; }
-function readSettingsFile(path: string): PluginPlatformSettings { try { if (!existsSync(path)) return defaultPluginPlatformSettings; return normalizeSettings(JSON.parse(readFileSync(path, "utf8"))); } catch { return defaultPluginPlatformSettings; } }
+function readSettingsFile(path: string): PluginPlatformSettings {
+  if (!existsSync(path)) return defaultPluginPlatformSettings;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  return normalizeSettings(raw);
+}
 function writeSettingsFile(path: string, settings: PluginPlatformSettings): void { mkdirSync(dirname(path), { recursive: true }); const tmp = `${path}.${process.pid}.tmp`; writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8"); renameSync(tmp, path); }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function boundedString(value: unknown, label: string, maxBytes: number, allowEmpty = false): string { if (typeof value !== "string" || (!allowEmpty && value.trim() === "") || Buffer.byteLength(value, "utf8") > maxBytes || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`${label} is invalid.`); return value.trim(); }
 function assertProfileId(value: unknown): asserts value is string { if (typeof value !== "string" || !PROVIDER_PROFILE_ID.test(value)) throw new Error("Provider profile id is invalid."); }
-function isAdapter(value: unknown): value is ProviderAdapter { return ["openai-compatible-text", "openai-realtime", "anthropic-text", "openai-compatible-transcription", "system-tts", "minimax-tts", "elevenlabs-tts", "openai-compatible-speech"].includes(String(value)); }
+function isAdapter(value: unknown): value is ProviderAdapter { return ["openai-compatible-text", "openai-realtime", "anthropic-text", "openai-compatible-transcription", "elevenlabs-transcription", "system-tts", "minimax-tts", "elevenlabs-tts", "openai-compatible-speech"].includes(String(value)); }
 function isRole(value: unknown): value is ProviderRole { return ["text", "stt", "tts"].includes(String(value)); }
 function validTime(value: unknown): value is string { return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value); }
 function selection(value: unknown): string | null { return typeof value === "string" && PROVIDER_PROFILE_ID.test(value) ? value : null; }

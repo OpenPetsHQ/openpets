@@ -42,7 +42,7 @@ const capability = { pluginId: "focus.buddy", capability: { id: "start", descrip
 const toolName = petAssistantToolName("focus.buddy", "start");
 
 function provider(): HostProviderOperations {
-  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
+  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-4o-mini", realtimeModel: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
   return {
     snapshot: async () => snapshot,
     negotiateRealtime: async () => "v=0\r\no=answer",

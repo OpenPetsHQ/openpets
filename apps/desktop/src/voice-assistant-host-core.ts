@@ -171,7 +171,8 @@ export class ProviderVoiceSynthesizer implements VoiceAssistantSynthesizer {
 
   async synthesize(text: string, options: { readonly requestId: string; readonly signal: AbortSignal }): Promise<VoiceAssistantSpeech> {
     const snapshot = await this.#provider.snapshot("tts");
-    const speech = await this.#provider.synthesize(snapshot, text, {}, options.signal);
+    const voice = snapshot.profile.adapter === "minimax-tts" || snapshot.profile.adapter === "elevenlabs-tts" || snapshot.profile.adapter === "openai-compatible-speech" ? snapshot.profile.voice : undefined;
+    const speech = await this.#provider.synthesize(snapshot, text, { voice }, options.signal);
     return speech ? { kind: "audio", bytes: speech.bytes, mimeType: speech.mimeType } : { kind: "system", text };
   }
 }

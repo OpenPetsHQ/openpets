@@ -179,6 +179,23 @@ for (const { key, errMsg } of booleanKeys) {
 }
 
 // ---------------------------------------------------------------------------
+// Assistant buttons & chat shortcut — enums validated, empty chatShortcut clears
+// ---------------------------------------------------------------------------
+{
+  assert.equal(validatePreferencePatch({ chatShortcut: "" }).chatShortcut, "");
+  assert.equal(validatePreferencePatch({ chatShortcut: "CommandOrControl+Shift+C" }).chatShortcut, "CommandOrControl+Shift+C");
+  assert.throws(() => validatePreferencePatch({ chatShortcut: "notakey" }), /Invalid voice assistant shortcut\./);
+
+  assert.equal(validatePreferencePatch({ petButtonsPosition: "left" }).petButtonsPosition, "left");
+  assert.throws(() => validatePreferencePatch({ petButtonsPosition: "top" }), /Invalid pet buttons position value\./);
+  assert.equal(validatePreferencePatch({ petButtonsSize: "large" }).petButtonsSize, "large");
+  assert.throws(() => validatePreferencePatch({ petButtonsSize: "huge" }), /Invalid pet buttons size value\./);
+  assert.throws(() => validatePreferencePatch({ showChatButton: "yes" }), /Invalid chat button visibility value\./);
+  assert.equal(validatePreferencePatch({ showTalkButton: false }).showTalkButton, false);
+  console.log("validatePreferencePatch: assistant buttons & chat shortcut — PASS");
+}
+
+// ---------------------------------------------------------------------------
 // Pet Assistant personality — nested renderer values are validated and bounded
 // ---------------------------------------------------------------------------
 {

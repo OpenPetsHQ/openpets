@@ -15,12 +15,13 @@ import {
   TrashIcon,
 } from "./icons.js";
 import {
-  isLocalOrSystemProvider,
+  getProfileCredentialPolicy,
   profileSupportsRole,
   type ProviderControlCenterSnapshot,
   type ProviderProfileSummary,
   type ProviderRole,
 } from "./types.js";
+import { getVoiceDisplayLabel, isTtsAdapter } from "./voice-options.js";
 
 export type ProviderLibraryProps = {
   readonly snapshot: ProviderControlCenterSnapshot | null;
@@ -86,7 +87,8 @@ export function ProviderLibrary({
     if (profile.adapter === "system-tts") {
       return <SpeakerIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
     }
-    if (isLocalOrSystemProvider(profile)) {
+    const policy = getProfileCredentialPolicy(profile);
+    if (policy === "optional") {
       return <ServerIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" />;
     }
     return <CloudIcon className="w-5 h-5 text-brand" />;
@@ -171,7 +173,7 @@ export function ProviderLibrary({
             const isSelectedStt = selections.stt === profile.id;
             const isSelectedTts = selections.tts === profile.id;
             const isSelectedAny = isSelectedText || isSelectedStt || isSelectedTts;
-            const isLocal = isLocalOrSystemProvider(profile);
+            const policy = getProfileCredentialPolicy(profile);
             const isKeyDrawerOpen = activeKeyDrawerId === profile.id;
 
             return (
@@ -195,18 +197,53 @@ export function ProviderLibrary({
                         </span>
                       </div>
 
-                      {/* Model & Endpoint Subtitle */}
+                      {/* Model, Voice & Endpoint Subtitle */}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slatecopy mt-1 font-medium">
-                        {profile.model && (
+                        {profile.adapter === "openai-realtime" ? (
+                          <>
+                            {profile.model && (
+                              <span className="truncate max-w-full">
+                                {t("settings.providers.library.textModel")}{" "}
+                                <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                  {profile.model}
+                                </code>
+                              </span>
+                            )}
+                            {profile.realtimeModel && (
+                              <span className="truncate max-w-full">
+                                {t("settings.providers.library.realtimeModel")}{" "}
+                                <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                  {profile.realtimeModel}
+                                </code>
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          profile.model && (
+                            <span className="truncate max-w-full">
+                              {t("settings.providers.library.model")}{" "}
+                              <code className="font-mono text-navy dark:text-slate-200 font-semibold">
+                                {profile.model}
+                              </code>
+                            </span>
+                          )
+                        )}
+
+                        {isTtsAdapter(profile.adapter) && (
                           <span className="truncate max-w-full">
-                            {t("settings.providers.library.model")}{" "}
-                            <code className="font-mono text-navy dark:text-slate-200 font-semibold">{profile.model}</code>
+                            {t("settings.providers.library.voice")}{" "}
+                            <span className="font-semibold text-navy dark:text-slate-200">
+                              {getVoiceDisplayLabel(profile.adapter, profile.voice)}
+                            </span>
                           </span>
                         )}
+
                         {profile.baseUrl && (
                           <span className="truncate max-w-full">
                             {t("settings.providers.library.endpoint")}{" "}
-                            <code className="font-mono text-navy dark:text-slate-200 opacity-80">{profile.baseUrl}</code>
+                            <code className="font-mono text-navy dark:text-slate-200 opacity-80">
+                              {profile.baseUrl}
+                            </code>
                           </span>
                         )}
                       </div>
@@ -240,7 +277,7 @@ export function ProviderLibrary({
                   </div>
                 </div>
 
-                {/* Footer: role assignment toggles (they show and switch state) + key status */}
+                {/* Footer: role assignment toggles + key status */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-50/70 dark:border-slate-800 text-xs">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {profileSupportsRole(profile, "text") &&
@@ -251,13 +288,55 @@ export function ProviderLibrary({
                       renderAssignButton(profile, "tts", <SpeakerIcon className="w-3.5 h-3.5" />)}
                   </div>
 
-                  {/* Right: Key Status & Fast Key Affordance */}
+                  {/* Right: Key Status & Affordance */}
                   <div className="flex items-center gap-2">
-                    {isLocal ? (
+                    {policy === "none" ? (
                       <span className="inline-flex items-center gap-1 text-xs text-slatecopy font-semibold">
                         <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600" />
-                        {t("settings.providers.library.localNoKey")}
+                        {t("settings.providers.library.systemNoKey")}
                       </span>
+                    ) : policy === "optional" ? (
+                      profile.hasCredential ? (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
+                            <ShieldCheckIcon className="w-3.5 h-3.5" />
+                            {t("settings.providers.library.keySaved")}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[11px] font-bold text-brand hover:underline cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setActiveKeyDrawerId(isKeyDrawerOpen ? null : profile.id);
+                              setKeyDraft("");
+                            }}
+                          >
+                            {isKeyDrawerOpen
+                              ? t("settings.providers.library.closeKey")
+                              : t("settings.providers.library.changeKey")}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-slatecopy font-semibold">
+                            <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            {t("settings.providers.library.localKeyOptional")}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[11px] font-bold text-brand hover:underline cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setActiveKeyDrawerId(isKeyDrawerOpen ? null : profile.id);
+                              setKeyDraft("");
+                            }}
+                          >
+                            {isKeyDrawerOpen
+                              ? t("settings.providers.library.closeKey")
+                              : t("settings.providers.library.setKey")}
+                          </button>
+                        </div>
+                      )
                     ) : profile.hasCredential ? (
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
@@ -301,7 +380,7 @@ export function ProviderLibrary({
                 </div>
 
                 {/* Inline Fast Key Drawer */}
-                {isKeyDrawerOpen && profile.secretRef && (
+                {isKeyDrawerOpen && policy !== "none" && (
                   <div className="mt-3 rounded-xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-800/60 p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <strong className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1.5">

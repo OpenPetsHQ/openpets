@@ -1,91 +1,119 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useI18n } from "../../i18n.js";
 import {
   BrainIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   CloseIcon,
   KeyIcon,
   MicIcon,
-  PlusIcon,
+  ShieldAlertIcon,
   ShieldCheckIcon,
   SpeakerIcon,
-  TrashIcon,
 } from "./icons.js";
 import {
-  PROVIDER_PRESETS,
   getPresetById,
+  getPresetsByRole,
+  getPresetCatalog,
   generateRandomProfileId,
-  type PresetCategory,
-  type ProviderPresetItem,
+  CUSTOM_TEMPLATE,
+  type CustomProviderTemplate,
 } from "./presets.js";
 import {
-  getDefaultAuthHeader,
-  getDefaultAuthStrategy,
-  isLocalOrSystemProvider,
+  getProfileCredentialPolicy,
   profileSupportsRole,
   type ProviderAdapter,
   type ProviderAuth,
   type ProviderHeaderPatch,
   type ProviderConfigurationSaveInput,
+  type ProviderConfigurationTestAudio,
+  type ProviderConfigurationTestResult,
+  type ProviderPreset,
   type ProviderProfileInput,
   type ProviderProfilePatch,
   type ProviderProfileSummary,
   type ProviderRole,
 } from "./types.js";
+import {
+  getDefaultVoiceForAdapter,
+  isKnownCuratedVoice,
+  isTtsAdapter,
+} from "./voice-options.js";
+import { VoiceControl } from "./VoiceControl.js";
+import { ModelControls } from "./ModelControls.js";
+import {
+  AdvancedConnectionSettings,
+  type HeaderDraft,
+} from "./AdvancedConnectionSettings.js";
 
 export type ProviderModalProps = {
   readonly isOpen: boolean;
   readonly editingProfile: ProviderProfileSummary | null;
   readonly initialPresetId?: string;
+  readonly presets?: readonly ProviderPreset[];
   readonly busy: string;
   readonly onClose: () => void;
   readonly onSave: (params: ProviderConfigurationSaveInput) => Promise<void>;
+  readonly onTest: (
+    params: ProviderConfigurationSaveInput,
+    audio?: ProviderConfigurationTestAudio,
+  ) => Promise<ProviderConfigurationTestResult>;
 };
-
-type HeaderDraft = {
-  readonly key: string;
-  readonly originalName?: string;
-  readonly name: string;
-  readonly value: string;
-  readonly deleted?: boolean;
-};
-
-// Templates are grouped by the companion role they serve so the picker reads
-// as "what do you want to add" instead of a flat wall of vendor names.
-const TEMPLATE_GROUPS: readonly {
-  readonly key: "text" | "stt" | "tts" | "custom";
-  readonly categories: readonly PresetCategory[];
-}[] = [
-  { key: "text", categories: ["cloud-text", "cloud-realtime", "local-text"] },
-  { key: "stt", categories: ["cloud-stt"] },
-  { key: "tts", categories: ["cloud-tts", "local-tts"] },
-  { key: "custom", categories: ["custom"] },
-];
 
 const ADAPTER_OPTIONS: readonly ProviderAdapter[] = [
   "openai-compatible-text",
   "openai-realtime",
   "anthropic-text",
   "openai-compatible-transcription",
+  "elevenlabs-transcription",
   "system-tts",
   "elevenlabs-tts",
   "minimax-tts",
   "openai-compatible-speech",
 ];
 
+const TEMPLATE_ROLE_GROUPS: readonly {
+  readonly key: ProviderRole | "custom";
+  readonly titleKey: string;
+}[] = [
+  { key: "text", titleKey: "settings.providers.modal.group.text" },
+  { key: "stt", titleKey: "settings.providers.modal.group.stt" },
+  { key: "tts", titleKey: "settings.providers.modal.group.tts" },
+  { key: "custom", titleKey: "settings.providers.modal.group.custom" },
+];
+
+function getBaseUrlPlaceholder(adapter: ProviderAdapter): string {
+  switch (adapter) {
+    case "elevenlabs-tts":
+      return "https://api.elevenlabs.io/v1";
+    case "minimax-tts":
+      return "https://api.minimax.io/v1";
+    case "anthropic-text":
+      return "https://api.anthropic.com";
+    case "openai-compatible-text":
+      return "https://openrouter.ai/api/v1";
+    case "openai-realtime":
+    case "openai-compatible-transcription":
+    case "openai-compatible-speech":
+    default:
+      return "https://api.openai.com/v1";
+  }
+}
+
 export function ProviderModal({
   isOpen,
   editingProfile,
   initialPresetId,
+  presets: rawPresets,
   busy,
   onClose,
   onSave,
+  onTest,
 }: ProviderModalProps) {
   const { t } = useI18n();
+  const presets = getPresetCatalog(rawPresets ? { presets: rawPresets } : null);
   const isEditing = Boolean(editingProfile);
+
   const [selectedPresetId, setSelectedPresetId] = useState<string>(
-    initialPresetId ?? (isEditing ? "" : "openrouter")
+    initialPresetId ?? (isEditing ? "" : CUSTOM_TEMPLATE.id),
   );
 
   // Form State
@@ -93,23 +121,23 @@ export function ProviderModal({
   const [label, setLabel] = useState("");
   const [adapter, setAdapter] = useState<ProviderAdapter>("openai-compatible-text");
   const [model, setModel] = useState("");
+  const [realtimeModel, setRealtimeModel] = useState("");
+  const [voice, setVoice] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [secretRef, setSecretRef] = useState<string | undefined>(undefined);
   const [inlineKey, setInlineKey] = useState("");
 
   // Advanced section
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [customAuth, setCustomAuth] = useState<ProviderAuth | null>(null);
   const [authEdited, setAuthEdited] = useState(false);
-  const [headers, setHeaders] = useState<HeaderDraft[]>([]);
+  const [headers, setHeaders] = useState<readonly HeaderDraft[]>([]);
   const [headersEdited, setHeadersEdited] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [testStage, setTestStage] = useState<"idle" | "recording" | "testing">("idle");
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const testRecorderRef = useRef<MediaRecorder | null>(null);
 
-  // Initialize the draft each time the modal opens (or the edited profile
-  // changes while open). The component stays mounted while closed, so this
-  // must not run on closed renders.
   useEffect(() => {
     if (!isOpen) return;
     if (editingProfile) {
@@ -117,38 +145,83 @@ export function ProviderModal({
       setLabel(editingProfile.label);
       setAdapter(editingProfile.adapter);
       setModel(editingProfile.model);
+      setRealtimeModel(
+        editingProfile.realtimeModel ??
+          (editingProfile.adapter === "openai-realtime" ? "gpt-realtime-2.1" : ""),
+      );
+      setVoice(
+        editingProfile.voice ??
+          (isTtsAdapter(editingProfile.adapter)
+            ? getDefaultVoiceForAdapter(editingProfile.adapter)
+            : ""),
+      );
       setBaseUrl(editingProfile.baseUrl ?? "");
-      setSecretRef(editingProfile.secretRef);
       setCustomAuth(editingProfile.auth ?? null);
       setAuthEdited(false);
-      setHeaders(editingProfile.headerNames.map((name) => ({ key: `existing-${name}`, originalName: name, name, value: "" })));
+      setHeaders(
+        editingProfile.headerNames.map((name) => ({
+          key: `existing-${name}`,
+          originalName: name,
+          name,
+          value: "",
+        })),
+      );
       setHeadersEdited(false);
       setInlineKey("");
-      setShowAdvanced(Boolean(editingProfile.auth || editingProfile.headerNames?.length > 0));
     } else {
-      // Honor the preset the caller asked for (quick-add buttons), falling
-      // back to the last picked template on plain reopens.
-      const preset =
-        getPresetById(initialPresetId ?? selectedPresetId) ?? PROVIDER_PRESETS[0];
-      applyPreset(preset);
+      const targetPresetId = initialPresetId ?? selectedPresetId;
+      const preset = getPresetById(targetPresetId, presets) ?? presets[0];
+      if (preset) {
+        applyPreset(preset);
+      } else {
+        applyCustomTemplate();
+      }
     }
   }, [editingProfile, isOpen, initialPresetId]);
 
-  function applyPreset(preset: ProviderPresetItem) {
+  function applyCustomTemplate() {
+    setSelectedPresetId(CUSTOM_TEMPLATE.id);
+    setProfileId(generateRandomProfileId("custom"));
+    setLabel("");
+    setAdapter("openai-compatible-text");
+    setModel("");
+    setRealtimeModel("");
+    setVoice("");
+    setBaseUrl("");
+    setCustomAuth(null);
+    setAuthEdited(false);
+    setInlineKey("");
+    setHeaders([]);
+    setHeadersEdited(false);
+  }
+
+  function applyPreset(preset: ProviderPreset) {
     const id = generateRandomProfileId(preset.id);
     setSelectedPresetId(preset.id);
     setProfileId(id);
     setLabel(preset.label);
     setAdapter(preset.adapter);
     setModel(preset.model);
+    setRealtimeModel(
+      preset.realtimeModel ??
+        (preset.adapter === "openai-realtime" ? "gpt-realtime-2.1" : ""),
+    );
+    setVoice(
+      preset.voice ??
+        (isTtsAdapter(preset.adapter) ? getDefaultVoiceForAdapter(preset.adapter) : ""),
+    );
     setBaseUrl(preset.baseUrl ?? "");
-    setSecretRef(preset.credentialMode === "required" ? `${id}-credential` : undefined);
     setCustomAuth(null);
     setAuthEdited(false);
     setInlineKey("");
 
     if (preset.suggestedHeaders && preset.suggestedHeaders.length > 0) {
-      setHeaders(preset.suggestedHeaders.map((header, index) => ({ ...header, key: `suggested-${index}` })));
+      setHeaders(
+        preset.suggestedHeaders.map((header, index) => ({
+          ...header,
+          key: `suggested-${index}`,
+        })),
+      );
       setHeadersEdited(true);
     } else {
       setHeaders([]);
@@ -156,41 +229,74 @@ export function ProviderModal({
     }
   }
 
-  const supportsText = profileSupportsRole({ adapter }, "text");
-  const supportsStt = profileSupportsRole({ adapter }, "stt");
-  const supportsTts = profileSupportsRole({ adapter }, "tts");
-  const isLocal = isLocalOrSystemProvider({ adapter, baseUrl, secretRef });
+  function handleAdapterChange(nextAdapter: ProviderAdapter) {
+    setAdapter(nextAdapter);
+    if (nextAdapter === "system-tts") {
+      setModel("");
+      setRealtimeModel("");
+      setVoice("");
+      setBaseUrl("");
+      setCustomAuth(null);
+      setHeaders([]);
+    } else {
+      if (nextAdapter === "openai-realtime" && !realtimeModel) {
+        setRealtimeModel("gpt-realtime-2.1");
+      }
+      if (isTtsAdapter(nextAdapter)) {
+        if (!voice || isKnownCuratedVoice(adapter, voice)) {
+          setVoice(getDefaultVoiceForAdapter(nextAdapter));
+        }
+      }
+    }
+  }
 
-  async function handleSubmit(shouldActivateRoles: boolean) {
+  const credentialPolicy = getProfileCredentialPolicy({ adapter, baseUrl });
+  const isSystem = adapter === "system-tts";
+
+  useEffect(() => {
+    return () => {
+      testRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function buildConfigurationInput(shouldActivateRoles: boolean): ProviderConfigurationSaveInput | null {
     setFormError(null);
 
     const trimmedId = profileId.trim();
     const trimmedLabel = label.trim();
     const trimmedModel = model.trim();
+    const trimmedRealtimeModel = realtimeModel.trim();
+    const trimmedVoice = voice.trim();
     const trimmedBaseUrl = baseUrl.trim();
 
     if (!trimmedId) {
       setFormError(t("settings.providers.modal.error.id"));
-      return;
+      return null;
     }
     if (!trimmedLabel) {
       setFormError(t("settings.providers.modal.error.label"));
-      return;
+      return null;
     }
-    if (adapter !== "system-tts" && !trimmedModel) {
+    if (!isSystem && !trimmedModel) {
       setFormError(t("settings.providers.modal.error.model"));
-      return;
+      return null;
     }
-    if (adapter !== "system-tts" && !trimmedBaseUrl) {
+    if (isTtsAdapter(adapter) && !isSystem && !trimmedVoice) {
+      setFormError(t("settings.providers.modal.error.voice"));
+      return null;
+    }
+    if (!isSystem && !trimmedBaseUrl) {
       setFormError(t("settings.providers.modal.error.baseUrl"));
-      return;
+      return null;
     }
 
     const headerPatch: ProviderHeaderPatch[] = [];
     if (isEditing && headersEdited) {
       for (const header of headers) {
         if (header.deleted) {
-          if (header.originalName) headerPatch.push({ op: "delete", name: header.originalName });
+          if (header.originalName) {
+            headerPatch.push({ op: "delete", name: header.originalName });
+          }
           continue;
         }
         const name = header.name.trim();
@@ -210,11 +316,13 @@ export function ProviderModal({
           id: trimmedId,
           label: trimmedLabel,
           adapter,
-          model: trimmedModel,
-          baseUrl: adapter === "system-tts" ? null : trimmedBaseUrl || null,
-          secretRef: adapter === "system-tts" ? null : secretRef?.trim() || null,
-          auth: adapter === "system-tts" ? null : authEdited ? customAuth : undefined,
-          ...(adapter === "system-tts"
+          model: isSystem ? "" : trimmedModel,
+          realtimeModel:
+            adapter === "openai-realtime" ? trimmedRealtimeModel || null : null,
+          voice: isTtsAdapter(adapter) ? trimmedVoice || null : null,
+          baseUrl: isSystem ? null : trimmedBaseUrl || null,
+          auth: isSystem ? null : authEdited ? customAuth : undefined,
+          ...(isSystem
             ? { headers: [] }
             : headersEdited
               ? { headerPatch }
@@ -224,12 +332,15 @@ export function ProviderModal({
           id: trimmedId,
           label: trimmedLabel,
           adapter,
-          model: trimmedModel,
-          ...(adapter === "system-tts"
+          model: isSystem ? "" : trimmedModel,
+          ...(adapter === "openai-realtime" && trimmedRealtimeModel
+            ? { realtimeModel: trimmedRealtimeModel }
+            : {}),
+          ...(isTtsAdapter(adapter) && trimmedVoice ? { voice: trimmedVoice } : {}),
+          ...(isSystem
             ? {}
             : {
                 baseUrl: trimmedBaseUrl || undefined,
-                secretRef: secretRef?.trim() || undefined,
                 auth: customAuth ?? undefined,
                 headers: headers
                   .filter((header) => !header.deleted)
@@ -237,39 +348,138 @@ export function ProviderModal({
               }),
         };
 
-    // "Save & Activate" assigns the profile to every role its adapter supports
-    // (each adapter maps to exactly one role today). Unassigning happens in the
-    // role rows / library, not here.
     const activatedRoles: ProviderRole[] = [];
     if (shouldActivateRoles) {
-      if (supportsText) activatedRoles.push("text");
-      if (supportsStt) activatedRoles.push("stt");
-      if (supportsTts) activatedRoles.push("tts");
+      if (profileSupportsRole({ adapter }, "text")) activatedRoles.push("text");
+      if (profileSupportsRole({ adapter }, "stt")) activatedRoles.push("stt");
+      if (profileSupportsRole({ adapter }, "tts")) activatedRoles.push("tts");
     }
 
+    return {
+      isEditing,
+      profileId: trimmedId,
+      payload,
+      credentialValue: inlineKey.trim() || undefined,
+      activatedRoles,
+      deactivatedRoles: [],
+    };
+  }
+
+  async function handleSubmit(shouldActivateRoles: boolean) {
+    const input = buildConfigurationInput(shouldActivateRoles);
+    if (!input) return;
     setIsSaving(true);
     try {
-      await onSave({
-        isEditing,
-        profileId: trimmedId,
-        payload,
-        credentialValue: inlineKey.trim() || undefined,
-        activatedRoles,
-        deactivatedRoles: [],
-      });
+      await onSave(input);
       onClose();
     } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : t("settings.providers.modal.error.generic"));
+      setFormError(
+        err instanceof Error ? err.message : t("settings.providers.modal.error.generic"),
+      );
     } finally {
       setIsSaving(false);
     }
   }
 
-  const isBusy = Boolean(busy) || isSaving;
+  async function runProviderTest(
+    input: ProviderConfigurationSaveInput,
+    audio?: ProviderConfigurationTestAudio,
+  ) {
+    setTestStage("testing");
+    setFormError(null);
+    setTestResult(null);
+    try {
+      const result = await onTest(input, audio);
+      if (result.kind === "tts") {
+        playPreviewAudio(result.bytes, result.mimeType);
+        setTestResult(t("settings.providers.modal.test.voicePreviewReady"));
+      } else if (result.kind === "system-tts") {
+        playSystemVoicePreview(voice);
+        setTestResult(t("settings.providers.modal.test.voicePreviewReady"));
+      } else {
+        setTestResult(result.detail);
+      }
+    } catch (error: unknown) {
+      setFormError(error instanceof Error ? error.message : t("settings.providers.modal.test.failed"));
+    } finally {
+      setTestStage("idle");
+    }
+  }
+
+  async function startTranscriptionTest(input: ProviderConfigurationSaveInput) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setFormError(t("settings.providers.modal.test.recordingUnavailable"));
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: Blob[] = [];
+      const recorder = new MediaRecorder(stream);
+      testRecorderRef.current = recorder;
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => {
+        stream.getTracks().forEach((track) => track.stop());
+        testRecorderRef.current = null;
+        const mimeType = recorder.mimeType || "audio/webm";
+        void new Blob(chunks, { type: mimeType }).arrayBuffer().then((buffer) =>
+          runProviderTest(input, { bytes: new Uint8Array(buffer), mimeType }),
+        );
+      }, { once: true });
+      recorder.start();
+      setTestStage("recording");
+      setTestResult(t("settings.providers.modal.test.recording"));
+    } catch (error: unknown) {
+      setFormError(error instanceof Error ? error.message : t("settings.providers.modal.test.recordingUnavailable"));
+    }
+  }
+
+  function handleTest() {
+    if (testStage === "recording") {
+      testRecorderRef.current?.stop();
+      setTestStage("testing");
+      return;
+    }
+    const input = buildConfigurationInput(false);
+    if (!input) return;
+    if (adapter === "openai-compatible-transcription" || adapter === "elevenlabs-transcription") {
+      void startTranscriptionTest(input);
+      return;
+    }
+    void runProviderTest(input);
+  }
+
+  function playPreviewAudio(bytes: Uint8Array, mimeType: string) {
+    const audioBytes = bytes.slice().buffer as ArrayBuffer;
+    const url = URL.createObjectURL(new Blob([audioBytes], { type: mimeType }));
+    const audio = new Audio(url);
+    const release = () => URL.revokeObjectURL(url);
+    audio.addEventListener("ended", release, { once: true });
+    audio.addEventListener("error", release, { once: true });
+    void audio.play().catch(release);
+  }
+
+  function playSystemVoicePreview(selectedVoice: string) {
+    const voiceName = selectedVoice.trim();
+    const systemVoice = voiceName
+      ? speechSynthesis.getVoices().find((candidate) => candidate.name === voiceName)
+      : undefined;
+    if (voiceName && !systemVoice) {
+      throw new Error(t("settings.providers.modal.test.systemVoiceUnavailable"));
+    }
+    const utterance = new SpeechSynthesisUtterance("This is your OpenPets voice preview.");
+    if (systemVoice) utterance.voice = systemVoice;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utterance);
+  }
+
+  const isBusy = Boolean(busy) || isSaving || testStage === "testing";
+  const testButtonDisabled = Boolean(busy) || isSaving || testStage === "testing";
 
   if (!isOpen) return null;
 
-  function renderTemplateChip(preset: ProviderPresetItem) {
+  function renderTemplateChip(preset: ProviderPreset | CustomProviderTemplate) {
     const isSelected = selectedPresetId === preset.id;
     return (
       <button
@@ -281,7 +491,13 @@ export function ProviderModal({
             : "border-blue-200 bg-white text-navy shadow-xs hover:border-brand hover:text-brand dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-brand dark:hover:text-blue-300"
         }`}
         disabled={isBusy}
-        onClick={() => applyPreset(preset)}
+        onClick={() => {
+          if ("adapter" in preset) {
+            applyPreset(preset);
+          } else {
+            applyCustomTemplate();
+          }
+        }}
       >
         {preset.label}
       </button>
@@ -334,25 +550,32 @@ export function ProviderModal({
           </button>
         </div>
 
-        {/* Template Selector, grouped by companion role (creating only) */}
+        {/* Template Selector (Creating Only) */}
         {!isEditing && (
           <div className="flex flex-col gap-3 border-b border-blue-100 dark:border-slate-800 pb-4">
             <span className="text-xs font-black text-navy dark:text-slate-100 uppercase tracking-wider">
               {t("settings.providers.modal.templateLabel")}
             </span>
-            {TEMPLATE_GROUPS.map((group) => {
-              const groupPresets = PROVIDER_PRESETS.filter((preset) =>
-                group.categories.includes(preset.category)
-              );
+            {TEMPLATE_ROLE_GROUPS.map((group) => {
+                const groupPresets =
+                  group.key === "custom"
+                  ? [CUSTOM_TEMPLATE]
+                  : getPresetsByRole(presets, group.key);
               if (groupPresets.length === 0) return null;
               return (
                 <div key={group.key} className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
-                    {group.key === "text" && <BrainIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    {group.key === "stt" && <MicIcon className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />}
-                    {group.key === "tts" && <SpeakerIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    {group.key === "text" && (
+                      <BrainIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    )}
+                    {group.key === "stt" && (
+                      <MicIcon className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                    )}
+                    {group.key === "tts" && (
+                      <SpeakerIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
                     <span className="text-[11px] font-bold text-navy/80 dark:text-slate-200 uppercase tracking-wider">
-                      {t(`settings.providers.modal.group.${group.key}`)}
+                      {t(group.titleKey as any)}
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -371,10 +594,13 @@ export function ProviderModal({
           </div>
         )}
 
-        {/* Basic Fields */}
+        {/* Basic Fields: Label & Adapter */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
-            <label htmlFor="modal-provider-label" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
+            <label
+              htmlFor="modal-provider-label"
+              className="block text-xs font-bold text-navy dark:text-slate-100 mb-1"
+            >
               {t("settings.providers.modal.field.label")}
             </label>
             <input
@@ -390,7 +616,10 @@ export function ProviderModal({
           </div>
 
           <div>
-            <label htmlFor="modal-provider-adapter" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
+            <label
+              htmlFor="modal-provider-adapter"
+              className="block text-xs font-bold text-navy dark:text-slate-100 mb-1"
+            >
               {t("settings.providers.modal.field.adapter")}
             </label>
             <select
@@ -398,17 +627,7 @@ export function ProviderModal({
               className="settings-select w-full text-xs"
               value={adapter}
               disabled={isBusy}
-              onChange={(e) => {
-                const nextAdapter = e.target.value as ProviderAdapter;
-                setAdapter(nextAdapter);
-                if (nextAdapter === "system-tts") {
-                  setModel("");
-                  setBaseUrl("");
-                  setSecretRef(undefined);
-                } else if (!secretRef && !nextAdapter.includes("system")) {
-                  setSecretRef(`${profileId || "profile"}-credential`);
-                }
-              }}
+              onChange={(e) => handleAdapterChange(e.target.value as ProviderAdapter)}
             >
               {ADAPTER_OPTIONS.map((adapterOption) => (
                 <option key={adapterOption} value={adapterOption}>
@@ -419,40 +638,45 @@ export function ProviderModal({
           </div>
         </div>
 
-        {/* Model & Base URL (For Non-System-TTS) */}
-        {adapter !== "system-tts" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div>
-              <label htmlFor="modal-provider-model" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-                {t("settings.providers.modal.field.model")}
-              </label>
-              <input
-                id="modal-provider-model"
-                type="text"
-                className="settings-select w-full text-xs font-mono"
-                placeholder={t("settings.providers.modal.field.modelPlaceholder")}
-                value={model}
-                maxLength={256}
-                disabled={isBusy}
-                onChange={(e) => setModel(e.target.value)}
-              />
-            </div>
+        {/* Model Controls (Distinct Text/Realtime for realtime, single for others, hidden for system-tts) */}
+        <ModelControls
+          adapter={adapter}
+          model={model}
+          realtimeModel={realtimeModel}
+          onModelChange={setModel}
+          onRealtimeModelChange={setRealtimeModel}
+          disabled={isBusy}
+        />
 
-            <div>
-              <label htmlFor="modal-provider-baseurl" className="block text-xs font-bold text-navy dark:text-slate-100 mb-1">
-                {t("settings.providers.modal.field.baseUrl")}
-              </label>
-              <input
-                id="modal-provider-baseurl"
-                type="text"
-                className="settings-select w-full text-xs font-mono"
-                placeholder="https://openrouter.ai/api/v1"
-                value={baseUrl}
-                maxLength={512}
-                disabled={isBusy}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
-            </div>
+        {/* Contextual Voice Control for TTS */}
+        {isTtsAdapter(adapter) && (
+          <VoiceControl
+            adapter={adapter}
+            voice={voice}
+            onChange={setVoice}
+            disabled={isBusy}
+          />
+        )}
+
+        {/* Base URL (For Non-System-TTS) */}
+        {!isSystem && (
+          <div>
+            <label
+              htmlFor="modal-provider-baseurl"
+              className="block text-xs font-bold text-navy dark:text-slate-100 mb-1"
+            >
+              {t("settings.providers.modal.field.baseUrl")}
+            </label>
+            <input
+              id="modal-provider-baseurl"
+              type="text"
+              className="settings-select w-full text-xs font-mono"
+              placeholder={getBaseUrlPlaceholder(adapter)}
+              value={baseUrl}
+              maxLength={512}
+              disabled={isBusy}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
           </div>
         )}
 
@@ -460,271 +684,138 @@ export function ProviderModal({
           {t(`settings.providers.adapterHint.${adapter}`)}
         </p>
 
-        {/* Credential / Key Input */}
-        <div className="rounded-2xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/60 dark:bg-slate-800/60 p-3.5 flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <label htmlFor="modal-provider-key" className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1.5">
-              <KeyIcon className="w-4 h-4 text-brand" />
-              {t("settings.providers.modal.key.label")}
-            </label>
-            {isLocal ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                <ShieldCheckIcon className="w-3.5 h-3.5" />
-                {t("settings.providers.modal.key.local")}
-              </span>
-            ) : editingProfile?.hasCredential ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                <ShieldCheckIcon className="w-3.5 h-3.5" />
-                {t("settings.providers.modal.key.stored")}
-              </span>
-            ) : (
-              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
-                {t("settings.providers.modal.key.required")}
-              </span>
-            )}
-          </div>
+        {/* Credential / Key Input (Rendered based on actual credential policy) */}
+        {!isSystem && (
+          <div className="rounded-2xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/60 dark:bg-slate-800/60 p-3.5 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="modal-provider-key"
+                className="text-xs font-bold text-navy dark:text-slate-100 flex items-center gap-1.5"
+              >
+                <KeyIcon className="w-4 h-4 text-brand" />
+                {t("settings.providers.modal.key.label")}
+              </label>
+              {credentialPolicy === "optional" ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                  <ShieldCheckIcon className="w-3.5 h-3.5" />
+                  {t("settings.providers.modal.key.optional")}
+                </span>
+              ) : editingProfile?.hasCredential ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                  <ShieldCheckIcon className="w-3.5 h-3.5" />
+                  {t("settings.providers.modal.key.stored")}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
+                  <ShieldAlertIcon className="w-3.5 h-3.5" />
+                  {t("settings.providers.modal.key.required")}
+                </span>
+              )}
+            </div>
 
-          {!isLocal ? (
             <div>
               <input
                 id="modal-provider-key"
                 type="password"
                 className="settings-select w-full text-xs font-mono"
                 placeholder={
-                  editingProfile?.hasCredential
-                    ? t("settings.providers.modal.key.placeholderReplace")
-                    : t("settings.providers.modal.key.placeholderNew")
+                  credentialPolicy === "optional"
+                    ? t("settings.providers.modal.key.optionalPlaceholder")
+                    : editingProfile?.hasCredential
+                      ? t("settings.providers.modal.key.placeholderReplace")
+                      : t("settings.providers.modal.key.placeholderNew")
                 }
                 value={inlineKey}
                 disabled={isBusy}
-                onChange={(e) => {
-                  setInlineKey(e.target.value);
-                  if (!secretRef) {
-                    setSecretRef(`${profileId || "profile"}-credential`);
-                  }
-                }}
+                onChange={(e) => setInlineKey(e.target.value)}
               />
               <span className="text-[10px] text-slatecopy block mt-1">
-                {t("settings.providers.modal.key.note")}
+                {credentialPolicy === "optional"
+                  ? t("settings.providers.modal.key.optionalBody")
+                  : t("settings.providers.modal.key.note")}
               </span>
-            </div>
-          ) : (
-            <p className="text-xs text-slatecopy m-0">
-              {t("settings.providers.modal.key.localBody")}
-            </p>
-          )}
-        </div>
-
-        {/* Collapsible Advanced Options */}
-        <div className="border-t border-blue-50 dark:border-slate-800 pt-2">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs font-bold text-slatecopy hover:text-navy dark:hover:text-slate-100 cursor-pointer py-1"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            {showAdvanced ? <ChevronDownIcon className="w-3.5 h-3.5" /> : <ChevronRightIcon className="w-3.5 h-3.5" />}
-            <span>{t("settings.providers.modal.advanced")}</span>
-          </button>
-
-          {showAdvanced && (
-            <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-blue-100/60 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="modal-provider-slug" className="block text-[11px] font-bold text-navy dark:text-slate-100 mb-1">
-                    {t("settings.providers.modal.advanced.slug")}
-                  </label>
-                  <input
-                    id="modal-provider-slug"
-                    type="text"
-                    className="settings-select w-full text-xs font-mono"
-                    placeholder="e.g. openrouter-primary"
-                    value={profileId}
-                    maxLength={64}
-                    disabled={isEditing || isBusy}
-                    onChange={(e) => setProfileId(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="modal-provider-secret-ref" className="block text-[11px] font-bold text-navy dark:text-slate-100 mb-1">
-                    {t("settings.providers.modal.advanced.secretRef")}
-                  </label>
-                  <input
-                    id="modal-provider-secret-ref"
-                    type="text"
-                    className="settings-select w-full text-xs font-mono"
-                    placeholder="e.g. openrouter-key"
-                    value={secretRef ?? ""}
-                    maxLength={160}
-                    disabled={isBusy || adapter === "system-tts"}
-                    onChange={(e) => setSecretRef(e.target.value || undefined)}
-                  />
-                </div>
-              </div>
-
-              {/* Custom Auth Configuration */}
-              {secretRef && (
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="modal-provider-auth-scheme" className="text-[11px] font-bold text-navy dark:text-slate-100">
-                    {t("settings.providers.modal.advanced.authScheme")}
-                  </label>
-                  <select
-                    id="modal-provider-auth-scheme"
-                    className="settings-select w-full text-xs"
-                    value={customAuth ? "custom" : "default"}
-                    disabled={isBusy}
-                    onChange={(e) => {
-                      if (e.target.value === "default") {
-                        setCustomAuth(null);
-                      } else {
-                        setCustomAuth({
-                          headerName: getDefaultAuthHeader(adapter),
-                          strategy: getDefaultAuthStrategy(adapter),
-                        });
-                      }
-                      setAuthEdited(true);
-                    }}
-                  >
-                    <option value="default">
-                      {t("settings.providers.modal.advanced.authDefault", {
-                        header: getDefaultAuthHeader(adapter),
-                        strategy: getDefaultAuthStrategy(adapter),
-                      })}
-                    </option>
-                    <option value="custom">{t("settings.providers.modal.advanced.authCustom")}</option>
-                  </select>
-
-                  {customAuth && (
-                    <div className="grid grid-cols-2 gap-2 mt-1">
-                      <input
-                        type="text"
-                        className="settings-select text-xs font-mono"
-                        placeholder="Header Name"
-                        value={customAuth.headerName}
-                        disabled={isBusy}
-                        onChange={(e) => {
-                          setCustomAuth({ ...customAuth, headerName: e.target.value });
-                          setAuthEdited(true);
-                        }}
-                      />
-                      <select
-                        className="settings-select text-xs"
-                        value={customAuth.strategy}
-                        disabled={isBusy}
-                        onChange={(e) => {
-                          setCustomAuth({
-                            ...customAuth,
-                            strategy: e.target.value as "bearer" | "raw",
-                          });
-                          setAuthEdited(true);
-                        }}
-                      >
-                        <option value="bearer">Bearer &lt;token&gt;</option>
-                        <option value="raw">Raw &lt;token&gt;</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Custom Request Headers */}
-              {adapter !== "system-tts" && (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-navy dark:text-slate-100">
-                      {t("settings.providers.modal.advanced.headers", { count: headers.length })}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-compact text-[11px] flex items-center gap-1"
-                      disabled={isBusy || headers.filter((header) => !header.deleted).length >= 16}
-                      onClick={() => {
-                        setHeaders([...headers, { key: `new-${Date.now()}-${headers.length}`, name: "", value: "" }]);
-                        setHeadersEdited(true);
-                      }}
-                    >
-                      <PlusIcon className="w-3 h-3" />
-                      <span>{t("settings.providers.modal.advanced.addHeader")}</span>
-                    </button>
-                  </div>
-
-                  {headers.filter((header) => !header.deleted).map((hdr) => (
-                    <div key={hdr.key} className="flex gap-2 items-center">
-                      <input
-                        type="text"
-                        className="settings-select flex-1 text-xs font-mono"
-                        placeholder={t("settings.providers.modal.advanced.headerName")}
-                        value={hdr.name}
-                        disabled={isBusy}
-                        onChange={(e) => {
-                          setHeaders(headers.map((header) => header.key === hdr.key ? { ...header, name: e.target.value } : header));
-                          setHeadersEdited(true);
-                        }}
-                      />
-                      <input
-                        type="text"
-                        className="settings-select flex-1 text-xs font-mono"
-                        placeholder={
-                          hdr.originalName
-                            ? t("settings.providers.modal.advanced.headerKeep")
-                            : t("settings.providers.modal.advanced.headerValue")
-                        }
-                        value={hdr.value}
-                        disabled={isBusy}
-                        onChange={(e) => {
-                          setHeaders(headers.map((header) => header.key === hdr.key ? { ...header, value: e.target.value } : header));
-                          setHeadersEdited(true);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="text-slatecopy hover:text-red-600 p-1 cursor-pointer"
-                        disabled={isBusy}
-                        onClick={() => {
-                          setHeaders(headers
-                            .map((header) => header.key === hdr.key && header.originalName ? { ...header, deleted: true } : header)
-                            .filter((header) => header.key !== hdr.key || Boolean(header.originalName)));
-                          setHeadersEdited(true);
-                        }}
-                      >
-                        <TrashIcon className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+              {(adapter === "elevenlabs-tts" || adapter === "elevenlabs-transcription") && (
+                <a
+                  href="https://try.elevenlabs.io/vvhacwny8vmg"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 inline-block text-[11px] text-brand hover:underline font-medium"
+                >
+                  {t("settings.providers.modal.key.elevenlabsReferral")}
+                </a>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* Collapsible Advanced Options: Profile ID, Custom Auth & Custom Headers */}
+        <AdvancedConnectionSettings
+          profileId={profileId}
+          onProfileIdChange={setProfileId}
+          isEditing={isEditing}
+          adapter={adapter}
+          customAuth={customAuth}
+          onCustomAuthChange={(auth) => {
+            setCustomAuth(auth);
+            setAuthEdited(true);
+          }}
+          headers={headers}
+          onHeadersChange={(nextHeaders) => {
+            setHeaders(nextHeaders);
+            setHeadersEdited(true);
+          }}
+          disabled={isBusy}
+        />
+
+        {/* Test Result Status */}
+        {testResult && (
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+            {testResult}
+          </div>
+        )}
 
         {/* Modal Actions */}
-        <div className="flex flex-wrap items-center justify-end gap-2.5 pt-3 border-t border-blue-50 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-blue-50 dark:border-slate-800">
           <button
             type="button"
             className="btn btn-secondary btn-compact text-xs"
-            disabled={isBusy}
-            onClick={onClose}
+            disabled={testButtonDisabled}
+            onClick={handleTest}
           >
-            {t("settings.providers.modal.cancel")}
+            {testStage === "recording"
+              ? t("settings.providers.modal.test.stopRecording")
+              : adapter === "openai-compatible-transcription" || adapter === "elevenlabs-transcription"
+                ? t("settings.providers.modal.test.startRecording")
+                : t("settings.providers.modal.test.button")}
           </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-compact text-xs"
-            disabled={isBusy}
-            onClick={() => void handleSubmit(false)}
-          >
-            {t("settings.providers.modal.saveLibrary")}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-compact text-xs font-bold"
-            disabled={isBusy}
-            onClick={() => void handleSubmit(true)}
-          >
-            {isSaving
-              ? t("settings.providers.modal.saving")
-              : t("settings.providers.modal.saveActivate")}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
+            <button
+              type="button"
+              className="btn btn-secondary btn-compact text-xs"
+              disabled={isBusy}
+              onClick={onClose}
+            >
+              {t("settings.providers.modal.cancel")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-compact text-xs"
+              disabled={isBusy}
+              onClick={() => void handleSubmit(false)}
+            >
+              {t("settings.providers.modal.saveLibrary")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-compact text-xs font-bold"
+              disabled={isBusy}
+              onClick={() => void handleSubmit(true)}
+            >
+              {isSaving
+                ? t("settings.providers.modal.saving")
+                : t("settings.providers.modal.saveActivate")}
+            </button>
+          </div>
         </div>
       </div>
     </div>

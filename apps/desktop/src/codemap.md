@@ -128,8 +128,10 @@ tray.ts → openControlCenterWindow(route) → windows.ts
 ```
 main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, ElectronPluginJsHost).start()
 ├── plugin-state.ts reads/writes userData/openpets-plugin-state.json
-├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists validated provider profiles/selections
+├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
+├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
 ├── provider-service.ts resolves redacted role operation snapshots and compatible/native text, STT, TTS, and private realtime codecs
+├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials
 ├── plugin-assets.ts validates/resolves declared plugin assets for SDK refs and rendered UI
 ├── plugin-user-sound-store.ts stores imported user sounds as plugin-scoped opaque refs
 ├── plugin-diagnostics.ts records plugin errors/quota/settings blocks for inspector/health UI
@@ -299,8 +301,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-oauth.ts`: Host-mediated OAuth/PKCE flow and token session lifecycle for plugins.
 - `plugin-panels.ts`: Sandboxed plugin panel BrowserWindow coordinator and message bridge.
 - `plugin-pet-registry.ts`: Registry for default and plugin-spawned pets, including lifecycle and SDK targeting.
-- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
-- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, and provider failures remain operation errors rather than plugin health failures.
+- `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; versioned migration/quarantine; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
+- `provider-contract.ts`: Pure canonical provider adapter definitions, typed adapter-specific profiles (including native ElevenLabs Scribe STT), role support, credential policies, default auth, and preset catalog owned by the host and exposed through the renderer contract.
+- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, and provider failures remain operation errors rather than plugin health failures. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
 - `plugin-secrets.ts`: Plugin-scoped encrypted secret storage backed by Electron safe storage primitives.
 - `plugin-toast.ts`: Host toast/notification routing for plugin UI events.
 - `plugin-user-sound-store.ts`: Plugin-scoped imported user sound registry that stores opaque sound refs instead of raw filesystem paths.
@@ -320,7 +323,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `update-version.ts`: Version parsing and comparison
 
 **Tests** (excluded from detailed codemap coverage per repository conventions):
-- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider profile persistence/routing is covered by `provider-profiles.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts; `pet-install-transaction.test.ts` covers staged promotion, rollback, conservative recovery, and path/marker safety
+- Behavior tests live in `tests/*.test.ts` (compiled to `.test-dist/tests/`); provider foundation persistence, migration, credential ownership, preset/role behavior, routing, TTS voice precedence, and realtime boundaries are covered by `provider-profiles.test.ts`, `provider-presets-and-roles.test.ts`, `provider-migration.test.ts`, `provider-credential-deletion.test.ts`, `provider-service.test.ts`, `voice-assistant-host-core.test.ts`, `voice-realtime-assistant.test.ts`, `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`; `codex-pets.test.ts` asserts released V1/V2 metadata fixtures and strict V2 atlas contracts; `pet-install-transaction.test.ts` covers staged promotion, rollback, conservative recovery, and path/marker safety
 - Contract tests live in `contracts/*.contract.ts` (compiled to `.test-dist/contracts/`)
 - Runtime checks (`check-*.ts`) remain in `src/` for packaging/validation (compiled to `dist/`)
 

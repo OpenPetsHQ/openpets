@@ -71,6 +71,7 @@ const api = {
   getPluginInspector: (id) => ipcRenderer.invoke("openpets:plugins-inspector", id),
   getProviderProfiles: () => ipcRenderer.invoke("openpets:provider-profiles-get"),
   saveProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-save", input),
+  testProviderConfiguration: (input, audio) => ipcRenderer.invoke("openpets:provider-profile-test", input, audio),
   createProviderProfile: (profile) => ipcRenderer.invoke("openpets:provider-profile-create", profile),
   updateProviderProfile: (id, patch) => ipcRenderer.invoke("openpets:provider-profile-update", id, patch),
   deleteProviderProfile: (id) => ipcRenderer.invoke("openpets:provider-profile-delete", id),

@@ -29,11 +29,14 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `settings/history/index.ts`: Module entry.
 - **Provider Settings**: Modularized under `settings/providers/` to present a role-first overview with compact saved profile cards and guided configuration modal:
   - `settings/providers/ProvidersSection.tsx`: Top-level orchestrator connecting provider role cards, compact library, guided setup modal, and capability gates.
-  - `settings/providers/ProviderRoleOverview.tsx`: Role-first status cards for Pet Brain (Text), Hearing (STT), Speech (TTS), and derived Realtime voice.
-  - `settings/providers/ProviderLibrary.tsx`: Configured profile library cards showing active role pills, endpoint details, credential status ("No key needed" for local/system), inline key updates, and role activation toggles.
-  - `settings/providers/ProviderModal.tsx`: Guided setup modal featuring template picker (including OpenRouter preset), endpoint/model inputs, inline credential entry, static request headers, and role activation checkboxes.
+  - `settings/providers/ProviderRoleOverview.tsx`: Role-first status cards for Pet Brain (Text), Hearing (STT), Speech (TTS), and derived Realtime voice, including adapter-aware model/voice and readiness details.
+  - `settings/providers/ProviderLibrary.tsx`: Configured profile library cards showing active role pills, endpoint details, credential-policy status, persisted TTS voice, inline credential updates, and role activation toggles.
+   - `settings/providers/ProviderModal.tsx`: Guided setup modal featuring the canonical preset catalog, adapter-specific model/voice controls, inline credential entry, static request headers, role activation checkboxes, and non-persisting adapter-specific setup tests.
+  - `settings/providers/ModelControls.tsx`: Separate normal-text and realtime model fields for OpenAI Realtime profiles.
+  - `settings/providers/VoiceControl.tsx`: Curated/custom voice selection for network TTS profiles and system-default voice presentation.
+  - `settings/providers/AdvancedConnectionSettings.tsx`: Host-applied custom auth and redacted-header editing controls; opaque credential references are not exposed.
   - `settings/providers/ProviderGatesSection.tsx`: Host capability toggles for audio playback, dynamic speech, voice output, microphone capture, and quiet hours.
-  - `settings/providers/presets.ts`: Provider preset catalog with OpenRouter, OpenAI, Anthropic, Ollama, LM Studio, vLLM, MiniMax, Whisper, ElevenLabs, and System Voice.
+  - `settings/providers/presets.ts`: Renderer adapter for the canonical snapshot preset catalog, with a fallback for unavailable snapshots.
   - `settings/providers/types.ts`: TypeScript contracts for provider adapters, roles, snapshots, inputs, and form draft states.
   - `settings/providers/icons.tsx`: Custom SVG icons for provider roles and UI actions.
 - **Bridge Contract**: All data and actions go through `window.openPetsControlCenter`; page snapshots intentionally omit raw install paths and unrelated app state.

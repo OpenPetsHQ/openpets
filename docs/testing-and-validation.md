@@ -45,15 +45,23 @@ dist checks. Three buckets:
   canonical IPv4/CGNAT boundaries, peer normalization, socket caps/deadlines,
   away-pet side-effect suppression, and listener shutdown. Compiled to
   `.test-dist/`.
-- Provider-profile behavior is covered by `provider-profiles.test.ts`,
-  `provider-presets-and-roles.test.ts`, `provider-service.test.ts`,
-  `text-model-client.test.ts`, and `plugin-ai-gateway.test.ts`: independent
-  persistence/selection, OpenRouter and preset templates, save-and-activate role
-  mapping, URL/header boundaries, fake-endpoint routing, native versus compatible
-  codecs, operation snapshots, redacted status, and no-fetch unsupported realtime.
-  Tests use fake fetches and no credentials. The provider settings tests also
-  cover atomic save rollback after credential failure and redacted-header
-  add/delete edits.
+- Provider-foundation behavior is covered by `provider-profiles.test.ts`,
+   `provider-presets-and-roles.test.ts`, `provider-migration.test.ts`,
+   `provider-credential-deletion.test.ts`, `provider-service.test.ts`, and
+   `provider-configuration-test.test.ts`,
+  `voice-assistant-host-core.test.ts`,
+  `voice-realtime-assistant.test.ts`, `text-model-client.test.ts`, and
+  `plugin-ai-gateway.test.ts`: the canonical adapter/preset catalog, typed
+  profile validation, independent role selection, adapter credential policies,
+  separate text/realtime models, persisted TTS voices and request overrides,
+  versioned migration/defaults/quarantine, URL/header boundaries,
+   fake-endpoint routing, native ElevenLabs Scribe multipart transcription,
+   configured TTS voice previews, temporary draft
+   credentials, native versus compatible codecs, operation snapshots,
+  redacted status, and no-fetch unsupported realtime. Tests use fake fetches and
+  no credentials. The provider settings tests also cover atomic save rollback
+  after credential failure, redacted-header add/delete edits, and preservation
+  of secrets outside Control Center snapshots.
 - **Contract** (`apps/desktop/contracts/*.contract.ts`): the public boundaries - - `catalog-fixture.contract.ts` - catalog validation against fixture data.
   - `local-ipc-protocol.contract.ts` - IPC request/response parsing
     ([IPC and remote control](/ipc)).

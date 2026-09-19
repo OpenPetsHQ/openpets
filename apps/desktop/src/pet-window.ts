@@ -1270,7 +1270,7 @@ function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | 
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
     html: `<!doctype html>
@@ -1373,7 +1373,7 @@ async function createInstalledPetRender(
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     reactionState,
     html: `<!doctype html>
@@ -1421,20 +1421,34 @@ async function createInstalledPetRender(
   };
 }
 
+/** Cache token for the assistant-button preferences baked into pet HTML. */
+function petButtonsCacheToken(): string {
+  const preferences = getAppStateSnapshot().preferences;
+  return `btn${preferences.showChatButton ? 1 : 0}${preferences.showTalkButton ? 1 : 0}:${preferences.petButtonsPosition}:${preferences.petButtonsSize}`;
+}
+
 function createPetBodyMarkup(stageLabel: string, bubble: string, spriteMarkup: string, pinnedBubble = "", hasPinned = false, petRole: "default" | "agent" = "default"): string {
   const launcherSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  // Only a transient bubble (which expires) suppresses the chat launcher. A
-  // pinned plugin HUD is persistent — suppressing on it would remove the chat
-  // button for as long as the HUD plugin is enabled.
+  const talkSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
+  // Only a transient bubble (which expires) suppresses the assistant buttons.
+  // A pinned plugin HUD is persistent — suppressing on it would remove the
+  // buttons for as long as the HUD plugin is enabled.
   const hasMessageOrBubble = Boolean(bubble.trim());
-  const launcherButton = (petRole === "default" && !hasMessageOrBubble)
+  const preferences = getAppStateSnapshot().preferences;
+  const chatButton = preferences.showChatButton
     ? `<button type="button" class="openpets-companion-launcher" data-openpets-companion-launcher aria-label="Open companion chat" title="Open companion chat">${launcherSvg}</button>`
+    : "";
+  const talkButton = preferences.showTalkButton
+    ? `<button type="button" class="openpets-companion-launcher openpets-talk-button" data-openpets-talk-button aria-label="Talk to companion" title="Talk to companion">${talkSvg}</button>`
+    : "";
+  const assistantButtons = (petRole === "default" && !hasMessageOrBubble && (chatButton || talkButton))
+    ? `<div class="openpets-pet-buttons">${chatButton}${talkButton}</div>`
     : "";
   return `<div class="stage${hasPinned ? " has-pinned" : ""}${hasMessageOrBubble ? " has-bubble" : ""}" aria-label="${stageLabel}" data-pet-role="${petRole}">
     ${pinnedBubble}
     ${bubble}
     <div class="pet-hitbox" aria-hidden="true">
-      ${launcherButton}
+      ${assistantButtons}
       <div class="pet-shell">
         ${spriteMarkup}
       </div>
@@ -1453,6 +1467,10 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
   // The pet and transient bubbles are lifted above the pinned plugin bubble
   // (HUD); the lift grows with the HUD's own scale so they never overlap.
   const pinnedLift = Math.round(28 * hudScale);
+  const buttonPreferences = getAppStateSnapshot().preferences;
+  const petButtonsSide = buttonPreferences.petButtonsPosition === "left" ? "left" : "right";
+  const petButtonSizePx = buttonPreferences.petButtonsSize === "small" ? 18 : buttonPreferences.petButtonsSize === "large" ? 28 : 22;
+  const petButtonIconPx = Math.round(petButtonSizePx * 0.55);
   const emojiFontUrl = pathToFileURL(join(app.getAppPath(), "assets", "NotoColorEmoji.ttf")).toString();
   const petShellFilter = process.platform === "win32" ? "none" : "drop-shadow(0 10px 12px rgba(15, 23, 42, 0.24)) drop-shadow(0 2px 3px rgba(15, 23, 42, 0.18))";
   const bubbleBackdropFilter = process.platform === "win32" ? "none" : "blur(10px)";
@@ -1464,17 +1482,21 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
     html { color: #172033; }
     body { -webkit-app-region: no-drag; pointer-events: none; }
     .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; }
-    .openpets-companion-launcher { position: absolute; right: 12px; top: 4px; z-index: 5; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
+    .openpets-pet-buttons { position: absolute; ${petButtonsSide}: 12px; top: 4px; z-index: 5; display: flex; flex-direction: column; gap: 4px; pointer-events: auto; -webkit-app-region: no-drag; }
+    .openpets-companion-launcher { width: ${petButtonSizePx}px; height: ${petButtonSizePx}px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
+    .openpets-companion-launcher svg { width: ${petButtonIconPx}px; height: ${petButtonIconPx}px; }
     .openpets-companion-launcher:hover { transform: scale(1.1); background: #ffffff; color: #1d4ed8; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
     .openpets-companion-launcher:active { transform: scale(0.95); }
-    /* Hide the launcher while a transient bubble or the chat UI is showing.
-       A pinned plugin HUD is NOT in this list: it never expires, so hiding on
-       has-pinned would remove the chat button permanently. */
-    .stage:has(.bubble:not(.is-pinned)) .openpets-companion-launcher,
-    .stage.has-bubble .openpets-companion-launcher,
-    .bubble:not(.is-pinned) ~ .pet-hitbox .openpets-companion-launcher,
-    html[data-compact-composer-open="true"] .openpets-companion-launcher,
-    html[data-chat-expanded="true"] .openpets-companion-launcher {
+    .openpets-talk-button { color: #059669; }
+    .openpets-talk-button:hover { color: #047857; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.28), 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff; }
+    /* Hide the assistant buttons while a transient bubble or the chat UI is
+       showing. A pinned plugin HUD is NOT in this list: it never expires, so
+       hiding on has-pinned would remove the buttons permanently. */
+    .stage:has(.bubble:not(.is-pinned)) .openpets-pet-buttons,
+    .stage.has-bubble .openpets-pet-buttons,
+    .bubble:not(.is-pinned) ~ .pet-hitbox .openpets-pet-buttons,
+    html[data-compact-composer-open="true"] .openpets-pet-buttons,
+    html[data-chat-expanded="true"] .openpets-pet-buttons {
       display: none !important;
     }
     .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${scaledWidth + hitPadding * 2}px; height: ${scaledHeight + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }

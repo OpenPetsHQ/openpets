@@ -21,7 +21,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 function snapshot(role: "text" | "stt" | "tts"): ProviderOperationSnapshot {
-  return { role, profile: { id: role, label: role, adapter: role === "stt" ? "openai-compatible-transcription" : role === "tts" ? "openai-compatible-speech" : "openai-compatible-text", model: role, baseUrl: "https://provider.example" } } as ProviderOperationSnapshot;
+  return { role, profile: { id: role, label: role, adapter: role === "stt" ? "openai-compatible-transcription" : role === "tts" ? "openai-compatible-speech" : "openai-compatible-text", model: role, ...(role === "tts" ? { voice: "persisted-host-voice" } : {}), baseUrl: "https://provider.example" } } as ProviderOperationSnapshot;
 }
 
 function captureService(arbiter: VoiceMicrophoneArbiter): VoiceCaptureService {
@@ -43,13 +43,14 @@ function captureService(arbiter: VoiceMicrophoneArbiter): VoiceCaptureService {
 
 async function main(): Promise<void> {
   const roles: string[] = [];
+  let synthesizedVoice: string | undefined;
   const provider: HostProviderOperations = {
     snapshot: async (role) => { roles.push(role); return snapshot(role === "realtime" ? "text" : role); },
     json: async () => ({}),
     binary: async () => new Uint8Array(),
     stream: async () => undefined,
     transcribe: async () => "hello from microphone",
-    synthesize: async () => ({ bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" }),
+    synthesize: async (_snapshot, _text, options) => { synthesizedVoice = options.voice; return { bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" }; },
     negotiateRealtime: async () => "",
   };
 
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
   assert.deepEqual(inputResult, { status: "completed", final: "hello from microphone" });
   const speech = await new ProviderVoiceSynthesizer(provider).synthesize("hello", { requestId: "output-1", signal: new AbortController().signal });
   assert.deepEqual(speech, { kind: "audio", bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" });
+  assert.equal(synthesizedVoice, "persisted-host-voice", "Host Talk uses the selected profile voice");
   assert.deepEqual(roles, ["stt", "tts"], "input and synthesis snapshot their own provider roles independently");
   arbiter.releaseReservation(reservation);
 

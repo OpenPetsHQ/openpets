@@ -61,11 +61,21 @@ router, or participates in LAN pet presence or leases. The v1 transport is raw
 unencrypted TCP and is intended only for a trusted private network or an
 encrypted overlay with its own ACLs; CGNAT addressing alone is not encryption.
 
+The provider foundation is defined by the pure `provider-contract.ts` module.
+It owns one canonical adapter catalog and one canonical preset catalog, including
+role support, credential policy, default authentication, and adapter defaults.
+Typed adapter-specific profiles then carry only the fields valid for that
+adapter: an OpenAI Realtime profile has separate normal-text and realtime model
+fields, while network TTS profiles persist a voice.
+
 The host provider service owns exactly three independent selections: one text
-profile, one STT profile, and one TTS profile. Secret credential values are
-resolved only from `PluginSecretsStore`; optional static provider header values
-are persisted in the local provider-profile settings, while Control Center
-snapshots expose header names only. Generic
+profile, one STT profile, and one TTS profile. Realtime is derived from the
+selected text profile and is ready only for an explicit native
+`openai-realtime` profile with both models configured. Secret credential values
+are resolved only from `PluginSecretsStore`; optional static provider header
+values are persisted in local provider settings, while Control Center snapshots
+expose header names and credential presence only. TTS uses the persisted profile
+voice by default, with a request voice taking precedence. Generic
 OpenAI-compatible text covers cloud gateways and Ollama/LM Studio/vLLM, while
 native Anthropic, MiniMax speech, ElevenLabs speech, system TTS, and explicit
 Whisper-compatible transcription retain their distinct wire contracts.
@@ -181,9 +191,11 @@ composable slot, leaving unrelated plugin display and status slots intact when
 voice activity clears.
 
 Provider profile management for issue #145 is a host-owned Control Center flow:
-the renderer consumes redacted snapshots and explicit actions over preload while
-the main process owns validation, persistence, and credentials. These are the
-flows worth holding in memory. Each links to the doc that details it.
+the renderer consumes redacted snapshots and the canonical preset catalog over
+preload while the main process owns validation, persistence, migration, and
+credentials. Profiles are configured through independent role selections; the
+UI does not expose opaque secret references. These are the flows worth holding
+in memory. Each links to the doc that details it.
 
 - **Agent reaction → visible pet.** Agent activity is classified into a reaction
   category, sent via the client over IPC, the lease manager routes it to a pet
@@ -211,6 +223,10 @@ flows worth holding in memory. Each links to the doc that details it.
   them again and routes bounded tool calls through the generation-pinned
   PetAssistantService seam. Canonical capability outcomes are returned as
   structured `function_call_output` items followed by `response.create`.
+  Realtime uses the selected text profile's endpoint and credential, but its
+  negotiation model is the profile's independent realtime model rather than
+  the normal text model. A missing or incompatible derived configuration is
+  reported as status, without a provider fetch.
   Provider response IDs and input item IDs are carried through normalization and
   bound to the active canonical turn; retired response/item identities are
   dropped deterministically. Normalized transcripts and canonical activity/action
@@ -259,6 +275,11 @@ These hold everywhere; the rest of the docs assume them.
 - **Voice resource ownership is centralized.** Assistant, plugin one-shot, and
   native Realtime lanes release their own leases/tracks; only the shared voice
   resource owner destroys the privacy indicator after every lane has stopped.
+- **Provider configuration is canonical and bounded.** Adapter definitions and
+  presets have one pure source of truth; credentials follow adapter-specific
+  required/optional/none policies; persisted settings are versioned and invalid
+  profiles are quarantined rather than silently discarded. Control Center
+  snapshots never contain credential values, secret references, or header values.
 - **Pet Assistant lifecycle is bounded.** The host loop is stopped and active
   turns are cancelled before plugin teardown; capability handles remain pinned
   to the plugin generation that registered them.

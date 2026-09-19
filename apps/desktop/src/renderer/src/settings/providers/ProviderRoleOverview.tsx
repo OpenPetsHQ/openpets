@@ -1,13 +1,21 @@
 import { useI18n } from "../../i18n.js";
-import { BrainIcon, MicIcon, SpeakerIcon, WaveformIcon, ShieldAlertIcon, ShieldCheckIcon } from "./icons.js";
 import {
-  isLocalOrSystemProvider,
+  BrainIcon,
+  MicIcon,
+  SpeakerIcon,
+  WaveformIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+} from "./icons.js";
+import {
+  getProfileCredentialPolicy,
   profileSupportsRole,
   type ProviderControlCenterSnapshot,
   type ProviderProfileSummary,
   type ProviderRole,
   type ProviderStatus,
 } from "./types.js";
+import { getVoiceDisplayLabel, isTtsAdapter } from "./voice-options.js";
 
 export type ProviderRoleOverviewProps = {
   readonly snapshot: ProviderControlCenterSnapshot | null;
@@ -92,16 +100,36 @@ export function ProviderRoleOverview({
     compatibleProfileCount: number,
   ) {
     if (activeProfile) {
-      const isLocal = isLocalOrSystemProvider(activeProfile);
+      const policy = getProfileCredentialPolicy(activeProfile);
+
+      let modelText = activeProfile.model || activeProfile.label;
+      if (role === "text" && activeProfile.adapter === "openai-realtime") {
+        const rt = activeProfile.realtimeModel || activeProfile.model;
+        modelText = `${activeProfile.model || "gpt-4o-mini"} (Realtime: ${rt})`;
+      } else if (role === "tts") {
+        if (activeProfile.adapter === "system-tts") {
+          modelText = `System Voice (${activeProfile.voice || "Default"})`;
+        } else if (activeProfile.voice) {
+          modelText = `${activeProfile.model || activeProfile.label} · Voice: ${getVoiceDisplayLabel(activeProfile.adapter, activeProfile.voice)}`;
+        }
+      }
+
       return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-          <span className="font-semibold text-slatecopy truncate max-w-[260px]">
-            {activeProfile.model || activeProfile.label}
+          <span className="font-semibold text-slatecopy truncate max-w-[280px]">
+            {modelText}
           </span>
-          {isLocal ? (
+          {policy === "none" ? (
             <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
               <ShieldCheckIcon className="w-3.5 h-3.5" />
-              {t("settings.providers.role.local")}
+              {t("settings.providers.role.systemNoKey")}
+            </span>
+          ) : policy === "optional" ? (
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+              <ShieldCheckIcon className="w-3.5 h-3.5" />
+              {activeProfile.hasCredential
+                ? t("settings.providers.role.keyStored")
+                : t("settings.providers.role.keyOptional")}
             </span>
           ) : activeProfile.hasCredential ? (
             <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
@@ -111,10 +139,11 @@ export function ProviderRoleOverview({
           ) : (
             <button
               type="button"
-              className="font-bold text-amber-700 hover:text-amber-800 underline cursor-pointer"
+              className="inline-flex items-center gap-1 font-bold text-amber-700 hover:text-amber-800 underline cursor-pointer"
               disabled={isBusy}
               onClick={() => onOpenEdit(activeProfile)}
             >
+              <ShieldAlertIcon className="w-3.5 h-3.5 text-amber-600" />
               {t("settings.providers.role.setKey")}
             </button>
           )}
@@ -189,11 +218,17 @@ export function ProviderRoleOverview({
                 onChange={(e) => onSelectRole(role, e.target.value || null)}
               >
                 <option value="">{t("settings.providers.role.selectNone")}</option>
-                {compatibleProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label} {p.model ? `(${p.model})` : ""}
-                  </option>
-                ))}
+                {compatibleProfiles.map((p) => {
+                  let suffix = p.model ? `(${p.model})` : "";
+                  if (isTtsAdapter(p.adapter) && p.voice) {
+                    suffix = `(${getVoiceDisplayLabel(p.adapter, p.voice)})`;
+                  }
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.label} {suffix}
+                    </option>
+                  );
+                })}
               </select>
               {renderRoleContextLine(role, activeProfile, compatibleProfiles.length)}
             </div>

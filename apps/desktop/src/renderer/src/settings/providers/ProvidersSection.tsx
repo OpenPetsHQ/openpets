@@ -10,6 +10,8 @@ import type {
   ProviderProfileSummary,
   ProviderRole,
   ProviderConfigurationSaveInput,
+  ProviderConfigurationTestAudio,
+  ProviderConfigurationTestResult,
 } from "./types.js";
 
 // Plugin audio/microphone permission gates are deliberately NOT part of this
@@ -19,6 +21,7 @@ export type ProvidersSectionApi = {
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
   saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
+  testProviderConfiguration(input: ProviderConfigurationSaveInput, audio?: ProviderConfigurationTestAudio): Promise<ProviderConfigurationTestResult>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   setProviderProfileCredential(id: string, value: string): Promise<ProviderControlCenterSnapshot>;
   deleteProviderProfileCredential(id: string): Promise<ProviderControlCenterSnapshot>;
@@ -73,7 +76,7 @@ export function ProvidersSection({
         setMessage(
           profileId
             ? t("settings.providers.toast.profileActivated")
-            : t("settings.providers.toast.roleDisabled")
+            : t("settings.providers.toast.roleDisabled"),
         );
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : t("settings.providers.toast.selectFailed"));
@@ -124,25 +127,33 @@ export function ProvidersSection({
     await run(
       isEditing ? t("settings.providers.busy.updating") : t("settings.providers.busy.creating"),
       async () => {
-      try {
-        const nextSnapshot = await getApi().saveProviderConfiguration(input);
-        onSnapshotChange(nextSnapshot);
-        setMessage(
-          isEditing
-            ? t("settings.providers.toast.updated")
-            : activatedRoles.length > 0
-              ? t("settings.providers.toast.createdActivated")
-              : t("settings.providers.toast.createdSaved")
-        );
-      } catch (error) {
-        failed = true;
-        failure = error;
-        throw error;
-      }
-    });
+        try {
+          const nextSnapshot = await getApi().saveProviderConfiguration(input);
+          onSnapshotChange(nextSnapshot);
+          setMessage(
+            isEditing
+              ? t("settings.providers.toast.updated")
+              : activatedRoles.length > 0
+                ? t("settings.providers.toast.createdActivated")
+                : t("settings.providers.toast.createdSaved"),
+          );
+        } catch (error) {
+          failed = true;
+          failure = error;
+          throw error;
+        }
+      },
+    );
     // `run` owns the page-level error state and deliberately swallows errors;
     // reject this modal action as well so the modal remains open and renders it.
     if (failed) throw failure;
+  }
+
+  async function handleModalTest(
+    input: ProviderConfigurationSaveInput,
+    audio?: ProviderConfigurationTestAudio,
+  ): Promise<ProviderConfigurationTestResult> {
+    return getApi().testProviderConfiguration(input, audio);
   }
 
   return (
@@ -184,9 +195,11 @@ export function ProvidersSection({
         isOpen={modalOpen}
         editingProfile={editingProfile}
         initialPresetId={initialPresetId}
+        presets={snapshot?.presets}
         busy={busy}
         onClose={() => setModalOpen(false)}
         onSave={handleModalSave}
+        onTest={handleModalTest}
       />
     </div>
   );
