@@ -2368,14 +2368,12 @@ function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: Hud
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 13px;
       color: #fff;
       flex-shrink: 0;
-      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
     }
     .chat-title {
       font-size: 13px;
