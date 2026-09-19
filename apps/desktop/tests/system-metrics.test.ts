@@ -223,10 +223,11 @@ en1 1500 <Link#5> cc:dd 10 0 1,000,200 20 0 2,000,200 0`,
     run: async (command, args) => {
       assert.equal(command, "powershell.exe");
       assert.equal(args[0], "-NoProfile");
+      assert.match(args.at(-1) ?? "", /InterfaceGuid/);
       assert.match(args.at(-1) ?? "", /MacAddress/);
-      return '{"Name":"Wi-Fi","MacAddress":"AA-BB-CC-DD-EE-FF","ifIndex":7,"ReceivedBytes":100,"SentBytes":200}';
+      return '{"Name":"Wi-Fi","InterfaceGuid":"{WIFI-GUID}","ReceivedBytes":100,"SentBytes":200}';
     },
-  }), { interfaces: [{ id: "mac:aa:bb:cc:dd:ee:ff", receivedBytes: 100, sentBytes: 200 }] });
+  }), { interfaces: [{ id: "guid:{wifi-guid}", receivedBytes: 100, sentBytes: 200 }] });
 }
 
 {

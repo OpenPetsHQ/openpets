@@ -269,7 +269,7 @@ export async function readNetworkCountersForPlatform(
       "$adapters | ForEach-Object {",
       "$adapter = $_;",
       "$stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue;",
-      "if ($stats) { [pscustomobject]@{ Name = $adapter.Name; MacAddress = $adapter.MacAddress; ifIndex = $adapter.ifIndex; ReceivedBytes = $stats.ReceivedBytes; SentBytes = $stats.SentBytes } }",
+      "if ($stats) { [pscustomobject]@{ Name = $adapter.Name; InterfaceGuid = $adapter.InterfaceGuid; MacAddress = $adapter.MacAddress; ifIndex = $adapter.ifIndex; ReceivedBytes = $stats.ReceivedBytes; SentBytes = $stats.SentBytes } }",
       "} | ConvertTo-Json -Compress",
     ].join(" ");
     return run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]).then(networkCountersFromWindowsJson).catch(() => undefined);
