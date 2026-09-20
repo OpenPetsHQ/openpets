@@ -88,6 +88,9 @@ plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 └── pet-motion-engine.ts tick() calculates interpolated target vectors for spawned/default pets
 ```
 
+`pet-display-coordinator.ts` owns display-topology and power-resume events and
+fans out to the default, agent, LAN visitor, and plugin reclamp leaves.
+
 **Agent Setup Flow**:
 ```
 windows.ts (IPC handler adaptation)
@@ -270,6 +273,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
+- `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior

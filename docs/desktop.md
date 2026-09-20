@@ -39,12 +39,13 @@ launching a second one.
 `main.ts` runs a deterministic bootstrap (see `src/codemap.md` for the exact
 order): install lifecycle handlers → initialize app state → initialize the
 logger → register the configured Talk shortcut → create the tray → start the
-local IPC server → start the persisted, opt-in remote-control service if enabled
+`PetDisplayCoordinator` → start the local IPC server → start the persisted, opt-in remote-control service if enabled
 → initialize and start the plugin service (with the Electron JS host) → start
 the optional Teams service and reconcile its Team Pack → start the bundled
 Manager Check-ins service → construct the host Pet Assistant service → optionally
-show the default pet. Shutdown unregisters the exact shortcut before stopping
-voice, then stops the bounded Pet Assistant turns and Teams before plugin teardown,
+show the default pet. Shutdown stops the `PetDisplayCoordinator` before
+unregistering the exact shortcut and stopping voice, then stops the bounded Pet
+Assistant turns and Teams before plugin teardown,
 remote-control listener, local IPC server, and pet windows.
 
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
@@ -362,7 +363,8 @@ host-owned capability input validator.
 
 Pet rendering and lifecycle setup live in `pet-window.ts` plus the two controllers
 (`default-pet-controller.ts`, `agent-pet-controller.ts`) and the motion/mapping
-helpers. `pet-window-interaction.ts` owns the per-window mouse/drag and renderer
+helpers. `pet-display-coordinator.ts` owns display/power listener lifecycle and
+cross-controller topology/recovery fanout. `pet-window-interaction.ts` owns the per-window mouse/drag and renderer
 IPC lifecycle, recovery/watchdog, and speech-completion bridge. This is covered
 in depth in [Pets](/pets).
 

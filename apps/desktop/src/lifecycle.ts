@@ -22,6 +22,7 @@ export type AppLifecycleOptions = {
   readonly onTeamEnrollmentLink?: (link: TeamEnrollmentLink) => void;
   readonly stopManagerCheckIns?: () => Promise<void>;
   readonly stopTeams?: () => Promise<void>;
+  readonly stopPetDisplayCoordinator?: () => void;
 };
 
 export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
@@ -65,6 +66,7 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
     info("app", "before quit cleanup begin");
     scheduleHardExitFallback("before-quit");
     void (async () => {
+      options.stopPetDisplayCoordinator?.();
       shutdownVoiceAssistantShortcut();
       await stopVoiceAssistantHost().catch(() => undefined);
       await stopPetAssistantHost().catch(() => undefined);

@@ -205,12 +205,13 @@ See [Plugin platform](/plugins) and [Plugin SDK v3](/sdk) for the plugin side.
 region will stick at the edge of its current display and cannot teleport across
 a gap wider than the pet. This is expected behavior and is by design.
 
-**Topology changes** (monitor plugged/unplugged, resolution changed): the
-display-event handlers in `default-pet-controller.ts` call
-`reclampAllLivePetWindows()`, which re-runs the permissive clamp for the
-default pet, all agent pets, and all plugin-spawned pets. Pets on a removed
-display are snapped to the nearest remaining display; pets on surviving displays
-are left untouched.
+**Topology changes** (monitor plugged/unplugged, resolution changed) are
+coordinated by `pet-display-coordinator.ts`. It invalidates the display cache
+immediately, debounces each native display-event reason independently, and fans
+out reclamping to the default pet, agent pets, LAN visitors, and plugin pets.
+Pets on a removed display are snapped to the nearest remaining display; pets on
+surviving displays are left untouched. The coordinator also owns immediate and
+delayed recovery of default-pet mouse interop after power resume.
 
 The `petCrossDisplayEnabled` toggle lives in Control Center → Settings, under
 the **Movement** section, and is a global flag (not per-pet). It is shown
@@ -404,4 +405,4 @@ images silently fall back to the default pet. This is the single most common
 | Local pet authoring | `codex-pets.ts` |
 | Movement | `pet-motion-engine.ts` |
 | Display containment / cross-screen | `display.ts`, `confinement-manager.ts` |
-| Topology-change reclamp | `default-pet-controller.ts` → `reclampAllLivePetWindows` |
+| Topology-change reclamp | `pet-display-coordinator.ts` → default and pet-controller reclamp leaves |

@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
-import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter, type DisplayChangeReason } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { debug, info } from "./logger.js";
@@ -12,6 +12,7 @@ import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { resolveReactionSpriteState } from "./reaction-animation-mapping.js";
 import type { PluginAnimationSpec, PluginPetInfo, PluginPetState } from "./plugin-sdk-bridge.js";
+import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 
 /**
  * Multi-pet registry (§4): addressable pet handles for plugins. "default" is

@@ -27,9 +27,9 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 ## Flow
 
-**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
+**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → start `PetDisplayCoordinator` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
 
-**Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping
+**Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping; topology and resume recovery are coordinated by `pet-display-coordinator.ts`
 
 **Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → `pet-install-transaction.ts` orchestrates filesystem promotion, state mutation, rollback, recovery, and side effects using the pure `pet-install-transaction-protocol.ts` journal/schema/naming/recovery policy → tray refresh
 
@@ -76,7 +76,8 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and bottom-anchored expanded attached chat panel
 - `pet-assistant-feedback.ts`: Reducer mapping canonical assistant turns and active voice sessions to pet reactions, suppressing duplicate text when chat is open while keeping sprite activity/reaction animations
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
-- `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampAllLivePetWindows()` re-clamps all live pet windows on topology changes
+- `pet-display-coordinator.ts`: Electron-free display/power event coordinator; owns listener lifecycle, per-reason debounce, cache invalidation, and ordered live-pet reclamping/recovery fanout
+- `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampDefaultPetWindow()` and the agent reclamp leaf retain window-specific geometry work
 - `pet-roaming-controller.ts`: Host-side roaming orchestrator — registers every live pet (default + agent) with the motion engine and applies the active physics configuration (gravity + bounce). Unregisters before window destroy to prevent the shared ticker from touching closed windows.
 - `pet-motion-engine.ts`: Shared-ticker motion engine (~60 fps) — `Map<petHandleId, MotionState>`, single `setInterval` for all pets, sub-pixel fractional accumulators, bottom-center gravity-floor anchor, `registerPet`/`unregisterPet` seams, sole continuous position writer.
 - `display.ts`: Screen-geometry helpers — `getDefaultPetInitialPosition`, `clampToVisibleWorkArea` (legacy single-display), `clampToNearestDisplayIfOffscreen` (permissive multi-display), `isOnAnyDisplay`, `setCrossDisplayRoamingEnabled`/`isCrossDisplayRoamingEnabled` flag; display list cache with `invalidateDisplayCache()`
