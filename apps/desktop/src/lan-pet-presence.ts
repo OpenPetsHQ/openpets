@@ -1,4 +1,4 @@
-import type { LanPetRecord } from "./lan-state.js";
+import type { LanPetRecord } from "./lan-contract.js";
 
 export type LanPetPresencePlan = {
   readonly show: readonly LanPetRecord[];

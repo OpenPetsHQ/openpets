@@ -7,7 +7,7 @@ import { VoiceConversationService, type VoiceConversationEvent, type VoiceConver
 import type { VoiceMicrophoneArbiter } from "./voice-microphone-arbiter.js";
 import type { VoicePrivacyIndicator } from "./voice-privacy-indicator.js";
 import type { VoiceDeviceService } from "./voice-device-service.js";
-import type { VoiceAssistantSessionEvent, VoiceAssistantSessionEventInput, VoiceAssistantSessionListener, VoiceAssistantSessionSnapshot, VoiceAssistantSessionLike } from "./voice-assistant-session.js";
+import type { VoiceAssistantSessionEvent, VoiceAssistantSessionEventInput, VoiceAssistantSessionListener, VoiceAssistantSessionSnapshot, VoiceAssistantSessionLike } from "./voice-assistant-session-contract.js";
 import { info, warn } from "./logger.js";
 
 export type RealtimeVoiceSessionOptions = {

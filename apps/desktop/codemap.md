@@ -98,7 +98,8 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-js-host.ts`: Hidden sandboxed BrowserWindow host for JavaScript plugin entry modules, SDK IPC tokening, session hardening, startup handshake, and teardown
 - `plugin-sdk-bridge.ts`: Permission-checked SDK API for JavaScript plugins with quotas, plugin storage, schedules, config listeners, commands/status, logs, and restricted HTTPS fetch
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
-- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, and teardown cleanup
+- `voice-assistant-session-contract.ts`: Pure generic/Realtime voice-session contracts shared by host, Realtime, feedback, tray, and implementation modules.
+- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, `voice-privacy-indicator*.ts`, and `voice-assistant-session.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, mutable generic session stages, and teardown cleanup
 - `pet-installation.ts`: Catalog ZIP download and extraction
 - `pet-install-transaction-protocol.ts`: Stable pet-install journal/schema, naming, and recovery-classification protocol
 - `pet-install-transaction.ts`: Filesystem and side-effect orchestration for staged promotion, state mutation, rollback, cleanup, locking, and startup recovery

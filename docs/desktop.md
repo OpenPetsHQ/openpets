@@ -313,6 +313,9 @@ and role changes atomically.
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).
+The stable generic and Realtime voice-session type contracts are owned by
+`src/voice-assistant-session-contract.ts`; `src/voice-assistant-session.ts`
+retains the mutable generic session stages and lifecycle implementation.
 The shortcut accelerator is persisted in Settings and its runtime status and
 reason are part of the authoritative Talk snapshot/event contract. Runtime
 status is `registered`, `conflict`, `unavailable`, or `invalid`; registration and

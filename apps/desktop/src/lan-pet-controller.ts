@@ -4,7 +4,7 @@ import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
 import { clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition } from "./display.js";
 import { debug, info, warn } from "./logger.js";
 import { planLanPetPresence, resolveRenderableLanPetId } from "./lan-pet-presence.js";
-import type { LanPetRecord, LanPoint } from "./lan-state.js";
+import type { LanPetRecord, LanPoint } from "./lan-contract.js";
 import { createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, type PetTransientDisplay } from "./pet-window.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";

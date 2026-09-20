@@ -1,4 +1,4 @@
-import type { LanPetRecord, LanState } from "./lan-state.js";
+import type { LanPetRecord, LanState } from "./lan-contract.js";
 
 export type LanWorkDeparture = {
   readonly ownerHost: string;

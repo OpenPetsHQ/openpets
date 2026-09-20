@@ -7,8 +7,8 @@ import { PET_ASSISTANT_CONVERSATION_ID } from "./pet-assistant-conversation.js";
 import { PetAssistantFeedbackReducer } from "./pet-assistant-feedback.js";
 import type { HostProviderOperations } from "./provider-service.js";
 import { speakPetWindowTts, stopPetWindowTts, subscribePetWindowSpeechCompletion } from "./pet-window.js";
-import type { VoiceAssistantPlayer, VoiceAssistantSpeech } from "./voice-assistant-session.js";
-import { VoiceAssistantSession, type VoiceAssistantSessionSnapshot } from "./voice-assistant-session.js";
+import type { VoiceAssistantPlayer, VoiceAssistantSessionLike, VoiceAssistantSessionSnapshot, VoiceAssistantSpeech } from "./voice-assistant-session-contract.js";
+import { VoiceAssistantSession } from "./voice-assistant-session.js";
 import { getVoicePlaybackTimeoutMs, VoiceAssistantPlaybackCoordinator } from "./voice-assistant-playback.js";
 import { installWindowLossHandlers } from "./voice-playback-window.js";
 import { HostVoiceInput, PetAssistantVoiceAdapter, ProviderVoiceSynthesizer, VoiceAssistantHostController, type VoiceAssistantHostEvent } from "./voice-assistant-host-core.js";
@@ -54,7 +54,7 @@ export type VoiceAssistantTalkEvent = (Exclude<VoiceAssistantHostEvent, { readon
 export class VoiceAssistantHost {
   readonly sessionId: number;
   readonly #player: PetWindowVoicePlayer;
-  readonly #session: import("./voice-assistant-session.js").VoiceAssistantSessionLike;
+  readonly #session: VoiceAssistantSessionLike;
   readonly #unsubscribeSession: () => void;
   readonly #feedbackReducer?: PetAssistantFeedbackReducer;
   readonly #conversationController = getPetAssistantConversationController();
@@ -126,7 +126,7 @@ export class VoiceAssistantHost {
     });
   }
 
-  get session(): import("./voice-assistant-session.js").VoiceAssistantSessionLike { return this.#session; }
+  get session(): VoiceAssistantSessionLike { return this.#session; }
 
   async shutdown(): Promise<void> {
     await shutdownVoiceAssistantResources(

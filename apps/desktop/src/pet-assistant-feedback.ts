@@ -1,6 +1,6 @@
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import type { PetAssistantEvent } from "./pet-assistant-types.js";
-import type { VoiceAssistantSessionEvent } from "./voice-assistant-session.js";
+import type { VoiceAssistantSessionEvent } from "./voice-assistant-session-contract.js";
 
 export type PetAssistantFeedbackState = "listening" | "thinking" | "acting" | "speaking" | "missing-information" | "success" | "failure";
 
