@@ -89,6 +89,7 @@ plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 ```
 windows.ts (IPC handlers)
 └── agent-setup.ts
+    ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
     ├── detectClaudeCodeStatus() (claude --version, claude mcp list)
     ├── runAgentSetupAction()
     │   ├── configure/replace/remove (MCP commands)

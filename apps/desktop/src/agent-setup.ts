@@ -5,8 +5,6 @@ import { createRequire } from "node:module";
 
 import { app } from "electron";
 import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, classifyClaudeMcpStatus, createOpenPetsHookSettingsPreview, doctorClaudeHooks, installClaudeHooks, mapAsarPathToUnpacked, uninstallClaudeHooks, type ClaudeCommandSpec, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type OpenPetsCommandMode, type ParsedClaudeMcpEntry } from "@open-pets/claude";
-import { buildCursorRulesPreview, classifyCursorMcpStatus, executeCursorMcpWrite, getCursorGlobalMcpPath, planCursorMcpInstall, planCursorMcpRemove, planCursorMcpReplace, readCursorMcpConfig, type CursorMcpStatusResult } from "@open-pets/cursor";
-import { buildOpenPetsOnlyPreview, type RedactedPreview } from "@open-pets/cursor";
 import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
 import { doctorOpenCodeGlobalSetup, getGlobalOpenCodeConfigDir, parseOpenCodeConfig, prepareOpenCodeGlobalRemove, prepareOpenCodeGlobalSetup, writePreparedOpenCodeGlobalRemove, writePreparedOpenCodeGlobalSetup } from "@open-pets/opencode";
 import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, isValidZedNodeCommand, planZedMcpInstall, planZedMcpRemove, planZedMcpReplace, readZedSettings, type ZedMcpEntry, type ZedMcpPreviewOptions, type ZedMcpStatusResult } from "@open-pets/zed";
@@ -15,6 +13,9 @@ import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type Op
 import { buildExtraCommandPaths, resolveCommandMode } from "./agent-command-env.js";
 import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaudeOpenPetsMemory, type ClaudeOpenPetsMemoryStatus } from "./claude-memory.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
+import { getCursorSetup, installCursorGlobal, removeCursorGlobal, replaceCursorGlobal, type CursorSetupPreview, type CursorSetupStatus } from "./agent-setup-cursor.js";
+
+export type { CursorSetupPreview, CursorSetupStatus } from "./agent-setup-cursor.js";
 
 export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove";
 export type JournalAction = "configure" | "update" | "replace" | "remove";
@@ -85,25 +86,6 @@ export interface OpenCodeSetupPreview {
   readonly plugin: readonly unknown[] | string;
   readonly instructionPath: string;
   readonly configPreview: Record<string, unknown>;
-}
-
-export interface CursorSetupStatus {
-  readonly state: "configured" | "needs_setup" | "not_detected" | "error" | "conflict" | "needs_update";
-  readonly label: string;
-  readonly details: string;
-  readonly configPath: string;
-  readonly canInstall: boolean;
-  readonly canReplace: boolean;
-  readonly canRemove: boolean;
-}
-
-export interface CursorSetupPreview {
-  readonly global: true;
-  readonly configPath: string;
-  readonly mcpEntry: RedactedPreview;
-  readonly rulesPath: string;
-  readonly rulesContent: string;
-  readonly commandMode: "published" | "local" | "bundled";
 }
 
 export interface OpenClawSetupPreview {
@@ -181,7 +163,7 @@ export async function getAgentSetupSnapshot(selectedPetId?: unknown, commandMode
   const rawMemoryStatus = doctorClaudeOpenPetsMemory(app.getPath("home"));
   const memoryStatus = { ...rawMemoryStatus, claudeMdPath: formatUserPath(rawMemoryStatus.claudeMdPath) ?? rawMemoryStatus.claudeMdPath, openPetsMemoryPath: formatUserPath(rawMemoryStatus.openPetsMemoryPath) ?? rawMemoryStatus.openPetsMemoryPath };
   const opencode = await getOpenCodeSetup(commandMode, petId);
-  const cursor = await getCursorSetup(commandMode, petId);
+  const cursor = await getCursorSetup(petId, getCursorSetupDependencies());
   const openclaw = await getOpenClawSetup();
   const zed = await getZedSetup(commandMode, petId);
 
@@ -303,9 +285,9 @@ async function runAction(action: AgentSetupAction, selectedPetId: string | undef
   if (action === "openclaw-install") return mutateOpenClaw("configure");
   if (action === "openclaw-update") return mutateOpenClaw("update");
   if (action === "openclaw-remove") return mutateOpenClaw("remove");
-  if (action === "cursor-install") return installCursorGlobal(selectedPetId, commandMode);
-  if (action === "cursor-replace") return replaceCursorGlobal(selectedPetId, commandMode);
-  if (action === "cursor-remove") return removeCursorGlobal();
+  if (action === "cursor-install") return installCursorGlobal(selectedPetId, getCursorSetupDependencies());
+  if (action === "cursor-replace") return replaceCursorGlobal(selectedPetId, getCursorSetupDependencies());
+  if (action === "cursor-remove") return removeCursorGlobal(getCursorSetupDependencies());
   if (action === "zed-install") return installZedGlobal(selectedPetId, commandMode);
   if (action === "zed-replace") return replaceZedGlobal(selectedPetId, commandMode);
   if (action === "zed-remove") return removeZedGlobal(selectedPetId, commandMode);
@@ -418,40 +400,6 @@ async function getOpenCodeSetup(commandMode: OpenPetsCommandMode, selectedPetId:
       plugin: prepared.ok ? prepared.plugin : (petId ? [`@open-pets/opencode@${pluginVersion}`, { pet: petId }] : `@open-pets/opencode@${pluginVersion}`),
       instructionPath: prepared.ok ? (formatUserPath(prepared.instructionPath) ?? prepared.instructionPath) : "",
       configPreview: prepared.ok ? prepared.configPreview : {},
-    },
-  };
-}
-
-async function getCursorSetup(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): Promise<{ readonly status: CursorSetupStatus; readonly preview: CursorSetupPreview }> {
-  const homeDir = app.getPath("home");
-  const configPath = getCursorGlobalMcpPath(homeDir);
-  const petId = selectedPetId || undefined;
-  const mcpVersion = getMcpPackageVersion();
-
-  const configResult = readCursorMcpConfig(configPath);
-  const statusResult = classifyCursorMcpStatus(configResult, configPath, { mcpVersion, petId, commandMode: "published" });
-
-  const state = mapCursorStatusToState(statusResult.status);
-  const label = mapCursorStatusToLabel(statusResult.status);
-  const details = statusResult.message;
-
-  return {
-    status: {
-      state,
-      label,
-      details,
-      configPath: formatUserPath(configPath) ?? configPath,
-      canInstall: statusResult.canInstall,
-      canReplace: statusResult.canReplace,
-      canRemove: statusResult.canRemove,
-    },
-    preview: {
-      global: true,
-      configPath: formatUserPath(configPath) ?? configPath,
-      mcpEntry: buildOpenPetsOnlyPreview({ mcpVersion, petId, commandMode: "published" }),
-      rulesPath: ".cursor/rules/openpets.mdc",
-      rulesContent: buildCursorRulesPreview(),
-      commandMode: "published",
     },
   };
 }
@@ -586,42 +534,6 @@ function mapZedStatusToLabel(status: ZedMcpStatusResult["status"]): string {
   }
 }
 
-function mapCursorStatusToState(status: CursorMcpStatusResult["status"]): CursorSetupStatus["state"] {
-  switch (status) {
-    case "installed":
-      return "configured";
-    case "missing":
-      return "needs_setup";
-    case "needs-update":
-      return "needs_update";
-    case "conflict":
-      return "conflict";
-    case "invalid":
-    case "error":
-      return "error";
-    default:
-      return "error";
-  }
-}
-
-function mapCursorStatusToLabel(status: CursorMcpStatusResult["status"]): string {
-  switch (status) {
-    case "installed":
-      return "Configured";
-    case "missing":
-      return "Not configured";
-    case "needs-update":
-      return "Needs update";
-    case "conflict":
-      return "Conflict";
-    case "invalid":
-    case "error":
-      return "Config error";
-    default:
-      return "Checking";
-  }
-}
-
 function getAgentSetupCommandPaths(): AgentSetupCommandPaths {
   const preferences = getAppStateSnapshot().preferences;
   return {
@@ -716,66 +628,6 @@ async function removeOpenCodeGlobal(): Promise<AgentSetupActionResult> {
     return { ok: true, action: "opencode-remove", message: prepared.configWrites.length > 0 ? "Removed global OpenCode OpenPets setup." : "Global OpenCode OpenPets setup was already absent.", changed: prepared.configWrites.length > 0 };
   } catch (error) {
     return { ok: false, action: "opencode-remove", message: error instanceof Error ? error.message : "OpenCode removal failed.", changed: false };
-  }
-}
-
-async function installCursorGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
-  void commandMode;
-  try {
-    const homeDir = app.getPath("home");
-    const configPath = getCursorGlobalMcpPath(homeDir);
-    const mcpVersion = getMcpPackageVersion();
-    const plan = planCursorMcpInstall(configPath, { mcpVersion, petId: selectedPetId || undefined, commandMode: "published" });
-    if ("ok" in plan && !plan.ok) {
-      return { ok: false, action: "cursor-install", message: plan.message, changed: false };
-    }
-    if ("targetPath" in plan) {
-      executeCursorMcpWrite(plan);
-      const backupMsg = plan.backupPath ? ` Backup: ${formatUserPath(plan.backupPath) ?? plan.backupPath}.` : "";
-      return { ok: true, action: "cursor-install", message: `Installed Cursor OpenPets MCP config at ${formatUserPath(configPath) ?? configPath}.${backupMsg} Cursor may need to be restarted or reloaded.`, changed: true };
-    }
-    return { ok: false, action: "cursor-install", message: "Failed to plan Cursor MCP install.", changed: false };
-  } catch (error) {
-    return { ok: false, action: "cursor-install", message: error instanceof Error ? error.message : "Cursor MCP install failed.", changed: false };
-  }
-}
-
-async function replaceCursorGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
-  void commandMode;
-  try {
-    const homeDir = app.getPath("home");
-    const configPath = getCursorGlobalMcpPath(homeDir);
-    const mcpVersion = getMcpPackageVersion();
-    const plan = planCursorMcpReplace(configPath, { mcpVersion, petId: selectedPetId || undefined, commandMode: "published" });
-    if ("ok" in plan && !plan.ok) {
-      return { ok: false, action: "cursor-replace", message: plan.message, changed: false };
-    }
-    if ("targetPath" in plan) {
-      executeCursorMcpWrite(plan);
-      const backupMsg = plan.backupPath ? ` Backup: ${formatUserPath(plan.backupPath) ?? plan.backupPath}.` : "";
-      return { ok: true, action: "cursor-replace", message: `Replaced Cursor OpenPets MCP config at ${formatUserPath(configPath) ?? configPath}.${backupMsg} Cursor may need to be restarted or reloaded.`, changed: true };
-    }
-    return { ok: false, action: "cursor-replace", message: "Failed to plan Cursor MCP replace.", changed: false };
-  } catch (error) {
-    return { ok: false, action: "cursor-replace", message: error instanceof Error ? error.message : "Cursor MCP replace failed.", changed: false };
-  }
-}
-
-async function removeCursorGlobal(): Promise<AgentSetupActionResult> {
-  try {
-    const homeDir = app.getPath("home");
-    const configPath = getCursorGlobalMcpPath(homeDir);
-    const plan = planCursorMcpRemove(configPath);
-    if ("ok" in plan && !plan.ok) {
-      return { ok: false, action: "cursor-remove", message: plan.message, changed: false };
-    }
-    if ("targetPath" in plan) {
-      executeCursorMcpWrite(plan);
-      return { ok: true, action: "cursor-remove", message: `Removed Cursor OpenPets MCP config at ${formatUserPath(configPath) ?? configPath}. Cursor may need to be restarted or reloaded.`, changed: true };
-    }
-    return { ok: false, action: "cursor-remove", message: "Failed to plan Cursor MCP remove.", changed: false };
-  } catch (error) {
-    return { ok: false, action: "cursor-remove", message: error instanceof Error ? error.message : "Cursor MCP remove failed.", changed: false };
   }
 }
 
@@ -898,6 +750,14 @@ function getWorkspacePackageVersion(packageName: string): string {
 
 function getMcpPackageVersion(): string {
   return getWorkspacePackageVersion("@open-pets/mcp");
+}
+
+function getCursorSetupDependencies(): {
+  readonly homeDir: string;
+  readonly mcpVersion: string;
+  readonly formatUserPath: (path: string | undefined) => string | undefined;
+} {
+  return { homeDir: app.getPath("home"), mcpVersion: getMcpPackageVersion(), formatUserPath };
 }
 
 function summarizeMemoryMessages(...messages: readonly string[]): string {
