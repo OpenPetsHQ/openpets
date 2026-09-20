@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type WebContents } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
@@ -16,11 +16,10 @@ import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
-import { refreshPetGazePreference } from "./pet-window.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
+import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
-import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
 import {
@@ -48,6 +47,8 @@ import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type Co
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { installControlCenterProviderIpcHandlers, type ControlCenterProviderIpcLifecycle } from "./control-center-provider-ipc.js";
+import { installControlCenterPetManagementIpcHandlers } from "./control-center-pet-management-ipc.js";
+import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
@@ -87,28 +88,6 @@ function syncDockVisibilityForInternalUi(): void {
     dock.hide();
     lastDockHideAt = Date.now();
   }
-}
-
-async function getPetsStateSnapshot(): Promise<{
-  preferences: { defaultPetId: string };
-  pets: { installed: ReadonlyArray<ReturnType<typeof getAppStateSnapshot>["pets"]["installed"][number] & { readonly spriteLayout?: CodexPetSpriteLayout }> };
-}> {
-  const state = getAppStateSnapshot();
-  const installed = await Promise.all(state.pets.installed.map(async (pet) => {
-    if (pet.builtIn) return { ...pet, spriteLayout: codexV2SpriteLayout };
-    try {
-      return {
-        ...pet,
-        spriteLayout: await readInstalledPetSpriteLayout(
-          pet.id,
-          pet.source?.kind === "team" ? "team" : "personal",
-        ),
-      };
-    } catch {
-      return pet;
-    }
-  }));
-  return { preferences: { defaultPetId: state.preferences.defaultPetId }, pets: { installed } };
 }
 
 function getSettingsStateSnapshot(): {
@@ -239,9 +218,43 @@ export function installInternalUiHandlers(): void {
   // Apply the persisted petGravityEnabled preference on startup.
   applyRoamingToAllPets();
 
-  ipcMain.handle("openpets:get-pets-state", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetsStateSnapshot();
+  installControlCenterPetManagementIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    isCurrentControlCenterSender: (event) => getInternalUiWindowKindForWebContents(event.sender.id) === "control-center",
+    getOwnerForSender: (event) => BrowserWindow.fromWebContents(event.sender as WebContents) ?? undefined,
+    showMessageBox: (owner, options) => owner
+      ? dialog.showMessageBox(owner as BrowserWindow, options)
+      : dialog.showMessageBox(options),
+    showOpenDialog: (owner, options) => owner
+      ? dialog.showOpenDialog(owner as BrowserWindow, options)
+      : dialog.showOpenDialog(options),
+    stat,
+    openExternal: (url) => shell.openExternal(url),
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    getAppStateSnapshot,
+    getSettingsStateSnapshot,
+    readInstalledPetSpriteLayout,
+    getCatalogUiState,
+    getCatalogPageUiState,
+    getCatalogSearchUiState,
+    getCodexPetsUiState,
+    setDefaultInstalledPet,
+    refreshDefaultPetContent,
+    recoverDefaultPetMouseInterop,
+    broadcastDashboardRefresh,
+    normalizePetPoolOrder,
+    setPetPoolOrder,
+    installPet,
+    installPetFromFolder,
+    installPetFromZipFile,
+    importCodexPet,
+    removePet,
+    resetDefaultPetToInitialPosition,
+    logger: {
+      debug: (message, fields) => debug("ui", message, fields),
+      error: (message, fields) => logError("ui", message, fields),
+    },
   });
 
   ipcMain.handle("openpets:get-settings-state", (event) => {
@@ -420,27 +433,6 @@ export function installInternalUiHandlers(): void {
     logger: { debug: (message, fields) => debug("plugin", message, fields) },
   });
 
-  ipcMain.handle("openpets:get-catalog", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCatalogUiState();
-  });
-
-  ipcMain.handle("openpets:get-catalog-page", async (event, page: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof page !== "number" || !Number.isInteger(page) || page < 0) throw new Error("Invalid catalog page.");
-    return getCatalogPageUiState(page);
-  });
-
-  ipcMain.handle("openpets:get-catalog-search", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCatalogSearchUiState();
-  });
-
-  ipcMain.handle("openpets:get-codex-pets", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCodexPetsUiState();
-  });
-
   ipcMain.handle("openpets:update-preferences", (event, patch: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     const previousScale = getAppStateSnapshot().preferences.petScale;
@@ -539,122 +531,11 @@ export function installInternalUiHandlers(): void {
     await openUpdateReleasePage();
   });
 
-  ipcMain.handle("openpets:set-default-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await setDefaultInstalledPet(petId);
-    refreshDefaultPetContent();
-    recoverDefaultPetMouseInterop("default-pet-changed");
-    setTimeout(() => recoverDefaultPetMouseInterop("default-pet-changed+500ms"), 500).unref?.();
-    broadcastDashboardRefresh();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:set-pet-pool-order", (event, ids: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!Array.isArray(ids)) throw new Error("Invalid pet pool order: expected an array.");
-    const normalized = normalizePetPoolOrder(ids);
-    setPetPoolOrder(normalized ?? []);
-    return getSettingsStateSnapshot();
-  });
-
-  ipcMain.handle("openpets:install-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await installPet(petId);
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:install-local-pet", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    const importKind = await chooseLocalPetImportKind(owner);
-    if (!importKind) return getPetsStateSnapshot();
-    const options: OpenDialogOptions = importKind === "zip" ? {
-      title: "Install pet from ZIP",
-      buttonLabel: "Install Pet",
-      properties: ["openFile"],
-      filters: [{ name: "OpenPets ZIP", extensions: ["zip"] }],
-    } : {
-      title: "Install pet from folder",
-      buttonLabel: "Install Pet",
-      properties: ["openDirectory"],
-    };
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
-    if (result.canceled || !result.filePaths[0]) return getPetsStateSnapshot();
-    const selectedPath = result.filePaths[0];
-    try {
-      const selectedStats = await stat(selectedPath);
-      const state = selectedStats.isDirectory() ? await installPetFromFolder(selectedPath) : await installPetFromZipFile(selectedPath);
-      debug("ui", "local pet import succeeded", { kind: selectedStats.isDirectory() ? "folder" : "zip" });
-      refreshDefaultPetContent();
-      return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-    } catch (error) {
-      logError("ui", "local pet import failed", { error: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-  });
-
-  ipcMain.handle("openpets:open-gallery", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    await shell.openExternal("https://openpets.dev/gallery");
-  });
-
   ipcMain.handle("openpets:open-organizations-page", async (event) => {
     assertAllowedSender(event, ["control-center"]);
     await shell.openExternal("https://openpets.dev/organizations");
   });
 
-  ipcMain.handle("openpets:import-codex-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await importCodexPet(petId);
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:remove-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await removePet(petId);
-    refreshDefaultPetContent();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:reset-default-pet-position", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    resetDefaultPetToInitialPosition();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getSettingsStateSnapshot() : getAppStateSnapshot();
-  });
-
-}
-
-async function chooseLocalPetImportKind(owner: BrowserWindow | undefined): Promise<"zip" | "folder" | null> {
-  const options = {
-    type: "question" as const,
-    title: "Install pet",
-    message: "Install pet from ZIP or folder?",
-    detail: "Choose the source type before selecting the pet package.",
-    buttons: ["ZIP", "Folder", "Cancel"],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-  };
-  const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
-  if (result.response === 0) return "zip";
-  if (result.response === 1) return "folder";
-  return null;
 }
 
 export function installInternalUiProtocol(): void {
