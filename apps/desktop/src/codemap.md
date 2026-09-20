@@ -76,7 +76,9 @@ pet-window.ts
 │   ├── reaction-messages.ts (pickReactionMessage for bubbles)
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
-└── pet-preload.cjs (renderer IPC for drag/click-through)
+├── pet-preload.cjs (source renderer IPC entry; Vite bundles it with pet-chat-markdown.ts and pet-chat-view-state.ts into dist/pet-preload.cjs)
+├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)
+└── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, and draft derivation)
 pet-window-interaction.ts
 └── mouse passthrough, drag, renderer lifecycle recovery/watchdog, IPC bridge, and speech completion subscriptions
 

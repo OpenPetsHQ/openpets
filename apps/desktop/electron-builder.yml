@@ -15,7 +15,6 @@ artifactName: OpenPets-${version}-${os}-${arch}.${ext}
 files:
   - dist/**
   - control-center-preload.cjs
-  - pet-preload.cjs
   - pet-tts-helper.cjs
   - plugin-sdk-preload.cjs
   - plugin-command-form-preload.cjs

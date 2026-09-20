@@ -212,7 +212,7 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      preload: join(app.getAppPath(), "pet-preload.cjs"),
+      preload: join(app.getAppPath(), "dist", "pet-preload.cjs"),
       ...(useLayerShell ? { offscreen: true, backgroundThrottling: false } : {}),
     },
   });

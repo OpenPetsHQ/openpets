@@ -48,7 +48,6 @@ assert.match(builderConfig, /asarUnpack:/);
 assert.match(builderConfig, /node_modules\/\*\*/);
 assert.match(builderConfig, /dist\/\*\*/);
 assert.match(builderConfig, /control-center-preload\.cjs/);
-assert.match(builderConfig, /pet-preload\.cjs/);
 assert.match(builderConfig, /plugin-sdk-preload\.cjs/);
 assert.match(builderConfig, /plugin-command-form-preload\.cjs/);
 assert.match(builderConfig, /voice-realtime-preload\.cjs/);
@@ -57,7 +56,8 @@ assert.match(builderConfig, /extraResources:[\s\S]*from:\s*\.\.\/\.\.\/plugins\/
 assert.match(builderConfig, /icon:\s*assets\/app-icon\.icns/);
 
 assert.ok(existsSync(join(appDir, "control-center-preload.cjs")), "control-center-preload.cjs must exist for Control Center IPC.");
-assert.ok(existsSync(join(appDir, "pet-preload.cjs")), "pet-preload.cjs must exist for pet window motion state updates.");
+const generatedPetPreloadPath = join(distDir, "pet-preload.cjs");
+assert.ok(existsSync(generatedPetPreloadPath), "generated dist/pet-preload.cjs must exist for pet window motion state updates.");
 assert.ok(existsSync(join(appDir, "plugin-sdk-preload.cjs")), "plugin-sdk-preload.cjs must exist for JavaScript plugin SDK hosting.");
 assert.ok(existsSync(join(appDir, "plugin-command-form-preload.cjs")), "plugin-command-form-preload.cjs must exist for plugin command forms.");
 assert.ok(existsSync(join(appDir, "voice-realtime-preload.cjs")), "voice-realtime-preload.cjs must exist for the private realtime voice renderer.");
