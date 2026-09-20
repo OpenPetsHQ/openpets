@@ -39,7 +39,7 @@ main.ts
 
 **IPC Request Flow**:
 ```
-local-ipc.ts → parseIpcRequest() → handleRequest()
+local-ipc.ts → local-ipc-request-handler.ts → parseIpcRequest() → handleRequest()
 ├── hello/status/pets.list/pets.install
 └── lease.acquire/heartbeat/release
     └── lease-manager.ts
@@ -274,7 +274,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
-- `local-ipc.ts`: net.Server implementation, request routing, discovery file management, network security (loopback/private address filtering), logging
+- `local-ipc.ts`: net.Server implementation, socket transport facade, discovery file management, network security (loopback/private address filtering), logging, and request-handler composition
+- `local-ipc-request-handler.ts`: Electron-free injected local IPC parsing, validation, request routing, side-effect ordering, and protocol response handling
 - `local-ipc-protocol.ts`: Protocol constants, request/response types, validation functions
 - `local-ipc-paths.ts`: Platform-specific socket paths and discovery file locations
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution

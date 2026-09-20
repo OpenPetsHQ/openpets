@@ -7,11 +7,11 @@ import { applyAgentPetReaction, applyAgentPetSay, applyAgentPetShowMedia, clearA
 import { getAppStateSnapshot, recordOpenPetsActivity } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
 import { applyExternalPetReaction, applyExternalPetSay, applyExternalPetShowMedia, getDefaultPetPaused, isDefaultPetVisible } from "./default-pet-controller.js";
-import { createStaleLeaseStatus, LeaseManager } from "./lease-manager.js";
+import { LeaseManager } from "./lease-manager.js";
 import { debug, error as logError, info } from "./logger.js";
 import { cleanupUnixSocket, getDiscoveryFilePath, getIpcEndpointConfig, parseIpcEndpoint, protectUnixSocket, removeDiscoveryFile, writeDiscoveryFile, type IpcEndpoint, type IpcEndpointConfig, type OpenPetsDiscoveryFile } from "./local-ipc-paths.js";
 import { stat } from "node:fs/promises";
-import { errorResponse, IpcProtocolError, isRecord, maxIpcMessageBytes, maxMediaFileBytes, okResponse, parseIpcRequest, validateInstallLocalKind, validateInstallLocalPath, validateInstallPetId, validateMediaClickUrl, validateMediaDurationMs, validateMediaPath, validateOptionalLeaseId, validateReaction, validateRequestedPetId, validateSayMessage, validateSessionNonce, type OpenPetsIpcRequest } from "./local-ipc-protocol.js";
+import { errorResponse, IpcProtocolError, maxIpcMessageBytes } from "./local-ipc-protocol.js";
 import { installPet, installPetFromFolderWithResult, installPetFromZipFileWithResult } from "./pet-installation.js";
 import { clearConfinementState, setConfinementState } from "./confinement-manager.js";
 import { isConfinementSupported } from "./capabilities.js";
@@ -21,6 +21,7 @@ import { warnPetFallback } from "./pet-fallback-notify.js";
 import { getEligiblePoolPetIds, resolvePoolAssignment } from "./pet-pool.js";
 import { t } from "./i18n/index.js";
 import { broadcastLanPetActivity } from "./lan-controller.js";
+import { createLocalIpcRequestHandler } from "./local-ipc-request-handler.js";
 
 let ipcServer: net.Server | null = null;
 let ipcDiscovery: OpenPetsDiscoveryFile | null = null;
@@ -45,6 +46,40 @@ const warnedFallbackPets = new Set<string>();
 const suspendedPoolSessions = new Map<number, string | undefined>();
 
 const safePetIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+const handleRawRequest = createLocalIpcRequestHandler({
+  getAppVersion: () => ipcDiscovery?.appVersion ?? "0.0.0",
+  getAppStateSnapshot,
+  builtInPet,
+  getDefaultPetPaused,
+  isDefaultPetVisible,
+  installPet,
+  installPetFromFolderWithResult,
+  installPetFromZipFileWithResult,
+  stat,
+  acquireLease: (requestedPetId, clientPid, sessionNonce) => leaseManager.acquire(requestedPetId, clientPid, sessionNonce),
+  getLease: (leaseId) => leaseManager.get(leaseId),
+  heartbeatLease: (leaseId) => leaseManager.heartbeat(leaseId),
+  releaseLease: (leaseId) => leaseManager.release(leaseId),
+  onLeaseAcquired: (requestedPetId, lease, clientPid) => {
+    warnPetFallback(requestedPetId, lease.fallbackReason, warnedFallbackPets);
+    // Resolve terminal window identity asynchronously (non-blocking).
+    // Only attempt on macOS where window-bounds polling is supported.
+    if (clientPid !== undefined && isConfinementSupported()) {
+      void resolveTerminalIdentity(lease.leaseId, clientPid);
+    }
+  },
+  applyAgentPetReaction,
+  applyAgentPetSay,
+  applyAgentPetShowMedia,
+  applyExternalPetReaction,
+  applyExternalPetSay,
+  applyExternalPetShowMedia,
+  broadcastLanPetActivity,
+  recordOpenPetsActivity,
+  debug: (message, fields) => debug("ipc", message, fields),
+  logError: (error, requestId) => logError("ipc", "request failed", error instanceof Error ? error : { requestId, error }),
+});
 
 export async function startLocalIpcServer(): Promise<void> {
   if (ipcServer) {
@@ -262,215 +297,6 @@ function isPrivateOrLocalAddress(address: string): boolean {
   if (parts[0] === 169 && parts[1] === 254) return true;
 
   return false;
-}
-
-async function handleRawRequest(raw: string, token: string) {
-  let requestId: string | null = null;
-  try {
-    const request = parseIpcRequest(raw, token);
-    requestId = request.id;
-    debug("ipc", "request received", { requestId, method: request.method });
-    return okResponse(request.id, await handleRequest(request));
-  } catch (error) {
-    logError("ipc", "request failed", error instanceof Error ? error : { requestId, error });
-    return errorResponse(requestId, error);
-  }
-}
-
-async function handleRequest(request: OpenPetsIpcRequest): Promise<unknown> {
-  if (request.method === "hello") {
-    return {
-      ok: true,
-      protocol: "openpets-ipc",
-      protocolVersion: 1,
-      appVersion: ipcDiscovery?.appVersion ?? "0.0.0",
-    };
-  }
-
-  if (request.method === "status") {
-    const params = isRecord(request.params) ? request.params : {};
-    const leaseId = validateOptionalLeaseId(params.leaseId);
-    if (leaseId) {
-      const lease = leaseManager.get(leaseId);
-      if (!lease) return createStaleLeaseStatus(leaseId);
-      return { ok: true, appRunning: true, ...lease };
-    }
-    const state = getAppStateSnapshot();
-    const defaultPet = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId) ?? builtInPet;
-    return {
-      ok: true,
-      appRunning: true,
-      protocolVersion: 1,
-      appVersion: ipcDiscovery?.appVersion ?? "0.0.0",
-      defaultPet: {
-        id: defaultPet.id,
-        displayName: defaultPet.displayName,
-        builtIn: defaultPet.builtIn,
-        broken: "broken" in defaultPet && defaultPet.broken === true,
-      },
-      paused: getDefaultPetPaused(),
-      defaultPetVisible: isDefaultPetVisible(),
-      openDefaultPetOnLaunch: state.preferences.openDefaultPetOnLaunch,
-      speechBubblesEnabled: state.preferences.speechBubblesEnabled,
-    };
-  }
-
-  if (request.method === "pets.list") {
-    const state = getAppStateSnapshot();
-    return {
-      ok: true,
-      pets: state.pets.installed.map((pet) => ({
-        id: pet.id,
-        displayName: pet.displayName,
-        builtIn: pet.builtIn,
-        broken: pet.broken === true,
-      })),
-      defaultPetId: state.preferences.defaultPetId,
-    };
-  }
-
-  if (request.method === "pets.install") {
-    const params = isRecord(request.params) ? request.params : {};
-    const petId = validateInstallPetId(params.petId);
-    const state = await installPet(petId);
-    const installed = state.pets.installed.find((pet) => pet.id === petId);
-    if (!installed) throw new IpcProtocolError("install_failed", "Pet install did not complete.");
-    return { ok: true, petId: installed.id, displayName: installed.displayName, installed: true };
-  }
-
-  if (request.method === "pets.install-local") {
-    const params = isRecord(request.params) ? request.params : {};
-    const localPath = validateInstallLocalPath(params.path);
-    const kind = validateInstallLocalKind(params.kind);
-    const stats = await stat(localPath);
-    let installResult;
-    if (kind === "folder") {
-      if (!stats.isDirectory()) throw new IpcProtocolError("invalid_params", "Local pet path must be a folder.");
-      installResult = await installPetFromFolderWithResult(localPath);
-    } else {
-      if (!stats.isFile()) throw new IpcProtocolError("invalid_params", "Local pet path must be a zip file.");
-      installResult = await installPetFromZipFileWithResult(localPath);
-    }
-    const installedPet = installResult.state.pets.installed.find((pet) => pet.id === installResult.petId);
-    if (!installedPet) throw new IpcProtocolError("install_failed", "Local pet install did not complete.");
-    return { ok: true, petId: installedPet.id, displayName: installedPet.displayName, installed: true };
-  }
-
-  if (request.method === "lease.acquire") {
-    const params = isRecord(request.params) ? request.params : {};
-    const requestedPetId = validateRequestedPetId(params.requestedPetId);
-    const clientPid = typeof params.clientPid === "number" && params.clientPid > 0 ? params.clientPid : undefined;
-    const sessionNonce = validateSessionNonce(params.sessionNonce);
-    debug("ipc", "lease acquire requested", { requestId: request.id, requestedPetId, clientPid, sessionNonce });
-    const lease = leaseManager.acquire(requestedPetId, clientPid, sessionNonce);
-    warnPetFallback(requestedPetId, lease.fallbackReason, warnedFallbackPets);
-    // Resolve terminal window identity asynchronously (non-blocking).
-    // Only attempt on macOS where window-bounds polling is supported.
-    if (clientPid !== undefined && isConfinementSupported()) {
-      void resolveTerminalIdentity(lease.leaseId, clientPid);
-    }
-    return lease;
-  }
-
-  if (request.method === "lease.heartbeat") {
-    const params = isRecord(request.params) ? request.params : {};
-    const leaseId = validateRequiredLeaseId(params.leaseId);
-    debug("ipc", "lease heartbeat requested", { requestId: request.id, leaseId });
-    try {
-      return leaseManager.heartbeat(leaseId);
-    } catch {
-      throw new IpcProtocolError("unknown_lease", "Unknown or expired lease.");
-    }
-  }
-
-  if (request.method === "lease.release") {
-    const params = isRecord(request.params) ? request.params : {};
-    const leaseId = validateRequiredLeaseId(params.leaseId);
-    debug("ipc", "lease release requested", { requestId: request.id, leaseId });
-    return leaseManager.release(leaseId);
-  }
-
-  if (request.method === "pet.react") {
-    const params = isRecord(request.params) ? request.params : {};
-    const reaction = validateReaction(params.reaction);
-    const lease = getLeaseTarget(params.leaseId);
-    const petId = lease?.actualTargetPetId ?? getCurrentDefaultPet().id;
-    debug("ipc", "pet react requested", { requestId: request.id, reaction, leaseId: lease?.leaseId, targetKind: lease?.targetKind, actualPetId: lease?.actualTargetPetId });
-    if (lease?.targetKind === "explicit") {
-      const applied = applyAgentPetReaction(lease.actualTargetPetId, reaction);
-      safeRecordOpenPetsActivity({ kind: "react", reaction, petId, surface: "agent" });
-      return { ok: true, reaction, shown: applied.shown, reason: applied.reason, leaseId: lease.leaseId };
-    }
-    const applied = applyExternalPetReaction(reaction);
-    broadcastLanPetActivity(reaction);
-    safeRecordOpenPetsActivity({ kind: "react", reaction, petId, surface: "default" });
-    return { ok: true, reaction, shown: applied.shown, reason: applied.reason };
-  }
-
-  if (request.method === "pet.showMedia") {
-    const params = isRecord(request.params) ? request.params : {};
-    const mediaPath = validateMediaPath(params.path);
-    const message = params.message === undefined ? undefined : validateSayMessage(params.message);
-    const reaction = params.reaction === undefined ? undefined : validateReaction(params.reaction);
-    const durationMs = validateMediaDurationMs(params.durationMs);
-    const clickUrl = validateMediaClickUrl(params.clickUrl);
-    let mediaStat;
-    try {
-      mediaStat = await stat(mediaPath);
-    } catch {
-      throw new IpcProtocolError("invalid_params", "Media path does not exist or is not readable.");
-    }
-    if (!mediaStat.isFile()) throw new IpcProtocolError("invalid_params", "Media path is not a file.");
-    if (mediaStat.size > maxMediaFileBytes) throw new IpcProtocolError("invalid_params", "Media file is too large.");
-    const lease = getLeaseTarget(params.leaseId);
-    const petId = lease?.actualTargetPetId ?? getCurrentDefaultPet().id;
-    debug("ipc", "pet showMedia requested", { requestId: request.id, reaction, mediaBytes: mediaStat.size, durationMs, leaseId: lease?.leaseId, targetKind: lease?.targetKind, actualPetId: lease?.actualTargetPetId });
-    if (lease?.targetKind === "explicit") {
-      const applied = applyAgentPetShowMedia(lease.actualTargetPetId, { mediaPath, message, reaction, durationMs, clickUrl });
-      safeRecordOpenPetsActivity({ kind: "say", reaction, petId, surface: "agent" });
-      return { ok: true, shown: applied.shown, reason: applied.reason, reaction, leaseId: lease.leaseId };
-    }
-    const applied = applyExternalPetShowMedia({ mediaPath, message, reaction, durationMs, clickUrl });
-    safeRecordOpenPetsActivity({ kind: "say", reaction, petId, surface: "default" });
-    return { ok: true, shown: applied.shown, reason: applied.reason, reaction };
-  }
-
-  const params = isRecord(request.params) ? request.params : {};
-  const message = validateSayMessage(params.message);
-  const reaction = params.reaction === undefined ? undefined : validateReaction(params.reaction);
-  const lease = getLeaseTarget(params.leaseId);
-  const petId = lease?.actualTargetPetId ?? getCurrentDefaultPet().id;
-  debug("ipc", "pet say requested", { requestId: request.id, reaction, messageLength: message.length, leaseId: lease?.leaseId, targetKind: lease?.targetKind, actualPetId: lease?.actualTargetPetId });
-  if (lease?.targetKind === "explicit") {
-    const applied = applyAgentPetSay(lease.actualTargetPetId, message, reaction);
-    safeRecordOpenPetsActivity({ kind: "say", reaction, petId, surface: "agent" });
-    return { ok: true, shown: applied.shown, reason: applied.reason, reaction, leaseId: lease.leaseId };
-  }
-  const applied = applyExternalPetSay(message, reaction);
-  safeRecordOpenPetsActivity({ kind: "say", reaction, petId, surface: "default" });
-  return { ok: true, shown: applied.shown, reason: applied.reason, reaction };
-}
-
-function safeRecordOpenPetsActivity(activity: Parameters<typeof recordOpenPetsActivity>[0]): void {
-  try {
-    recordOpenPetsActivity(activity);
-  } catch (error) {
-    debug("ipc", "activity record failed", { error: error instanceof Error ? error.message : String(error), kind: activity.kind, reaction: activity.reaction, petId: activity.petId });
-  }
-}
-
-function validateRequiredLeaseId(value: unknown): string {
-  const leaseId = validateOptionalLeaseId(value);
-  if (!leaseId) throw new IpcProtocolError("invalid_params", "Lease id is required.");
-  return leaseId;
-}
-
-function getLeaseTarget(value: unknown) {
-  const leaseId = validateOptionalLeaseId(value);
-  if (!leaseId) return null;
-  const lease = leaseManager.get(leaseId);
-  if (!lease) throw new IpcProtocolError("unknown_lease", "Unknown or expired lease.");
-  return lease;
 }
 
 function handleLastExplicitLease(petId: string): void {
