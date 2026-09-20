@@ -31,7 +31,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 **Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping
 
-**Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → state update → tray refresh
+**Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → `pet-install-transaction.ts` orchestrates filesystem promotion, state mutation, rollback, recovery, and side effects using the pure `pet-install-transaction-protocol.ts` journal/schema/naming/recovery policy → tray refresh
 
 **Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
 
@@ -99,6 +99,8 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
 - `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, and teardown cleanup
 - `pet-installation.ts`: Catalog ZIP download and extraction
+- `pet-install-transaction-protocol.ts`: Stable pet-install journal/schema, naming, and recovery-classification protocol
+- `pet-install-transaction.ts`: Filesystem and side-effect orchestration for staged promotion, state mutation, rollback, cleanup, locking, and startup recovery
 - `codex-pets.ts`: Local Codex pet import
 - `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)

@@ -259,7 +259,9 @@ Two install paths exist; they share the same safety rules.
 4. Extraction is atomic (temp dir → rename) into `userData/pets/{id}/`, and
    `installPetState()` records it in app state.
 
-The final promotion has a private per-pet journal under
+The stable journal/schema, naming, and recovery-classification protocol lives in
+`pet-install-transaction-protocol.ts`; `pet-install-transaction.ts` remains the
+filesystem and side-effect orchestrator. The final promotion has a private per-pet journal under
 `userData/pets/.openpets-pet-transactions/`. Journal records are written to a
 private temporary marker and renamed into place. On process interruption,
 startup recovery verifies the actual canonical final/candidate/backup

@@ -110,7 +110,9 @@ windows.ts (IPC handler adaptation)
 ```
 catalog/local ZIP/local folder/codex-pets.ts
 ├── fully validate and stage a private candidate as a direct child of pets/
-└── pet-install-transaction.ts
+└── pet-install-transaction.ts + pet-install-transaction-protocol.ts
+    ├── protocol owns the durable journal/schema, managed names, topology classifiers, and recovery policy
+    ├── transaction owns filesystem promotion, state mutation, rollback/recovery execution, and side effects
     ├── per-metadata.id lock (local parsing/staging stays parallel)
     ├── journal explicit prepared → backup-created → promoted → state-mutating → committed phases
     ├── preserve old final as a backup, atomically promote the candidate
@@ -203,7 +205,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
   - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
-  - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
+  - `pet-install-transaction-protocol.ts` ↔ `pet-install-transaction.ts`; owns the stable durable journal/schema, managed naming, topology classifiers, and recovery policy
+  - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns filesystem/side-effect orchestration, private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
   - `plugin-service.ts` ↔ `plugin-state.ts`, `plugin-runtime.ts`, `plugin-catalog.ts`, `plugin-package.ts`, `plugin-local-loader.ts`, `plugin-js-host.ts`, `plugin-sdk-bridge.ts`, plugin SDK namespace modules, diagnostics, assets, settings, panels, voice, OAuth, secrets, and user sounds
   - `i18n/` ↔ `tray.ts`, `windows.ts`, `pet-window.ts`, `reaction-messages.ts`, `plugin-i18n.ts`
 
@@ -284,7 +287,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Installation**:
 - `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
-- `pet-install-transaction.ts`: Electron-free staged pet commit protocol, canonical private-root/marker validation, per-ID lock, rollback, bounded cleanup warnings, and idempotent startup recovery
+- `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
+- `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
 - `pet-file-safety.ts`: Bounded, no-follow regular-file reads shared by pet import and installed-pet rendering
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
@@ -366,7 +370,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 |--------|-------------|------|
 | Catalog API | `catalog.ts` | `CatalogV2/V3` JSON with pagination |
 | ZIP/local/Codex staging | `pet-installation.ts` / `codex-pets.ts` | Fully validated private candidate under `userData/pets/` |
-| Pet promotion/recovery | `pet-install-transaction.ts` | Journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
+| Pet promotion/recovery | `pet-install-transaction-protocol.ts` + `pet-install-transaction.ts` | Stable journal/schema/naming/recovery policy plus filesystem/side-effect orchestration for journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
 | `app-state.ts` | `userData/openpets-state.json` | Atomic JSON writes with reaction animation overrides |
 | `pet-assistant-service.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
 | CLI via IPC | `local-ipc.ts` | `pet.react`, `pet.say`, `lease.*` |

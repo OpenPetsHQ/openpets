@@ -79,6 +79,107 @@ try {
   }
 
   {
+    const id = "prepared-journal-failure";
+    const dir = await candidate(id, "new");
+    let state = "old";
+    const injected = new Error("prepared journal failure");
+    await assert.rejects(() => runPetInstallTransaction({
+      petsRoot: root,
+      petId: id,
+      candidateDir: dir,
+      mutateState: () => { state = "new"; },
+      journalWriteFailure: (phase) => phase === "prepared" ? injected : undefined,
+    }), (error: unknown) => error === injected);
+    assert.equal(state, "old");
+    await missing(dir);
+    await missing(join(root, ".openpets-pet-transactions"));
+  }
+
+  {
+    const id = "promoted-journal-failure";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    const dir = await candidate(id, "new");
+    let state = "old";
+    const injected = new Error("promoted journal failure");
+    await assert.rejects(() => runPetInstallTransaction({
+      petsRoot: root,
+      petId: id,
+      candidateDir: dir,
+      mutateState: () => { state = "new"; },
+      journalWriteFailure: (phase) => phase === "promoted" ? injected : undefined,
+    }), (error: unknown) => error === injected);
+    assert.equal(state, "old");
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "old");
+    await missing(dir);
+    await missing(join(root, ".openpets-pet-transactions"));
+    await rm(join(root, id), { recursive: true, force: true });
+  }
+
+  {
+    const id = "backup-journal-failure";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    const dir = await candidate(id, "new");
+    let state = "old";
+    await assert.rejects(() => runPetInstallTransaction({
+      petsRoot: root,
+      petId: id,
+      candidateDir: dir,
+      mutateState: () => { state = "new"; },
+      journalWriteFailure: (phase) => phase === "backup-created" ? new Error("backup journal failure") : undefined,
+    }), /backup journal failure/);
+    assert.equal(state, "old");
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "old");
+    await missing(dir);
+    await rm(join(root, id), { recursive: true, force: true });
+  }
+
+  {
+    const id = "state-mutating-journal-failure";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    const dir = await candidate(id, "new");
+    let state = "old";
+    await assert.rejects(() => runPetInstallTransaction({
+      petsRoot: root,
+      petId: id,
+      candidateDir: dir,
+      mutateState: () => { state = "new"; },
+      journalWriteFailure: (phase) => phase === "state-mutating" ? new Error("state-mutating journal failure") : undefined,
+    }), /state-mutating journal failure/);
+    assert.equal(state, "old");
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "old");
+    await missing(dir);
+    await rm(join(root, id), { recursive: true, force: true });
+  }
+
+  {
+    const id = "committed-journal-failure";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    const dir = await candidate(id, "new");
+    let state = "old";
+    const warnings: string[] = [];
+    const result = await runPetInstallTransaction({
+      petsRoot: root,
+      petId: id,
+      candidateDir: dir,
+      mutateState: () => { state = "new"; return "state-updated"; },
+      onWarning: ({ message }) => warnings.push(message),
+      journalWriteFailure: (phase, mutationOutcome) => phase === "committed" && mutationOutcome === "succeeded"
+        ? new Error("committed journal failure")
+        : undefined,
+    });
+    assert.equal(result, "state-updated");
+    assert.equal(state, "new");
+    assert.ok(warnings.some((message) => message.toLowerCase().includes("journal")));
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "new");
+    await missing(dir);
+    await rm(join(root, id), { recursive: true, force: true });
+  }
+
+  {
     const id = "success";
     await mkdir(join(root, id), { mode: 0o700 });
     await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
@@ -208,14 +309,18 @@ try {
     const id = "uncertain";
     const dir = await candidate(id);
     const warnings: string[] = [];
+    const uncertainty = new PetInstallStateMutationUncertainError("original uncertainty");
     await assert.rejects(() => runPetInstallTransaction({
       petsRoot: root,
       petId: id,
       candidateDir: dir,
-      mutateState: () => { throw new PetInstallStateMutationUncertainError(); },
+      mutateState: () => { throw uncertainty; },
       onWarning: ({ message }) => warnings.push(message),
-    }), PetInstallStateMutationUncertainError);
-    assert.equal(warnings.length, 1);
+      journalWriteFailure: (_phase, mutationOutcome) => mutationOutcome === "uncertain"
+        ? new Error("uncertain journal failure")
+        : undefined,
+    }), (error: unknown) => error === uncertainty);
+    assert.ok(warnings.length > 0);
     await lstat(join(root, id));
     await lstat(join(root, ".openpets-pet-transactions"));
     const transactionName = readdirSync(join(root, ".openpets-pet-transactions")).find((name) => name.startsWith(`tx-${id}-`));
@@ -277,6 +382,35 @@ try {
   }
 
   {
+    const id = "uncertain-promoted";
+    const candidateName = ".openpets-pet-candidate-uncertain-promoted-abcdef";
+    const backupName = ".openpets-pet-backup-uncertain-promoted-0123456789abcdef0123456789abcdef";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "new", { mode: 0o600 });
+    await mkdir(join(root, backupName), { mode: 0o700 });
+    await writeFile(join(root, backupName, "pet.json"), "old", { mode: 0o600 });
+    const transactionName = "tx-uncertain-promoted-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    await marker(transactionName, id, "state-mutating", candidateName, backupName, true);
+
+    const otherId = "uncertain-promoted-other";
+    const otherCandidateName = ".openpets-pet-candidate-uncertain-promoted-other-abcdef";
+    await mkdir(join(root, otherId), { mode: 0o700 });
+    await writeFile(join(root, otherId, "pet.json"), "new", { mode: 0o600 });
+    await marker("tx-uncertain-promoted-other-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", otherId, "promoted", otherCandidateName, ".openpets-pet-backup-uncertain-promoted-other-0123456789abcdef0123456789abcdef", false);
+
+    await assert.rejects(() => assertNoUnresolvedPetInstallTransaction(root, id), /unresolved state-mutating/);
+    await recoverPetInstallTransactions({ petsRoot: root });
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "new");
+    assert.equal(await readFile(join(root, backupName, "pet.json"), "utf8"), "old");
+    await lstat(join(root, ".openpets-pet-transactions", transactionName));
+    await missing(join(root, otherId));
+    await missing(join(root, ".openpets-pet-transactions", "tx-uncertain-promoted-other-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    await rm(join(root, id), { recursive: true, force: true });
+    await rm(join(root, backupName), { recursive: true, force: true });
+    await rm(join(root, ".openpets-pet-transactions", transactionName), { recursive: true, force: true });
+  }
+
+  {
     const outside = await mkdtemp(join(tmpdir(), "openpets-install-outside-"));
     const id = "invalid-marker";
     const candidateName = ".openpets-pet-candidate-invalid-marker-abcdef";
@@ -307,6 +441,37 @@ try {
     await lstat(join(transactionDir, "journal.json"));
     await lstat(join(transactionDir, "keep-me"));
     await lstat(join(transactionDir, "journal.json.tmp-not-recognized"));
+    await rm(transactionDir, { recursive: true, force: true });
+  }
+
+  {
+    const id = "unknown-journal-field";
+    const candidateName = ".openpets-pet-candidate-unknown-journal-field-abcdef";
+    const backupName = ".openpets-pet-backup-unknown-journal-field-0123456789abcdef0123456789abcdef";
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    await mkdir(join(root, candidateName), { mode: 0o700 });
+    await writeFile(join(root, candidateName, "pet.json"), "new", { mode: 0o600 });
+    const transactionName = "tx-unknown-journal-field-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const transactionDir = await marker(transactionName, id, "prepared", candidateName, backupName, true);
+    await writeFile(join(transactionDir, "journal.json"), `${JSON.stringify({
+      version: 1,
+      phase: "prepared",
+      petId: id,
+      finalBasename: id,
+      candidateBasename: candidateName,
+      backupBasename: backupName,
+      hadFinal: true,
+      unknownField: true,
+    })}\n`, { mode: 0o600 });
+    const warnings: string[] = [];
+    await recoverPetInstallTransactions({ petsRoot: root, onWarning: ({ message }) => warnings.push(message) });
+    assert.ok(warnings.length > 0);
+    assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "old");
+    assert.equal(await readFile(join(root, candidateName, "pet.json"), "utf8"), "new");
+    await lstat(join(transactionDir, "journal.json"));
+    await rm(join(root, id), { recursive: true, force: true });
+    await rm(join(root, candidateName), { recursive: true, force: true });
     await rm(transactionDir, { recursive: true, force: true });
   }
 
@@ -357,6 +522,21 @@ try {
   }
 
   {
+    const owned = await createPetInstallStagingCandidate(root);
+    const ownerPath = `${owned}.openpets-pet-staging-owner.json`;
+    await writeFile(join(owned, "partial.txt"), "owned", { mode: 0o600 });
+    await writeFile(ownerPath, `${JSON.stringify({ version: 1, candidateBasename: "different-candidate" })}\n`, { mode: 0o600 });
+    const warnings: string[] = [];
+    await recoverPetInstallTransactions({ petsRoot: root, onWarning: ({ message }) => warnings.push(message) });
+    assert.ok(warnings.length > 0);
+    assert.equal(await readFile(join(owned, "partial.txt"), "utf8"), "owned");
+    await lstat(owned);
+    await lstat(ownerPath);
+    await rm(owned, { recursive: true, force: true });
+    await rm(ownerPath, { force: true });
+  }
+
+  {
     const transactionRoot = join(root, ".openpets-pet-transactions");
     const emptyName = "tx-empty-cleanup-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     await mkdir(join(transactionRoot, emptyName), { recursive: true, mode: 0o700 });
@@ -394,6 +574,32 @@ try {
       await rm(txRoot, { recursive: true, force: true });
       await rm(safeCandidate, { recursive: true, force: true });
       await rm(external, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const outside = await mkdtemp(join(tmpdir(), "openpets-install-nested-link-"));
+    const id = "nested-candidate-symlink";
+    const dir = await candidate(id);
+    await mkdir(join(root, id), { mode: 0o700 });
+    await writeFile(join(root, id, "pet.json"), "old", { mode: 0o600 });
+    try {
+      if (await createDirectoryLink(outside, join(dir, "nested-link"))) {
+        let state = "old";
+        await assert.rejects(() => runPetInstallTransaction({
+          petsRoot: root,
+          petId: id,
+          candidateDir: dir,
+          mutateState: () => { state = "new"; },
+        }), /symlinks/);
+        assert.equal(state, "old");
+        assert.equal(await readFile(join(root, id, "pet.json"), "utf8"), "old");
+        await missing(dir);
+      }
+    } finally {
+      await rm(join(root, id), { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   }
 
