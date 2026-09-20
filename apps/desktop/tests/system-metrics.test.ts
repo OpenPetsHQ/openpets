@@ -9,11 +9,10 @@ import {
   gpuPercentFromIoreg,
   networkCountersFromNetstat,
   networkCountersFromWindowsJson,
-  readExtendedSystemMetrics,
-  readNetworkCountersForPlatform,
   type ExtendedSystemMetrics,
   type NetworkCounters,
-} from "../src/system-metrics.js";
+} from "../src/system-metrics-core.js";
+import { readExtendedSystemMetrics, readNetworkCountersForPlatform } from "../src/system-metrics.js";
 
 // The SDK exposes aggregate, bounded values only: unavailable hardware omits a metric.
 assert.equal(diskUsedPercentFromStatFs({ blocks: 100, bfree: 25 }), 75);
