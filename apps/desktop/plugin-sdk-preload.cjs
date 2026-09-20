@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-// Keep SDK route strings in sync with src/plugin-sdk-routes.ts. The desktop
-// conformance check extracts call()/callSync()/subscription() route literals
-// from this preload and compares them to the canonical route table.
+// Keep the routes emitted by this bridge in sync with src/plugin-sdk-routes.ts.
+// The desktop conformance check executes this shipped preload in a VM and
+// observes its IPC transport rather than inspecting source text.
 
 const tokenArg = process.argv.find((arg) => arg.startsWith("--openpets-plugin-token="));
 const channel = tokenArg ? `openpets:plugin-sdk:${tokenArg.slice("--openpets-plugin-token=".length)}` : "";
@@ -119,12 +119,16 @@ function makeDeliveryHandle(result) {
 }
 
 function wrapPickedFile(file) {
-  return {
+  const handle = {
+    // This is an opaque host handle, not a filesystem path. Keep it on the
+    // value so APIs can pass the handle back without relying on object identity.
+    fileId: String(file.fileId),
     name: String(file.name),
     sizeBytes: Number(file.sizeBytes),
     readText: () => call("files.read", [file.fileId, "text"]),
     readBytes: () => call("files.read", [file.fileId, "bytes"]),
   };
+  return handle;
 }
 
 function wrapEventPayload(event, payload) {
