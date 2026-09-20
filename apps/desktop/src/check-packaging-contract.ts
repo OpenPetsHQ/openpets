@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { allowedReactions } from "./local-ipc-protocol.js";
 import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
+import { assertNoForbiddenPackageOutput, walkPackageOutput } from "./packaging-output-contract.js";
 import { pickReactionMessage, reactionMessagePools } from "./reaction-messages.js";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
@@ -101,7 +102,7 @@ console.error("Packaging contract validation passed.");
 
 function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assert.ok(existsSync(outputDir), "dist-electron output must exist after packaging.");
-  assertNoForbiddenOutput(outputDir);
+  assertNoForbiddenPackageOutput(outputDir);
   assertNoEscapingSymlinks(outputDir);
 
   const appResourceDir = findPackagedAppResourceDir(outputDir);
@@ -149,38 +150,14 @@ function collectDirectories(dir: string, result: string[], depth: number): void 
   }
 }
 
-function assertNoForbiddenOutput(outputDir: string): void {
-  const forbiddenSegments = new Set(["v1", "web", ".env", ".claude"]);
-  for (const path of walk(outputDir)) {
-    const rel = relative(outputDir, path);
-    const segments = rel.split(/[\\/]/g);
-    assert.ok(!segments.includes("docs") || !segments.includes("phases"), `package output must not include phase docs: ${rel}`);
-    for (const segment of segments) {
-      assert.ok(!forbiddenSegments.has(segment) && !segment.startsWith(".env"), `package output contains forbidden path segment: ${rel}`);
-    }
-  }
-}
-
 function assertNoEscapingSymlinks(outputDir: string): void {
   const outputReal = realpathSync(outputDir);
-  for (const path of walk(outputDir)) {
+  for (const path of walkPackageOutput(outputDir)) {
     const stat = lstatSync(path);
     if (!stat.isSymbolicLink()) continue;
     const target = realpathSync(path);
     assert.ok(isInside(outputReal, target), `package output symlink escapes package directory: ${relative(outputDir, path)} -> ${target}`);
   }
-}
-
-function walk(dir: string): string[] {
-  const result: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    result.push(path);
-    if (entry.isDirectory()) {
-      result.push(...walk(path));
-    }
-  }
-  return result;
 }
 
 function isInside(parent: string, child: string): boolean {

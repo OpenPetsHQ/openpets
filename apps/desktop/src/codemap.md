@@ -280,6 +280,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet.default, pet.agent, pet.window, state, tray, ui, voice, provider), log rotation, redaction
 - `bundled-plugins.ts`: Canonical official plugin IDs shared by plugin seeding and packaged-output validation
 - `packaging-contract.ts`: Packaged bundled-plugin manifest/asset/locale and unpacked integration-runtime contract helpers
+- `packaging-output-contract.ts`: Pure packaged-output tree validation that rejects unowned app collateral and sensitive files without rejecting ordinary dependency paths
 - `artifact-payload.ts`: Cross-platform distributable extraction for target-aware packaged payload validation
 
 **UI**:
