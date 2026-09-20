@@ -233,7 +233,8 @@ validation; target selection is explicit so Linux packages require the matching
 `sharp-linux-*` native runtime rather than the release host's runtime. The
 macOS release host uses `unsquashfs` (install with `brew install squashfs`) and
 the ELF section table to extract the actual Linux Type-2 AppImage payload without
-executing its Linux binary. The
+executing its Linux binary. RPM payloads are first spooled to a temporary CPIO
+file, avoiding a release-host memory limit on full desktop packages. The
 focused `packaging-contract.test.ts` fixture regression proves that staged DEB
 and RPM payloads missing `openpets.system-resources` or the target Sharp runtime
 are hard failures. Release checkpoints also persist SHA-256 digests for every

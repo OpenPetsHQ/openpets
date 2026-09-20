@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
 import sevenZip from "7zip-bin";
@@ -62,19 +62,19 @@ function readDebMember(artifactPath: string, namePattern: RegExp): Buffer | null
 }
 
 function extractRpm(artifactPath: string, destination: string): void {
-  const cpio = binaryOutput("rpm2cpio", [artifactPath]);
-  const listing = spawnSync("cpio", ["-it"], { input: cpio, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
-  if (listing.status !== 0) throw new Error(`cpio failed to list ${artifactPath}: ${listing.stderr || "unknown error"}`);
-  for (const path of listing.stdout.split(/\r?\n/u).filter(Boolean)) {
-    if (path.startsWith("/") || path.split("/").includes("..")) throw new Error(`RPM payload contains an unsafe path: ${path}`);
+  const cpioPath = join(destination, "payload.cpio");
+  try {
+    writeCommandOutput("rpm2cpio", [artifactPath], cpioPath);
+    const listing = readCommandOutput("cpio", ["-it"], cpioPath);
+    if (listing.status !== 0) throw new Error(`cpio failed to list ${artifactPath}: ${listing.stderr || "unknown error"}`);
+    for (const path of listing.stdout.split(/\r?\n/u).filter(Boolean)) {
+      if (path.startsWith("/") || path.split("/").includes("..")) throw new Error(`RPM payload contains an unsafe path: ${path}`);
+    }
+    const result = runWithFileInput("cpio", ["-idm"], cpioPath, destination);
+    if (result.status !== 0) throw new Error(`cpio failed to extract ${artifactPath}: ${result.stderr || "unknown error"}`);
+  } finally {
+    unlinkSync(cpioPath);
   }
-  const result = spawnSync("cpio", ["-idm"], {
-    cwd: destination,
-    input: cpio,
-    stdio: ["pipe", "inherit", "pipe"],
-    encoding: "utf8",
-  });
-  if (result.status !== 0) throw new Error(`cpio failed to extract ${artifactPath}: ${result.stderr || "unknown error"}`);
 }
 
 function extractAppImage(artifactPath: string, destination: string): string {
@@ -103,10 +103,32 @@ function commandOutput(command: string, args: string[]): string {
   return result.stdout;
 }
 
-function binaryOutput(command: string, args: string[]): Buffer {
-  const result = spawnSync(command, args, { encoding: null, maxBuffer: 128 * 1024 * 1024 });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr?.toString() || "unknown error"}`);
-  return result.stdout;
+function writeCommandOutput(command: string, args: string[], outputPath: string): void {
+  const output = openSync(outputPath, "w");
+  try {
+    const result = spawnSync(command, args, { stdio: ["ignore", output, "pipe"], encoding: "utf8" });
+    if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr || "unknown error"}`);
+  } finally {
+    closeSync(output);
+  }
+}
+
+function readCommandOutput(command: string, args: string[], inputPath: string) {
+  const input = openSync(inputPath, "r");
+  try {
+    return spawnSync(command, args, { stdio: [input, "pipe", "pipe"], encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  } finally {
+    closeSync(input);
+  }
+}
+
+function runWithFileInput(command: string, args: string[], inputPath: string, cwd: string) {
+  const input = openSync(inputPath, "r");
+  try {
+    return spawnSync(command, args, { cwd, stdio: [input, "ignore", "pipe"], encoding: "utf8" });
+  } finally {
+    closeSync(input);
+  }
 }
 
 function run(command: string, args: string[]): void {
