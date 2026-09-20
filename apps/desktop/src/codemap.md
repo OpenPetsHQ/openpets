@@ -278,6 +278,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 **Pets**:
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, and context-menu installation delegation
 - `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
+- `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
+- `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
 - `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, and plugin command form handling
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions

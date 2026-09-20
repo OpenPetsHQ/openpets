@@ -28,23 +28,17 @@ import * as net from "node:net";
 
 import { debug, error as logError, info } from "./logger.js";
 import type { Point } from "./display.js";
-
-// --- Wire protocol tags (must match apps/desktop/native/openpets-wayland-helper/src/protocol.rs) ---
-
-const TAG_FRAME = 0x01;
-const TAG_MOVE = 0x02;
-const TAG_SHOW = 0x03;
-const TAG_HIDE = 0x04;
-const TAG_QUIT = 0x05;
-const TAG_READY = 0x81;
-const TAG_POINTER = 0x82;
-const TAG_POSITION = 0x83;
-
-const PT_MOVE = 0;
-const PT_PRESS = 1;
-const PT_RELEASE = 2;
-const PT_ENTER = 3;
-const PT_LEAVE = 4;
+import {
+  createWaylandMessageDecoder,
+  cropTransparentFrame,
+  encodeFrame,
+  encodeHide,
+  encodeMove,
+  encodeQuit,
+  encodeShow,
+  mapPointerButton,
+  mapPointerCoordinates,
+} from "./wayland-layer-protocol.js";
 
 const MAX_QUEUED_MESSAGES = 512;
 const MAX_CONNECT_ATTEMPTS = 40;
@@ -83,84 +77,6 @@ export function isLayerShellHelperAvailable(): boolean {
   return resolveHelperBinaryPath() !== null;
 }
 
-// --- Wire encoding (little-endian, length-prefixed) ---
-
-function encodeMessage(tag: number, payload: Buffer): Buffer {
-  const body = Buffer.allocUnsafe(1 + payload.length);
-  body[0] = tag;
-  payload.copy(body, 1);
-  const msg = Buffer.allocUnsafe(4 + body.length);
-  msg.writeUInt32LE(body.length, 0);
-  body.copy(msg, 4);
-  return msg;
-}
-
-function encodeFrame(offsetX: number, offsetY: number, width: number, height: number, stride: number, data: Buffer): Buffer {
-  const payload = Buffer.allocUnsafe(20 + data.length);
-  payload.writeInt32LE(offsetX, 0);
-  payload.writeInt32LE(offsetY, 4);
-  payload.writeUInt32LE(width, 8);
-  payload.writeUInt32LE(height, 12);
-  payload.writeUInt32LE(stride, 16);
-  data.copy(payload, 20);
-  return encodeMessage(TAG_FRAME, payload);
-}
-
-interface CroppedFrame {
-  readonly offsetX: number;
-  readonly offsetY: number;
-  readonly width: number;
-  readonly height: number;
-  readonly stride: number;
-  readonly bitmap: Buffer;
-}
-
-/** Remove fully transparent canvas margins while preserving logical offsets. */
-function cropTransparentFrame(image: NativeImage): CroppedFrame | null {
-  const bitmap = image.toBitmap();
-  const size = image.getSize();
-  if (!bitmap.length || size.width <= 0 || size.height <= 0) return null;
-  const sourceStride = bitmap.length / size.height;
-  if (!Number.isInteger(sourceStride) || sourceStride < size.width * 4) return null;
-
-  let left = size.width;
-  let top = size.height;
-  let right = -1;
-  let bottom = -1;
-  for (let y = 0; y < size.height; y += 1) {
-    const row = y * sourceStride;
-    for (let x = 0; x < size.width; x += 1) {
-      if (bitmap[row + x * 4 + 3] === 0) continue;
-      left = Math.min(left, x);
-      top = Math.min(top, y);
-      right = Math.max(right, x);
-      bottom = Math.max(bottom, y);
-    }
-  }
-  if (right < left || bottom < top) return null;
-
-  const padding = 4;
-  left = Math.max(0, left - padding);
-  top = Math.max(0, top - padding);
-  right = Math.min(size.width - 1, right + padding);
-  bottom = Math.min(size.height - 1, bottom + padding);
-  const width = right - left + 1;
-  const height = bottom - top + 1;
-  const stride = width * 4;
-  const cropped = Buffer.allocUnsafe(stride * height);
-  for (let y = 0; y < height; y += 1) {
-    bitmap.copy(cropped, y * stride, (top + y) * sourceStride + left * 4, (top + y) * sourceStride + (right + 1) * 4);
-  }
-  return { offsetX: left, offsetY: top, width, height, stride, bitmap: cropped };
-}
-
-function encodeMove(x: number, y: number): Buffer {
-  const payload = Buffer.allocUnsafe(8);
-  payload.writeInt32LE(x, 0);
-  payload.writeInt32LE(y, 4);
-  return encodeMessage(TAG_MOVE, payload);
-}
-
 // --- Surface controller ---
 
 /**
@@ -197,7 +113,7 @@ class LayerShellSurface {
   private visible = true;
   /** Commands queued while the socket is still connecting. */
   private pending: Buffer[] = [];
-  private socketBuffer = Buffer.alloc(0);
+  private readonly messageDecoder = createWaylandMessageDecoder();
   private window: BrowserWindow | null = null;
 
   constructor(options: { helperPath: string; socketPath: string; width: number; height: number; position: Point }) {
@@ -256,7 +172,7 @@ class LayerShellSurface {
     this.connected = false;
     this.ready = false;
     this.pending = [];
-    this.socketBuffer = Buffer.alloc(0);
+    this.messageDecoder.reset();
     // A killed helper can leave a stale socket file behind; the new helper's
     // `bind` would fail on it, so remove it first.
     try {
@@ -274,7 +190,7 @@ class LayerShellSurface {
     child.on("exit", () => this.restart());
     const generation = ++this.connectionGeneration;
     this.connectWithRetry(0, generation);
-    if (!this.visible) this.write(encodeMessage(TAG_HIDE, Buffer.alloc(0)));
+    if (!this.visible) this.write(encodeHide());
     this.armStartupTimer();
   }
 
@@ -408,26 +324,30 @@ class LayerShellSurface {
   }
 
   private handleIncoming(chunk: Buffer): void {
-    this.socketBuffer = Buffer.concat([this.socketBuffer, chunk]);
-    while (this.socketBuffer.length >= 4) {
-      const len = this.socketBuffer.readUInt32LE(0);
-      if (this.socketBuffer.length < 4 + len) break;
-      const body = this.socketBuffer.subarray(4, 4 + len);
-      this.socketBuffer = this.socketBuffer.subarray(4 + len);
-      if (body.length === 0) continue;
-      const tag = body[0];
-      if (tag === TAG_READY && !this.ready) {
+    const result = this.messageDecoder.push(chunk);
+    for (const issue of result.diagnostics) {
+      if (issue.severity === "fatal") {
+        logError("pet.wayland", "helper protocol fatal", { message: issue.message });
+      } else {
+        debug("pet.wayland", "helper protocol diagnostic", { message: issue.message });
+      }
+    }
+    if (result.fatal) {
+      this.fatal();
+      return;
+    }
+    for (const message of result.messages) {
+      if (message.type === "ready") {
+        if (this.ready) continue;
         this.ready = true;
         this.clearStartupTimer();
         this.armStabilityTimer();
         info("pet.wayland", "helper surface ready (layer-shell configured)");
         this.attachFrameStreaming();
-      } else if (tag === TAG_POINTER && body.length >= 13) {
-        this.handlePointer(body[1], body.readInt32LE(2), body.readInt32LE(6), body.readUInt32LE(10));
-      } else if (tag === TAG_POSITION && body.length >= 9) {
-        this.handlePositionUpdate(body.readInt32LE(1), body.readInt32LE(5));
-      } else if (tag === TAG_POINTER) {
-        debug("pet.wayland", "short pointer message", { bodyLen: body.length });
+      } else if (message.type === "pointer") {
+        this.handlePointer(message.kind, message.x, message.y, message.button);
+      } else {
+        this.handlePositionUpdate(message.x, message.y);
       }
     }
   }
@@ -438,12 +358,12 @@ class LayerShellSurface {
    * the helper are surface-local; screen coordinates are derived from the
    * surface's tracked position.
    */
-  private handlePointer(kind: number, x: number, y: number, button: number): void {
+  private handlePointer(kind: "move" | "press" | "release" | "enter" | "leave", x: number, y: number, button: number): void {
     if (!this.window || this.window.isDestroyed() || this.window.webContents.isDestroyed()) {
       return;
     }
-    if (kind === PT_ENTER) return;
-    if (kind === PT_LEAVE) {
+    if (kind === "enter") return;
+    if (kind === "leave") {
       // Pointer left the pet surface. The inline context menu (if open) must
       // close: clicks outside the surface (desktop / other windows) never
       // reach the offscreen renderer, and layer-shell has no keyboard focus
@@ -458,25 +378,22 @@ class LayerShellSurface {
     // The helper moves the surface itself while dragging (absolute anchor, so
     // it tracks the cursor precisely); here we just pause frame polling so
     // pointer-motion messages stay responsive and resume on release.
-    if (kind === PT_PRESS && button === 0x110 && !this.leftButtonDown) {
+    const mappedButton = mapPointerButton(button);
+    if (kind === "press" && mappedButton.isPrimary && !this.leftButtonDown) {
       this.leftButtonDown = true;
       this.pauseFrameStreaming();
-    } else if (kind === PT_RELEASE && button === 0x110 && this.leftButtonDown) {
+    } else if (kind === "release" && mappedButton.isPrimary && this.leftButtonDown) {
       this.leftButtonDown = false;
       this.resumeFrameStreaming();
     }
-    const logicalX = x + this.frameOffset.x;
-    const logicalY = y + this.frameOffset.y;
-    const globalX = this.position.x + logicalX;
-    const globalY = this.position.y + logicalY;
-    const btn = mapPointerButton(button);
+    const coordinates = mapPointerCoordinates(x, y, this.frameOffset, this.position);
     try {
-      if (kind === PT_MOVE) {
-        this.window.webContents.sendInputEvent({ type: "mouseMove", x: logicalX, y: logicalY, globalX, globalY } as Electron.MouseInputEvent);
-      } else if (kind === PT_PRESS) {
-        this.window.webContents.sendInputEvent({ type: "mouseDown", x: logicalX, y: logicalY, globalX, globalY, button: btn, clickCount: 1 } as Electron.MouseInputEvent);
-      } else if (kind === PT_RELEASE) {
-        this.window.webContents.sendInputEvent({ type: "mouseUp", x: logicalX, y: logicalY, globalX, globalY, button: btn, clickCount: 1 } as Electron.MouseInputEvent);
+      if (kind === "move") {
+        this.window.webContents.sendInputEvent({ type: "mouseMove", x: coordinates.logicalX, y: coordinates.logicalY, globalX: coordinates.globalX, globalY: coordinates.globalY } as Electron.MouseInputEvent);
+      } else if (kind === "press") {
+        this.window.webContents.sendInputEvent({ type: "mouseDown", x: coordinates.logicalX, y: coordinates.logicalY, globalX: coordinates.globalX, globalY: coordinates.globalY, button: mappedButton.button, clickCount: 1 } as Electron.MouseInputEvent);
+      } else if (kind === "release") {
+        this.window.webContents.sendInputEvent({ type: "mouseUp", x: coordinates.logicalX, y: coordinates.logicalY, globalX: coordinates.globalX, globalY: coordinates.globalY, button: mappedButton.button, clickCount: 1 } as Electron.MouseInputEvent);
       }
     } catch (error) {
       debug("pet.wayland", "sendInputEvent failed", { error: error instanceof Error ? error.message : String(error) });
@@ -531,7 +448,7 @@ class LayerShellSurface {
     let framesSent = 0;
     let framesSkipped = 0;
     const sendFrame = (image: NativeImage): void => {
-      const frame = cropTransparentFrame(image);
+      const frame = cropTransparentFrame(image.toBitmap(), image.getSize());
       if (!frame) return;
       const bitmap = frame.bitmap;
       // Skip frames identical to the previous one (static content) to keep
@@ -548,8 +465,17 @@ class LayerShellSurface {
       if (framesSent % 60 === 0) {
         debug("pet.wayland", "frame sent", { framesSent, framesSkipped });
       }
+      let encodedFrame: Buffer;
+      try {
+        encodedFrame = encodeFrame(frame);
+      } catch (error) {
+        debug("pet.wayland", "frame encoding failed; dropping frame", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       this.frameOffset = { x: frame.offsetX, y: frame.offsetY };
-      this.write(encodeFrame(frame.offsetX, frame.offsetY, frame.width, frame.height, frame.stride, bitmap));
+      this.write(encodedFrame);
     };
     this.frameSendFn = sendFrame;
 
@@ -618,14 +544,14 @@ class LayerShellSurface {
   show(): void {
     if (!this.visible) {
       this.visible = true;
-      this.write(encodeMessage(TAG_SHOW, Buffer.alloc(0)));
+      this.write(encodeShow());
     }
   }
 
   hide(): void {
     if (this.visible) {
       this.visible = false;
-      this.write(encodeMessage(TAG_HIDE, Buffer.alloc(0)));
+      this.write(encodeHide());
     }
   }
 
@@ -665,7 +591,7 @@ class LayerShellSurface {
     }
     if (this.socket) {
       try {
-        if (this.connected) this.socket.write(encodeMessage(TAG_QUIT, Buffer.alloc(0)));
+        if (this.connected) this.socket.write(encodeQuit());
       } catch {
         // ignore
       }
@@ -766,13 +692,6 @@ export function adoptPetWindowForLayerShell(window: BrowserWindow, position: Poi
 function resolveRuntimeDir(): string {
   if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
   return tmpdir();
-}
-
-/** Map a `wl_pointer` (evdev) button code to Electron's button names. */
-function mapPointerButton(button: number): "left" | "middle" | "right" {
-  if (button === 0x111) return "right";
-  if (button === 0x112) return "middle";
-  return "left";
 }
 
 function patchWindowSurface(window: BrowserWindow, surface: LayerShellSurface): void {

@@ -71,6 +71,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `lease-manager.ts`: Pet routing lease lifecycle
 - `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
 - `pet-window-interaction.ts`: Pet-window mouse passthrough, manual/native drag bridge, renderer lifecycle recovery/watchdog, IPC event bridge, dragging state, and speech-completion subscriptions
+- `wayland-layer-backend.ts`/`wayland-layer-protocol.ts`: Native layer-shell Electron adapter plus its Electron-free length-prefixed protocol, incremental decoding, cropped BGRA frame handling, and pointer replay mapping
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
 - `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
 - `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and bottom-anchored expanded attached chat panel
