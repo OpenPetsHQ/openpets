@@ -44,10 +44,20 @@ export const managerCheckInFeelingCodes = [
 
 export type ManagerCheckInFeelingCode = (typeof managerCheckInFeelingCodes)[number];
 
-export type ManagerCheckInSettings = {
+export type ManagerCheckInRecurrence =
+  | { readonly kind: "daily"; readonly intervalDays: number; readonly startsOn: string }
+  | { readonly kind: "weekly"; readonly intervalWeeks: number; readonly startsOn: string; readonly weekdays: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly dates: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly lastDay: true }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly dates: readonly number[] }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly lastDay: true };
+
+export type ManagerCheckInSchedule = {
+  readonly id: string;
   readonly revision: number;
-  readonly weeklyEnabled: boolean;
-  readonly weeklyDay: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly recurrence: ManagerCheckInRecurrence;
   readonly title: string;
   readonly introduction: string;
   readonly acknowledgement: string;
@@ -55,7 +65,11 @@ export type ManagerCheckInSettings = {
   readonly labels: Readonly<Record<ManagerCheckInFeelingCode, string>>;
 };
 
-export type ManagerCheckInPromptSnapshot = {
+export type ManagerCheckInScheduleSnapshot = {
+  readonly scheduleId: string;
+  readonly scheduleName: string;
+  readonly scheduleRevision: number;
+  readonly recurrence: ManagerCheckInRecurrence;
   readonly title: string;
   readonly introduction: string;
   readonly acknowledgement: string;
@@ -67,11 +81,14 @@ export type ManagerCheckInPromptSnapshot = {
 export type ManagerCheckInSubmission = {
   readonly id: string;
   readonly clientGeneratedId: string;
+  readonly scheduleId: string;
+  readonly scheduleRevision: number;
+  readonly cycleId: string;
+  readonly cycleLocalDate: string;
   readonly feelingCode: ManagerCheckInFeelingCode;
   readonly note: string | null;
   readonly submittedAt: string;
-  readonly settingsRevision: number;
-  readonly promptSnapshot: ManagerCheckInPromptSnapshot;
+  readonly scheduleSnapshot: ManagerCheckInScheduleSnapshot;
 };
 
 export type ManagerCheckInSnapshot = {
@@ -79,10 +96,9 @@ export type ManagerCheckInSnapshot = {
   readonly unavailableReason?: "secure_storage_unavailable" | "employee_identity_required";
   readonly organization: { readonly id: string; readonly name: string } | null;
   readonly visibilityNotice: { readonly version: 1; readonly text: string } | null;
-  readonly settings: ManagerCheckInSettings | null;
+  readonly schedules: readonly ManagerCheckInSchedule[];
   readonly submissions: readonly ManagerCheckInSubmission[];
-  readonly scheduledOffersPaused: boolean;
-  readonly dueScheduledOffer: boolean;
+  readonly devicePaused: boolean;
   readonly lastSyncAt?: string;
   readonly lastError?: string;
 };
@@ -90,12 +106,6 @@ export type ManagerCheckInSnapshot = {
 export type ManagerCheckInHistoryPage = {
   readonly submissions: readonly ManagerCheckInSubmission[];
   readonly nextCursor: string | null;
-};
-
-export type ManagerCheckInSubmitInput = {
-  readonly feelingCode: ManagerCheckInFeelingCode;
-  readonly note?: string | null;
-  readonly settingsRevision: number;
 };
 
 export type TeamsApi = {
@@ -110,9 +120,7 @@ export type TeamsApi = {
   getManagerCheckInsSnapshot?(): Promise<ManagerCheckInSnapshot>;
   syncManagerCheckIns?(): Promise<ManagerCheckInSnapshot>;
   getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;
-  submitManagerCheckIn?(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
-  setManagerCheckInScheduledOffersPaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
-  onManagerCheckInOpenForm?(callback: () => void): () => void;
+  setManagerCheckInDevicePaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
 };
 
 export type TeamsNavigationRoute =

@@ -31,6 +31,7 @@ main.ts
 ├── pet-install-transaction.ts (startup recovery of interrupted pet commits)
 ├── codex-pet-migration.ts (safe legacy V2 marker repair)
 ├── plugin-service.ts (plugin state/runtime init, JS host wiring)
+├── manager-check-in-service.ts (bundled weekly sync, local-week offer state, and pet snapshot)
 ├── tray.ts (tray creation)
 ├── local-ipc.ts (IPC server start)
 ├── control-center-route.ts (canonical route/target validation and dev-only startup routing)
@@ -88,6 +89,23 @@ plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 └── pet-motion-engine.ts tick() calculates interpolated target vectors for spawned/default pets
 ```
 
+**Manager Check-in Flow**:
+```
+team-api-client.ts → manager-check-in-service.ts → manager-check-in-state.ts
+├── syncs organization settings, employee history, visibility disclosure, and device-private pause state
+├── computes the enrolled desktop's local-week due/pending state
+├── due weekly offer → default-pet-controller.ts → private pet bubble and local action circle beside Chat/Talk
+└── default-pet-chat.ts / pet-preload.cjs → in-pet card
+    ├── five fixed feelings, optional 500-character note, visible organization disclosure
+    ├── explicit submission only; close/cancel has no submission or telemetry
+    └── client-generated ID makes ambiguous retries idempotent; success clears the local action for the week
+```
+
+The Teams Control Center route consumes Manager Check-in sync, immutable history,
+and pause/resume controls. It does not collect or submit a check-in. Manager
+Check-ins remains a bundled weekly feature rather than a Team Pack, plugin,
+generic task, notification, or cadence platform.
+
 `pet-display-coordinator.ts` owns display-topology and power-resume events and
 fans out to the default, agent, LAN visitor, and plugin reclamp leaves.
 
@@ -144,7 +162,8 @@ tray.ts → openControlCenterWindow(route) → windows.ts
 ├── hardened BrowserWindow loads Vite renderer or packaged dist/renderer/index.html
 ├── control-center-preload.cjs exposes page-specific APIs
 ├── Dashboard snapshot: default pet, catalog, plugin health, update status, activity
-└── renderer/src/main.tsx routes Dashboard/Pets/Integrations/Plugins/Settings
+├── Teams Manager Check-ins: sync, immutable history, and device-private pause/resume controls (no submission form)
+└── renderer/src/main.tsx routes Dashboard/Pets/Integrations/Plugins/Settings/Teams
 ```
 
 Control Center pet-management IPC:
@@ -213,7 +232,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `main.ts` → all modules (orchestrator), including `ElectronPluginJsHost` for JavaScript plugins
   - `local-ipc.ts` ↔ `lease-manager.ts` ↔ `agent-pet-controller.ts`
   - `windows.ts` ↔ `app-state.ts`, `agent-setup.ts`, `catalog.ts`, `codex-pets.ts`, `update-checker.ts` for Control Center route snapshots/actions
-  - `windows.ts` ↔ `plugin-service.ts` for Control Center plugin UI IPC, plugin commands, and Dashboard plugin health
+   - `windows.ts` ↔ `plugin-service.ts` for Control Center plugin UI IPC, plugin commands, and Dashboard plugin health
+   - `manager-check-in-service.ts` ↔ `team-api-client.ts`, `manager-check-in-state.ts`, `default-pet-controller.ts`, and `default-pet-chat.ts` for weekly sync, local offer state, private pet-card submission, and bounded retry
   - `pet-window.ts` ↔ `pet-window-interaction.ts`, `default-pet-controller.ts`, `agent-pet-controller.ts`
   - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
@@ -254,6 +274,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-assistant-personality.ts`: Pure personality defaults, bounds, patch validation, and safe deterministic serialization
 - `pet-assistant-feedback.ts`: Reducer mapping assistant activity and terminal events to pet reactions, suppressing duplicate text during expanded chat while preserving sprite activity/reaction animations
 - `team-service.ts`: Teams enrollment preview lifecycle, authoritative identity/expiry snapshots, serialized enrollment/sync/leave operations, and preview-change subscriptions used to refresh an already-running Control Center route
+- `manager-check-in-service.ts`: Bundled weekly Manager Check-ins lifecycle; synchronizes organization settings/history, computes local-week due state, presents a history-free pet snapshot, owns explicit submission and idempotent retry behavior, and keeps pause state device-private
+- `manager-check-in-state.ts`: Atomic local Manager Check-ins state with bounded history, pending client-generated submission identity, local-week offer/submission markers, and scheduled-offer pause
+- `team-api-client.ts`: Teams enrollment, Team Pack, and Manager Check-ins API adapter; validates fixed feelings and bounded submissions, while the pet card enforces its 500-character note limit and client-generated IDs provide idempotent immutable retries
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet.default, pet.agent, pet.window, state, tray, ui, voice, provider), log rotation, redaction
 - `bundled-plugins.ts`: Canonical official plugin IDs shared by plugin seeding and packaged-output validation
 - `packaging-contract.ts`: Packaged bundled-plugin manifest/asset/locale and unpacked integration-runtime contract helpers
@@ -283,10 +306,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
 - `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, and plugin command form handling
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
-- `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
+- `default-pet-chat.ts`: Host-side in-pet chat and Manager Check-in coordinator managing expanded/collapsed carrier states, IPC authorization, conversation transcript streams, Talk subscriptions, and the private check-in card lifecycle
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
-- `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
+- `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, and the private weekly Manager Check-in offer/action-circle presentation
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `built-in-pet.ts`: Built-in pet constant
@@ -398,6 +421,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 | CLI via IPC | `local-ipc.ts` | `pet.react`, `pet.say`, `lease.*` |
 | `lease-manager.ts` | `agent-pet-controller.ts` | Show/close agent pets |
 | `windows.ts` | Renderer | State snapshots via IPC invoke |
+| `team-api-client.ts` / `manager-check-in-service.ts` | `default-pet-controller.ts` / `default-pet-chat.ts` / `pet-preload.cjs` | Local-week due state, private pet action circle, five-feeling card, explicit submission, and success state |
+| `manager-check-in-service.ts` | `windows.ts` / Teams renderer | Sync, immutable history, and device-private scheduled-offer pause controls; no Control Center submission surface |
+| `manager-check-in-state.ts` | `userData/openpets-manager-check-in-state.json` | Atomic bounded local history, pending idempotent submission payload, local-week markers, and private pause preference |
 | `agent-setup.ts` | Claude/OpenCode/Cursor CLI | MCP add/remove, config writes |
 | All modules | `logger.ts` | Structured logs to `userData/logs/openpets.log` |
 | Plugin catalog | `plugin-catalog.ts`/`plugin-service.ts` | Discoverable plugin metadata filtered by app version and install state |

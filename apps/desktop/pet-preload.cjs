@@ -44,6 +44,11 @@ const allowedReactionStates = new Set(["idle", "running-right", "running-left", 
 const allowedCodexGazeIndices = new Set(Array.from({ length: 16 }, (_value, index) => index));
 let lastInteractiveHit = null;
 let dragging = false;
+let updateDefaultPetCheckInButton = () => {};
+let closeDefaultPetCheckInPanel = () => {};
+let handleCheckInCarrierCollapsed = () => {};
+let currentDefaultPetCarrierState = "collapsed";
+let renderDefaultPetCheckIn = () => {};
 
 let latestVoiceSnapshot = {
   sessionId: 0,
@@ -82,7 +87,7 @@ const updateOnPetTalkButton = (snapshot) => {
 
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, [data-openpets-companion-launcher], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
 };
 
 const dismissBubble = (event) => {
@@ -103,7 +108,7 @@ const dismissBubble = (event) => {
   bubble.remove();
 
   const newTarget = document.elementFromPoint(event.clientX, event.clientY);
-  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, [data-openpets-companion-launcher], .openpets-pet-buttons")) || dragging;
+  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons")) || dragging;
   reportInteractiveHit(stillInteractive, "bubble-dismiss", true);
 
   ipcRenderer.send("openpets:bubble-dismissed", dismissToken);
@@ -197,6 +202,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
       }
     }
     updateOnPetTalkButton(latestVoiceSnapshot);
+    updateDefaultPetCheckInButton();
   };
 
   if (document.readyState === "loading") {
@@ -217,7 +223,7 @@ function updateAssistantHeader(displayName, assetName) {
 
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu");
+  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu");
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -240,7 +246,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, [data-openpets-companion-launcher], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -1234,7 +1240,7 @@ const installDefaultPetChat = () => {
   // --- Launcher Button Click ---
   document.addEventListener("click", (event) => {
     const launcher = event.target?.closest?.("[data-openpets-companion-launcher]");
-    if (!launcher) return;
+    if (!launcher || launcher.closest("[data-openpets-check-in-button]")) return;
     event.preventDefault();
     event.stopPropagation();
     if (draftState.expanded) {
@@ -1248,6 +1254,10 @@ const installDefaultPetChat = () => {
   // --- Global Escape Key ---
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (document.documentElement.dataset.checkInExpanded === "true") {
+        closeDefaultPetCheckInPanel();
+        return;
+      }
       if (draftState.expanded) {
         updateDraftState({ type: "draft-changed", draft: input.value });
         ipcRenderer.send("openpets:default-pet-chat-collapse");
@@ -1257,8 +1267,82 @@ const installDefaultPetChat = () => {
     }
   });
 
+  // --- Carrier Panel State Listener ---
+  const validCarrierStates = new Set(["collapsed", "compact-chat", "expanded-chat", "expanded-check-in"]);
+  let latestPanelStateSequence = -1;
+  const handleCarrierPanelState = (payload) => {
+    const rawState = payload && typeof payload.state === "string" ? payload.state : (typeof payload === "string" ? payload : null);
+    if (!rawState || !validCarrierStates.has(rawState)) return;
+    if (payload && typeof payload === "object" && typeof payload.sequence === "number" && Number.isFinite(payload.sequence)) {
+      if (payload.sequence < latestPanelStateSequence) return;
+      latestPanelStateSequence = payload.sequence;
+    } else if (latestPanelStateSequence >= 0) {
+      return;
+    } else {
+      latestPanelStateSequence = 0;
+    }
+    currentDefaultPetCarrierState = rawState;
+    if (rawState === "expanded-check-in") {
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.checkInExpanded = "true";
+      document.documentElement.dataset.compactComposerOpen = "false";
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      updateDraftState({ type: "compact-changed", compactOpen: false });
+      renderDefaultPetCheckIn();
+    } else if (rawState === "expanded-chat") {
+      document.documentElement.dataset.checkInExpanded = "false";
+      document.documentElement.dataset.chatExpanded = "true";
+      document.documentElement.dataset.compactComposerOpen = "false";
+      updateDraftState({ type: "expanded-changed", expanded: true });
+      updateDraftState({ type: "compact-changed", compactOpen: false });
+      input.value = draftState.draft;
+      compactInput.value = draftState.draft;
+      autoResizeInput();
+      autoResizeCompactInput();
+      renderAll();
+      if (panelEl && typeof panelEl.offsetHeight === "number" && panelEl.offsetHeight > 0) {
+        ipcRenderer.send("openpets:default-pet-chat-panel-resize", Math.round(panelEl.offsetHeight));
+      }
+    } else if (rawState === "compact-chat") {
+      document.documentElement.dataset.checkInExpanded = "false";
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.compactComposerOpen = "true";
+      updateDraftState({ type: "compact-changed", compactOpen: true });
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      compactInput.value = draftState.draft;
+      autoResizeCompactInput();
+      updateCompactSendButtonState();
+      handleCheckInCarrierCollapsed();
+    } else if (rawState === "collapsed") {
+      document.documentElement.dataset.checkInExpanded = "false";
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.compactComposerOpen = "false";
+      updateDraftState({ type: "compact-changed", compactOpen: false });
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      handleCheckInCarrierCollapsed();
+    }
+  };
+
+  ipcRenderer.on("openpets:default-pet-panel-state", (_event, payload) => handleCarrierPanelState(payload));
+
   // --- Expansion Changed Listener ---
   ipcRenderer.on("openpets:default-pet-chat-expansion-changed", (_event, expanded) => {
+    if (!expanded) {
+      currentDefaultPetCarrierState = "collapsed";
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.checkInExpanded = "false";
+      handleCheckInCarrierCollapsed();
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      if (input) {
+        updateDraftState({ type: "draft-changed", draft: input.value });
+      }
+      renderAll();
+      return;
+    }
+    if (currentDefaultPetCarrierState === "expanded-check-in" || document.documentElement.dataset.checkInExpanded === "true") {
+      document.documentElement.dataset.chatExpanded = "false";
+      return;
+    }
     const wasExpanded = draftState.expanded;
     updateDraftState({ type: "expanded-changed", expanded: Boolean(expanded) });
     document.documentElement.dataset.chatExpanded = draftState.expanded ? "true" : "false";
@@ -1323,33 +1407,612 @@ const installDefaultPetChat = () => {
     }
   }).catch(() => {});
 
-  ipcRenderer.invoke("openpets:default-pet-chat-is-compact-open").then((open) => {
-    if (typeof open === "boolean") {
-      updateDraftState({ type: "compact-changed", compactOpen: open });
-      document.documentElement.dataset.compactComposerOpen = open ? "true" : "false";
-      if (open) {
-        compactInput.value = draftState.draft;
-        autoResizeCompactInput();
-        updateCompactSendButtonState();
-      }
-    }
-  }).catch(() => {});
-
-  ipcRenderer.invoke("openpets:default-pet-chat-is-expanded").then((expanded) => {
-    if (typeof expanded === "boolean") {
-      updateDraftState({ type: "expanded-changed", expanded });
-      document.documentElement.dataset.chatExpanded = draftState.expanded ? "true" : "false";
-      if (draftState.expanded) {
-        input.value = draftState.draft;
-        compactInput.value = draftState.draft;
-        autoResizeInput();
-        autoResizeCompactInput();
-        renderAll();
-      }
-    }
-  }).catch(() => {});
+  ipcRenderer
+    .invoke("openpets:default-pet-panel-get-state")
+    .then((state) => {
+      handleCarrierPanelState(state);
+    })
+    .catch(() => {});
 
   renderAll();
+};
+
+const readPetCheckInPendingCount = (snapshot) => {
+  if (!snapshot || typeof snapshot !== "object") return 0;
+  const count = snapshot.pendingCount;
+  if (!Number.isSafeInteger(count) || count < 0) return 0;
+  return count;
+};
+
+const readPetCheckInActiveItem = (snapshot) => {
+  if (!snapshot || typeof snapshot !== "object" || !snapshot.activeItem || typeof snapshot.activeItem !== "object") {
+    return null;
+  }
+  return snapshot.activeItem;
+};
+
+const readPetCheckInCycleId = (item) => {
+  return item && typeof item.cycleId === "string" && item.cycleId.trim() ? item.cycleId : null;
+};
+
+const readPetCheckInSubmitBinding = (item) => {
+  if (!item || typeof item !== "object") return null;
+  if (typeof item.scheduleId !== "string" || !item.scheduleId.trim()) return null;
+  if (!Number.isSafeInteger(item.scheduleRevision) || item.scheduleRevision < 0) return null;
+  const cycleId = readPetCheckInCycleId(item);
+  if (!cycleId) return null;
+  return {
+    scheduleId: item.scheduleId,
+    scheduleRevision: item.scheduleRevision,
+    cycleId,
+  };
+};
+
+const readPetCheckInVisibilityText = (item) => {
+  const notice = item && item.visibilityNotice;
+  if (!notice || typeof notice !== "object") return null;
+  if (typeof notice.text !== "string" || !notice.text.trim()) return null;
+  return notice.text;
+};
+
+const readPetCheckInInvokeError = (err) => {
+  if (!err || typeof err !== "object" || typeof err.message !== "string" || !err.message.trim()) {
+    return "Couldn't share this check-in.";
+  }
+  const parts = err.message.split(": ");
+  const last = parts[parts.length - 1].trim();
+  return last || "Couldn't share this check-in.";
+};
+
+const installDefaultPetManagerCheckIn = () => {
+  if (document.documentElement?.dataset?.petRole !== "default") return;
+
+  let currentSnapshot = null;
+  let selectedFeeling = null;
+  let noteText = "";
+  let isBusy = false;
+  let formErrorMessage = null;
+  let latestSnapshotSequence = -1;
+  let queueTotal = 0;
+  let queueCompleted = 0;
+  let viewedCycleId = null;
+  let sessionOpen = false;
+
+  const syncCheckInButtonPresentation = (btn, count) => {
+    const label = count > 1 ? `Check-in, ${count} due` : "Check-in";
+    btn.setAttribute("aria-label", label);
+    btn.setAttribute("title", label);
+    const badge = btn.querySelector(".openpets-check-in-badge");
+    if (!badge) return;
+    if (count > 1) {
+      badge.textContent = String(count);
+      badge.classList.add("is-visible");
+      badge.setAttribute("aria-hidden", "false");
+    } else {
+      badge.textContent = "";
+      badge.classList.remove("is-visible");
+      badge.setAttribute("aria-hidden", "true");
+    }
+  };
+
+  updateDefaultPetCheckInButton = () => {
+    const pendingCount = readPetCheckInPendingCount(currentSnapshot);
+    const shouldShow = pendingCount > 0;
+    let petButtons = document.querySelector(".openpets-pet-buttons");
+    const existingButtons = document.querySelectorAll("[data-openpets-check-in-button]");
+    for (let index = 1; index < existingButtons.length; index += 1) {
+      existingButtons[index].remove();
+    }
+    const existingBtn = document.querySelector("[data-openpets-check-in-button]");
+
+    if (!shouldShow) {
+      if (existingBtn) existingBtn.remove();
+      petButtons = document.querySelector(".openpets-pet-buttons");
+      if (petButtons && petButtons.children.length === 0) {
+        petButtons.remove();
+      }
+      return;
+    }
+
+    if (!petButtons) {
+      const hitbox = document.querySelector(".pet-hitbox");
+      if (!hitbox) return;
+      petButtons = document.createElement("div");
+      petButtons.className = "openpets-pet-buttons";
+      const shell = hitbox.querySelector(".pet-shell");
+      if (shell) {
+        hitbox.insertBefore(petButtons, shell);
+      } else {
+        hitbox.appendChild(petButtons);
+      }
+    }
+
+    if (!existingBtn) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "openpets-companion-launcher openpets-check-in-button";
+      btn.dataset.openpetsCheckInButton = "true";
+      btn.setAttribute("aria-label", "Check-in");
+      btn.setAttribute("title", "Check-in");
+      btn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M8 12.5l2.5 2.5 5.5-5.5"></path>
+        </svg>
+        <span class="openpets-check-in-badge" aria-hidden="true"></span>
+      `;
+      petButtons.appendChild(btn);
+      syncCheckInButtonPresentation(btn, pendingCount);
+    } else {
+      if (existingBtn.parentElement !== petButtons) {
+        petButtons.appendChild(existingBtn);
+      }
+      syncCheckInButtonPresentation(existingBtn, pendingCount);
+    }
+  };
+
+  // --- Panel DOM Structure ---
+  const panelEl = document.createElement("div");
+  panelEl.className = "openpets-check-in-panel";
+  panelEl.setAttribute("role", "dialog");
+  panelEl.setAttribute("aria-label", "Check-in");
+
+  const headerEl = document.createElement("div");
+  headerEl.className = "check-in-header";
+
+  const headerLeftEl = document.createElement("div");
+  headerLeftEl.className = "check-in-header-left";
+
+  const titleRowEl = document.createElement("div");
+  titleRowEl.className = "check-in-title-row";
+
+  const titleEl = document.createElement("h3");
+  titleEl.className = "check-in-title";
+  titleEl.textContent = "Check-in";
+
+  const progressEl = document.createElement("p");
+  progressEl.className = "check-in-progress";
+  progressEl.hidden = true;
+
+  titleRowEl.appendChild(titleEl);
+  titleRowEl.appendChild(progressEl);
+
+  const introEl = document.createElement("p");
+  introEl.className = "check-in-intro";
+  introEl.hidden = true;
+
+  headerLeftEl.appendChild(titleRowEl);
+  headerLeftEl.appendChild(introEl);
+
+  const closeBtnEl = document.createElement("button");
+  closeBtnEl.type = "button";
+  closeBtnEl.className = "check-in-close-btn";
+  closeBtnEl.setAttribute("aria-label", "Close check-in");
+  closeBtnEl.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  `;
+  closeBtnEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeCheckIn();
+  });
+
+  headerEl.appendChild(headerLeftEl);
+  headerEl.appendChild(closeBtnEl);
+  panelEl.appendChild(headerEl);
+
+  // Body
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "check-in-body";
+
+  const errorBannerEl = document.createElement("div");
+  errorBannerEl.className = "check-in-error-banner";
+  errorBannerEl.style.display = "none";
+  bodyEl.appendChild(errorBannerEl);
+
+  // Feelings Section
+  const feelingsLabelEl = document.createElement("div");
+  feelingsLabelEl.className = "check-in-label";
+  feelingsLabelEl.textContent = "How are you feeling?";
+  bodyEl.appendChild(feelingsLabelEl);
+
+  const feelingsGridEl = document.createElement("div");
+  feelingsGridEl.className = "check-in-feelings-grid";
+  feelingsGridEl.setAttribute("role", "radiogroup");
+  feelingsGridEl.setAttribute("aria-label", "How are you feeling?");
+
+  const feelingConfigs = [
+    {
+      code: "good",
+      defaultLabel: "Good",
+      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`,
+    },
+    {
+      code: "steady",
+      defaultLabel: "Steady",
+      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="15"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`,
+    },
+    {
+      code: "stretched",
+      defaultLabel: "Stretched",
+      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 15c1-1 2-1.5 4-1.5s3 .5 4 1.5"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`,
+    },
+    {
+      code: "struggling",
+      defaultLabel: "Struggling",
+      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`,
+    },
+    {
+      code: "need_support",
+      defaultLabel: "Need support",
+      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    },
+  ];
+
+  const feelingButtonEls = new Map();
+
+  for (const config of feelingConfigs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "check-in-feeling-btn";
+    btn.dataset.code = config.code;
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", "false");
+    btn.innerHTML = `
+      <div class="check-in-feeling-icon">${config.svg}</div>
+      <span class="check-in-feeling-name">${config.defaultLabel}</span>
+    `;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isBusy) return;
+      selectedFeeling = config.code;
+      formErrorMessage = null;
+      renderCheckIn();
+    });
+    feelingsGridEl.appendChild(btn);
+    feelingButtonEls.set(config.code, btn);
+  }
+  bodyEl.appendChild(feelingsGridEl);
+
+  // Note Section
+  const noteFieldEl = document.createElement("div");
+  noteFieldEl.className = "check-in-note-field";
+
+  const noteLabelRowEl = document.createElement("div");
+  noteLabelRowEl.className = "check-in-label";
+  noteLabelRowEl.innerHTML = `
+    <span>Note</span>
+    <span class="check-in-char-counter">0 / 500</span>
+  `;
+  const charCounterEl = noteLabelRowEl.querySelector(".check-in-char-counter");
+
+  const textareaEl = document.createElement("textarea");
+  textareaEl.className = "check-in-textarea";
+  textareaEl.maxLength = 500;
+  textareaEl.rows = 3;
+  textareaEl.placeholder = "";
+  textareaEl.addEventListener("input", () => {
+    noteText = textareaEl.value;
+    if (charCounterEl) {
+      charCounterEl.textContent = `${textareaEl.value.length} / 500`;
+    }
+  });
+
+  noteFieldEl.appendChild(noteLabelRowEl);
+  noteFieldEl.appendChild(textareaEl);
+  bodyEl.appendChild(noteFieldEl);
+
+  // Visibility Notice
+  const visibilityNoticeEl = document.createElement("div");
+  visibilityNoticeEl.className = "check-in-visibility-notice";
+  visibilityNoticeEl.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="16" x2="12" y2="12"/>
+      <line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>
+    <span class="check-in-visibility-text"></span>
+  `;
+  const visibilityTextEl = visibilityNoticeEl.querySelector(".check-in-visibility-text");
+  bodyEl.appendChild(visibilityNoticeEl);
+
+  panelEl.appendChild(bodyEl);
+
+  // Footer
+  const footerEl = document.createElement("div");
+  footerEl.className = "check-in-footer";
+
+  const submitBtnEl = document.createElement("button");
+  submitBtnEl.type = "button";
+  submitBtnEl.className = "check-in-submit-btn";
+  submitBtnEl.disabled = true;
+  submitBtnEl.innerHTML = `<span>Share</span>`;
+  submitBtnEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    handleSubmit();
+  });
+
+  footerEl.appendChild(submitBtnEl);
+  panelEl.appendChild(footerEl);
+
+  document.body.appendChild(panelEl);
+
+  const resetFormFields = () => {
+    selectedFeeling = null;
+    noteText = "";
+    textareaEl.value = "";
+    if (charCounterEl) charCounterEl.textContent = "0 / 500";
+  };
+
+  const beginCheckInSession = () => {
+    if (sessionOpen) return;
+    const item = readPetCheckInActiveItem(currentSnapshot);
+    const cycleId = readPetCheckInCycleId(item);
+    if (cycleId !== viewedCycleId) {
+      resetFormFields();
+      viewedCycleId = cycleId;
+    }
+    queueTotal = readPetCheckInPendingCount(currentSnapshot);
+    queueCompleted = 0;
+    formErrorMessage = null;
+    sessionOpen = true;
+  };
+
+  const renderCheckIn = () => {
+    const item = readPetCheckInActiveItem(currentSnapshot);
+    const pendingCount = readPetCheckInPendingCount(currentSnapshot);
+    if (sessionOpen && pendingCount <= 0 && !isBusy) {
+      closeCheckIn();
+      return;
+    }
+    const binding = readPetCheckInSubmitBinding(item);
+    const visibilityText = readPetCheckInVisibilityText(item);
+    const missingMessages = [];
+
+    if (pendingCount > 0 && !item) {
+      missingMessages.push("This check-in is missing its details.");
+    }
+
+    const title = item && typeof item.title === "string" ? item.title.trim() : "";
+    if (title) {
+      titleEl.textContent = title;
+      panelEl.setAttribute("aria-label", title);
+    } else {
+      titleEl.textContent = "Check-in";
+      panelEl.setAttribute("aria-label", "Check-in");
+      if (item) missingMessages.push("This check-in is missing its schedule name.");
+    }
+
+    const introduction = item && typeof item.introduction === "string" ? item.introduction.trim() : "";
+    if (introduction) {
+      introEl.textContent = introduction;
+      introEl.hidden = false;
+    } else {
+      introEl.textContent = "";
+      introEl.hidden = true;
+    }
+
+    const showProgress = queueTotal > 1 && pendingCount > 0;
+    if (showProgress) {
+      progressEl.textContent = `${queueCompleted + 1} of ${queueTotal}`;
+      progressEl.hidden = false;
+    } else {
+      progressEl.textContent = "";
+      progressEl.hidden = true;
+    }
+
+    const notePlaceholder = item && typeof item.notePlaceholder === "string" ? item.notePlaceholder.trim() : "";
+    textareaEl.placeholder = notePlaceholder;
+
+    if (visibilityTextEl) {
+      visibilityTextEl.textContent = visibilityText ?? "";
+    }
+    visibilityNoticeEl.hidden = !visibilityText;
+    if (item && !visibilityText) {
+      missingMessages.push("Check-in visibility details are unavailable.");
+    }
+
+    for (const [code, btn] of feelingButtonEls.entries()) {
+      const labelSpan = btn.querySelector(".check-in-feeling-name");
+      const labels = item && item.labels && typeof item.labels === "object" ? item.labels : null;
+      const label = labels && typeof labels[code] === "string" ? labels[code].trim() : "";
+      if (labelSpan && label) {
+        labelSpan.textContent = label;
+      }
+    }
+
+    if (item && !binding) {
+      missingMessages.push("This check-in is missing its schedule details.");
+    }
+
+    const displayedError = formErrorMessage || missingMessages[0] || null;
+    if (displayedError) {
+      errorBannerEl.textContent = displayedError;
+      errorBannerEl.style.display = "flex";
+    } else {
+      errorBannerEl.style.display = "none";
+    }
+
+    for (const [code, btn] of feelingButtonEls.entries()) {
+      const isSelected = selectedFeeling === code;
+      btn.classList.toggle("is-selected", isSelected);
+      btn.setAttribute("aria-checked", isSelected ? "true" : "false");
+      btn.disabled = isBusy;
+    }
+
+    textareaEl.disabled = isBusy;
+    const canShare = Boolean(!isBusy && selectedFeeling && binding && visibilityText);
+    submitBtnEl.disabled = !canShare;
+    panelEl.setAttribute("aria-busy", isBusy ? "true" : "false");
+    if (isBusy) {
+      submitBtnEl.innerHTML = `
+        <svg class="check-in-submit-spinner" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
+        </svg>
+        <span>Sharing...</span>
+      `;
+    } else {
+      submitBtnEl.innerHTML = `<span>Share</span>`;
+    }
+  };
+
+  const openCheckIn = () => {
+    beginCheckInSession();
+    currentDefaultPetCarrierState = "expanded-check-in";
+    document.documentElement.dataset.checkInExpanded = "true";
+    document.documentElement.dataset.chatExpanded = "false";
+    document.documentElement.dataset.compactComposerOpen = "false";
+    renderCheckIn();
+    ipcRenderer
+      .invoke("openpets:default-pet-check-in-open")
+      .then((snapshot) => {
+        if (snapshot) applySnapshot(snapshot);
+      })
+      .catch((err) => {
+        formErrorMessage = readPetCheckInInvokeError(err);
+        renderCheckIn();
+      });
+  };
+
+  const closeCheckIn = () => {
+    ipcRenderer.invoke("openpets:default-pet-check-in-close").catch(() => {});
+    currentDefaultPetCarrierState = "collapsed";
+    document.documentElement.dataset.checkInExpanded = "false";
+    sessionOpen = false;
+  };
+
+  const handleSubmit = async () => {
+    if (isBusy || !selectedFeeling) return;
+
+    const validFeelings = ["good", "steady", "stretched", "struggling", "need_support"];
+    if (!validFeelings.includes(selectedFeeling)) {
+      formErrorMessage = "Please select a valid feeling.";
+      renderCheckIn();
+      return;
+    }
+
+    const trimmedNote = noteText.trim();
+    if (trimmedNote.length > 500) {
+      formErrorMessage = "Note must not exceed 500 characters.";
+      renderCheckIn();
+      return;
+    }
+
+    const item = readPetCheckInActiveItem(currentSnapshot);
+    const binding = readPetCheckInSubmitBinding(item);
+    const visibilityText = readPetCheckInVisibilityText(item);
+    if (!binding || !visibilityText) {
+      formErrorMessage = !binding
+        ? "This check-in is missing its schedule details."
+        : "Check-in visibility details are unavailable.";
+      renderCheckIn();
+      return;
+    }
+
+    const previousCycleId = binding.cycleId;
+    isBusy = true;
+    formErrorMessage = null;
+    renderCheckIn();
+
+    try {
+      const payload = {
+        scheduleId: binding.scheduleId,
+        scheduleRevision: binding.scheduleRevision,
+        cycleId: binding.cycleId,
+        feelingCode: selectedFeeling,
+        note: trimmedNote.length > 0 ? trimmedNote : null,
+      };
+      const result = await ipcRenderer.invoke("openpets:default-pet-check-in-submit", payload);
+      isBusy = false;
+      if (result) applySnapshot(result, undefined, { skipRender: true });
+      const nextItem = readPetCheckInActiveItem(currentSnapshot);
+      const nextCount = readPetCheckInPendingCount(currentSnapshot);
+      const nextCycleId = readPetCheckInCycleId(nextItem);
+      if (nextCount <= 0) {
+        resetFormFields();
+        formErrorMessage = null;
+        viewedCycleId = null;
+        queueTotal = 0;
+        queueCompleted = 0;
+        sessionOpen = false;
+        closeCheckIn();
+        return;
+      }
+      if (!nextItem || !nextCycleId) {
+        resetFormFields();
+        formErrorMessage = "The next check-in is missing its details.";
+        renderCheckIn();
+        return;
+      }
+      if (nextCycleId === previousCycleId) {
+        formErrorMessage = "This check-in is still due.";
+        renderCheckIn();
+        return;
+      }
+      resetFormFields();
+      formErrorMessage = null;
+      queueCompleted += 1;
+      queueTotal = Math.max(queueTotal, queueCompleted + nextCount);
+      viewedCycleId = nextCycleId;
+      renderCheckIn();
+    } catch (err) {
+      isBusy = false;
+      formErrorMessage = readPetCheckInInvokeError(err);
+      renderCheckIn();
+    }
+  };
+
+  const applySnapshot = (snapshot, sequence, options) => {
+    if (!snapshot || typeof snapshot !== "object") return;
+    if (typeof sequence === "number") {
+      if (sequence < latestSnapshotSequence) return;
+      latestSnapshotSequence = sequence;
+    }
+    currentSnapshot = snapshot;
+    updateDefaultPetCheckInButton();
+    if (options && options.skipRender) return;
+    if (isBusy) return;
+    if (document.documentElement.dataset.checkInExpanded === "true") {
+      renderCheckIn();
+    }
+  };
+
+  closeDefaultPetCheckInPanel = closeCheckIn;
+  renderDefaultPetCheckIn = () => {
+    beginCheckInSession();
+    renderCheckIn();
+  };
+  handleCheckInCarrierCollapsed = () => {
+    sessionOpen = false;
+  };
+
+  document.addEventListener("click", (event) => {
+    const checkInButton = event.target?.closest?.("[data-openpets-check-in-button]");
+    if (!checkInButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openCheckIn();
+  }, true);
+
+  // IPC Event Listeners
+  ipcRenderer.on("openpets:default-pet-check-in-event", (_event, payload) => {
+    if (!payload || typeof payload !== "object") return;
+    const snapshot = payload.type === "snapshot" ? payload.snapshot : payload;
+    const sequence = typeof payload.sequence === "number" ? payload.sequence : undefined;
+    if (snapshot) applySnapshot(snapshot, sequence);
+  });
+
+  // Initial Snapshot Fetch
+  ipcRenderer
+    .invoke("openpets:default-pet-check-in-get-snapshot")
+    .then((snapshot) => {
+      if (snapshot) applySnapshot(snapshot);
+    })
+    .catch(() => {});
+
+  renderCheckIn();
 };
 
 // --- Plugin sprite/scale overrides ------------------------------------------
@@ -1642,6 +2305,7 @@ const installMouseInterop = () => {
   });
   installPetSenses();
   installDefaultPetChat();
+  installDefaultPetManagerCheckIn();
   if (usesNativePetDrag()) installLayerShellContextMenu();
 
   let dragStartPoint = null;

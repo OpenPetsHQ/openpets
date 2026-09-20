@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-React/Tailwind source for the Control Center management UI. This renderer presents dashboard status, pet management, coding-agent integrations, plugin management, and settings using narrow preload APIs backed by `windows.ts` IPC handlers and desktop services.
+React/Tailwind source for the Control Center management UI. This renderer presents dashboard status, pet management, coding-agent integrations, plugin management, Teams management, and settings using narrow preload APIs backed by `windows.ts` IPC handlers and desktop services.
 
 ## Design
 
@@ -18,6 +18,10 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/teams-icons.tsx`: Cohesive set of 2px-stroke SVG icons matching Control Center design conventions.
   - `teams/teams-types.ts`: Strong typing for snapshots, pet/plugin entries, approval tokens, and preload bridge API contracts.
   - `teams/teams-state.ts`: Pure state helpers for snapshot validation, display name validation, authoritative enrollment-action gating, error code mapping, and permission tone/label lookup.
+  - `teams/manager-check-ins/TeamManagerCheckInSection.tsx`: Control Center Manager Check-ins management section for synchronization, read-only immutable history, and device-private scheduled-offer pause/resume; it intentionally has no submission form.
+  - `teams/manager-check-ins/ManagerCheckInHistoryList.tsx`: Read-only employee history timeline with fixed-feeling presentation and pagination.
+  - `teams/manager-check-ins/ManagerCheckInPauseControls.tsx`: Local scheduled-offer pause/resume controls whose state is not organization-visible.
+  - `teams/manager-check-ins/manager-check-ins-state.ts`: Pure renderer helpers for fixed feelings, bounded display state, labels, dates, and history presentation.
 - **Dashboard**: Reads a narrowed dashboard snapshot for default pet preview, install/catalog counts, plugin health, update status, and activity totals.
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
 - **Integrations**: Modularized under `integrations/` for card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows:
@@ -51,11 +55,12 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `settings/providers/presets.ts`: Renderer adapter for the canonical snapshot preset catalog, with a fallback for unavailable snapshots.
   - `settings/providers/types.ts`: TypeScript contracts for provider adapters, roles, snapshots, inputs, and form draft states.
   - `settings/providers/icons.tsx`: Custom SVG icons for provider roles and UI actions.
-- **Bridge Contract**: All data and actions go through `window.openPetsControlCenter`; page snapshots intentionally omit raw install paths and unrelated app state.
+- **Bridge Contract**: All Control Center data and actions go through `window.openPetsControlCenter`; page snapshots intentionally omit raw install paths and unrelated app state. Manager Check-ins uses this bridge for sync, immutable history, and device-private pause/resume only; explicit submission is owned by the pet preload/card and its host service.
 
 ## Key Files
 
 - `main.tsx`: Existing route shell and management pages for Dashboard, Pets, Plugins, Integrations, Teams, and Settings.
+- `teams/manager-check-ins/`: Control Center's read-only Manager Check-ins management lane. The private weekly action circle and five-feeling submission card live in the default pet renderer (`pet-preload.cjs`), outside this Control Center bundle.
 - `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation, selects V2's neutral frame, and resolves catalog V2 sprite metadata.
 - `styles.css`: Tailwind base/components/utilities plus glass-card layout, navigation, galleries, modals, status pills, previews, and notifications.
 - `vite-env.d.ts`: Vite/TypeScript renderer environment declarations.

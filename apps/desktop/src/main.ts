@@ -9,7 +9,7 @@ import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
 import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
 import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, openDefaultPetManagerCheckIn, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
 import { initializeLanController, isDefaultPetAwayForLan, startLanController } from "./lan-controller.js";
 import { debug, error as logError, getLogFilePath, info, initializeLogger, warn } from "./logger.js";
@@ -27,8 +27,8 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterManagerCheckInForm, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
-import { installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
+import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
+import { broadcastDefaultPetManagerCheckInSnapshot, installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeChatShortcut } from "./chat-shortcut.js";
 import { initializePetToggleShortcut } from "./pet-toggle-shortcut.js";
@@ -286,7 +286,7 @@ if (!gotSingleInstanceLock) {
       stateOptions: { userDataPath: app.getPath("userData") },
       offerWeeklyCheckIn: (offer, onPresented) => presentManagerCheckInOffer(
         offer,
-        () => openControlCenterManagerCheckInForm(),
+        () => openDefaultPetManagerCheckIn(),
         onPresented,
       ),
       log: (level, message, fields) => {
@@ -298,6 +298,9 @@ if (!gotSingleInstanceLock) {
           info("teams", message, fields);
         }
       },
+    });
+    managerCheckInService.subscribe((snapshot) => {
+      broadcastDefaultPetManagerCheckInSnapshot(snapshot);
     });
     powerMonitor.on("resume", () => {
       void teamService?.syncNow().catch(() => undefined);

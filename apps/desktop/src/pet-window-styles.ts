@@ -26,6 +26,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
   const petButtonsSide = buttonPreferences.petButtonsPosition === "left" ? "left" : "right";
   const petButtonSizePx = buttonPreferences.petButtonsSize === "small" ? 18 : buttonPreferences.petButtonsSize === "large" ? 28 : 22;
   const petButtonIconPx = Math.round(petButtonSizePx * 0.55);
+  const checkInBadgeSizePx = Math.max(12, Math.round(petButtonSizePx * 0.58));
+  const checkInBadgeFontPx = Math.max(8, Math.round(petButtonSizePx * 0.36));
   const emojiFontUrl = pathToFileURL(join(app.getAppPath(), "assets", "NotoColorEmoji.ttf")).toString();
   const petShellFilter = process.platform === "win32" ? "none" : "drop-shadow(0 10px 12px rgba(15, 23, 42, 0.24)) drop-shadow(0 2px 3px rgba(15, 23, 42, 0.18))";
   const bubbleBackdropFilter = process.platform === "win32" ? "none" : "blur(10px)";
@@ -73,6 +75,46 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       color: #94a3b8;
       box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
     }
+    .openpets-check-in-button {
+      position: relative;
+      color: #4338ca;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+    .openpets-check-in-button:hover {
+      transform: scale(1.08);
+      background: #f8fafc;
+      color: #3730a3;
+      border-color: #cbd5e1;
+      box-shadow: 0 2px 5px rgba(15, 23, 42, 0.12);
+    }
+    .openpets-check-in-button:active {
+      transform: scale(0.95);
+    }
+    .openpets-check-in-badge {
+      display: none;
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      min-width: ${checkInBadgeSizePx}px;
+      height: ${checkInBadgeSizePx}px;
+      padding: 0 3px;
+      box-sizing: border-box;
+      border-radius: 999px;
+      background: #4338ca;
+      border: 1px solid #ffffff;
+      color: #ffffff;
+      font-size: ${checkInBadgeFontPx}px;
+      font-weight: 700;
+      line-height: ${checkInBadgeSizePx - 2}px;
+      text-align: center;
+      align-items: center;
+      justify-content: center;
+    }
+    .openpets-check-in-badge.is-visible {
+      display: flex;
+    }
     /* Hide the assistant buttons while a transient bubble or the chat UI is
        showing. A pinned plugin HUD is NOT in this list: it never expires, so
        hiding on has-pinned would remove the buttons permanently. */
@@ -80,7 +122,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     .stage.has-bubble .openpets-pet-buttons,
     .bubble:not(.is-pinned) ~ .pet-hitbox .openpets-pet-buttons,
     html[data-compact-composer-open="true"] .openpets-pet-buttons,
-    html[data-chat-expanded="true"] .openpets-pet-buttons {
+    html[data-chat-expanded="true"] .openpets-pet-buttons,
+    html[data-check-in-expanded="true"] .openpets-pet-buttons {
       display: none !important;
     }
     .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${scaledWidth + hitPadding * 2}px; height: ${scaledHeight + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
@@ -182,7 +225,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
     .stage.has-pinned ~ .openpets-compact-composer { bottom: ${compactComposerBottom + pinnedLift}px; }
-    .stage.has-pinned ~ .openpets-chat-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
+    .stage.has-pinned ~ .openpets-chat-panel,
+    .stage.has-pinned ~ .openpets-check-in-panel { bottom: ${chatPanelBottom + pinnedLift}px; }
     .bubble.is-plugin.accent-blue { background: linear-gradient(135deg, rgba(219, 234, 254, 0.97), rgba(191, 219, 254, 0.94)); }
     .bubble.is-plugin.accent-purple { background: linear-gradient(135deg, rgba(237, 233, 254, 0.97), rgba(221, 214, 254, 0.94)); }
     .bubble.is-plugin.accent-green { background: linear-gradient(135deg, rgba(220, 252, 231, 0.97), rgba(187, 247, 208, 0.94)); }
@@ -1009,6 +1053,366 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       background: #fecaca;
       color: #b91c1c;
     }
+    /* --- In-Pet Manager Check-in Panel --- */
+    .openpets-check-in-panel {
+      position: absolute;
+      bottom: ${chatPanelBottom}px;
+      left: 50%;
+      transform: translateX(-50%);
+      transform-origin: 50% 100%;
+      width: ${defaultPetChatPanelLayout.width}px;
+      min-height: 0;
+      max-height: 520px;
+      height: fit-content;
+      z-index: 100;
+      box-sizing: border-box;
+      display: none;
+      flex-direction: column;
+      background: #ffffff;
+      color: #0f172a;
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 16px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+      overflow: visible;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      opacity: 0;
+      color-scheme: light;
+    }
+    html[data-check-in-expanded="true"] .openpets-check-in-panel {
+      display: flex;
+      opacity: 1;
+      animation: chat-panel-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .openpets-check-in-panel::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 12px;
+      height: 12px;
+      background: #ffffff;
+      border-right: 1px solid rgba(226, 232, 240, 0.95);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+      border-bottom-right-radius: 3px;
+      transform: translateX(-50%) rotate(45deg);
+      box-shadow: 3px 3px 6px rgba(15, 23, 42, 0.06);
+      z-index: 1;
+    }
+    .check-in-header {
+      padding: 12px 14px 10px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+      background: #ffffff;
+      border-top-left-radius: 15px;
+      border-top-right-radius: 15px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .check-in-header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      padding-right: 8px;
+    }
+    .check-in-title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .check-in-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      line-height: 1.3;
+      margin: 0;
+      min-width: 0;
+    }
+    .check-in-progress {
+      margin: 0;
+      flex-shrink: 0;
+      font-size: 10px;
+      font-weight: 600;
+      color: #94a3b8;
+      letter-spacing: 0.01em;
+    }
+    .check-in-intro {
+      font-size: 11px;
+      line-height: 1.45;
+      color: #64748b;
+      margin: 0;
+    }
+    .check-in-close-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 1px solid rgba(226, 232, 240, 0.8);
+      background: #ffffff;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+    .check-in-close-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+      border-color: #cbd5e1;
+    }
+    .check-in-close-btn:active {
+      background: #e2e8f0;
+    }
+    .check-in-body {
+      padding: 13px 15px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      max-height: 420px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+    }
+    .check-in-body::-webkit-scrollbar {
+      width: 5px;
+    }
+    .check-in-body::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.3);
+      border-radius: 99px;
+    }
+    .check-in-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .check-in-feelings-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+    .check-in-feeling-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 6px 2px 5px;
+      min-height: 52px;
+      border-radius: 10px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #ffffff;
+      cursor: pointer;
+      transition: border-color 140ms ease, background-color 140ms ease;
+      user-select: none;
+      position: relative;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .check-in-feeling-btn:hover:not(:disabled) {
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+    .check-in-feeling-btn:active:not(:disabled) {
+      background: #f1f5f9;
+    }
+    .check-in-feeling-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .check-in-feeling-btn .check-in-feeling-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 140ms ease;
+    }
+    .check-in-feeling-btn .check-in-feeling-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+    .check-in-feeling-btn .check-in-feeling-name {
+      font-size: 9px;
+      font-weight: 700;
+      color: #334155;
+      text-align: center;
+      line-height: 1.15;
+      max-width: 100%;
+      white-space: normal;
+      word-break: break-word;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 20px;
+    }
+    .check-in-feeling-btn[data-code="good"] .check-in-feeling-icon { background: #ecfdf5; color: #059669; }
+    .check-in-feeling-btn[data-code="good"]:hover:not(:disabled) { border-color: #6ee7b7; background: #f0fdf4; }
+    .check-in-feeling-btn[data-code="good"].is-selected {
+      border-color: #059669;
+      background: #ecfdf5;
+    }
+    .check-in-feeling-btn[data-code="good"].is-selected .check-in-feeling-name { color: #065f46; font-weight: 700; }
+
+    .check-in-feeling-btn[data-code="steady"] .check-in-feeling-icon { background: #f0f9ff; color: #0284c7; }
+    .check-in-feeling-btn[data-code="steady"]:hover:not(:disabled) { border-color: #7dd3fc; background: #f0f9ff; }
+    .check-in-feeling-btn[data-code="steady"].is-selected {
+      border-color: #0284c7;
+      background: #f0f9ff;
+    }
+    .check-in-feeling-btn[data-code="steady"].is-selected .check-in-feeling-name { color: #0369a1; font-weight: 700; }
+
+    .check-in-feeling-btn[data-code="stretched"] .check-in-feeling-icon { background: #fffbeb; color: #d97706; }
+    .check-in-feeling-btn[data-code="stretched"]:hover:not(:disabled) { border-color: #fcd34d; background: #fffbeb; }
+    .check-in-feeling-btn[data-code="stretched"].is-selected {
+      border-color: #d97706;
+      background: #fffbeb;
+    }
+    .check-in-feeling-btn[data-code="stretched"].is-selected .check-in-feeling-name { color: #92400e; font-weight: 700; }
+
+    .check-in-feeling-btn[data-code="struggling"] .check-in-feeling-icon { background: #fff7ed; color: #ea580c; }
+    .check-in-feeling-btn[data-code="struggling"]:hover:not(:disabled) { border-color: #fdba74; background: #fff7ed; }
+    .check-in-feeling-btn[data-code="struggling"].is-selected {
+      border-color: #ea580c;
+      background: #fff7ed;
+    }
+    .check-in-feeling-btn[data-code="struggling"].is-selected .check-in-feeling-name { color: #9a3412; font-weight: 700; }
+
+    .check-in-feeling-btn[data-code="need_support"] .check-in-feeling-icon { background: #fff1f2; color: #e11d48; }
+    .check-in-feeling-btn[data-code="need_support"]:hover:not(:disabled) { border-color: #fda4af; background: #fff1f2; }
+    .check-in-feeling-btn[data-code="need_support"].is-selected {
+      border-color: #e11d48;
+      background: #fff1f2;
+    }
+    .check-in-feeling-btn[data-code="need_support"].is-selected .check-in-feeling-name { color: #9f1239; font-weight: 700; }
+
+    .check-in-note-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .check-in-char-counter {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+    .check-in-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      resize: none;
+      min-height: 60px;
+      max-height: 96px;
+      padding: 8px 11px;
+      border-radius: 12px;
+      border: 1px solid rgba(203, 213, 225, 0.9);
+      background: #ffffff;
+      font-size: 12px;
+      line-height: 16px;
+      color: #0f172a;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 140ms ease;
+    }
+    .check-in-textarea:focus {
+      border-color: #64748b;
+    }
+    .check-in-textarea::placeholder {
+      color: #94a3b8;
+    }
+    .check-in-visibility-notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      font-size: 10.5px;
+      line-height: 1.4;
+      color: #475569;
+    }
+    .check-in-visibility-notice svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: #4f46e5;
+      margin-top: 1px;
+    }
+    .check-in-visibility-notice[hidden],
+    .check-in-progress[hidden],
+    .check-in-intro[hidden] {
+      display: none;
+    }
+    .check-in-error-banner {
+      padding: 7px 11px;
+      border-radius: 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .check-in-footer {
+      padding: 10px 14px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      border-top: 1px solid rgba(226, 232, 240, 0.9);
+      background: #ffffff;
+      border-bottom-left-radius: 15px;
+      border-bottom-right-radius: 15px;
+      flex-shrink: 0;
+    }
+    .check-in-submit-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid #4338ca;
+      background: #4338ca;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    .check-in-submit-btn:hover:not(:disabled) {
+      background: #3730a3;
+      border-color: #3730a3;
+    }
+    .check-in-submit-btn:active:not(:disabled) {
+      background: #312e81;
+    }
+    .check-in-submit-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .check-in-submit-spinner {
+      animation: check-in-spin 1s linear infinite;
+    }
+    @keyframes check-in-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     @keyframes chat-panel-enter {
       from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.97); }
       to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
@@ -1035,7 +1439,13 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       0%, 100% { opacity: 0.65; }
       50% { opacity: 0.95; }
     }
-    @media (prefers-reduced-motion: reduce) { .sprite, .installed-sprite, .bubble, .bubble-status-icon::before, .openpets-talk-button.is-active, .openpets-talk-button.is-processing { animation: none !important; } }
+    @media (prefers-reduced-motion: reduce) {
+      .sprite, .installed-sprite, .bubble, .bubble-status-icon::before,
+      .openpets-talk-button.is-active, .openpets-talk-button.is-processing,
+      html[data-check-in-expanded="true"] .openpets-check-in-panel {
+        animation: none !important;
+      }
+    }
   `;
 }
 export function createSpriteStateCss(selector: ".sprite" | ".installed-sprite", stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout = {

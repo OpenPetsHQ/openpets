@@ -91,44 +91,48 @@ requested permissions and declared network hosts; organization configuration doe
 not bypass it, and approval is bound to the current artifact. Rejected staged or
 activated Team installs roll back to the last approved state.
 
-### Manager Check-ins V1
+### Manager Check-ins
 
 Manager Check-ins is a bundled desktop capability that shares Teams enrollment
 and organization identity but does not use Team Pack configuration or transport.
-The main-process `ManagerCheckInService` synchronizes organization settings and
-the enrolled employee's submitted history through the dedicated device API. It
-persists its local state atomically in
-`userData/openpets-manager-check-in-state.json`; the local cache is bounded to
-the newest 200 submissions and 512 KiB, while the API retains submitted history
-indefinitely in V1.
+The main-process `ManagerCheckInService` syncs the organization’s schedules and
+the enrolled employee’s submitted history through the dedicated device API. Its
+atomic local state lives at `userData/openpets-manager-check-in-state.json` and
+is bounded to the newest 200 submissions and 512 KiB.
 
-The Teams Control Center route provides **Check in now**, a fixed five-choice
-feeling form, an optional short note (limited to 500 characters by the desktop
-form), the organization visibility notice, and a read-only personal reflection
-timeline. It is available only when the enrolled device has an employee
-identity and usable secure storage. Submitted entries cannot be edited or
-deleted. The form uses the current settings revision and stores the server's
-prompt snapshot with the submission, so historical wording and labels remain
-meaningful after settings change.
+Managers create multiple named schedules in Teams. A schedule is independently
+enabled and has its own prompt copy, feeling labels, start date, and structured
+recurrence: every N days; every N weeks on selected weekdays; every N months on
+selected dates or the last day; or selected months/dates within calendar
+quarters. A numeric date that does not exist in a month is skipped. Scheduling
+uses the enrolled desktop’s local calendar and is offered for the matching local
+day only; it has no timed nudge, cron support, generic task surface, or
+off-schedule submission.
 
-When the organization enables the weekly offer, the mascot may offer it when
-OpenPets is already open on the enrolled desktop's local weekday. The offer is a
-host-owned actionable pet bubble using the synced title and introduction, with
-a voluntary **Check in now** action. That action opens/focuses Control Center
-on Teams and opens the existing Manager Check-in form; the pet never collects
-the feeling or note and never submits directly. The service tracks the offer
-per local week only after the bubble is actually presented; dismissal, timeout,
-or an offer blocked behind another bubble is not presentation. A successful
-manual submission also suppresses that desktop's scheduled offer for the
-current local week. The employee can pause or resume scheduled offers on that
-device; **Check in now** remains available while paused, and the pause is not
-sent to the dashboard as a response or activity signal. Dismissing or not using
-an offer creates no check-in entry.
+The Control Center provides sync, a read-only personal history, and a
+device-private pause. It is not a schedule editor or check-in submission
+surface. A due schedule appears only on the default pet: one private Check-in
+circle beside Chat/Talk, with a count for concurrent due schedules. It opens one
+in-pet card at a time. The card uses that schedule’s prompt copy and the five
+fixed feelings, accepts an optional 500-character note, shows the organization
+disclosure, and requires an explicit Share action. Successful sharing advances
+to the next local due schedule or clears the circle.
 
-Each active enrolled desktop has one employee identity in V1. Submitted
-check-ins are identified and visible to authenticated users in that employee's
-organization Teams dashboard. The desktop and dashboard expose no replies,
-missing-response/activity tracking, pet-usage telemetry, or anonymous mode.
+Closing the card, letting an offer disappear, pausing, or leaving a schedule
+unanswered produces no server event. The local pause hides all scheduled pet
+actions and is never synchronized to Teams. The service persists only the
+minimal private queue lifecycle needed for scheduled offers and retries; the pet
+projection exposes its current item and count, never a manager-visible pending
+or activity signal.
+
+Each submission is immutable, schedule/cycle-specific, and includes the prompt
+snapshot that was shown. The API derives the canonical cycle ID from schedule
+and local date, enforces one submission per employee/schedule/cycle, and keeps
+client-generated-ID retries idempotent. A short-lived, device- and
+payload-bound receipt permits an explicit submission retry immediately after
+midnight without admitting a fresh late submission. The desktop and dashboard
+never expose replies, skips, missing-response/activity tracking, pet-usage
+telemetry, or anonymous mode.
 
 ## Linux display backend (Ozone/Wayland)
 

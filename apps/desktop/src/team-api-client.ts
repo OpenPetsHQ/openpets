@@ -2,6 +2,7 @@ import {
   validateTeamPack,
   type TeamPack,
 } from "./team-protocol.js";
+import type { ManagerCheckInRecurrence } from "./manager-check-in-schedule.js";
 
 export const defaultTeamsApiBaseUrl = "https://openpets-teams-api.tokozedg793.workers.dev";
 const maxResponseBytes = 512 * 1024;
@@ -18,40 +19,61 @@ export const managerCheckInFeelingCodes = [
 const managerCheckInVisibilityNotice = "Submitted check-ins are visible to your organization's Teams dashboard.";
 
 export type ManagerCheckInFeelingCode = typeof managerCheckInFeelingCodes[number];
-export type ManagerCheckInPromptSnapshot = {
+export type ManagerCheckInSchedule = {
+  readonly id: string;
+  readonly revision: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly recurrence: ManagerCheckInRecurrence;
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Record<ManagerCheckInFeelingCode, string>;
+};
+export type ManagerCheckInScheduleSnapshot = {
+  readonly scheduleId: string;
+  readonly scheduleName: string;
+  readonly scheduleRevision: number;
+  readonly recurrence: ManagerCheckInRecurrence;
   readonly title: string;
   readonly introduction: string;
   readonly acknowledgement: string;
   readonly notePlaceholder: string;
   readonly labels: Record<ManagerCheckInFeelingCode, string>;
   readonly visibilityNotice: { readonly version: 1; readonly text: string };
-};
-export type ManagerCheckInSettings = {
-  readonly revision: number;
-  readonly weeklyEnabled: boolean;
-  readonly weeklyDay: number;
-  readonly title: string;
-  readonly introduction: string;
-  readonly acknowledgement: string;
-  readonly notePlaceholder: string;
-  readonly labels: Record<ManagerCheckInFeelingCode, string>;
 };
 export type ManagerCheckInSubmission = {
   readonly id: string;
   readonly clientGeneratedId: string;
+  readonly scheduleId: string;
+  readonly scheduleRevision: number;
+  readonly cycleId: string;
+  readonly cycleLocalDate: string;
   readonly feelingCode: ManagerCheckInFeelingCode;
   readonly note: string | null;
   readonly submittedAt: string;
-  readonly settingsRevision: number;
-  readonly promptSnapshot: ManagerCheckInPromptSnapshot;
+  readonly scheduleSnapshot: ManagerCheckInScheduleSnapshot;
+};
+export type ManagerCheckInSubmissionInput = {
+  readonly clientGeneratedId: string;
+  readonly scheduleId: string;
+  readonly scheduleRevision: number;
+  readonly cycleLocalDate: string;
+  readonly timeZone: string;
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note?: string | null;
+  readonly receipt?: string;
+};
+export type ManagerCheckInSubmissionReceipt = {
+  readonly receipt: string;
+  readonly expiresAt: string;
 };
 export type ManagerCheckInSyncResponse = {
-  readonly organization: { readonly id: string; readonly name: string };
+  readonly schedules: readonly ManagerCheckInSchedule[];
   readonly visibilityNotice: { readonly version: 1; readonly text: string };
   readonly employee: { readonly id: string; readonly displayName: string } | null;
-  readonly settings: ManagerCheckInSettings;
-  readonly scheduledOffersPaused: boolean;
-  readonly submissions: readonly ManagerCheckInSubmission[];
+  readonly history: readonly ManagerCheckInSubmission[];
   readonly nextCursor: string | null;
 };
 
@@ -279,12 +301,7 @@ export class TeamApiClient {
 
   async submitManagerCheckIn(
     credential: string,
-    input: {
-      readonly clientGeneratedId: string;
-      readonly feelingCode: ManagerCheckInFeelingCode;
-      readonly note?: string | null;
-      readonly settingsRevision: number;
-    },
+    input: ManagerCheckInSubmissionInput,
     signal?: AbortSignal,
   ): Promise<ManagerCheckInSubmission> {
     validateManagerCheckInSubmissionInput(input);
@@ -298,22 +315,28 @@ export class TeamApiClient {
     return validateManagerCheckInSubmission(response.body.submission);
   }
 
-  async setScheduledOffersPaused(
+  async createManagerCheckInSubmissionReceipt(
     credential: string,
-    paused: boolean,
+    input: Omit<ManagerCheckInSubmissionInput, "receipt">,
     signal?: AbortSignal,
-  ): Promise<boolean> {
-    if (typeof paused !== "boolean") {
-      throw new Error("Scheduled offers pause is invalid.");
-    }
+  ): Promise<ManagerCheckInSubmissionReceipt> {
+    validateManagerCheckInSubmissionInput(input);
     const response = await this.request(
-      "/v1/device/manager-check-ins/scheduled-offers",
-      { credential, method: "PATCH", body: { paused }, signal },
+      "/v1/device/manager-check-ins/submission-receipts",
+      { credential, method: "POST", body: input, signal },
     );
-    if (!isRecord(response.body) || typeof response.body.scheduledOffersPaused !== "boolean") {
-      throw new Error("Scheduled offers response is invalid.");
+    if (
+      !isRecord(response.body)
+      || typeof response.body.receipt !== "string"
+      || !/^[A-Za-z0-9_-]{20,128}$/.test(response.body.receipt)
+      || typeof response.body.expiresAt !== "string"
+    ) {
+      throw new Error("Manager check-in submission receipt response is invalid.");
     }
-    return response.body.scheduledOffersPaused;
+    return {
+      receipt: response.body.receipt,
+      expiresAt: response.body.expiresAt,
+    };
   }
 
   async leaveOrganization(credential: string): Promise<void> {
@@ -628,16 +651,35 @@ async function sha256(bytes: Uint8Array): Promise<string> {
     .join("");
 }
 
-function validateManagerCheckInSubmissionInput(input: {
-  readonly clientGeneratedId: string;
-  readonly feelingCode: ManagerCheckInFeelingCode;
-  readonly note?: string | null;
-  readonly settingsRevision: number;
-}): void {
+function validateManagerCheckInSubmissionInput(input: ManagerCheckInSubmissionInput): void {
   if (!isRecord(input)) {
     throw new Error("Manager check-in submission is invalid.");
   }
   if (typeof input.clientGeneratedId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.clientGeneratedId)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (typeof input.scheduleId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(input.scheduleId)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (!Number.isSafeInteger(input.scheduleRevision) || input.scheduleRevision < 0) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (typeof input.cycleLocalDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.cycleLocalDate)) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  try {
+    const [year, month, day] = input.cycleLocalDate.split("-").map(Number);
+    const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (year < 1 || month < 1 || month > 12 || day < 1 || day > maxDay) throw new Error();
+  } catch {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  if (typeof input.timeZone !== "string" || input.timeZone.length === 0 || input.timeZone.length > 100) {
+    throw new Error("Manager check-in submission is invalid.");
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: input.timeZone }).format();
+  } catch {
     throw new Error("Manager check-in submission is invalid.");
   }
   if (typeof input.feelingCode !== "string" || !managerCheckInFeelingCodes.includes(input.feelingCode as ManagerCheckInFeelingCode)) {
@@ -646,7 +688,7 @@ function validateManagerCheckInSubmissionInput(input: {
   if (input.note !== undefined && !isValidManagerCheckInNote(input.note)) {
     throw new Error("Manager check-in submission is invalid.");
   }
-  if (!Number.isSafeInteger(input.settingsRevision) || input.settingsRevision < 0) {
+  if (input.receipt !== undefined && (typeof input.receipt !== "string" || !/^[A-Za-z0-9_-]{20,128}$/.test(input.receipt))) {
     throw new Error("Manager check-in submission is invalid.");
   }
 }
@@ -655,18 +697,7 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
   if (!isRecord(value)) {
     throw new Error("Manager check-in sync response is invalid.");
   }
-  if (!onlyKeys(value, [
-    "organization",
-    "visibilityNotice",
-    "employee",
-    "settings",
-    "scheduledOffersPaused",
-    "submissions",
-    "nextCursor",
-  ])) {
-    throw new Error("Manager check-in sync response is invalid.");
-  }
-  if (!isValidManagerCheckInOrganization(value.organization)) {
+  if (!onlyKeys(value, ["schedules", "employee", "visibilityNotice", "history", "nextCursor"])) {
     throw new Error("Manager check-in sync response is invalid.");
   }
   if (!isValidManagerCheckInVisibilityNotice(value.visibilityNotice)) {
@@ -675,10 +706,10 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
   if (!isValidManagerCheckInEmployee(value.employee)) {
     throw new Error("Manager check-in sync response is invalid.");
   }
-  if (typeof value.scheduledOffersPaused !== "boolean") {
+  if (!Array.isArray(value.schedules) || value.schedules.length > 32) {
     throw new Error("Manager check-in sync response is invalid.");
   }
-  if (!Array.isArray(value.submissions) || value.submissions.length > 100) {
+  if (!Array.isArray(value.history) || value.history.length > 100) {
     throw new Error("Manager check-in sync response is invalid.");
   }
   const hasValidNextCursor = value.nextCursor === null
@@ -687,15 +718,11 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
     throw new Error("Manager check-in sync response is invalid.");
   }
 
-  const organization = value.organization as Record<string, unknown>;
   const visibilityNotice = value.visibilityNotice as Record<string, unknown>;
   const employee = value.employee as Record<string, unknown> | null;
 
   return {
-    organization: {
-      id: organization.id as string,
-      name: organization.name as string,
-    },
+    schedules: value.schedules.map(validateManagerCheckInSchedule),
     visibilityNotice: {
       version: 1,
       text: visibilityNotice.text as string,
@@ -706,37 +733,23 @@ function validateManagerCheckInSync(value: unknown): ManagerCheckInSyncResponse 
         id: employee?.id as string,
         displayName: employee?.displayName as string,
       },
-    settings: validateManagerCheckInSettings(value.settings),
-    scheduledOffersPaused: value.scheduledOffersPaused,
-    submissions: value.submissions.map(validateManagerCheckInSubmission),
+    history: value.history.map(validateManagerCheckInSubmission),
     nextCursor: value.nextCursor as string | null,
   };
 }
 
-function validateManagerCheckInSettings(value: unknown): ManagerCheckInSettings {
+function validateManagerCheckInSchedule(value: unknown): ManagerCheckInSchedule {
   if (!isRecord(value)) {
-    throw new Error("Manager check-in settings response is invalid.");
+    throw new Error("Manager check-in schedule response is invalid.");
   }
-  if (!onlyKeys(value, [
-    "revision",
-    "weeklyEnabled",
-    "weeklyDay",
-    "title",
-    "introduction",
-    "acknowledgement",
-    "notePlaceholder",
-    "labels",
-  ])) {
-    throw new Error("Manager check-in settings response is invalid.");
+  if (!onlyKeys(value, ["id", "organizationId", "revision", "name", "enabled", "recurrence", "title", "introduction", "acknowledgement", "notePlaceholder", "labels", "createdAt", "updatedAt"])) {
+    throw new Error("Manager check-in schedule response is invalid.");
   }
-  if (typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 0) {
-    throw new Error("Manager check-in settings response is invalid.");
-  }
-  if (typeof value.weeklyEnabled !== "boolean") {
-    throw new Error("Manager check-in settings response is invalid.");
-  }
-  if (typeof value.weeklyDay !== "number" || !Number.isInteger(value.weeklyDay) || value.weeklyDay < 0 || value.weeklyDay > 6) {
-    throw new Error("Manager check-in settings response is invalid.");
+  if (typeof value.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value.id)
+    || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0
+    || typeof value.name !== "string" || value.name.length === 0 || value.name.length > 60
+    || typeof value.enabled !== "boolean") {
+    throw new Error("Manager check-in schedule response is invalid.");
   }
   if (
     !boundedString(value.title, 200)
@@ -744,23 +757,24 @@ function validateManagerCheckInSettings(value: unknown): ManagerCheckInSettings 
     || !boundedString(value.acknowledgement, 500)
     || !boundedString(value.notePlaceholder, 200)
   ) {
-    throw new Error("Manager check-in settings response is invalid.");
+    throw new Error("Manager check-in schedule response is invalid.");
   }
   if (!validManagerCheckInLabels(value.labels)) {
-    throw new Error("Manager check-in settings response is invalid.");
+    throw new Error("Manager check-in schedule response is invalid.");
   }
 
-  const settings = value as Record<string, unknown>;
-  const labels = settings.labels as Record<string, unknown>;
+  const schedule = value as Record<string, unknown>;
   return {
-    revision: settings.revision as number,
-    weeklyEnabled: settings.weeklyEnabled as boolean,
-    weeklyDay: settings.weeklyDay as number,
-    title: settings.title as string,
-    introduction: settings.introduction as string,
-    acknowledgement: settings.acknowledgement as string,
-    notePlaceholder: settings.notePlaceholder as string,
-    labels: createManagerCheckInLabels(labels),
+    id: schedule.id as string,
+    revision: schedule.revision as number,
+    name: schedule.name as string,
+    enabled: schedule.enabled as boolean,
+    recurrence: validateRecurrence(schedule.recurrence),
+    title: schedule.title as string,
+    introduction: schedule.introduction as string,
+    acknowledgement: schedule.acknowledgement as string,
+    notePlaceholder: schedule.notePlaceholder as string,
+    labels: createManagerCheckInLabels(schedule.labels as Record<string, unknown>),
   };
 }
 
@@ -770,11 +784,14 @@ function validateManagerCheckInSubmission(value: unknown): ManagerCheckInSubmiss
   }
   validateManagerCheckInSubmissionInput({
     clientGeneratedId: value.clientGeneratedId as string,
+    scheduleId: value.scheduleId as string,
+    scheduleRevision: value.scheduleRevision as number,
+    cycleLocalDate: value.cycleLocalDate as string,
+    timeZone: "UTC",
     feelingCode: value.feelingCode as ManagerCheckInFeelingCode,
     note: value.note as string | null,
-    settingsRevision: value.settingsRevision as number,
   });
-  if (!onlyKeys(value, ["id", "clientGeneratedId", "feelingCode", "note", "submittedAt", "settingsRevision", "promptSnapshot"])) {
+  if (!onlyKeys(value, ["id", "clientGeneratedId", "scheduleId", "scheduleRevision", "cycleId", "cycleLocalDate", "feelingCode", "note", "submittedAt", "scheduleSnapshot"])) {
     throw new Error("Manager check-in submission response is invalid.");
   }
   if (!boundedString(value.id, 160) || !boundedString(value.submittedAt, 64)) {
@@ -783,32 +800,39 @@ function validateManagerCheckInSubmission(value: unknown): ManagerCheckInSubmiss
   if (!isValidManagerCheckInNote(value.note)) {
     throw new Error("Manager check-in submission response is invalid.");
   }
-  if (!isRecord(value.promptSnapshot)) {
+  if (typeof value.cycleId !== "string" || value.cycleId !== `${value.scheduleId}:${value.cycleLocalDate}` || !isRecord(value.scheduleSnapshot)) {
     throw new Error("Manager check-in submission response is invalid.");
   }
 
-  const promptSnapshot = validatePromptSnapshot(value.promptSnapshot);
+  const scheduleSnapshot = validateScheduleSnapshot(value.scheduleSnapshot);
   const submission = value as Record<string, unknown>;
   return {
     id: submission.id as string,
     clientGeneratedId: submission.clientGeneratedId as string,
+    scheduleId: submission.scheduleId as string,
+    scheduleRevision: submission.scheduleRevision as number,
+    cycleId: submission.cycleId as string,
+    cycleLocalDate: submission.cycleLocalDate as string,
     feelingCode: submission.feelingCode as ManagerCheckInFeelingCode,
     note: submission.note as string | null,
     submittedAt: submission.submittedAt as string,
-    settingsRevision: submission.settingsRevision as number,
-    promptSnapshot,
+    scheduleSnapshot,
   };
 }
 
-function validatePromptSnapshot(value: unknown): ManagerCheckInPromptSnapshot {
+function validateScheduleSnapshot(value: unknown): ManagerCheckInScheduleSnapshot {
   if (!isRecord(value)) {
     throw new Error("Manager check-in prompt snapshot is invalid.");
   }
-  if (!onlyKeys(value, ["title", "introduction", "acknowledgement", "notePlaceholder", "labels", "visibilityNotice"])) {
+  if (!onlyKeys(value, ["scheduleId", "scheduleName", "scheduleRevision", "recurrence", "title", "introduction", "acknowledgement", "notePlaceholder", "labels", "visibilityNotice"])) {
     throw new Error("Manager check-in prompt snapshot is invalid.");
   }
   if (
-    !boundedString(value.title, 200)
+    typeof value.scheduleId !== "string"
+    || typeof value.scheduleName !== "string"
+    || !Number.isSafeInteger(value.scheduleRevision)
+    || !value.recurrence
+    || !boundedString(value.title, 200)
     || !boundedString(value.introduction, 1000)
     || !boundedString(value.acknowledgement, 500)
     || !boundedString(value.notePlaceholder, 200)
@@ -826,6 +850,10 @@ function validatePromptSnapshot(value: unknown): ManagerCheckInPromptSnapshot {
   const labels = snapshot.labels as Record<string, unknown>;
   const notice = snapshot.visibilityNotice as Record<string, unknown>;
   return {
+    scheduleId: snapshot.scheduleId as string,
+    scheduleName: snapshot.scheduleName as string,
+    scheduleRevision: snapshot.scheduleRevision as number,
+    recurrence: validateRecurrence(snapshot.recurrence),
     title: snapshot.title as string,
     introduction: snapshot.introduction as string,
     acknowledgement: snapshot.acknowledgement as string,
@@ -836,6 +864,47 @@ function validatePromptSnapshot(value: unknown): ManagerCheckInPromptSnapshot {
       text: notice.text as string,
     },
   };
+}
+
+function validateRecurrence(value: unknown): ManagerCheckInRecurrence {
+  if (!isRecord(value) || typeof value.kind !== "string" || typeof value.startsOn !== "string" || !isValidDateString(value.startsOn)) {
+    throw new Error("Manager check-in recurrence is invalid.");
+  }
+  const kind = value.kind;
+  if (kind === "daily" && Number.isSafeInteger(value.intervalDays) && (value.intervalDays as number) > 0 && (value.intervalDays as number) <= 365) {
+    return { kind, intervalDays: value.intervalDays as number, startsOn: value.startsOn };
+  }
+  if (kind === "weekly" && Number.isSafeInteger(value.intervalWeeks) && (value.intervalWeeks as number) > 0 && (value.intervalWeeks as number) <= 52 && Array.isArray(value.weekdays)) {
+    return { kind, intervalWeeks: value.intervalWeeks as number, startsOn: value.startsOn, weekdays: validateIntegers(value.weekdays, 0, 6) };
+  }
+  if (kind === "monthly" && Number.isSafeInteger(value.intervalMonths) && (value.intervalMonths as number) > 0 && (value.intervalMonths as number) <= 12) {
+    return { kind, intervalMonths: value.intervalMonths as number, startsOn: value.startsOn, ...validateDateSelection(value) };
+  }
+  if (kind === "quarterly" && Array.isArray(value.quarterMonths)) {
+    return { kind, startsOn: value.startsOn, quarterMonths: validateIntegers(value.quarterMonths, 1, 3), ...validateDateSelection(value) };
+  }
+  throw new Error("Manager check-in recurrence is invalid.");
+}
+
+function validateDateSelection(value: Record<string, unknown>): { readonly dates: readonly number[] } | { readonly lastDay: true } {
+  if (value.lastDay === true && value.dates === undefined) return { lastDay: true };
+  if (value.lastDay === undefined && Array.isArray(value.dates)) return { dates: validateIntegers(value.dates, 1, 31) };
+  throw new Error("Manager check-in recurrence is invalid.");
+}
+
+function validateIntegers(value: readonly unknown[], min: number, max: number): readonly number[] {
+  if (value.length === 0 || value.some((item) => !Number.isSafeInteger(item) || (item as number) < min || (item as number) > max)) {
+    throw new Error("Manager check-in recurrence is invalid.");
+  }
+  const result = [...value] as number[];
+  if (new Set(result).size !== result.length) throw new Error("Manager check-in recurrence is invalid.");
+  return result.sort((left, right) => left - right);
+}
+
+function isValidDateString(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function boundedString(value: unknown, max: number): value is string {

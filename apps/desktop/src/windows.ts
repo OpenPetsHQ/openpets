@@ -42,7 +42,6 @@ import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPref
 import { configurePetToggleShortcut, getPetToggleShortcutSnapshot, resolvePetToggleShortcutPreference } from "./pet-toggle-shortcut.js";
 import { getTeamService } from "./team-service.js";
 import { getManagerCheckInService } from "./manager-check-in-service.js";
-import { managerCheckInFeelingCodes } from "./team-api-client.js";
 import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type ControlCenterRoute, type ControlCenterRouteTarget } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
@@ -55,7 +54,6 @@ export type { ControlCenterRoute } from "./control-center-route.js";
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
 let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
-let pendingManagerCheckInFormRequest = false;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
 let controlCenterProviderIpc: ControlCenterProviderIpcLifecycle | null = null;
@@ -384,16 +382,12 @@ export function installInternalUiHandlers(): void {
     }
     return getManagerCheckInService().getHistory(cursor);
   });
-  ipcMain.handle("openpets:manager-check-ins-submit", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getManagerCheckInService().submit(validateManagerCheckInSubmitInput(input));
-  });
-  ipcMain.handle("openpets:manager-check-ins-set-scheduled-offers-paused", async (event, paused: unknown) => {
+  ipcMain.handle("openpets:manager-check-ins-set-device-paused", async (event, paused: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     if (typeof paused !== "boolean") {
-      throw new Error("Invalid scheduled offers pause request.");
+      throw new Error("Invalid manager check-in pause request.");
     }
-    return getManagerCheckInService().setScheduledOffersPaused(paused);
+    return getManagerCheckInService().setDevicePaused(paused);
   });
 
   ipcMain.handle("openpets:get-reaction-animation-settings", async (event) => {
@@ -688,11 +682,6 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   });
 }
 
-export function openControlCenterManagerCheckInForm(): void {
-  pendingManagerCheckInFormRequest = true;
-  openControlCenterWindow("teams");
-}
-
 export function focusOpenTaskWindows(): void {
   syncDockVisibilityForInternalUi();
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
@@ -705,11 +694,6 @@ export function focusOpenTaskWindows(): void {
 function sendControlCenterRoute(window: BrowserWindow, target: ControlCenterRouteTarget): void {
   if (window.isDestroyed()) return;
   window.webContents.send("openpets:control-center-route", target);
-}
-
-function sendManagerCheckInFormRequest(window: BrowserWindow): void {
-  if (window.isDestroyed()) return;
-  window.webContents.send("openpets:manager-check-in-open-form");
 }
 
 /** Tell the open Control Center to re-fetch the plugin snapshot (e.g. after a locale change). */
@@ -735,11 +719,8 @@ function routeControlCenterWindow(window: BrowserWindow, target: ControlCenterRo
 function flushPendingControlCenterRoute(window: BrowserWindow): void {
   if (window.isDestroyed() || !pendingControlCenterRouteTarget) return;
   const target = pendingControlCenterRouteTarget;
-  const openManagerCheckInForm = pendingManagerCheckInFormRequest;
   pendingControlCenterRouteTarget = null;
-  pendingManagerCheckInFormRequest = false;
   sendControlCenterRoute(window, target);
-  if (openManagerCheckInForm) sendManagerCheckInFormRequest(window);
 }
 
 function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; assistantTab?: string } {
@@ -761,61 +742,9 @@ function pluginUiSoundError(error: string): PluginConfigSoundPickResult {
   return { ok: false, error, snapshot: { plugins: [] } };
 }
 
-function validateManagerCheckInSubmitInput(value: unknown): {
-  readonly feelingCode: string;
-  readonly note?: string | null;
-  readonly settingsRevision: number;
-} {
-  if (!isPlainObject(value)) {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-  if (Object.keys(value).some((key) => !["feelingCode", "note", "settingsRevision"].includes(key))) {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-
-  if (
-    typeof value.feelingCode !== "string"
-    || !managerCheckInFeelingCodes.includes(value.feelingCode as typeof managerCheckInFeelingCodes[number])
-  ) {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-  if (value.note !== undefined && value.note !== null && typeof value.note !== "string") {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-  if (typeof value.note === "string" && value.note.length > 1000) {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-  if (typeof value.settingsRevision !== "number" || !Number.isSafeInteger(value.settingsRevision) || value.settingsRevision < 0) {
-    throw new Error("Invalid manager check-in submission request.");
-  }
-
-  const settingsRevision = value.settingsRevision as number;
-  const result: {
-    readonly feelingCode: string;
-    readonly note?: string | null;
-    readonly settingsRevision: number;
-  } = {
-    feelingCode: value.feelingCode,
-    settingsRevision,
-  };
-  if (value.note !== undefined) {
-    return {
-      ...result,
-      note: value.note as string | null,
-    };
-  }
-  return result;
-}
-
 function isValidManagerCheckInHistoryCursor(value: unknown): boolean {
   return value === undefined
     || (typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value));
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  return prototype === Object.prototype || prototype === null;
 }
 
 function getControlCenterPreloadPath(): string {

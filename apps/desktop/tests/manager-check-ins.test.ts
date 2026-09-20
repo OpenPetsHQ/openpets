@@ -1,825 +1,304 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import {
-  TeamApiClient,
-  TeamApiError,
-  type ManagerCheckInSettings,
-  type ManagerCheckInSubmission,
-  type ManagerCheckInSyncResponse,
-} from "../src/team-api-client.js";
+import { isRecurrenceDueOnDate } from "../src/manager-check-in-schedule.js";
 import { ManagerCheckInService } from "../src/manager-check-in-service.js";
 import { ManagerCheckInStateStore } from "../src/manager-check-in-state.js";
+import type { ManagerCheckInSchedule, ManagerCheckInSubmission, ManagerCheckInSyncResponse } from "../src/team-api-client.js";
 import type { SecureCredentialStore } from "../src/team-state.js";
 
-const settings: ManagerCheckInSettings = {
-  revision: 3,
-  weeklyEnabled: true,
-  weeklyDay: 1,
-  title: "How are you feeling this week?",
-  introduction: "This is voluntary.",
-  acknowledgement: "Thanks.",
-  notePlaceholder: "Add a note",
-  labels: {
-    good: "Good",
-    steady: "Steady",
-    stretched: "Stretched",
-    struggling: "Struggling",
-    need_support: "Need support",
-  },
-};
+const notice = { version: 1 as const, text: "Submitted check-ins are visible to your organization's Teams dashboard." };
+const labels = { good: "Good", steady: "Steady", stretched: "Stretched", struggling: "Struggling", need_support: "Need support" } as const;
 
-function createSubmission(
-  clientGeneratedId: string,
-  revision = settings.revision,
-  id = "submission-1",
-): ManagerCheckInSubmission {
+function schedule(id: string, recurrence: ManagerCheckInSchedule["recurrence"], revision = 1): ManagerCheckInSchedule {
+  return { id, revision, name: id, enabled: true, recurrence, title: `Prompt ${id}`, introduction: "Voluntary.", acknowledgement: "Thanks.", notePlaceholder: "Add a note", labels: { ...labels } };
+}
+
+function teamState() {
+  return { version: 1 as const, installationId: "desktop-1", organizationId: "org-1", organizationName: "Acme", deviceId: "device-1", pendingRevision: 0, appliedRevision: 0 };
+}
+
+function credentials(): SecureCredentialStore {
+  return { load: () => "credential", save: () => undefined, clear: () => undefined };
+}
+
+function syncResponse(schedules: readonly ManagerCheckInSchedule[], history: readonly ManagerCheckInSubmission[] = []): ManagerCheckInSyncResponse {
+  return { schedules, employee: { id: "employee-1", displayName: "Alice" }, visibilityNotice: notice, history, nextCursor: null };
+}
+
+function submission(input: { clientGeneratedId: string; scheduleId: string; scheduleRevision: number; cycleLocalDate: string }): ManagerCheckInSubmission {
+  const current = schedule(input.scheduleId, { kind: "daily", intervalDays: 1, startsOn: input.cycleLocalDate }, input.scheduleRevision);
   return {
-    id,
-    clientGeneratedId,
+    id: `submission-${input.clientGeneratedId}`,
+    clientGeneratedId: input.clientGeneratedId,
+    scheduleId: input.scheduleId,
+    scheduleRevision: input.scheduleRevision,
+    cycleId: `${input.scheduleId}:${input.cycleLocalDate}`,
+    cycleLocalDate: input.cycleLocalDate,
     feelingCode: "steady",
-    note: "A short reflection",
+    note: null,
     submittedAt: "2026-09-14T10:00:00.000Z",
-    settingsRevision: revision,
-    promptSnapshot: {
-      title: settings.title,
-      introduction: settings.introduction,
-      acknowledgement: settings.acknowledgement,
-      notePlaceholder: settings.notePlaceholder,
-      labels: settings.labels,
-      visibilityNotice: {
-        version: 1,
-        text: "Submitted check-ins are visible to your organization's Teams dashboard.",
-      },
-    },
+    scheduleSnapshot: { scheduleId: current.id, scheduleName: current.name, scheduleRevision: current.revision, recurrence: current.recurrence, title: current.title, introduction: current.introduction, acknowledgement: current.acknowledgement, notePlaceholder: current.notePlaceholder, labels: current.labels, visibilityNotice: notice },
   };
 }
 
-function createCredentialStore(): SecureCredentialStore {
-  return {
-    load: () => "credential",
-    save: () => undefined,
-    clear: () => undefined,
-  };
-}
-
-function createSyncResponse(
-  overrides: Partial<ManagerCheckInSyncResponse> = {},
-): ManagerCheckInSyncResponse {
-  return {
-    organization: { id: "org-1", name: "Acme" },
-    visibilityNotice: {
-      version: 1,
-      text: "Submitted check-ins are visible to your organization's Teams dashboard.",
-    },
-    employee: { id: "employee-1", displayName: "Alice" },
-    settings,
-    scheduledOffersPaused: false,
-    submissions: [],
-    nextCursor: null,
-    ...overrides,
-  };
-}
-
-function createTeamState() {
-  return {
-    version: 1 as const,
-    installationId: "desktop-00000000-0000-0000-0000-000000000000",
-    organizationId: "org-1",
-    organizationName: "Acme",
-    deviceId: "device-1",
-    pendingRevision: 0,
-    appliedRevision: 0,
-  };
-}
-
-test("Manager Check-in service retries a pending submission with the same idempotency key", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-test-"));
-  try {
-    let submitCalls = 0;
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse(),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number }) => {
-        submitCalls += 1;
-        if (submitCalls === 1) throw new Error("response connection lost");
-        return createSubmission(input.clientGeneratedId);
-      },
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    await assert.rejects(() => service.submit({ feelingCode: "steady", note: "A short reflection", settingsRevision: 3 }));
-    const pending = service.stateStore.snapshot()?.pendingSubmission;
-    assert.ok(pending?.clientGeneratedId);
-    await service.syncNow();
-    assert.equal(submitCalls, 2);
-    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
-    assert.equal(service.getSnapshot().submissions[0]?.clientGeneratedId, pending.clientGeneratedId);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("recurrence uses desktop dates, Monday intervals, and skips unavailable month dates", () => {
+  assert.equal(isRecurrenceDueOnDate({ kind: "weekly", intervalWeeks: 2, startsOn: "2026-09-02", weekdays: [1, 3] }, "2026-09-14"), true);
+  assert.equal(isRecurrenceDueOnDate({ kind: "weekly", intervalWeeks: 2, startsOn: "2026-09-02", weekdays: [1, 3] }, "2026-09-21"), false);
+  assert.equal(isRecurrenceDueOnDate({ kind: "monthly", intervalMonths: 1, startsOn: "2024-01-31", dates: [31] }, "2024-02-29"), false);
+  assert.equal(isRecurrenceDueOnDate({ kind: "monthly", intervalMonths: 1, startsOn: "2024-01-01", lastDay: true }, "2024-02-29"), true);
 });
 
-test("an abort after dispatch retains the client ID for the next startup retry", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-abort-test-"));
-  try {
-    let submitCalls = 0;
-    let firstClientId = "";
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse(),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }, signal: AbortSignal) => {
-        submitCalls += 1;
-        if (submitCalls === 1) {
-          firstClientId = input.clientGeneratedId;
-          await new Promise<void>((resolve, reject) => {
-            signal.addEventListener("abort", () => reject(new Error("Teams enrollment was cancelled.")), { once: true });
-          });
-        }
-        return createSubmission(input.clientGeneratedId);
-      },
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => createTeamState() }, credentialStore: createCredentialStore(), apiClient: api, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00.000Z") });
-    await service.start();
-    const submission = service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 });
-    await new Promise((resolve) => setImmediate(resolve));
-    await service.stop();
-    await assert.rejects(() => submission);
-    assert.equal(service.stateStore.snapshot()?.pendingSubmission?.clientGeneratedId, firstClientId);
-    await service.start();
-    assert.equal(submitCalls, 2);
-    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
-    assert.equal(service.stateStore.snapshot()?.submissions[0]?.clientGeneratedId, firstClientId);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("quarterly recurrence uses calendar quarter offsets and honors its start date", () => {
+  const recurrence = { kind: "quarterly" as const, startsOn: "2026-02-15", quarterMonths: [1, 3], dates: [15] };
+  assert.equal(isRecurrenceDueOnDate(recurrence, "2026-01-15"), false);
+  assert.equal(isRecurrenceDueOnDate(recurrence, "2026-03-15"), true);
+  assert.equal(isRecurrenceDueOnDate(recurrence, "2026-04-15"), true);
+  assert.equal(isRecurrenceDueOnDate(recurrence, "2026-05-15"), false);
 });
 
-test("malformed and oversized successful responses retain the original client ID for retry", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-response-test-"));
-  try {
-    let submissionCalls = 0;
-    const sentClientIds: string[] = [];
-    const syncBody = JSON.stringify(createSyncResponse());
-    const client = new TeamApiClient({ baseUrl: "https://teams.example.test", fetchImpl: async (url, init) => {
-      const path = new URL(String(url)).pathname;
-      if (path.endsWith("/sync")) return new Response(syncBody, { status: 200 });
-      submissionCalls += 1;
-      sentClientIds.push((JSON.parse(String(init?.body)) as { clientGeneratedId: string }).clientGeneratedId);
-      if (submissionCalls === 1) return new Response("{}", { status: 200 });
-      if (submissionCalls === 2) return new Response("x".repeat(513 * 1024), { status: 200 });
-      return new Response(JSON.stringify({ submission: createSubmission(sentClientIds[0]!) }), { status: 201 });
-    } });
-    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => createTeamState() }, credentialStore: createCredentialStore(), apiClient: client, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00.000Z") });
-    await service.start();
-    await assert.rejects(() => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }));
-    await service.syncNow();
-    await service.syncNow();
-    assert.equal(sentClientIds.length, 3);
-    assert.deepEqual(new Set(sentClientIds).size, 1);
-    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("Manager Check-in scheduling is local-week based and pause suppresses only scheduled offers", async () => {
-  let now = new Date("2026-09-14T12:00:00.000Z");
-  let paused = false;
-  const api = {
-    getManagerCheckInSync: async () => createSyncResponse({
-      scheduledOffersPaused: paused,
-    }),
-    submitManagerCheckIn: async (
-      _credential: string,
-      input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number },
-    ) => createSubmission(input.clientGeneratedId),
-    setScheduledOffersPaused: async (_credential: string, next: boolean) => {
-      paused = next;
-      return next;
-    },
-  };
-  const service = new ManagerCheckInService({
-    teamStateStore: { snapshot: () => createTeamState() },
-    credentialStore: createCredentialStore(),
-    apiClient: api,
-    stateStore: new ManagerCheckInStateStore({ statePath: join(tmpdir(), `openpets-manager-check-in-${Date.now()}.json`) }),
-    now: () => now,
-  });
-  await service.start();
-  assert.equal(service.getSnapshot().dueScheduledOffer, true);
-  await service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 });
-  assert.equal(service.getSnapshot().dueScheduledOffer, false);
-  now = new Date("2026-09-21T12:00:00.000Z");
-  assert.equal(service.getSnapshot().dueScheduledOffer, true);
-  await service.setScheduledOffersPaused(true);
-  assert.equal(service.getSnapshot().scheduledOffersPaused, true);
-  assert.equal(service.getSnapshot().dueScheduledOffer, false);
-  await service.setScheduledOffersPaused(false);
-  assert.equal(service.getSnapshot().dueScheduledOffer, true);
-  await service.stop();
-});
-
-test("weekly mascot offer is presented once per local week and not repeated by resync", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-offer-test-"));
-  try {
-    let now = new Date("2026-09-14T12:00:00.000Z");
-    let syncCalls = 0;
-    const offers: Array<{ title: string; introduction: string }> = [];
-    const api = {
-      getManagerCheckInSync: async () => {
-        syncCalls += 1;
-        return createSyncResponse();
-      },
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => createSubmission(input.clientGeneratedId),
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => now,
-      offerWeeklyCheckIn: (offer, onPresented) => {
-        offers.push(offer);
-        onPresented();
-        return { shown: true };
-      },
-    });
-
-    await service.start();
-    assert.equal(syncCalls, 1);
-    assert.equal(offers.length, 1);
-    assert.deepEqual(offers[0], {
-      title: settings.title,
-      introduction: settings.introduction,
-    });
-    assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, "2026-09-14");
-    await service.syncNow();
-    assert.equal(offers.length, 1);
-    now = new Date("2026-09-21T12:00:00.000Z");
-    await service.syncNow();
-    assert.equal(offers.length, 2);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("weekly offer state is marked only after the pet presentation is shown", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-offer-presentation-test-"));
-  try {
-    let presentationCount = 0;
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse(),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => createSubmission(input.clientGeneratedId),
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-      offerWeeklyCheckIn: (_offer, onPresented) => {
-        presentationCount += 1;
-        if (presentationCount === 2) onPresented();
-        return { shown: presentationCount === 2 };
-      },
-    });
-
-    await service.start();
-    assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, undefined);
-    await service.syncNow();
-    assert.equal(service.stateStore.snapshot()?.lastWeeklyOfferWeek, "2026-09-14");
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("paused and manually completed weeks suppress the mascot offer", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-offer-suppression-test-"));
-  try {
-    let now = new Date("2026-09-14T12:00:00.000Z");
-    let paused = true;
-    const offers: Array<{ title: string; introduction: string }> = [];
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse({
-        scheduledOffersPaused: paused,
-      }),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => (
-        createSubmission(input.clientGeneratedId)
-      ),
-      setScheduledOffersPaused: async () => paused,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => now,
-      offerWeeklyCheckIn: (offer, onPresented) => {
-        offers.push(offer);
-        onPresented();
-        return { shown: true };
-      },
-    });
-
-    await service.start();
-    assert.equal(offers.length, 0);
-    paused = false;
-    await service.syncNow();
-    assert.equal(offers.length, 1);
-    now = new Date("2026-09-21T12:00:00.000Z");
-    await service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 });
-    assert.equal(offers.length, 1);
-    assert.equal(service.stateStore.snapshot()?.lastManualSubmissionWeek, "2026-09-21");
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("mascot offers use only local state and do not create server telemetry", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-offer-local-test-"));
-  try {
-    let syncCalls = 0;
-    let submitCalls = 0;
-    let pauseCalls = 0;
-    const api = {
-      getManagerCheckInSync: async () => {
-        syncCalls += 1;
-        return createSyncResponse();
-      },
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
-        submitCalls += 1;
-        return createSubmission(input.clientGeneratedId);
-      },
-      setScheduledOffersPaused: async () => {
-        pauseCalls += 1;
-        return false;
-      },
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-      offerWeeklyCheckIn: (_offer, onPresented) => {
-        onPresented();
-        return { shown: true };
-      },
-    });
-
-    await service.start();
-    const raw = await readFile(service.stateStore.statePath, "utf8");
-    assert.equal(syncCalls, 1);
-    assert.equal(submitCalls, 0);
-    assert.equal(pauseCalls, 0);
-    assert.equal(/app.?open|skipped|missed.?response/i.test(raw), false);
-    assert.equal(JSON.parse(raw).lastWeeklyOfferWeek, "2026-09-14");
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("Manager Check-in local state contains no app-open or non-response telemetry", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-state-test-"));
-  try {
-    const store = new ManagerCheckInStateStore({ userDataPath: root });
-    store.ensureOrganization("org-1");
-    const raw = await readFile(store.statePath, "utf8");
-    assert.equal(/app.?open|offered|skipped|missed.?response/i.test(raw), false);
-    assert.deepEqual(Object.keys(JSON.parse(raw)), ["version", "organizationId", "submissions", "scheduledOffersPaused"]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("persisted empty submission notes survive reload without losing pending retry state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-empty-note-test-"));
+test("v1 state migration preserves only the device pause and drops ambiguous pending data", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-v1-"));
   try {
     const statePath = join(root, "state.json");
-    const store = new ManagerCheckInStateStore({ statePath });
-    const emptyNoteSubmission = {
-      ...createSubmission("empty-note"),
-      note: "",
-    };
-
-    store.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-1",
-      settings,
-      submissions: [emptyNoteSubmission],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    store.setPendingSubmission({
-      clientGeneratedId: "pending-retry",
-      feelingCode: "steady",
-      note: null,
-      settingsRevision: settings.revision,
-    });
-
-    const reloaded = new ManagerCheckInStateStore({ statePath });
-    const snapshot = reloaded.snapshot();
-    assert.equal(snapshot?.submissions[0]?.note, "");
-    assert.equal(snapshot?.pendingSubmission?.clientGeneratedId, "pending-retry");
-
-    let retriedClientId = "";
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: {
-        getManagerCheckInSync: async () => createSyncResponse({
-          submissions: [emptyNoteSubmission],
-        }),
-        submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
-          retriedClientId = input.clientGeneratedId;
-          return createSubmission(input.clientGeneratedId);
-        },
-        setScheduledOffersPaused: async () => false,
-      },
-      stateStore: reloaded,
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    assert.equal(retriedClientId, "pending-retry");
-    assert.equal(reloaded.snapshot()?.pendingSubmission, undefined);
-    await service.stop();
+    await writeFile(statePath, JSON.stringify({ version: 1, organizationId: "org-1", scheduledOffersPaused: true, pendingSubmission: { clientGeneratedId: "old" } }));
+    const state = new ManagerCheckInStateStore({ statePath }).snapshot()!;
+    assert.equal(state.version, 2);
+    assert.equal(state.devicePaused, true);
+    assert.equal(state.pendingSubmission, undefined);
+    assert.deepEqual(state.schedules, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("credential-unavailable snapshots hide cached data but preserve pending work for matching sync", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-credential-test-"));
+test("poisoned v2 records are rejected and expired receipt work is discarded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-poison-"));
   try {
-    const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
-    stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-1",
-      settings,
-      submissions: [createSubmission("cached")],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    stateStore.setPendingSubmission({
-      clientGeneratedId: "pending",
-      feelingCode: "steady",
-      note: null,
-      settingsRevision: 3,
-    });
-    let credential: string | null = null;
-    let retriedClientId = "";
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: {
-        load: () => credential,
-        save: () => undefined,
-        clear: () => undefined,
-      },
-      apiClient: {
-        getManagerCheckInSync: async () => createSyncResponse(),
-        submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
-          retriedClientId = input.clientGeneratedId;
-          return createSubmission(input.clientGeneratedId);
-        },
-        setScheduledOffersPaused: async () => false,
-      },
-      stateStore,
-    });
-    const snapshot = service.getSnapshot();
-    assert.equal(snapshot.availability, "unavailable");
-    assert.equal(snapshot.settings, null);
-    assert.deepEqual(snapshot.submissions, []);
-    assert.equal(snapshot.scheduledOffersPaused, false);
-    assert.equal(stateStore.snapshot()?.pendingSubmission?.clientGeneratedId, "pending");
-    credential = "credential";
-    await service.start();
-    assert.equal(retriedClientId, "pending");
-    assert.equal(stateStore.snapshot()?.pendingSubmission, undefined);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+    const invalidPath = join(root, "invalid.json");
+    await writeFile(invalidPath, JSON.stringify({ version: 2, organizationId: "org-1", schedules: [{ id: "bad", revision: 0, enabled: true }], submissions: [], nudgeCycleIds: [], committedCycleIds: [], devicePaused: false }));
+    assert.equal(new ManagerCheckInStateStore({ statePath: invalidPath }).snapshot(), null);
 
-test("changed device before authoritative sync cannot reuse an old pending client ID", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-device-test-"));
-  try {
-    const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
-    stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({
+    const expiredPath = join(root, "expired.json");
+    await writeFile(expiredPath, JSON.stringify({
+      version: 2,
       organizationId: "org-1",
-      deviceId: "device-old",
-      employeeIdentityId: "employee-1",
-      settings,
+      schedules: [],
       submissions: [],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    stateStore.setPendingSubmission({
-      clientGeneratedId: "old-pending",
-      feelingCode: "steady",
-      note: null,
-      settingsRevision: 3,
-    });
-    let sentClientId = "";
-    const api = {
-      getManagerCheckInSync: async () => {
-        throw new TypeError("sync unavailable");
-      },
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string }) => {
-        sentClientId = input.clientGeneratedId;
-        return createSubmission(input.clientGeneratedId);
-      },
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: {
-        snapshot: () => ({ ...createTeamState(), deviceId: "device-new" }),
-      },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore,
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    await assert.rejects(
-      () => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }),
-      /binding is unavailable/,
-    );
-    assert.equal(sentClientId, "");
-    assert.equal(stateStore.snapshot()?.pendingSubmission, undefined);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("stale revision conflicts clear pending input, refresh settings, and surface the conflict", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-conflict-test-"));
-  try {
-    let revision = 3;
-    let submissions = 0;
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse({
-        settings: { ...settings, revision },
-      }),
-      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; feelingCode: "steady"; note: string | null; settingsRevision: number }) => {
-        submissions += 1;
-        if (submissions === 1) {
-          revision = 4;
-          throw new TeamApiError(409, "settings_revision_conflict", "Teams API request failed with HTTP 409.");
-        }
-        return createSubmission(input.clientGeneratedId, 4);
-      },
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    await assert.rejects(
-      () => service.submit({ feelingCode: "steady", note: null, settingsRevision: 3 }),
-      /HTTP 409/,
-    );
-    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
-    assert.equal(service.stateStore.snapshot()?.settings?.revision, 4);
-    await service.submit({ feelingCode: "steady", note: null, settingsRevision: 4 });
-    assert.equal(submissions, 2);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("cached projections stay hidden across organization and employee binding changes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-binding-test-"));
-  try {
-    const stateStore = new ManagerCheckInStateStore({ statePath: join(root, "state.json") });
-    stateStore.ensureOrganization("org-1");
-    stateStore.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-old",
-      settings,
-      submissions: [createSubmission("old")],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    const api = {
-      getManagerCheckInSync: async () => createSyncResponse({
-        organization: { id: "org-other", name: "Other" },
-        employee: { id: "employee-new", displayName: "New" },
-      }),
-      submitManagerCheckIn: async () => createSubmission("new"),
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: {
-        snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }),
-      },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore,
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    assert.deepEqual(service.getSnapshot().submissions, []);
-    assert.equal(stateStore.snapshot()?.submissions.length, 0);
-    await service.stop();
-
-    stateStore.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-old",
-      settings,
-      submissions: [createSubmission("old-again")],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    const changedIdentityApi = {
-      ...api,
-      getManagerCheckInSync: async () => createSyncResponse({
-        employee: { id: "employee-new", displayName: "New" },
-      }),
-    };
-    const changed = new ManagerCheckInService({
-      teamStateStore: {
-        snapshot: () => ({ ...createTeamState(), deviceId: "device-1" }),
-      },
-      credentialStore: createCredentialStore(),
-      apiClient: changedIdentityApi,
-      stateStore,
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await changed.start();
-    assert.deepEqual(changed.getSnapshot().submissions, []);
-    assert.equal(stateStore.snapshot()?.employeeIdentityId, "employee-new");
-    await changed.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("cursor history pages beyond the bounded 200-entry cache without exposing other employees", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-history-test-"));
-  try {
-    const makePage = (
-      start: number,
-      count: number,
-      nextCursor: string | null,
-    ): ManagerCheckInSyncResponse => createSyncResponse({
-      submissions: Array.from(
-        { length: count },
-        (_, offset) => createSubmission(
-          `client-${start + offset}`,
-          3,
-          `submission-${start + offset}`,
-        ),
-      ),
-      nextCursor,
-    });
-    const api = {
-      getManagerCheckInSync: async (_credential: string, cursor?: string) => {
-        if (cursor === "cursor-2") {
-          return makePage(200, 1, null);
-        }
-        if (cursor === "cursor-1") {
-          return makePage(100, 100, "cursor-2");
-        }
-        return makePage(0, 100, "cursor-1");
-      },
-      submitManagerCheckIn: async () => createSubmission("unused"),
-      setScheduledOffersPaused: async () => false,
-    };
-    const service = new ManagerCheckInService({
-      teamStateStore: { snapshot: () => createTeamState() },
-      credentialStore: createCredentialStore(),
-      apiClient: api,
-      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
-      now: () => new Date("2026-09-14T12:00:00.000Z"),
-    });
-    await service.start();
-    assert.equal(service.stateStore.snapshot()?.submissions.length, 200);
-    const page = await service.getHistory("cursor-2");
-    assert.equal(page.submissions.length, 1);
-    assert.equal(page.submissions[0]?.clientGeneratedId, "client-200");
-    assert.equal(service.stateStore.snapshot()?.submissions.length, 200);
-    await service.stop();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("full persisted manager state uses UTF-8 bytes and remains recoverable after trimming", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-manager-check-in-size-test-"));
-  try {
-    const statePath = join(root, "state.json");
-    const store = new ManagerCheckInStateStore({ statePath });
-    store.ensureOrganization("org-1");
-    store.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-1",
-      settings,
-      submissions: [],
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    store.setPendingSubmission({
-      clientGeneratedId: "pending",
-      feelingCode: "steady",
-      note: null,
-      settingsRevision: settings.revision,
-    });
-    const multibyte = createSubmission("multibyte", 3, "multibyte");
-    const oversized = Array.from({ length: 200 }, (_, index) => ({
-      ...multibyte,
-      id: `multibyte-${index}`,
-      clientGeneratedId: `multibyte-${index}`,
-      note: "😀".repeat(500),
-      promptSnapshot: {
-        ...multibyte.promptSnapshot,
-        title: "漢".repeat(200),
+      nudgeCycleIds: [],
+      committedCycleIds: [],
+      devicePaused: false,
+      pendingSubmission: {
+        clientGeneratedId: "client-1",
+        scheduleId: "schedule-1",
+        scheduleRevision: 1,
+        cycleLocalDate: "2026-09-14",
+        timeZone: "UTC",
+        feelingCode: "good",
+        note: null,
+        receipt: "receipt-12345678901234567890",
+        receiptExpiresAt: "2020-01-01T00:00:00.000Z",
       },
     }));
-    store.replaceFromSync({
-      organizationId: "org-1",
-      deviceId: "device-1",
-      employeeIdentityId: "employee-1",
-      settings,
-      submissions: oversized,
-      scheduledOffersPaused: false,
-      syncedAt: "2026-09-14T00:00:00.000Z",
-    });
-    const raw = await readFile(statePath);
-    assert.ok(raw.byteLength <= 512 * 1024);
-    assert.equal(store.snapshot()?.pendingSubmission?.clientGeneratedId, "pending");
-    const restarted = new ManagerCheckInStateStore({ statePath });
-    assert.ok(restarted.snapshot());
-    assert.ok((restarted.snapshot()?.submissions.length ?? 0) < 200);
+    assert.equal(new ManagerCheckInStateStore({ statePath: expiredPath }).snapshot()?.pendingSubmission, undefined);
+
+    const pending = {
+      clientGeneratedId: "client-1",
+      scheduleId: "schedule-1",
+      scheduleRevision: 1,
+      cycleLocalDate: "2026-09-14",
+      timeZone: "UTC",
+      feelingCode: "good",
+      note: null,
+    };
+    for (const [name, extra] of [
+      ["orphan-receipt", { receipt: "receipt-12345678901234567890" }],
+      ["orphan-expiry", { receiptExpiresAt: "2026-12-15T00:15:00.000Z" }],
+    ] as const) {
+      const orphanPath = join(root, `${name}.json`);
+      await writeFile(orphanPath, JSON.stringify({
+        version: 2,
+        organizationId: "org-1",
+        schedules: [],
+        submissions: [],
+        nudgeCycleIds: [],
+        committedCycleIds: [],
+        devicePaused: false,
+        pendingSubmission: { ...pending, ...extra },
+      }));
+      assert.equal(new ManagerCheckInStateStore({ statePath: orphanPath }).snapshot()?.pendingSubmission, undefined);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("Team API errors retain bounded manager check-in error codes", async () => {
-  const client = new TeamApiClient({
-    baseUrl: "https://teams.example.test",
-    fetchImpl: async () => new Response(JSON.stringify({ error: { code: "settings_revision_conflict", details: { currentRevision: 4 } } }), { status: 409 }),
-  });
-  await assert.rejects(
-    () => client.setScheduledOffersPaused("credential", true),
-    (error: unknown) => error instanceof TeamApiError && error.code === "settings_revision_conflict" && error.status === 409,
-  );
+test("service queues schedules in server order and progresses one cycle at a time", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-queue-"));
+  try {
+    const first = schedule("first", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    const second = schedule("second", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    let history: ManagerCheckInSubmission[] = [];
+    let submittedInput: Record<string, unknown> | undefined;
+    const offers: string[] = [];
+    const api = {
+      getManagerCheckInSync: async () => syncResponse([first, second], history),
+      createManagerCheckInSubmissionReceipt: async () => ({ receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }),
+      submitManagerCheckIn: async (_credential: string, input: { clientGeneratedId: string; scheduleId: string; scheduleRevision: number; cycleLocalDate: string }) => {
+        submittedInput = input;
+        const result = submission(input);
+        history = [result];
+        return result;
+      },
+    };
+    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => teamState() }, credentialStore: credentials(), apiClient: api, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00") , offerWeeklyCheckIn: (item, onPresented) => { offers.push(item.scheduleId); onPresented(); return { shown: true }; } });
+    await service.start();
+    assert.equal(service.getPetSnapshot().pendingCount, 2);
+    assert.equal(service.getPetSnapshot().activeItem?.scheduleId, "first");
+    assert.deepEqual(offers, ["first"]);
+    await assert.rejects(() => service.submit({ scheduleId: "second", scheduleRevision: 1, cycleId: "second:2026-09-14", feelingCode: "steady", note: null }));
+    await assert.rejects(() => service.submit({ scheduleId: "first", scheduleRevision: 99, cycleId: "first:2026-09-14", feelingCode: "steady", note: null }));
+    await service.syncNow();
+    assert.deepEqual(offers, ["first"]);
+    await service.submit({ scheduleId: "first", scheduleRevision: 1, cycleId: "first:2026-09-14", feelingCode: "steady", note: null });
+    assert.equal("receiptExpiresAt" in (submittedInput ?? {}), false);
+    assert.equal(service.getPetSnapshot().pendingCount, 1);
+    assert.equal(service.getPetSnapshot().activeItem?.scheduleId, "second");
+    assert.deepEqual(offers, ["first", "second"]);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
-test("Manager Check-in pagination forwards valid opaque cursor punctuation unchanged", async () => {
-  const serverCursor = "cursor.v1:/page+2?opaque=value=";
-  const receivedCursors: Array<string | null> = [];
-  let requestCount = 0;
-  const client = new TeamApiClient({
-    baseUrl: "https://teams.example.test",
-    fetchImpl: async (url) => {
-      const requestUrl = new URL(String(url));
-      receivedCursors.push(requestUrl.searchParams.get("cursor"));
-      requestCount += 1;
-      const responseBody = requestCount === 1
-        ? createSyncResponse({ nextCursor: serverCursor })
-        : createSyncResponse({ nextCursor: null });
-      return new Response(JSON.stringify(responseBody), { status: 200 });
-    },
-  });
+test("closing a nudge does not submit or mark a cycle, while local pause hides and resume restores it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-pause-"));
+  try {
+    const item = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    let shown = 0;
+    let receiptCalls = 0;
+    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => teamState() }, credentialStore: credentials(), apiClient: { getManagerCheckInSync: async () => syncResponse([item]), createManagerCheckInSubmissionReceipt: async () => { receiptCalls += 1; return { receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }; }, submitManagerCheckIn: async () => { throw new Error("not expected"); } }, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00"), offerWeeklyCheckIn: () => { shown += 1; return { shown: false, reason: "closed" }; } });
+    await service.start();
+    assert.equal(shown, 1);
+    assert.equal(receiptCalls, 0);
+    await service.setDevicePaused(true);
+    assert.equal(service.getPetSnapshot().pendingCount, 0);
+    await service.setDevicePaused(false);
+    assert.equal(service.getPetSnapshot().pendingCount, 1);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-  const firstPage = await client.getManagerCheckInSync("credential");
-  const secondPage = await client.getManagerCheckInSync("credential", firstPage.nextCursor ?? undefined);
+test("a queued nudge clears its presentation latch and can be offered after a later sync", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-queued-"));
+  try {
+    const item = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    let attempts = 0;
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => teamState() },
+      credentialStore: credentials(),
+      apiClient: {
+        getManagerCheckInSync: async () => syncResponse([item]),
+        createManagerCheckInSubmissionReceipt: async () => ({ receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }),
+        submitManagerCheckIn: async () => { throw new Error("not expected"); },
+      },
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => new Date("2026-09-14T12:00:00"),
+      offerWeeklyCheckIn: () => {
+        attempts += 1;
+        return attempts === 1 ? { shown: false, reason: "queued" } : { shown: false, reason: "ejected" };
+      },
+    });
+    await service.start();
+    await service.syncNow();
+    assert.equal(attempts, 2);
+    assert.deepEqual(service.stateStore.snapshot()?.nudgeCycleIds, []);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-  assert.equal(firstPage.nextCursor, serverCursor);
-  assert.equal(secondPage.nextCursor, null);
-  assert.deepEqual(receivedCursors, [null, serverCursor]);
+test("ambiguous retry stays bound to schedule and cycle, but a revision change drops it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-binding-"));
+  try {
+    let current = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" }, 1);
+    const service = new ManagerCheckInService({ teamStateStore: { snapshot: () => teamState() }, credentialStore: credentials(), apiClient: { getManagerCheckInSync: async () => syncResponse([current]), createManagerCheckInSubmissionReceipt: async () => ({ receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }), submitManagerCheckIn: async () => { throw new TypeError("fetch failed"); } }, stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }), now: () => new Date("2026-09-14T12:00:00") });
+    await service.start();
+    await assert.rejects(() => service.submit({ scheduleId: "one", scheduleRevision: 1, cycleId: "one:2026-09-14", feelingCode: "good", note: null }));
+    assert.ok(service.stateStore.snapshot()?.pendingSubmission);
+    current = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" }, 2);
+    await service.syncNow();
+    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("receipt-bound pending submission survives after-midnight sync and history failures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-read-failure-"));
+  try {
+    const item = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    let now = new Date("2026-09-14T23:59:00");
+    let syncCalls = 0;
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => teamState() },
+      credentialStore: credentials(),
+      apiClient: {
+        getManagerCheckInSync: async () => {
+          syncCalls += 1;
+          if (syncCalls > 1) throw new Error("malformed sync history");
+          return syncResponse([item]);
+        },
+        createManagerCheckInSubmissionReceipt: async () => ({ receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }),
+        submitManagerCheckIn: async () => { throw new TypeError("fetch failed"); },
+      },
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => now,
+    });
+    await service.start();
+    await assert.rejects(() => service.submit({ scheduleId: "one", scheduleRevision: 1, cycleId: "one:2026-09-14", feelingCode: "good", note: "after midnight" }));
+    const pendingBeforeFailure = service.stateStore.snapshot()?.pendingSubmission;
+    assert.equal(pendingBeforeFailure?.receipt, "receipt-12345678901234567890");
+
+    now = new Date("2026-09-15T00:01:00");
+    await assert.rejects(() => service.syncNow());
+    assert.deepEqual(service.stateStore.snapshot()?.pendingSubmission, pendingBeforeFailure);
+    await assert.rejects(() => service.getHistory());
+    assert.deepEqual(service.stateStore.snapshot()?.pendingSubmission, pendingBeforeFailure);
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("deterministic submission errors clear pending work without poisoning the queue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-check-in-deterministic-error-"));
+  try {
+    const item = schedule("one", { kind: "daily", intervalDays: 1, startsOn: "2026-09-14" });
+    const service = new ManagerCheckInService({
+      teamStateStore: { snapshot: () => teamState() },
+      credentialStore: credentials(),
+      apiClient: {
+        getManagerCheckInSync: async () => syncResponse([item]),
+        createManagerCheckInSubmissionReceipt: async () => ({ receipt: "receipt-12345678901234567890", expiresAt: "2026-12-15T00:15:00.000Z" }),
+        submitManagerCheckIn: async () => { throw new Error("malformed response"); },
+      },
+      stateStore: new ManagerCheckInStateStore({ statePath: join(root, "state.json") }),
+      now: () => new Date("2026-09-14T12:00:00"),
+    });
+    await service.start();
+    await assert.rejects(() => service.submit({ scheduleId: "one", scheduleRevision: 1, cycleId: "one:2026-09-14", feelingCode: "good", note: null }));
+    assert.equal(service.stateStore.snapshot()?.pendingSubmission, undefined);
+    assert.equal(service.getPetSnapshot().activeItem?.cycleId, "one:2026-09-14");
+    await service.stop();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

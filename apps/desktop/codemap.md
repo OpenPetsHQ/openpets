@@ -6,7 +6,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 ## Design
 
-- **Tray-First UX**: No default main window; tray actions open the singleton React/Tailwind Control Center and route directly to Dashboard, Pets, Integrations, Plugins, and Settings.
+- **Tray-First UX**: No default main window; tray actions open the singleton React/Tailwind Control Center and route directly to Dashboard, Pets, Integrations, Plugins, Settings, and Teams.
 - **Single Instance**: Uses `app.requestSingleInstanceLock()` with second-instance focusing
 - **Security Model**: 
   - Sandboxed renderers with contextIsolation
@@ -24,10 +24,11 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - **Lease Manager**: 15s TTL leases for agent pet routing with heartbeat renewal
 - **Logging**: Structured logging with scopes, including `voice` and `provider`, log rotation (2MB max), and sensitive data redaction
 - **Plugin Subsystem**: Declarative manifest plugins and JavaScript plugin hosting with permission approval, config schemas, command/status surfaces, catalog/local installs, SDK bridge quotas, storage, schedules, restricted HTTPS fetch, and safe path/ZIP/manifest validation
+- **Manager Check-ins**: Bundled weekly organization feature with a private pet-native action circle and in-pet submission card; Control Center is limited to sync, immutable history, and local pause/resume controls
 
 ## Flow
 
-**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → start `PetDisplayCoordinator` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
+**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → start `PetDisplayCoordinator` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → start bundled `ManagerCheckInService` and subscribe the default pet → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
 
 **Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping; topology and resume recovery are coordinated by `pet-display-coordinator.ts`
 
@@ -35,7 +36,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 **Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
 
-**Control Center**: Tray route → `openControlCenterWindow(route)` → `windows.ts` loads Vite renderer and sends route events → `control-center-preload.cjs` exposes narrow page APIs → React Dashboard/Pets/Integrations/Plugins/Settings routes render snapshots and invoke actions, including host-owned personality preferences, conversation archive management (list, single-delete, clear), and atomic provider configuration saves.
+**Control Center**: Tray route → `openControlCenterWindow(route)` → `windows.ts` loads Vite renderer and sends route events → `control-center-preload.cjs` exposes narrow page APIs → React Dashboard/Pets/Integrations/Plugins/Settings/Teams routes render snapshots and invoke actions, including host-owned personality preferences, conversation archive management (list, single-delete, clear), atomic provider configuration saves, and Manager Check-ins sync/history/pause controls. Manager Check-in submission is owned by the private pet card, not Control Center.
 
 **Plugins**: Control Center plugins route → `plugin-service.ts` → catalog or local manifest/entry loader → permission approval/state update → `plugin-runtime.ts` schedules declarative timers or starts `plugin-js-host.ts` → `plugin-sdk-bridge.ts` applies approved SDK calls to pet/schedule/storage/command/status/network APIs
 
@@ -66,13 +67,15 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `tray.ts`: System tray icon and menu
 - `windows.ts`: Control Center BrowserWindow management, Dashboard snapshot, route targeting, IPC handlers, and internal protocols
 - `control-center-route.ts`: Canonical Control Center route validation plus unpackaged development route selection
-- `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, and Settings
+- `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, Settings, and Teams; Manager Check-in submission remains in the default pet card
 - `local-ipc.ts`: TCP/Unix socket server for CLI communication
 - `lease-manager.ts`: Pet routing lease lifecycle
 - `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
 - `pet-window-interaction.ts`: Pet-window mouse passthrough, manual/native drag bridge, renderer lifecycle recovery/watchdog, IPC event bridge, dragging state, and speech-completion subscriptions
 - `wayland-layer-backend.ts`/`wayland-layer-protocol.ts`: Native layer-shell Electron adapter plus its Electron-free length-prefixed protocol, incremental decoding, cropped BGRA frame handling, and pointer replay mapping
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
+- `manager-check-in-service.ts`: Bundled weekly Manager Check-ins coordinator; synchronizes settings/history, computes local-week due state, owns immutable/idempotent submission retries, and exposes a history-free pet snapshot
+- `manager-check-in-state.ts`: Atomic local Manager Check-ins state for bounded history, in-flight submission retry identity, local-week offer state, and device-private scheduled-offer pause
 - `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
 - `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and bottom-anchored expanded attached chat panel
 - `pet-assistant-feedback.ts`: Reducer mapping canonical assistant turns and active voice sessions to pet reactions, suppressing duplicate text when chat is open while keeping sprite activity/reaction animations
@@ -111,7 +114,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
-- `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, and in-pet attached chat panel), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
+- `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, attached chat panel, and private Manager Check-in card), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
 - `electron-builder.yml`: Packaging configuration
 - `scripts/release-local.mjs`: macOS-local release automation as resumable checkpointed stages, with target-aware temporary and actual-artifact payload validation, SHA-256 checkpoint output digests, and GitHub draft creation
 - `contracts/catalog-fixture.contract.ts`: Catalog V2 validation contract tests against fixture data

@@ -21,25 +21,52 @@ import {
   expandedPetWindowSize,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetWindowSize, type Point } from "./display.js";
+import { getManagerCheckInService, type ManagerCheckInPetSnapshot } from "./manager-check-in-service.js";
 
 let defaultPetWindowRef: BrowserWindow | null = null;
-let isChatExpanded = false;
-let isChatCompactOpen = false;
+const defaultPetPanelStates = ["collapsed", "compact-chat", "expanded-chat", "expanded-check-in"] as const;
+export type DefaultPetPanelState = (typeof defaultPetPanelStates)[number];
+let carrierState: DefaultPetPanelState = "collapsed";
 let activeChatPanelHeight: number | undefined;
 let handlersInstalled = false;
 let conversationUnsubscribe: (() => void) | null = null;
 let voiceUnsubscribe: (() => void) | null = null;
+let petPanelEventSequence = 0;
+let petCheckInSubmission: Promise<ManagerCheckInPetSnapshot> | null = null;
 
+/** Returns true only when the assistant Chat history surface is expanded. */
 export function isDefaultPetChatExpanded(): boolean {
-  return isChatExpanded;
+  return carrierState === "expanded-chat";
+}
+
+/** Returns whether the shared pet window is carrying any expanded surface. */
+export function isDefaultPetCarrierExpanded(): boolean {
+  return isExpandedCarrierState(carrierState);
 }
 
 export function isDefaultPetChatCompactOpen(): boolean {
-  return isChatCompactOpen;
+  return carrierState === "compact-chat";
+}
+
+export function isDefaultPetCheckInOpen(): boolean {
+  return carrierState === "expanded-check-in";
+}
+
+export function getDefaultPetPanelState(): DefaultPetPanelState {
+  return projectDefaultPetPanelState(carrierState);
+}
+
+export function isDefaultPetPanelState(value: unknown): value is DefaultPetPanelState {
+  return typeof value === "string" && defaultPetPanelStates.includes(value as DefaultPetPanelState);
+}
+
+/** Projects unknown state at the preload boundary to one exact carrier state. */
+export function projectDefaultPetPanelState(value: unknown): DefaultPetPanelState {
+  return isDefaultPetPanelState(value) ? value : "collapsed";
 }
 
 export function getActiveChatPanelHeight(): number | undefined {
-  return isChatExpanded ? activeChatPanelHeight : undefined;
+  return carrierState === "expanded-chat" ? activeChatPanelHeight : undefined;
 }
 
 export function bindDefaultPetChatWindow(window: BrowserWindow): void {
@@ -47,6 +74,8 @@ export function bindDefaultPetChatWindow(window: BrowserWindow): void {
   unbindDefaultPetChatWindow();
   defaultPetWindowRef = window;
   attachHostSubscriptions(window);
+  sendInitialManagerCheckInState(window);
+  sendPanelState(window);
 
   window.on("closed", () => {
     if (defaultPetWindowRef === window) {
@@ -58,86 +87,95 @@ export function bindDefaultPetChatWindow(window: BrowserWindow): void {
 export function unbindDefaultPetChatWindow(): void {
   teardownHostSubscriptions();
   defaultPetWindowRef = null;
-  isChatExpanded = false;
-  isChatCompactOpen = false;
+  carrierState = "collapsed";
+  activeChatPanelHeight = undefined;
 }
 
 export function expandDefaultPetChat(): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
-  if (isChatExpanded) return;
-  setCarrierExpansion(defaultPetWindowRef, true);
+  setCarrierMode(defaultPetWindowRef, "expanded-chat");
 }
 
 export function collapseDefaultPetChat(): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
-  if (!isChatExpanded) return;
-  setCarrierExpansion(defaultPetWindowRef, false);
+  setCarrierMode(defaultPetWindowRef, "collapsed");
 }
 
 export function toggleDefaultPetChat(): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
-  setCarrierExpansion(defaultPetWindowRef, !isChatExpanded);
+  setCarrierMode(
+    defaultPetWindowRef,
+    carrierState === "expanded-chat" ? "collapsed" : "expanded-chat",
+  );
 }
 
 export function setDefaultPetChatCompactOpen(open: boolean): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
-  if (isChatExpanded) open = false;
-  if (isChatCompactOpen === open) return;
-  isChatCompactOpen = open;
-
-  if (open) {
-    defaultPetWindowRef.setFocusable(true);
-    defaultPetWindowRef.focus();
-  }
-
-  const window = defaultPetWindowRef;
-  void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion, refreshDefaultPetFocusPolicy }) => {
-    if (window.isDestroyed()) return;
-    applyLinuxPetWindowShapeWithExpansion(window, isChatExpanded, isChatCompactOpen);
-    refreshDefaultPetFocusPolicy(window);
-  }).catch(() => {});
-
-  if (!defaultPetWindowRef.webContents.isDestroyed()) {
-    defaultPetWindowRef.webContents.send("openpets:default-pet-chat-compact-changed", open);
-  }
+  if (carrierState === "expanded-chat" || carrierState === "expanded-check-in") return;
+  setCarrierMode(defaultPetWindowRef, open ? "compact-chat" : "collapsed");
 }
 
 export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): void {
+  setCarrierMode(window, expanded ? "expanded-chat" : "collapsed");
+}
+
+export function openDefaultPetCheckIn(): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  setCarrierMode(defaultPetWindowRef, "expanded-check-in");
+}
+
+export function closeDefaultPetCheckIn(): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  if (carrierState === "expanded-check-in") setCarrierMode(defaultPetWindowRef, "collapsed");
+}
+
+function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState): void {
   if (window.isDestroyed()) return;
-  if (isChatExpanded === expanded) return;
-  const compactWasOpen = isChatCompactOpen;
-  isChatExpanded = expanded;
-  if (expanded) isChatCompactOpen = false;
+  if (carrierState === nextState) return;
+  const previousState = carrierState;
+  const wasExpanded = isExpandedCarrierState(previousState);
+  const isExpanded = isExpandedCarrierState(nextState);
+  const compactWasOpen = previousState === "compact-chat";
+  const compactIsOpen = nextState === "compact-chat";
+  carrierState = nextState;
+  if (nextState !== "expanded-chat") activeChatPanelHeight = undefined;
 
   const currentBounds = window.getBounds();
   const currentPos: Point = { x: currentBounds.x, y: currentBounds.y };
   const currentDisplay = screen.getDisplayMatching(currentBounds);
   const workArea = currentDisplay?.workArea;
 
-  if (expanded) {
+  if (isExpanded && !wasExpanded) {
     const nextBounds = calculateExpandedCarrierBounds(currentPos, defaultPetWindowSize, expandedPetWindowSize, workArea);
     debug("pet.chat", "expanding carrier window", { currentPos, nextBounds, windowId: window.id });
     window.setBounds(nextBounds, false);
     window.setFocusable(true);
     window.focus();
-  } else {
-    activeChatPanelHeight = undefined;
+  } else if (!isExpanded && wasExpanded) {
     const nextBounds = calculateCollapsedCarrierBounds(currentPos, expandedPetWindowSize, defaultPetWindowSize, workArea);
     debug("pet.chat", "collapsing carrier window", { currentPos, nextBounds, windowId: window.id });
     window.setBounds(nextBounds, false);
   }
 
   // Refresh Linux shape and focus policy if needed
+  if (isExpanded) {
+    window.setFocusable(true);
+    window.focus();
+  }
+
   void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion, refreshDefaultPetFocusPolicy }) => {
-    applyLinuxPetWindowShapeWithExpansion(window, expanded, isChatCompactOpen, activeChatPanelHeight);
+    applyLinuxPetWindowShapeWithExpansion(window, isExpanded, compactIsOpen, activeChatPanelHeight);
     refreshDefaultPetFocusPolicy(window);
   }).catch(() => {});
 
   if (!window.webContents.isDestroyed()) {
-    if (compactWasOpen && expanded) {
-      window.webContents.send("openpets:default-pet-chat-compact-changed", false);
+    if (compactWasOpen !== compactIsOpen) {
+      window.webContents.send("openpets:default-pet-chat-compact-changed", compactIsOpen);
     }
-    window.webContents.send("openpets:default-pet-chat-expansion-changed", expanded);
+    if (wasExpanded !== isExpanded) {
+      window.webContents.send("openpets:default-pet-chat-expansion-changed", isExpanded);
+    }
+    sendPanelState(window);
   }
 }
 
@@ -182,11 +220,11 @@ export function installDefaultPetChatIpcHandlers(): void {
     );
     if (activeChatPanelHeight === height) return;
     activeChatPanelHeight = height;
-    if (isChatExpanded && defaultPetWindowRef && !defaultPetWindowRef.isDestroyed()) {
+    if (carrierState === "expanded-chat" && defaultPetWindowRef && !defaultPetWindowRef.isDestroyed()) {
       const win = defaultPetWindowRef;
       void import("./pet-window.js").then(({ applyLinuxPetWindowShapeWithExpansion }) => {
         if (win.isDestroyed()) return;
-        applyLinuxPetWindowShapeWithExpansion(win, isChatExpanded, isChatCompactOpen, activeChatPanelHeight);
+        applyLinuxPetWindowShapeWithExpansion(win, true, false, activeChatPanelHeight);
       }).catch(() => {});
     }
   });
@@ -202,6 +240,40 @@ export function installDefaultPetChatIpcHandlers(): void {
   handleChat("openpets:default-pet-chat-is-compact-open", () => {
     return isDefaultPetChatCompactOpen();
   });
+
+  handleChat("openpets:default-pet-check-in-get-snapshot", () => {
+    return getManagerCheckInService().getPetSnapshot();
+  });
+
+  handleChat("openpets:default-pet-check-in-open", () => {
+    openDefaultPetCheckIn();
+    return getManagerCheckInService().getPetSnapshot();
+  });
+
+  handleChat("openpets:default-pet-check-in-close", () => {
+    closeDefaultPetCheckIn();
+  });
+
+  handleChat("openpets:default-pet-check-in-submit", async (_event, input: unknown) => {
+    if (petCheckInSubmission) return petCheckInSubmission;
+    const operation = getManagerCheckInService()
+      .submit(input as {
+        readonly scheduleId: unknown;
+        readonly scheduleRevision: unknown;
+        readonly cycleId: unknown;
+      readonly feelingCode: unknown;
+      readonly note?: unknown;
+    })
+      .then(() => getManagerCheckInService().getPetSnapshot());
+    petCheckInSubmission = operation;
+    try {
+      return await operation;
+    } finally {
+      if (petCheckInSubmission === operation) petCheckInSubmission = null;
+    }
+  });
+
+  handleChat("openpets:default-pet-panel-get-state", () => getDefaultPetPanelState());
 
   handleChat("openpets:default-pet-chat-send-message", async (_event, text: unknown) => {
     const controller = getPetAssistantConversationController();
@@ -337,4 +409,42 @@ function teardownHostSubscriptions(): void {
     try { voiceUnsubscribe(); } catch {}
     voiceUnsubscribe = null;
   }
+}
+
+/** Broadcast the pet-safe projection from the main-process service subscription. */
+export function broadcastDefaultPetManagerCheckInSnapshot(snapshot: ManagerCheckInPetSnapshot): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  sendManagerCheckInSnapshot(defaultPetWindowRef, snapshot);
+}
+
+function sendManagerCheckInSnapshot(window: BrowserWindow, snapshot: ManagerCheckInPetSnapshot): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+  window.webContents.send("openpets:default-pet-check-in-event", {
+    type: "snapshot",
+    sequence: ++petPanelEventSequence,
+    snapshot,
+  });
+}
+
+function sendInitialManagerCheckInState(window: BrowserWindow): void {
+  try {
+    sendManagerCheckInSnapshot(window, getManagerCheckInService().getPetSnapshot());
+  } catch {
+    // The manager service is initialized before normal pet creation. A
+    // replacement window during early startup can still bind before it is
+    // available; the renderer's initial invoke will retry in that case.
+  }
+}
+
+function sendPanelState(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+  window.webContents.send("openpets:default-pet-panel-state", {
+    type: "panel-state",
+    sequence: ++petPanelEventSequence,
+    state: getDefaultPetPanelState(),
+  });
+}
+
+function isExpandedCarrierState(state: DefaultPetPanelState): boolean {
+  return state === "expanded-chat" || state === "expanded-check-in";
 }

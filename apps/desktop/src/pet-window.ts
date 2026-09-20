@@ -14,7 +14,7 @@ import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayl
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
 import { calculatePetInteractiveShape } from "./pet-window-shape.js";
 import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
-import { getActiveChatPanelHeight, isDefaultPetChatCompactOpen, isDefaultPetChatExpanded } from "./default-pet-chat.js";
+import { getActiveChatPanelHeight, isDefaultPetCarrierExpanded, isDefaultPetChatCompactOpen } from "./default-pet-chat.js";
 
 import type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
@@ -334,7 +334,7 @@ function applyPetAlwaysOnTop(window: BrowserWindow): void {
 export async function loadDefaultPetContent(window: BrowserWindow, paused: boolean, display: PetTransientDisplay | null = null, badge: PetStatusBadgeReaction | null = null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): Promise<void> {
   const sequence = allocateWindowLoadSequence(window);
   debug("pet.window", "default content render begin", { windowId: window.id, sequence, paused, hasDisplay: Boolean(display), reaction: display?.reaction, hasMessage: Boolean(display?.message), badge, hasPluginBubble: Boolean(pluginBubbles?.transient), hasPinned: Boolean(pluginBubbles?.pinned), defaultPetId: getAppStateSnapshot().preferences.defaultPetId });
-  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetChatExpanded() || isDefaultPetChatCompactOpen());
+  applyPetWindowFocusPolicy(window, petPluginBubblesHaveInteractiveInput(pluginBubbles) || isDefaultPetCarrierExpanded() || isDefaultPetChatCompactOpen());
   const render = await createDefaultPetRender(paused, display, badge, dismissToken, pluginBubbles);
   if (windowLoadSequences.get(window) === sequence) updatePetGazeConfiguration(window, render, render.flipped);
   const hasPinned = Boolean(pluginBubbles?.pinned);
@@ -493,7 +493,7 @@ export function readWindowPosition(window: BrowserWindow): Point {
 function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean, hasPinned = false): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
-  const isExpanded = isDefaultPetChatExpanded();
+  const isExpanded = isDefaultPetCarrierExpanded();
   const bounds = window.getBounds();
   const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
   const { shape } = calculatePetInteractiveShape({
@@ -575,7 +575,7 @@ export function applyLinuxPetWindowShapeWithExpansion(
 
 export function refreshDefaultPetFocusPolicy(window: BrowserWindow): void {
   if (window.isDestroyed()) return;
-  const expanded = isDefaultPetChatExpanded();
+  const expanded = isDefaultPetCarrierExpanded();
   applyPetWindowFocusPolicy(window, expanded || isDefaultPetChatCompactOpen());
 }
 

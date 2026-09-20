@@ -5,7 +5,7 @@ import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
 import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
-import { bindDefaultPetChatWindow, collapseDefaultPetChat, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
+import { bindDefaultPetChatWindow, collapseDefaultPetChat, openDefaultPetCheckIn, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
 import { debug, info } from "./logger.js";
 import { t } from "./i18n/index.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
@@ -254,6 +254,11 @@ export function presentManagerCheckInOffer(
   showDefaultPetForExternalEvent();
   const shown = defaultPetBubbleArbiter.snapshot().current?.token === handle.id;
   return { shown, ...(shown ? {} : { reason: "queued" }) };
+}
+
+/** Open the private check-in surface without routing through Control Center. */
+export function openDefaultPetManagerCheckIn(): void {
+  openDefaultPetCheckIn();
 }
 
 export function applyExternalPetShowMedia(options: PetShowMediaOptions): { readonly shown: boolean; readonly reason?: string } {

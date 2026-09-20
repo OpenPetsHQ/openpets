@@ -1,7 +1,6 @@
 import type {
   ManagerCheckInFeelingCode,
-  ManagerCheckInPromptSnapshot,
-  ManagerCheckInSettings,
+  ManagerCheckInScheduleSnapshot,
 } from "../teams-types.js";
 
 export const DEFAULT_FEELING_LABELS: Record<ManagerCheckInFeelingCode, string> = {
@@ -79,48 +78,7 @@ export const FEELING_CONFIGS: Record<ManagerCheckInFeelingCode, FeelingConfig> =
   },
 };
 
-export const WEEKDAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-] as const;
-
 export type TranslationFn = (key: string, vars?: Record<string, string | number>) => string;
-
-/**
- * Returns the localized or default name for a weekday index (0 = Sunday, 1 = Monday, ..., 6 = Saturday).
- */
-export function getWeekdayName(dayIndex: number, t?: TranslationFn): string {
-  const normalizedIndex = ((dayIndex % 7) + 7) % 7;
-  if (t) {
-    const key = `teams.checkIn.weekday.${normalizedIndex}`;
-    const translated = t(key);
-    if (translated !== key) {
-      return translated;
-    }
-  }
-  return WEEKDAYS[normalizedIndex] ?? "Monday";
-}
-
-/**
- * Calculates the local Monday week key (YYYY-MM-DD) for a given date in desktop-local time.
- * Monday is day 1, Sunday is day 7.
- */
-export function getLocalMondayWeekKey(date: Date = new Date()): string {
-  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = local.getDay() || 7;
-  local.setDate(local.getDate() - day + 1);
-
-  const year = local.getFullYear();
-  const month = String(local.getMonth() + 1).padStart(2, "0");
-  const dayOfMonth = String(local.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${dayOfMonth}`;
-}
 
 /**
  * Formats a submission timestamp into a human-readable localized date string.
@@ -197,12 +155,12 @@ export function formatRelativeDate(
 
 /**
  * Resolves the display label for a feeling code:
- * 1. Checks custom org labels in prompt snapshot or settings (customization is a V1 feature).
+ * Uses the immutable schedule snapshot carried by each submission.
  * 2. Falls back to the stable fixed default scale ("Good", "Steady", "Stretched", "Struggling", "Need support") in all locales.
  */
 export function getFeelingLabel(
   feelingCode: ManagerCheckInFeelingCode,
-  snapshotOrSettings?: ManagerCheckInPromptSnapshot | ManagerCheckInSettings | null,
+  snapshotOrSettings?: ManagerCheckInScheduleSnapshot | null,
 ): string {
   const customLabel = snapshotOrSettings?.labels?.[feelingCode];
   if (typeof customLabel === "string" && customLabel.trim().length > 0) {

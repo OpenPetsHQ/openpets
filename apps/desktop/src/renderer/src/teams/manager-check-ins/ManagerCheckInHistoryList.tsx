@@ -50,7 +50,7 @@ function HistorySubmissionCard({
 }) {
   const { t, locale } = useI18n();
   const config = FEELING_CONFIGS[submission.feelingCode];
-  const label = getFeelingLabel(submission.feelingCode, submission.promptSnapshot);
+  const label = getFeelingLabel(submission.feelingCode, submission.scheduleSnapshot);
   const relativeTime = formatRelativeDate(submission.submittedAt, t, locale);
   const formattedDate = formatSubmissionDate(submission.submittedAt, locale);
   const isNeedSupport = submission.feelingCode === "need_support";
@@ -73,9 +73,9 @@ function HistorySubmissionCard({
             <span>{label}</span>
           </span>
 
-          {submission.promptSnapshot?.title && (
+          {submission.scheduleSnapshot.title && (
             <span className="text-xs font-bold text-navy dark:text-slate-200">
-              {submission.promptSnapshot.title}
+              {submission.scheduleSnapshot.title}
             </span>
           )}
         </div>
@@ -102,14 +102,14 @@ function HistorySubmissionCard({
       )}
 
       {/* Prompt snapshot acknowledgement footer */}
-      {submission.promptSnapshot?.acknowledgement && (
+      {submission.scheduleSnapshot.acknowledgement && (
         <div className="mt-2 pt-2 border-t border-blue-50/70 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slatecopy/70 dark:text-slate-400">
           <span className="truncate">
-            ✓ {submission.promptSnapshot.acknowledgement}
+            ✓ {submission.scheduleSnapshot.acknowledgement}
           </span>
           <span className="font-mono shrink-0 ml-2">
             {t("teams.checkIn.history.revBadge", {
-              revision: submission.settingsRevision,
+                revision: submission.scheduleRevision,
             })}
           </span>
         </div>

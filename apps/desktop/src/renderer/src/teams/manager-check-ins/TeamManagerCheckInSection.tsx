@@ -3,30 +3,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n.js";
 import {
   AlertCircleIcon,
-  CheckCircleIcon,
   CheckIcon,
   CloseIcon,
   HeartHandshakeIcon,
   InfoIcon,
   RefreshIcon,
-  SparklesIcon,
 } from "../teams-icons.js";
 import type {
   ManagerCheckInHistoryPage,
   ManagerCheckInSnapshot,
   ManagerCheckInSubmission,
-  ManagerCheckInSubmitInput,
   TeamsApi,
 } from "../teams-types.js";
-import { ManagerCheckInForm } from "./ManagerCheckInForm.js";
 import { ManagerCheckInHistoryList } from "./ManagerCheckInHistoryList.js";
 import { ManagerCheckInPauseControls } from "./ManagerCheckInPauseControls.js";
-import { ManagerCheckInScheduledOfferBanner } from "./ManagerCheckInScheduledOfferBanner.js";
-import { getLocalMondayWeekKey } from "./manager-check-ins-state.js";
 
 export type TeamManagerCheckInSectionProps = {
   readonly api: TeamsApi;
-  readonly openFormRequest?: number;
 };
 
 function deduplicateSubmissions(
@@ -46,7 +39,7 @@ function deduplicateSubmissions(
   return result;
 }
 
-export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamManagerCheckInSectionProps) {
+export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProps) {
   const { t } = useI18n();
 
   const [snapshot, setSnapshot] = useState<ManagerCheckInSnapshot | null>(null);
@@ -55,11 +48,6 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
   const [errorMessage, setErrorMessage] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [acknowledgementMessage, setAcknowledgementMessage] = useState("");
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  // Scheduled offer dismissal keyed to active desktop-local weekly cycle
-  const [dismissedCycleKey, setDismissedCycleKey] = useState<string | null>(null);
 
   // Pagination state for historical submissions
   const [historicalSubmissions, setHistoricalSubmissions] = useState<
@@ -71,24 +59,6 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
   // Request token/generation to prevent out-of-order / stale async history responses
   const historyRequestIdRef = useRef(0);
   const hasLoadedInitialSnapshotRef = useRef(false);
-
-  // Active due cycle key derived from snapshot + desktop-local Monday week key (null if not currently due)
-  const localWeekKey = getLocalMondayWeekKey();
-  const activeDueCycleKey =
-    snapshot?.dueScheduledOffer && snapshot?.settings
-      ? `due_week_${localWeekKey}_day_${snapshot.settings.weeklyDay}_rev_${snapshot.settings.revision}`
-      : null;
-
-  const isOfferDismissed = Boolean(
-    activeDueCycleKey && dismissedCycleKey === activeDueCycleKey,
-  );
-
-  // Retain reset behavior when no offer is due
-  useEffect(() => {
-    if (!snapshot?.dueScheduledOffer) {
-      setDismissedCycleKey(null);
-    }
-  }, [snapshot?.dueScheduledOffer]);
 
   // Auto-clear transient success messages
   useEffect(() => {
@@ -109,7 +79,7 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
           const page: ManagerCheckInHistoryPage = await api.getManagerCheckInsHistory();
 
           // After a successful page-zero getManagerCheckInsHistory() call (which applies
-          // authoritative service sync), reread getManagerCheckInsSnapshot() so settings/pause/due
+          // authoritative service sync), reread getManagerCheckInsSnapshot() so schedules/pause state
           // state cannot remain stale.
           const freshSnapshot = api.getManagerCheckInsSnapshot
             ? await api.getManagerCheckInsSnapshot()
@@ -174,10 +144,7 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
 
         const isReady = Boolean(
           next.availability === "available" &&
-            next.settings &&
-            typeof next.settings.revision === "number" &&
-            Number.isSafeInteger(next.settings.revision) &&
-            next.settings.revision >= 0 &&
+            Array.isArray(next.schedules) &&
             typeof next.visibilityNotice?.text === "string" &&
             next.visibilityNotice.text.trim().length > 0,
         );
@@ -206,51 +173,8 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
     void loadSnapshot();
   }, [loadSnapshot]);
 
-  useEffect(() => {
-    if (openFormRequest > 0) {
-      setIsFormOpen(true);
-      setAcknowledgementMessage("");
-    }
-  }, [openFormRequest]);
-
-  const handleSubmitCheckIn = async (input: ManagerCheckInSubmitInput) => {
-    if (!api.submitManagerCheckIn) {
-      throw new Error(t("teams.checkIn.error.submitNotAvailable"));
-    }
-
-    setBusy(true);
-    setErrorMessage("");
-
-    try {
-      const next = await api.submitManagerCheckIn(input);
-      setSnapshot(next);
-      setIsFormOpen(false);
-
-      // Dismiss the active due cycle if one was active
-      if (activeDueCycleKey) {
-        setDismissedCycleKey(activeDueCycleKey);
-      }
-
-      // Atomically refresh history entries with fresh page zero
-      await fetchPageZero(next.submissions || []);
-
-      const ackText =
-        next.settings?.acknowledgement ||
-        t("teams.checkIn.acknowledgement.default");
-      setAcknowledgementMessage(ackText);
-      setSuccessMessage(t("teams.checkIn.toast.submitted"));
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : t("teams.checkIn.error.submitFailed"),
-      );
-      throw err;
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleTogglePause = async (paused: boolean) => {
-    if (!api.setManagerCheckInScheduledOffersPaused) {
+    if (!api.setManagerCheckInDevicePaused) {
       setErrorMessage(t("teams.checkIn.error.pauseNotAvailable"));
       return;
     }
@@ -259,7 +183,7 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
     setErrorMessage("");
 
     try {
-      const next = await api.setManagerCheckInScheduledOffersPaused(paused);
+      const next = await api.setManagerCheckInDevicePaused(paused);
       setSnapshot(next);
       setSuccessMessage(
         paused
@@ -313,21 +237,8 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
     void fetchPageZero(snapshot?.submissions || []);
   };
 
-  const handleOpenForm = () => {
-    setIsFormOpen(true);
-    setAcknowledgementMessage("");
-  };
-
-  const handleCloseForm = () => {
-    setIsFormOpen(false);
-  };
-
   const handleDismissToast = () => {
     setSuccessMessage("");
-  };
-
-  const handleDismissAcknowledgement = () => {
-    setAcknowledgementMessage("");
   };
 
   const handleDismissError = () => {
@@ -388,13 +299,10 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
     );
   }
 
-  // Unready state: available on device, but server settings (non-negative safe integer revision) or visibility notice not yet synchronized
+  // Unready state: available on device, but schedules or visibility notice not yet synchronized
   const isServerConfigReady = Boolean(
     snapshot.availability === "available" &&
-      snapshot.settings &&
-      typeof snapshot.settings.revision === "number" &&
-      Number.isSafeInteger(snapshot.settings.revision) &&
-      snapshot.settings.revision >= 0 &&
+      Array.isArray(snapshot.schedules) &&
       typeof snapshot.visibilityNotice?.text === "string" &&
       snapshot.visibilityNotice.text.trim().length > 0,
   );
@@ -477,15 +385,6 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
     );
   }
 
-  const settings = snapshot.settings!;
-  const visibilityNoticeText = snapshot.visibilityNotice!.text;
-
-  const showScheduledBanner =
-    Boolean(snapshot.dueScheduledOffer) &&
-    !isOfferDismissed &&
-    !snapshot.scheduledOffersPaused &&
-    !isFormOpen;
-
   const activeSyncError = errorMessage || snapshot.lastError;
 
   return (
@@ -513,18 +412,6 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
             <RefreshIcon className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} />
             <span>{t("teams.checkIn.action.sync")}</span>
           </button>
-
-          {!isFormOpen && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleOpenForm}
-              className="btn btn-compact btn-primary text-xs"
-            >
-              <SparklesIcon className="w-3.5 h-3.5 mr-1" />
-              <span>{t("teams.checkIn.action.checkInNow")}</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -540,31 +427,6 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
             className="text-emerald-700 hover:text-emerald-900 cursor-pointer p-1 dark:text-emerald-300 dark:hover:text-emerald-100"
             onClick={handleDismissToast}
             aria-label={t("teams.checkIn.aria.dismissMessage")}
-          >
-            <CloseIcon className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Acknowledgement Card (after submitting) */}
-      {acknowledgementMessage && (
-        <div className="rounded-2xl border border-blue-200/80 bg-blue-50/80 p-4 shadow-sm flex items-start gap-3.5 dark:bg-blue-950/40 dark:border-blue-800/60">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-100 text-brand dark:bg-blue-900/60 dark:text-blue-300">
-            <CheckCircleIcon className="w-5 h-5" />
-          </div>
-          <div className="flex-1 min-w-0 text-xs leading-relaxed">
-            <strong className="block text-xs font-bold text-navy dark:text-slate-100 mb-0.5">
-              {t("teams.checkIn.acknowledgement.title")}
-            </strong>
-            <p className="m-0 text-slatecopy dark:text-slate-300">
-              {acknowledgementMessage}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="text-slatecopy/60 hover:text-slatecopy cursor-pointer p-1 dark:text-slate-400"
-            onClick={handleDismissAcknowledgement}
-            aria-label={t("teams.checkIn.aria.dismissAcknowledgement")}
           >
             <CloseIcon className="w-3.5 h-3.5" />
           </button>
@@ -596,33 +458,9 @@ export function TeamManagerCheckInSection({ api, openFormRequest = 0 }: TeamMana
         </div>
       )}
 
-      {/* Scheduled Weekly Offer Banner (if due) */}
-      {showScheduledBanner && (
-        <ManagerCheckInScheduledOfferBanner
-          settings={settings}
-          onOpenCheckIn={handleOpenForm}
-          onDismiss={() => {
-            if (activeDueCycleKey) {
-              setDismissedCycleKey(activeDueCycleKey);
-            }
-          }}
-        />
-      )}
-
-      {/* Check In Form (when opened) */}
-      {isFormOpen && (
-        <ManagerCheckInForm
-          settings={settings}
-          visibilityNoticeText={visibilityNoticeText}
-          isBusy={busy}
-          onSubmit={handleSubmitCheckIn}
-          onCancel={handleCloseForm}
-        />
-      )}
-
       {/* Scheduled Offer Pause Controls */}
       <ManagerCheckInPauseControls
-        isPaused={snapshot.scheduledOffersPaused}
+        isPaused={snapshot.devicePaused ?? false}
         isBusy={busy}
         onTogglePause={(paused) => void handleTogglePause(paused)}
       />

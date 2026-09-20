@@ -98,17 +98,30 @@ type RemoteControlClientSummary = { id: string; name: string; scopes: RemoteCont
 type RemoteControlSnapshot = { config: RemoteControlConfigSnapshot; clients: RemoteControlClientSummary[] };
 type RemotePairingResult = { clientId: string; token: string };
 type ManagerCheckInFeelingCode = "good" | "steady" | "stretched" | "struggling" | "need_support";
-type ManagerCheckInSettings = {
+type ManagerCheckInRecurrence =
+  | { readonly kind: "daily"; readonly intervalDays: number; readonly startsOn: string }
+  | { readonly kind: "weekly"; readonly intervalWeeks: number; readonly startsOn: string; readonly weekdays: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly dates: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly lastDay: true }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly dates: readonly number[] }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly lastDay: true };
+type ManagerCheckInSchedule = {
+  readonly id: string;
   readonly revision: number;
-  readonly weeklyEnabled: boolean;
-  readonly weeklyDay: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly recurrence: ManagerCheckInRecurrence;
   readonly title: string;
   readonly introduction: string;
   readonly acknowledgement: string;
   readonly notePlaceholder: string;
   readonly labels: Record<ManagerCheckInFeelingCode, string>;
 };
-type ManagerCheckInPromptSnapshot = {
+type ManagerCheckInScheduleSnapshot = {
+  readonly scheduleId: string;
+  readonly scheduleName: string;
+  readonly scheduleRevision: number;
+  readonly recurrence: ManagerCheckInRecurrence;
   readonly title: string;
   readonly introduction: string;
   readonly acknowledgement: string;
@@ -119,31 +132,27 @@ type ManagerCheckInPromptSnapshot = {
 type ManagerCheckInSubmission = {
   readonly id: string;
   readonly clientGeneratedId: string;
+  readonly scheduleId: string;
+  readonly scheduleRevision: number;
+  readonly cycleId: string;
+  readonly cycleLocalDate: string;
   readonly feelingCode: ManagerCheckInFeelingCode;
   readonly note: string | null;
   readonly submittedAt: string;
-  readonly settingsRevision: number;
-  readonly promptSnapshot: ManagerCheckInPromptSnapshot;
+  readonly scheduleSnapshot: ManagerCheckInScheduleSnapshot;
 };
 type ManagerCheckInSnapshot = {
   readonly availability: "unavailable" | "unenrolled" | "available";
   readonly unavailableReason?: "secure_storage_unavailable" | "employee_identity_required";
   readonly organization: { readonly id: string; readonly name: string } | null;
   readonly visibilityNotice: { readonly version: 1; readonly text: string } | null;
-  readonly settings: ManagerCheckInSettings | null;
+  readonly schedules: readonly ManagerCheckInSchedule[];
   readonly submissions: readonly ManagerCheckInSubmission[];
-  readonly scheduledOffersPaused: boolean;
-  readonly dueScheduledOffer: boolean;
+  readonly devicePaused: boolean;
   readonly lastSyncAt?: string;
   readonly lastError?: string;
 };
 type ManagerCheckInHistoryPage = { submissions: readonly ManagerCheckInSubmission[]; nextCursor: string | null };
-type ManagerCheckInSubmitInput = {
-  readonly feelingCode: ManagerCheckInFeelingCode;
-  readonly note?: string | null;
-  readonly settingsRevision: number;
-};
-
 const utf8Encoder = new TextEncoder();
 
 function limitUtf8Bytes(value: string, maxBytes: number): string {
@@ -168,8 +177,7 @@ type ControlCenterApi = {
   getManagerCheckInsSnapshot(): Promise<ManagerCheckInSnapshot>;
   syncManagerCheckIns(): Promise<ManagerCheckInSnapshot>;
   getManagerCheckInsHistory(cursor?: string): Promise<ManagerCheckInHistoryPage>;
-  submitManagerCheckIn(input: ManagerCheckInSubmitInput): Promise<ManagerCheckInSnapshot>;
-  setManagerCheckInScheduledOffersPaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
+  setManagerCheckInDevicePaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
   getVoiceDevices(): Promise<VoiceDevicesSnapshot>;
   refreshVoiceDevices(): Promise<VoiceDevicesSnapshot>;

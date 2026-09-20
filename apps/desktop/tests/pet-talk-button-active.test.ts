@@ -138,6 +138,14 @@ try {
   assert.ok(!agentBody.includes("openpets-pet-buttons"), "agent pets must not render assistant buttons");
   assert.ok(!agentBody.includes("data-openpets-talk-button"), "agent pets must not render talk button");
 
+  // 6. When both chat and talk buttons are disabled, assistant buttons container is omitted (no permanent empty UI)
+  updatePreferences({ showChatButton: false, showTalkButton: false });
+  const noButtonsRender = await createDefaultPetRender(false, null, null);
+  assert.ok(!noButtonsRender.bodyHtml.includes("openpets-pet-buttons"), "assistant buttons container is omitted when both chat and talk are disabled");
+  assert.ok(!noButtonsRender.bodyHtml.includes("openpets-companion-launcher"), "no launcher buttons rendered when preferences are disabled");
+  const noButtonsMarkup = createPetBodyMarkup("OpenPets default pet", "", `<div class="sprite"></div>`, "", false, "default", false, false);
+  assert.ok(!noButtonsMarkup.includes("openpets-pet-buttons"), "createPetBodyMarkup omits assistant buttons container when buttons are disabled");
+
   console.log("pet-talk-button-active tests passed.");
 } finally {
   releaseStartupInstallLock();
