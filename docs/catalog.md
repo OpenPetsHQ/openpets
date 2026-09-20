@@ -28,10 +28,10 @@ when they disagree with the generated catalog.
 
 | Data                             | URL                                                    | Owner in app                  |
 | -------------------------------- | ------------------------------------------------------ | ----------------------------- |
-| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | `apps/desktop/src/catalog.ts` |
-| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | `catalog.ts`                  |
-| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | `catalog.ts`                  |
-| Pet catalog v2 (legacy/fallback) | `https://openpets.dev/pets/catalog.v2.json`            | `catalog.ts`                  |
+| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` façade |
+| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
+| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
+| Pet catalog v2 (legacy/fallback) | `https://openpets.dev/pets/catalog.v2.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` fallback |
 | Pet ZIPs                         | `https://zip.openpets.dev/pets/{slug}/{installId}.zip` | `pet-installation.ts`         |
 | Plugin catalog v2 (active)       | `https://openpets.dev/plugins/catalog.v2.json`         | `plugin-catalog.ts`           |
 | Plugin catalog v1 (empty compat) | `https://openpets.dev/plugins/catalog.v1.json`         | `plugin-catalog.ts`           |
@@ -69,6 +69,15 @@ contract, not any hand-written copy.
 (`catalog.v2.fixture.json`) keeps the app usable offline / in tests. The fixture
 should never be the path real users hit online; it is a last-resort floor, not a
 shipping catalog.
+
+`catalog-remote.ts` owns remote HTTP requests, five-second deadlines, bounded
+streaming, final-URL checks, schema validation at the remote boundary, and the
+module-instance caches for the V3 index/pages/search data and V2 catalog. It
+keeps successful V3 pages cacheable while allowing a failed page request to be
+retried. `catalog.ts` remains the product façade: it owns fixture fallback,
+curated visibility, virtual pagination/search composition, and explicit lookup
+semantics. This extraction does not change the existing V3 → V2 → fixture
+precedence or visibility behavior.
 
 The legacy V2 catalog may also carry the optional exact numeric
 `spriteVersionNumber: 2`; desktop V3-to-compat and V2 fallback conversion

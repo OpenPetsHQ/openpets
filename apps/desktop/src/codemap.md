@@ -129,6 +129,15 @@ pet-installation.ts
 codex-pets.ts → validated Codex metadata/assets → runPetInstallTransaction()
 ```
 
+**Catalog Flow**:
+```
+catalog.ts
+├── catalog-remote.ts → bounded HTTP, final-URL validation, and remote caches
+├── V3 index/pages/search → schema validation and V3-to-V2 page conversion
+├── curated visibility and virtual page/search composition
+└── V3 → V2 → fixture fallback plus explicit lookup semantics
+```
+
 **Control Center Flow**:
 ```
 tray.ts → openControlCenterWindow(route) → windows.ts
@@ -300,7 +309,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `codex-pets-core.ts`: Codex V1/V2 metadata, exact V2 atlas, and neutral-pose layout validation
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews
-- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback, and V1/V2 sprite metadata conversion
+- `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
+- `catalog.ts`: Public catalog façade with V3 pagination/search composition, curated visibility, fixture fallback, lookup, and V1/V2 sprite metadata conversion
 - `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 

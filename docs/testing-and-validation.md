@@ -37,7 +37,7 @@ dist checks. Three buckets:
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
-  mapping, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
+  mapping, catalog remote transport/cache behavior, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
   microphone-track accounting, capture cancellation/cleanup races, separate timeouts,
   empty transcripts, and shutdown behavior. `remote-control.test.ts` covers
   secure opt-in configuration, verifier-only persistence, authentication,

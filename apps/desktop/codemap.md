@@ -105,7 +105,8 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `pet-install-transaction-protocol.ts`: Stable pet-install journal/schema, naming, and recovery-classification protocol
 - `pet-install-transaction.ts`: Filesystem and side-effect orchestration for staged promotion, state mutation, rollback, cleanup, locking, and startup recovery
 - `codex-pets.ts`: Local Codex pet import
-- `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
+- `catalog-remote.ts`: Bounded remote catalog HTTP, endpoint validation, schema validation, and module-instance caches for V3 index/pages/search plus V2
+- `catalog.ts`: Public catalog façade owning V3→V2→fixture fallback, curated visibility, virtual pagination/search composition, and lookup semantics
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
