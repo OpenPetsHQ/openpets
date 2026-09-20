@@ -436,7 +436,13 @@ replacement generation's deliveries, pets, or motion.
   provider service resolves opaque credentials from `PluginSecretsStore` only
   at operation start and exposes redacted role/realtime diagnostics.
 - `provider-service.ts` - narrow host-owned text, transcription, speech, and
-  private realtime operation codecs.
+  private realtime operation boundary. It owns role snapshots and credential
+  selection, adapter URLs/headers/payloads and response validation, provider
+  diagnostics, and reply-character accounting.
+- `provider-transport.ts` - provider-neutral fetch lifetime and bounded body
+  transport. It composes timeout/caller cancellation through body reads,
+  rejects redirects, decodes JSON and line-oriented SSE, extracts sanitized
+  bounded HTTP error detail, and performs idempotent response cleanup.
 - `plugin-voice.ts` + `voice-listening-service.ts` - the plugin-facing one-shot
   `voice.listen` facade and host-owned transcription/cancellation lifecycle,
   plus private realtime entry points and shared shutdown wiring; realtime is not

@@ -2,13 +2,15 @@ import type { PluginSecretsStore } from "./plugin-secrets.js";
 import { defaultProviderAuth, getPluginPlatformSettings, profileSupportsRole, type ProviderProfile, type ProviderRole } from "./plugin-platform-settings.js";
 import { providerDefinition } from "./provider-contract.js";
 import { info, warn } from "./logger.js";
+import { ProviderTransport, providerError } from "./provider-transport.js";
+import type { ProviderTransportLease } from "./provider-transport.js";
+
+export { providerError } from "./provider-transport.js";
 
 export const hostSecretsOwner = "__openpets-host";
 export const providerSecretKey = (ref: string): string => `provider:${ref}`;
 export const MINIMAX_MAX_AUDIO_BYTES = 64 * 1024 * 1024;
 const MINIMAX_MAX_RESPONSE_BYTES = MINIMAX_MAX_AUDIO_BYTES * 2 + 16 * 1024;
-const PROVIDER_ERROR_MAX_BYTES = 16 * 1024;
-const PROVIDER_ERROR_MAX_LENGTH = 1_024;
 
 type ProviderTerminalFields = {
   readonly outcome?: "succeeded" | "failed" | "cancelled";
@@ -76,13 +78,12 @@ export interface HostProviderOperations {
 
 export class HostProviderService implements HostProviderOperations {
   readonly #secrets: PluginSecretsStore;
-  readonly #fetch: ProviderFetch;
-  readonly #timeoutMs: number;
+  readonly #transport: ProviderTransport;
 
   constructor(secrets: PluginSecretsStore, options: ProviderServiceOptions = {}) {
     this.#secrets = secrets;
-    this.#fetch = options.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
-    this.#timeoutMs = options.timeoutMs ?? 30_000;
+    const fetchImpl = options.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+    this.#transport = new ProviderTransport(fetchImpl, options.timeoutMs);
   }
 
   async snapshot(role: ProviderRole | "realtime"): Promise<ProviderOperationSnapshot> {
@@ -98,12 +99,10 @@ export class HostProviderService implements HostProviderOperations {
   async json(snapshot: ProviderOperationSnapshot, path: string, body: Record<string, unknown>, signal?: AbortSignal, maxBytes = 2 * 1024 * 1024): Promise<unknown> {
     const request = await this.#request(snapshot, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, signal);
     try {
-      if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
-      const text = await boundedText(request.response, maxBytes, request.abortPromise);
-      let parsed: unknown;
-      try { parsed = JSON.parse(text) as unknown; } catch { throw providerError("Provider returned malformed JSON.", "provider.response.invalid"); }
-      request.finish({ outputBytes: byteLength(text), replyChars: providerReplyCharacterCount(parsed) });
-      return parsed;
+      if (!request.response.ok) throw await request.requestError("Provider request failed");
+      const result = await request.readJson(maxBytes);
+      request.finish({ outputBytes: result.bytes, replyChars: providerReplyCharacterCount(result.value) });
+      return result.value;
     } catch (error) {
       request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
       throw error;
@@ -113,8 +112,8 @@ export class HostProviderService implements HostProviderOperations {
   async binary(snapshot: ProviderOperationSnapshot, path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Uint8Array> {
     const request = await this.#request(snapshot, path, { method: "POST", headers: { "content-type": "application/json", accept: "audio/mpeg" }, body: JSON.stringify(body) }, signal);
     try {
-      if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
-      const bytes = await readBoundedBytes(request.response, 64 * 1024 * 1024, request.abortPromise, "Provider audio response is too large.");
+      if (!request.response.ok) throw await request.requestError("Provider request failed");
+      const bytes = await request.readBytes(64 * 1024 * 1024, "Provider audio response is too large.");
       request.finish({ outputBytes: bytes.byteLength });
       return bytes;
     } catch (error) {
@@ -126,10 +125,14 @@ export class HostProviderService implements HostProviderOperations {
   async stream(snapshot: ProviderOperationSnapshot, path: string, body: Record<string, unknown>, onData: (data: string) => void, signal?: AbortSignal): Promise<void> {
     const request = await this.#request(snapshot, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, stream: true }) }, signal);
     try {
-      if (!request.response.ok) throw await providerRequestError(request.response, "Provider request failed", request.abortPromise);
+      if (!request.response.ok) throw await request.requestError("Provider request failed");
       if (!request.response.body) throw providerError(`Provider request failed with HTTP ${request.response.status}.`, "provider.request.failed");
-      const streamResult = await readSseStream(request.response.body, onData, request.abortPromise);
-      request.finish({ outputBytes: streamResult.bytes, replyChars: streamResult.replyChars });
+      let replyChars = 0;
+      const streamResult = await request.readSse((data) => {
+        replyChars += providerStreamReplyCharacterCount(data);
+        onData(data);
+      });
+      request.finish({ outputBytes: streamResult.bytes, replyChars });
     } catch (error) {
       request.finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
       throw error;
@@ -144,8 +147,8 @@ export class HostProviderService implements HostProviderOperations {
     form.append(isElevenLabs ? "model_id" : "model", snapshot.profile.model);
     const request = await this.#request(snapshot, isElevenLabs ? "/speech-to-text" : "/audio/transcriptions", { method: "POST", body: form }, signal);
     try {
-      if (!request.response.ok) throw await providerRequestError(request.response, "Transcription failed", request.abortPromise);
-      const parsed = JSON.parse(await boundedText(request.response, 2 * 1024 * 1024, request.abortPromise)) as { text?: unknown };
+      if (!request.response.ok) throw await request.requestError("Transcription failed");
+      const parsed = JSON.parse(await request.readText(2 * 1024 * 1024)) as { text?: unknown };
       const transcript = typeof parsed.text === "string" ? parsed.text : "";
       request.finish({ transcriptChars: transcript.length });
       return transcript;
@@ -182,8 +185,8 @@ export class HostProviderService implements HostProviderOperations {
     body.set("session", JSON.stringify(session));
     const request = await this.#request(snapshot, "/realtime/calls", { method: "POST", body }, signal);
     try {
-      if (!request.response.ok) throw await providerRequestError(request.response, "Realtime negotiation failed", request.abortPromise);
-      const answer = await boundedText(request.response, 2 * 1024 * 1024, request.abortPromise);
+      if (!request.response.ok) throw await request.requestError("Realtime negotiation failed");
+      const answer = await request.readText(2 * 1024 * 1024);
       request.finish({ outputBytes: byteLength(answer) });
       return answer;
     } catch (error) {
@@ -192,12 +195,7 @@ export class HostProviderService implements HostProviderOperations {
     } finally { await request.release(); }
   }
 
-  async #request(snapshot: ProviderOperationSnapshot, path: string, init: RequestInit, signal?: AbortSignal): Promise<{ readonly response: Response; readonly abortPromise: Promise<never>; readonly finish: (fields?: ProviderTerminalFields) => void; readonly release: () => Promise<void> }> {
-    const controller = new AbortController();
-    let rejectAbort!: (error: unknown) => void;
-    const abortPromise = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
-    let timedOut = false;
-    let handedOff = false;
+  async #request(snapshot: ProviderOperationSnapshot, path: string, init: RequestInit, signal?: AbortSignal): Promise<ProviderRequestLease> {
     let terminalLogged = false;
     const startedAt = Date.now();
     let responseStatus: number | undefined;
@@ -210,102 +208,46 @@ export class HostProviderService implements HostProviderOperations {
       const terminalFields = { ...providerLogFields(snapshot, operation, safePath), status: responseStatus, elapsedMs: Date.now() - startedAt, outcome: fields.outcome ?? "succeeded", ...fields };
       (terminalFields.outcome === "succeeded" ? info : warn)("provider", "provider operation finished", terminalFields);
     };
-    const abort = () => { controller.abort(); rejectAbort(providerError("Provider request was cancelled.", "provider.cancelled")); };
-    if (signal?.aborted) {
-      finish({ outcome: "cancelled", errorCode: "provider.cancelled" });
-      throw providerError("Provider request was cancelled.", "provider.cancelled");
+    const headers = new Headers(snapshot.profile.headers?.map((header) => [header.name, header.value]));
+    if (snapshot.secret) {
+      const auth = snapshot.profile.auth ?? defaultProviderAuth(snapshot.profile.adapter);
+      headers.set(auth.headerName, auth.strategy === "bearer" ? `Bearer ${snapshot.secret}` : snapshot.secret);
     }
-    signal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(() => { timedOut = true; controller.abort(); rejectAbort(providerError("Provider request timed out.", "provider.timeout")); }, this.#timeoutMs);
+    if (snapshot.profile.adapter === "anthropic-text") headers.set("anthropic-version", "2023-06-01");
+    for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
+    const url = endpoint(snapshot.profile, path);
+
     try {
-      const headers = new Headers(snapshot.profile.headers?.map((header) => [header.name, header.value]));
-      if (snapshot.secret) {
-        const auth = snapshot.profile.auth ?? defaultProviderAuth(snapshot.profile.adapter);
-        headers.set(auth.headerName, auth.strategy === "bearer" ? `Bearer ${snapshot.secret}` : snapshot.secret);
-      }
-      if (snapshot.profile.adapter === "anthropic-text") headers.set("anthropic-version", "2023-06-01");
-      for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
-      const url = endpoint(snapshot.profile, path);
-      const response = await Promise.race([this.#fetch(url, { ...init, headers, redirect: "error", signal: controller.signal }), abortPromise]);
-      handedOff = true;
-      responseStatus = response.status;
+      const transportLease = await this.#transport.request(url, { ...init, headers }, signal);
+      responseStatus = transportLease.response.status;
       let released = false;
-      return { response, abortPromise, finish, release: async () => {
-        if (released) return;
-        released = true;
-        finish({});
-        clearTimeout(timeout);
-        signal?.removeEventListener("abort", abort);
-        await response.body?.cancel().catch(() => undefined);
-      } };
+      return {
+        ...transportLease,
+        finish,
+        release: async () => {
+          if (released) return;
+          released = true;
+          finish({});
+          await transportLease.release();
+        },
+      };
     } catch (error) {
-      if (signal?.aborted) {
-        finish({ outcome: "cancelled", errorCode: "provider.cancelled" });
-        throw providerError("Provider request was cancelled.", "provider.cancelled");
-      }
-      if (timedOut) {
-        finish({ outcome: "failed", errorCode: "provider.timeout" });
-        throw providerError("Provider request timed out.", "provider.timeout");
-      }
-      finish({ outcome: "failed", errorCode: providerErrorCode(error) });
+      finish({ outcome: providerOutcome(error), errorCode: providerErrorCode(error) });
       throw error;
-    } finally { if (!handedOff) { clearTimeout(timeout); signal?.removeEventListener("abort", abort); } }
+    }
   }
 }
 
-export function providerError(message: string, code: string): Error & { readonly code: string } { const error = new Error(message) as Error & { code: string }; error.code = code; return error; }
+type ProviderRequestLease = ProviderTransportLease & {
+  readonly finish: (fields?: ProviderTerminalFields) => void;
+};
+
 function endpoint(profile: ProviderProfile, path: string): string { const base = profile.baseUrl?.replace(/\/$/, "") ?? ""; return `${base}${path.startsWith("/") ? path : `/${path}`}`; }
-async function providerRequestError(response: Response, operation: string, abortPromise: Promise<never>): Promise<Error & { readonly code: string }> {
-  let detail = "";
-  try {
-    detail = providerErrorDetail(await boundedText(response, PROVIDER_ERROR_MAX_BYTES, abortPromise));
-  } catch (error) {
-    if (isProviderLifecycleError(error)) throw error;
-  }
-  const suffix = detail ? `: ${detail}` : "";
-  return providerError(`${operation} with HTTP ${response.status}${suffix}.`, "provider.request.failed");
+
+function extension(mime: string): string {
+  const base = mime.toLowerCase().split(";", 1)[0] ?? "";
+  return base.includes("ogg") ? "ogg" : base.includes("wav") ? "wav" : base.includes("mp4") ? "mp4" : "webm";
 }
-function providerErrorDetail(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  try {
-    return formatProviderErrorValue(JSON.parse(trimmed) as unknown);
-  } catch {
-    return sanitizeProviderErrorText(trimmed);
-  }
-}
-function formatProviderErrorValue(value: unknown): string {
-  if (typeof value === "string") return sanitizeProviderErrorText(value);
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
-  const record = value as Record<string, unknown>;
-  const nested = record.detail ?? record.error;
-  if (nested !== undefined) {
-    const nestedDetail = formatProviderErrorValue(nested);
-    if (nestedDetail) return nestedDetail;
-  }
-  const reason = [record.status, record.code, record.type].find((item): item is string => typeof item === "string" && item.length > 0);
-  const message = [record.message, record.title].find((item): item is string => typeof item === "string" && item.length > 0);
-  if (reason && message) return sanitizeProviderErrorText(`${reason}: ${message}`);
-  return sanitizeProviderErrorText(message ?? reason ?? "");
-}
-function sanitizeProviderErrorText(value: string): string {
-  return value
-    .replace(/\b(?:authorization|x-api-key|xi-api-key|api-key|cookie|set-cookie)\s*:\s*(?:Bearer\s+)?\S+/gi, (match) => match.replace(/:.*/, ": [redacted]"))
-    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, PROVIDER_ERROR_MAX_LENGTH);
-}
-function isProviderLifecycleError(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("code" in error)) return false;
-  const code = (error as { readonly code?: unknown }).code;
-  return code === "provider.cancelled" || code === "provider.timeout";
-}
-async function boundedText(response: Response, maxBytes: number, abortPromise: Promise<never>): Promise<string> { const length = Number(response.headers.get("content-length")); if (Number.isFinite(length) && length > maxBytes) throw providerError("Provider response is too large.", "provider.response.too_large"); if (!response.body) return ""; const bytes = await readBoundedBytes(response, maxBytes, abortPromise, "Provider response is too large."); return new TextDecoder().decode(bytes); }
-async function readBoundedBytes(response: Response, maxBytes: number, abortPromise: Promise<never>, message: string): Promise<Uint8Array> { const length = Number(response.headers.get("content-length")); if (Number.isFinite(length) && length > maxBytes) throw providerError(message, "provider.response.too_large"); if (!response.body) return new Uint8Array(); const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let bytes = 0; try { for (;;) { const { done, value } = await Promise.race([reader.read(), abortPromise]); if (done) break; bytes += value.byteLength; if (bytes > maxBytes) throw providerError(message, "provider.response.too_large"); chunks.push(value); } } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); } const result = new Uint8Array(bytes); let offset = 0; for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; } return result; }
-async function readSseStream(body: ReadableStream<Uint8Array>, onData: (data: string) => void, abortPromise: Promise<never>): Promise<{ readonly bytes: number; readonly replyChars: number }> { const reader = body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let bytes = 0; let replyChars = 0; try { for (;;) { const { done, value } = await Promise.race([reader.read(), abortPromise]); if (done) break; bytes += value.byteLength; if (bytes > 32 * 1024 * 1024) throw providerError("Provider stream is too large.", "provider.response.too_large"); buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() ?? ""; for (const line of lines) { const item = line.trim(); if (item.startsWith("data:")) { const data = item.slice(5).trim(); replyChars += providerStreamReplyCharacterCount(data); onData(data); } } } } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); } return { bytes, replyChars }; }
-function extension(mime: string): string { const base = mime.toLowerCase().split(";", 1)[0] ?? ""; return base.includes("ogg") ? "ogg" : base.includes("wav") ? "wav" : base.includes("mp4") ? "mp4" : "webm"; }
 
 function providerOperation(snapshot: ProviderOperationSnapshot): "text" | "stt" | "tts" | "realtime" {
   return snapshot.role === "realtime" ? "realtime" : snapshot.role;

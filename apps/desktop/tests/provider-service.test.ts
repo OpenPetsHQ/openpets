@@ -20,6 +20,17 @@ function responseStream(chunks: Uint8Array[], onCancel: () => void, close = true
   });
 }
 
+function stalledResponseBody(onStart: () => void, onCancel: () => void): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    pull() {
+      onStart();
+    },
+    cancel() {
+      onCancel();
+    },
+  });
+}
+
 async function main(): Promise<void> {
 try {
   initializePluginPlatformSettings(dir);
@@ -131,7 +142,89 @@ try {
   const invalidMinimaxService = new HostProviderService(secrets, { fetchImpl: async () => new Response(JSON.stringify({ data: { audio: "not-hex", status: 2 }, base_resp: { status_code: 0 } }), { status: 200 }) });
   await assert.rejects(() => invalidMinimaxService.synthesize(minimaxSnapshot, "hello", {}), /invalid speech audio/);
 
-} finally {
+  const malformedJsonService = new HostProviderService(secrets, { fetchImpl: async () => new Response("not-json", { status: 200 }) });
+  await assert.rejects(() => malformedJsonService.json(textSnapshot, "/chat/completions", {}), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "provider.response.invalid");
+    return true;
+  });
+
+  let bodyReadStarted = false;
+  let bodyCancelled = false;
+  const stalledBodyService = new HostProviderService(secrets, {
+    timeoutMs: 1_000,
+    fetchImpl: async () => new Response(stalledResponseBody(() => { bodyReadStarted = true; }, () => { bodyCancelled = true; }), { status: 200 }),
+  });
+  const callerAbort = new AbortController();
+  const stalledBodyRequest = stalledBodyService.json(textSnapshot, "/chat/completions", {}, callerAbort.signal);
+  while (!bodyReadStarted) await new Promise((resolve) => setImmediate(resolve));
+  callerAbort.abort();
+  await assert.rejects(() => stalledBodyRequest, /cancelled/);
+  assert.equal(bodyCancelled, true, "caller cancellation after headers must cancel a stalled response body");
+
+  let errorBodyReadStarted = false;
+  let errorBodyCancelled = false;
+  const stalledErrorService = new HostProviderService(secrets, {
+    timeoutMs: 1_000,
+    fetchImpl: async () => new Response(stalledResponseBody(() => { errorBodyReadStarted = true; }, () => { errorBodyCancelled = true; }), { status: 500 }),
+  });
+  const errorAbort = new AbortController();
+  const stalledErrorRequest = stalledErrorService.json(textSnapshot, "/chat/completions", {}, errorAbort.signal);
+  while (!errorBodyReadStarted) await new Promise((resolve) => setImmediate(resolve));
+  errorAbort.abort();
+  await assert.rejects(() => stalledErrorRequest, /cancelled/);
+  assert.equal(errorBodyCancelled, true, "caller cancellation while reading an HTTP error must win over status handling");
+
+  let timeoutErrorBodyCancelled = false;
+  const timeoutErrorService = new HostProviderService(secrets, {
+    timeoutMs: 10,
+    fetchImpl: async () => new Response(stalledResponseBody(() => undefined, () => { timeoutErrorBodyCancelled = true; }), { status: 502 }),
+  });
+  await assert.rejects(() => timeoutErrorService.json(textSnapshot, "/chat/completions", {}), /timed out/);
+  assert.equal(timeoutErrorBodyCancelled, true, "timeout while reading an HTTP error must cancel its body");
+
+  const sseChunks = [
+    'data: {"choices":[{"delta":{"content":"hel',
+    'lo"}}]}\n\ndata: [DONE]\n',
+  ].map((chunk) => new TextEncoder().encode(chunk));
+  const sseData: string[] = [];
+  const sseService = new HostProviderService(secrets, { fetchImpl: async () => new Response(responseStream(sseChunks, () => undefined), { status: 200 }) });
+  await sseService.stream(textSnapshot, "/chat/completions", {}, (data) => sseData.push(data));
+  assert.deepEqual(sseData, ['{"choices":[{"delta":{"content":"hello"}}]}', "[DONE]"], "chunk-split SSE lines must be emitted once");
+
+  let callbackBodyCancelled = false;
+  const callbackError = new Error("stream callback failed");
+  const callbackService = new HostProviderService(secrets, {
+    fetchImpl: async () => new Response(responseStream([new TextEncoder().encode("data: first\n")], () => { callbackBodyCancelled = true; }, false), { status: 200 }),
+  });
+  await assert.rejects(() => callbackService.stream(textSnapshot, "/chat/completions", {}, () => { throw callbackError; }), (error: unknown) => {
+    assert.equal(error, callbackError);
+    return true;
+  });
+  assert.equal(callbackBodyCancelled, true, "a throwing stream callback must release and cancel the response body");
+
+  const plaintextErrorService = new HostProviderService(secrets, {
+    fetchImpl: async () => new Response("Authorization: Bearer test-key\u0000quota exceeded", { status: 429 }),
+  });
+  await assert.rejects(() => plaintextErrorService.json(textSnapshot, "/chat/completions", {}), (error: unknown) => {
+    assert(error instanceof Error);
+    assert.match(error.message, /HTTP 429/);
+    assert.match(error.message, /\[redacted\]/);
+    assert.doesNotMatch(error.message, /test-key/);
+    assert.doesNotMatch(error.message, /\u0000/);
+    return true;
+  });
+
+  const oversizedErrorService = new HostProviderService(secrets, {
+    fetchImpl: async () => new Response("x".repeat(16 * 1024 + 1), { status: 500 }),
+  });
+  await assert.rejects(() => oversizedErrorService.json(textSnapshot, "/chat/completions", {}), (error: unknown) => {
+    assert(error instanceof Error);
+    assert.match(error.message, /HTTP 500/);
+    assert.doesNotMatch(error.message, /too large/);
+    return true;
+  });
+
+ } finally {
   rmSync(dir, { recursive: true, force: true });
 }
 }

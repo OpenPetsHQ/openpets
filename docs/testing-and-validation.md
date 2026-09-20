@@ -58,7 +58,9 @@ dist checks. Three buckets:
    fake-endpoint routing, native ElevenLabs Scribe multipart transcription,
    configured TTS voice previews, temporary draft
    credentials, native versus compatible codecs, operation snapshots,
-   redacted status, and no-fetch unsupported realtime. Tests use fake fetches and
+   redacted status, no-fetch unsupported realtime, and provider transport
+   cancellation, bounded-body, malformed-JSON, SSE, and sanitized-error
+   behavior. Tests use fake fetches and
    no credentials. The provider settings tests also cover atomic save rollback
    after credential failure, redacted-header add/delete edits, and preservation
     of secrets outside Control Center snapshots.

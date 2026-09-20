@@ -160,7 +160,8 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 ├── plugin-state.ts reads/writes userData/openpets-plugin-state.json
 ├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
 ├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
-├── provider-service.ts resolves redacted role operation snapshots and compatible/native text, STT, TTS, and private realtime codecs
+├── provider-service.ts resolves redacted role operation snapshots, credentials, adapter URLs/headers/codecs, and provider diagnostics
+├── provider-transport.ts owns provider-neutral fetch lifetime, timeout/cancellation composition, bounded response reads, JSON/SSE decoding, and sanitized HTTP errors
 ├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials; network probes honor caller cancellation; STT uses the host session controller
 ├── provider-test-lifecycle.ts cancels all provider-test requests for a sender and serializes replacements across modal, renderer, and shutdown teardown
 ├── plugin-assets.ts validates/resolves declared plugin assets for SDK refs and rendered UI
@@ -354,7 +355,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-pet-registry.ts`: Registry for default and plugin-spawned pets, including lifecycle and SDK targeting.
 - `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; versioned migration/quarantine; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
 - `provider-contract.ts`: Pure canonical provider adapter definitions, typed adapter-specific profiles (including native ElevenLabs Scribe STT), role support, credential policies, default auth, and preset catalog owned by the host and exposed through the renderer contract.
-- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, provider failures remain operation errors rather than plugin health failures, and text/STT/TTS/realtime requests emit bounded outbound and terminal diagnostics. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
+- `provider-service.ts`: Host-owned provider operation boundary; resolves snapshots and credentials, constructs adapter URLs/headers/payloads, validates adapter responses, and emits bounded outbound/terminal diagnostics. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
+- `provider-transport.ts`: Provider-neutral fetch lease with redirect rejection, timeout/caller-abort composition, bounded body consumption, JSON/SSE decoding, sanitized HTTP error detail, and idempotent response cleanup.
 - `plugin-secrets.ts`: Plugin-scoped encrypted secret storage backed by Electron safe storage primitives.
 - `plugin-toast.ts`: Host toast/notification routing for plugin UI events.
 - `plugin-user-sound-store.ts`: Plugin-scoped imported user sound registry that stores opaque sound refs instead of raw filesystem paths.
