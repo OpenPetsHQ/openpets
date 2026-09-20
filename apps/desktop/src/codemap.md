@@ -91,6 +91,7 @@ windows.ts (IPC handlers)
 └── agent-setup.ts
     ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
     ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
+    ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
     ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
     ├── detectClaudeCodeStatus() (claude --version, claude mcp list)
     ├── runAgentSetupAction()
@@ -99,7 +100,7 @@ windows.ts (IPC handlers)
     │   └── install-hooks/uninstall-hooks/doctor-hooks (@open-pets/claude)
     ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
     ├── Cursor global MCP config management (@open-pets/cursor)
-    ├── OpenClaw version/list/inspect + install/update/enable/remove management (@open-pets/openclaw/management)
+    ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
     └── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
 ```
 

@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 
 import { app } from "electron";
 import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, classifyClaudeMcpStatus, createOpenPetsHookSettingsPreview, doctorClaudeHooks, installClaudeHooks, mapAsarPathToUnpacked, uninstallClaudeHooks, type ClaudeCommandSpec, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type OpenPetsCommandMode, type ParsedClaudeMcpEntry } from "@open-pets/claude";
-import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
+import { buildOpenClawCommand, openClawMaxStructuredOutputBytes, type OpenClawCommandAction } from "@open-pets/openclaw/management";
 import { getZedGlobalSettingsPath, isValidZedNodeCommand } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
@@ -14,6 +14,7 @@ import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaud
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 import { getCursorSetup, installCursorGlobal, removeCursorGlobal, replaceCursorGlobal, type CursorSetupPreview, type CursorSetupStatus } from "./agent-setup-cursor.js";
 import { getOpenCodeConfigDir, getOpenCodeSetup as buildOpenCodeSetup, installOpenCodeGlobal as applyOpenCodeInstall, removeOpenCodeGlobal as applyOpenCodeRemove, type OpenCodeSetupPreview, type OpenCodeSetupStatus } from "./agent-setup-opencode.js";
+import { getOpenClawSetup as buildOpenClawSetup, mutateOpenClaw as applyOpenClawMutation, type OpenClawPluginStatus, type OpenClawSetupPreview } from "./agent-setup-openclaw.js";
 import { getZedSetup as buildZedSetup, installZedGlobal as applyZedInstall, removeZedGlobal as applyZedRemove, replaceZedGlobal as applyZedReplace, type ZedSetupPreview, type ZedSetupStatus } from "./agent-setup-zed.js";
 
 export type { CursorSetupPreview, CursorSetupStatus } from "./agent-setup-cursor.js";
@@ -71,14 +72,7 @@ export interface AgentSetupCommandPaths {
   readonly openclaw: string;
 }
 
-export interface OpenClawSetupPreview {
-  readonly command: string;
-  readonly install: readonly string[];
-  readonly enable: readonly string[];
-  readonly update: readonly string[];
-  readonly remove: readonly string[];
-  readonly targetVersion: string;
-}
+export type { OpenClawSetupPreview } from "./agent-setup-openclaw.js";
 
 export interface AgentSetupActionResult {
   readonly ok: boolean;
@@ -355,59 +349,23 @@ async function getOpenCodeSetup(commandMode: OpenPetsCommandMode, selectedPetId:
 }
 
 async function getOpenClawSetup(): Promise<{ readonly status: OpenClawPluginStatus; readonly preview: OpenClawSetupPreview }> {
-  const command = getPreferredOpenClawCommand();
-  const targetVersion = getOpenClawPackageVersion();
-  const paths = { openclaw: command };
-  const preview: OpenClawSetupPreview = {
-    command,
-    install: buildOpenClawCommand("install", targetVersion, paths).args,
-    enable: buildOpenClawCommand("enable", targetVersion, paths).args,
-    update: buildOpenClawCommand("update", targetVersion, paths).args,
-    remove: buildOpenClawCommand("remove", targetVersion, paths).args,
-    targetVersion,
-  };
-  if (process.env.OPENCLAW_NIX_MODE === "1") return { status: { state: "management-disabled", label: "Managed externally", details: "OpenClaw is running in Nix mode; plugin management is disabled in OpenPets.", canInstall: false, canUpdate: false, canEnable: false, canRemove: false }, preview };
-  if (!["darwin", "linux", "win32"].includes(process.platform)) return { status: classifyOpenClawStatus({ version: targetVersion, list: {}, inspect: {}, hostSupported: false }), preview };
-  const versionResult = await runOpenClawCommand("version", undefined, commandTimeoutMs);
-  const version = parseOpenClawVersion(`${versionResult.stdout}\n${versionResult.stderr}`);
-  if (!versionResult.ok || !version) return { status: classifyOpenClawStatus({ version: undefined, list: {}, inspect: {}, hostSupported: true }), preview };
-  const list = await runOpenClawCommand("list", undefined, commandTimeoutMs);
-  if (!list.ok || list.overflow) return { status: { state: "indeterminate", label: "Status unavailable", details: "OpenClaw was detected, but plugin status could not be read.", version, canInstall: false, canUpdate: false, canEnable: false, canRemove: false }, preview };
-  const listPayload = parseJsonOutput(list.stdout);
-  const inspect = await runOpenClawCommand("inspect", undefined, commandTimeoutMs);
-  if (inspect.overflow) return { status: { state: "indeterminate", label: "Status unavailable", details: "OpenClaw returned more plugin status data than OpenPets can safely inspect.", version, canInstall: false, canUpdate: false, canEnable: false, canRemove: false }, preview };
-  if (!inspect.ok) {
-    const status = classifyOpenClawStatus({ version, list: listPayload, inspect: undefined, inspectMissing: true, hostSupported: true });
-    if (status.state === "not-installed") return { status, preview };
-    return { status: { state: "indeterminate", label: "Status unavailable", details: "OpenClaw was detected, but plugin status could not be read.", version, canInstall: false, canUpdate: false, canEnable: false, canRemove: false }, preview };
-  }
-  const inspectPayload = parseJsonOutput(inspect.stdout);
-  if (inspectPayload === undefined) return { status: { state: "indeterminate", label: "Status unavailable", details: "OpenClaw returned malformed plugin status.", version, canInstall: false, canUpdate: false, canEnable: false, canRemove: false }, preview };
-  return { status: classifyOpenClawStatus({ version, list: listPayload, inspect: inspectPayload, hostSupported: true }), preview };
+  return buildOpenClawSetup(getOpenClawSetupDependencies());
 }
 
 async function mutateOpenClaw(mutation: "configure" | "update" | "remove"): Promise<AgentSetupActionResult> {
-  const action = mutation === "configure" ? "openclaw-install" : mutation === "update" ? "openclaw-update" : "openclaw-remove";
-  const setup = await getOpenClawSetup();
-  const actions = planOpenClawMutation(setup.status, mutation, setup.preview.targetVersion);
-  if (actions.length === 0) {
-    const noOp = (mutation === "remove" && setup.status.state === "not-installed") || (mutation !== "remove" && setup.status.state === "installed-enabled" && setup.status.installedVersion === setup.preview.targetVersion);
-    return { ok: noOp, action, message: noOp ? "OpenClaw OpenPets setup is already in the requested state." : setup.status.details, changed: false };
-  }
-  for (const commandAction of actions) {
-    const result = await runOpenClawCommand(commandAction, setup.preview.targetVersion);
-    const refreshed = await getOpenClawSetup();
-    if (refreshed.status.state === "indeterminate") return { ok: false, action, message: "OpenClaw management completed without a verifiable status refresh; the outcome is indeterminate. Refresh status before retrying.", changed: false };
-    const commandReached = commandAction === "remove"
-      ? refreshed.status.state === "not-installed"
-      : commandAction === "enable"
-        ? refreshed.status.state === "installed-enabled" && refreshed.status.installedVersion === setup.preview.targetVersion
-        : (refreshed.status.state === "installed-disabled" || refreshed.status.state === "installed-enabled") && refreshed.status.installedVersion === setup.preview.targetVersion;
-    if (!result.ok && !commandReached) return { ok: false, action, message: result.timedOut ? "OpenClaw management timed out; the final state is indeterminate. Refresh status before retrying." : `OpenClaw ${commandAction} failed.`, changed: false };
-    if (mutation === "remove" && commandReached) return { ok: true, action, message: "Removed OpenPets from OpenClaw.", changed: true };
-    if (mutation !== "remove" && commandAction === "enable" && commandReached) return { ok: true, action, message: "OpenPets is installed and enabled in OpenClaw.", changed: true };
-  }
-  return { ok: false, action, message: "OpenClaw management did not establish its target postcondition.", changed: false };
+  return applyOpenClawMutation(mutation, getOpenClawSetupDependencies());
+}
+
+function getOpenClawSetupDependencies() {
+  return {
+    preferredCommand: getPreferredOpenClawCommand(),
+    targetVersion: getOpenClawPackageVersion(),
+    platform: process.platform,
+    managementDisabled: process.env.OPENCLAW_NIX_MODE === "1",
+    statusTimeoutMs: commandTimeoutMs,
+    mutationTimeoutMs: managementCommandTimeoutMs,
+    runCommand: (action: OpenClawCommandAction, targetVersion?: string, timeoutMs?: number) => runOpenClawCommand(action, targetVersion, timeoutMs),
+  };
 }
 
 async function getZedSetup(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): Promise<{ readonly status: ZedSetupStatus; readonly preview: ZedSetupPreview }> {
@@ -828,10 +786,6 @@ function runCommand(spec: ClaudeCommandSpec, timeoutMs = commandTimeoutMs, sanit
 
 function formatCommandOutput(value: string, sanitize: boolean, outputLimitBytes: number): string {
   return sanitize ? sanitizeAgentSetupOutput(value) : value.slice(0, outputLimitBytes);
-}
-
-function parseJsonOutput(value: string): unknown {
-  try { return JSON.parse(value) as unknown; } catch { return undefined; }
 }
 
 function delay(ms: number): Promise<void> {
