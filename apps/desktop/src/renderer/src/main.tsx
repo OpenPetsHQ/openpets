@@ -1947,14 +1947,14 @@ function AssistantView({ initialTab = "chat" }: { initialTab?: AssistantTab }) {
               <ToggleRow
                 title={t("settings.assistant.chatButton.title")}
                 description={t("settings.assistant.chatButton.description")}
-                checked={settings?.preferences.showChatButton ?? true}
+                checked={settings?.preferences.showChatButton ?? false}
                 disabled={!settings || !!busy}
                 onChange={(checked) => patchPreferences({ showChatButton: checked }, t("settings.toast.assistantButtonsSaved"))}
               />
               <ToggleRow
                 title={t("settings.assistant.talkButton.title")}
                 description={t("settings.assistant.talkButton.description")}
-                checked={settings?.preferences.showTalkButton ?? true}
+                checked={settings?.preferences.showTalkButton ?? false}
                 disabled={!settings || !!busy}
                 onChange={(checked) => patchPreferences({ showTalkButton: checked }, t("settings.toast.assistantButtonsSaved"))}
               />

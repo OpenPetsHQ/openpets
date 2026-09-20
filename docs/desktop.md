@@ -259,10 +259,10 @@ create/update/delete a profile; select a profile independently for each role;
 
 The default pet carrier contains an in-place compact text composer and an attached expandable
 in-pet chat panel managed by `default-pet-chat.ts` and `pet-preload.cjs`. In its default collapsed
-state (200×200), the carrier displays speech bubbles and quick action buttons. Tapping Chat or the
-launcher switches the compact frame into an in-place text composer (input/textarea, Send, cancel,
-busy state) without resizing the window or opening full history. Submitting a turn hands off response
-rendering directly to the pet speech bubble.
+state (200×200), the carrier displays speech bubbles. Chat and Talk quick action buttons are opt-in
+in Settings; once enabled, tapping Chat or the launcher switches the compact frame into an in-place
+text composer (input/textarea, Send, cancel, busy state) without resizing the window or opening full
+history. Submitting a turn hands off response rendering directly to the pet speech bubble.
 
 When full history is explicitly opened via the transcript affordance, the carrier window expands to
 420×640 using bijective coordinate transforms from `default-pet-chat-geometry.ts` that
@@ -339,7 +339,8 @@ empty accelerator) toggles the compact pet chat composer using the same
 manager/rollback semantics. Both shortcuts, plus the on-pet chat and talk
 buttons (visibility, corner, and size — `showChatButton`, `showTalkButton`,
 `petButtonsPosition`, `petButtonsSize`), are configured in the Settings →
-Chat & Voice tab. The talk button uses the same host-owned voice toggle; the
+Chat & Voice tab. Chat and Talk button visibility defaults to off for new or
+unconfigured preferences. The talk button uses the same host-owned voice toggle; the
 buttons hide during transient bubbles but stay visible alongside pinned plugin
 HUDs. The contract reports only host-observed session
 state, not fabricated microphone device metadata. Ending voice releases
