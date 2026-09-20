@@ -1,6 +1,6 @@
 import { BrowserWindow, powerMonitor, screen, shell, type Display } from "electron";
 
-import { getAppStateSnapshot, getDefaultPetPosition, getPerMonitorPetPosition, resetDefaultPetPosition, setDefaultPetPosition, setPerMonitorPetPosition, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, getDefaultPetPositionState, recordDefaultPetPosition, resetDefaultPetPosition, updatePreferences } from "./app-state.js";
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
 import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, invalidateDisplayCache, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
@@ -408,7 +408,7 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
   // Do not scan every connected per-monitor entry here: display order is usually
   // primary-first, which can override the true last position with an older
   // primary-display entry.
-  const position = getSafeDefaultPetPosition(getDefaultPetPosition());
+  const position = getSafeDefaultPetPosition(getDefaultPetPositionState().position);
 
   defaultPetWindow = createDefaultPetWindow({
     position,
@@ -563,11 +563,10 @@ function getCurrentDismissToken(): string | undefined {
   return transientPresentation.getDismissToken();
 }
 
-/** Save position both in the flat key (backwards compat) and per-monitor map. */
+/** Save the flat fallback and the per-monitor position in one state operation. */
 function handlePositionChanged(position: Point): void {
-  setDefaultPetPosition(position);
   const displayKey = getDisplayKeyForPosition(position);
-  setPerMonitorPetPosition(displayKey, position);
+  recordDefaultPetPosition(position, displayKey);
 }
 
 function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: Display): void {
@@ -584,7 +583,7 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   // pick the primary display first and skip the secondary monitor that was just
   // reconnected.
   if (reason === "display-added" && changedDisplayKey && changedDisplayKey !== currentDisplayKey && getAllDisplayKeys().includes(changedDisplayKey)) {
-    restoredPosition = getPerMonitorPetPosition(changedDisplayKey);
+    restoredPosition = getDefaultPetPositionState().perMonitorPositions?.[changedDisplayKey];
   }
 
   const safePosition = restoredPosition
