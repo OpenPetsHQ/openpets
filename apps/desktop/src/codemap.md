@@ -241,7 +241,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, bundled V2 and installed V1/V2 sprite animation states, shared preference-gated movement-driven V2 idle cursor-gaze ticker, compact default-pet companion launcher, bottom-anchored upward-growing attached chat panel styles, unpinned bubble suppression during full chat, status badges, transient displays, and validated atlas layout selection
+- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, and validated atlas layout selection
+- `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
