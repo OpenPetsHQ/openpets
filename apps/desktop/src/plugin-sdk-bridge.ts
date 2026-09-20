@@ -322,22 +322,84 @@ const safeCssColorPattern = /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}
 
 export class JsonPluginStorageStore implements PluginStorageStore {
   readonly #root: string;
-  constructor(root: string) { this.#root = root; }
-  get(pluginId: string, key: string): unknown { return this.#read(pluginId)[key]; }
-  set(pluginId: string, key: string, value: unknown): void { const data = { ...this.#read(pluginId), [key]: value }; const text = JSON.stringify(data); if (Buffer.byteLength(text) > quotas.storageBytes) throw new Error("Plugin storage quota exceeded."); this.#write(pluginId, data); }
-  delete(pluginId: string, key: string): void { const data = { ...this.#read(pluginId) }; delete data[key]; this.#write(pluginId, data); }
-  keys(pluginId: string): string[] { return Object.keys(this.#read(pluginId)); }
-  #path(pluginId: string): string { return join(this.#root, `${pluginId}.json`); }
-  #read(pluginId: string): Record<string, unknown> { try { const path = this.#path(pluginId); if (!existsSync(path)) return {}; const value = JSON.parse(readFileSync(path, "utf8")); return isRecord(value) ? value : {}; } catch { return {}; } }
-  #write(pluginId: string, data: Record<string, unknown>): void { mkdirSync(this.#root, { recursive: true }); const path = this.#path(pluginId); const tmp = `${path}.${process.pid}.${Date.now()}.tmp`; writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8"); renameSync(tmp, path); }
+  constructor(root: string) {
+    this.#root = root;
+  }
+
+  get(pluginId: string, key: string): unknown {
+    return this.#read(pluginId)[key];
+  }
+
+  set(pluginId: string, key: string, value: unknown): void {
+    const data = { ...this.#read(pluginId), [key]: value };
+    const text = JSON.stringify(data);
+    if (Buffer.byteLength(text) > quotas.storageBytes) {
+      throw new Error("Plugin storage quota exceeded.");
+    }
+    this.#write(pluginId, data);
+  }
+
+  delete(pluginId: string, key: string): void {
+    const data = { ...this.#read(pluginId) };
+    delete data[key];
+    this.#write(pluginId, data);
+  }
+
+  keys(pluginId: string): string[] {
+    return Object.keys(this.#read(pluginId));
+  }
+
+  #path(pluginId: string): string {
+    return join(this.#root, `${pluginId}.json`);
+  }
+
+  #read(pluginId: string): Record<string, unknown> {
+    try {
+      const path = this.#path(pluginId);
+      if (!existsSync(path)) {
+        return {};
+      }
+
+      const value = JSON.parse(readFileSync(path, "utf8"));
+      return isRecord(value) ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  #write(pluginId: string, data: Record<string, unknown>): void {
+    mkdirSync(this.#root, { recursive: true });
+    const path = this.#path(pluginId);
+    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+    renameSync(tmp, path);
+  }
 }
 
 export class MemoryPluginStorageStore implements PluginStorageStore {
   readonly #data = new Map<string, Record<string, unknown>>();
-  get(pluginId: string, key: string): unknown { return this.#data.get(pluginId)?.[key]; }
-  set(pluginId: string, key: string, value: unknown): void { const next = { ...(this.#data.get(pluginId) ?? {}), [key]: value }; if (Buffer.byteLength(JSON.stringify(next)) > quotas.storageBytes) throw new Error("Plugin storage quota exceeded."); this.#data.set(pluginId, next); }
-  delete(pluginId: string, key: string): void { const next = { ...(this.#data.get(pluginId) ?? {}) }; delete next[key]; this.#data.set(pluginId, next); }
-  keys(pluginId: string): string[] { return Object.keys(this.#data.get(pluginId) ?? {}); }
+
+  get(pluginId: string, key: string): unknown {
+    return this.#data.get(pluginId)?.[key];
+  }
+
+  set(pluginId: string, key: string, value: unknown): void {
+    const next = { ...(this.#data.get(pluginId) ?? {}), [key]: value };
+    if (Buffer.byteLength(JSON.stringify(next)) > quotas.storageBytes) {
+      throw new Error("Plugin storage quota exceeded.");
+    }
+    this.#data.set(pluginId, next);
+  }
+
+  delete(pluginId: string, key: string): void {
+    const next = { ...(this.#data.get(pluginId) ?? {}) };
+    delete next[key];
+    this.#data.set(pluginId, next);
+  }
+
+  keys(pluginId: string): string[] {
+    return Object.keys(this.#data.get(pluginId) ?? {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,14 +1116,93 @@ function allowedNetworkHosts(record: PluginStateRecord, manifest: OpenPetsJavasc
 // Validators
 // ---------------------------------------------------------------------------
 
-function check(ok: boolean, message: string): void { if (!ok) throw new Error(message); }
-function clampNumber(value: number, min: number, max: number): number { if (!Number.isFinite(value)) return min; return Math.min(Math.max(value, min), max); }
-function validateCssColor(value: unknown, message: string): string { const color = String(value).trim(); check(color.length <= 48 && safeCssColorPattern.test(color), message); return color; }
-function validateStorageKey(key: string): string { if (!/^[A-Za-z0-9._:-]{1,128}$/.test(String(key))) throw new Error("Invalid plugin storage key."); return String(key); }
-function validatePetHandleId(value: unknown): string { const id = String(value); if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) throw new Error("Invalid pet handle id."); return id; }
-function validateReactOptions(value: unknown): PluginReactOptions | undefined { if (value === undefined) return undefined; if (!isRecord(value)) throw new Error("Invalid pet reaction options."); const keys = Object.keys(value); check(keys.every((key) => key === "showMessage"), "Invalid pet reaction option."); if (value.showMessage !== undefined && typeof value.showMessage !== "boolean") throw new Error("Invalid pet reaction showMessage option."); return value.showMessage === undefined ? {} : { showMessage: value.showMessage }; }
-function validatePoint(value: unknown): { x: number; y: number } { if (!isRecord(value)) throw new Error("Invalid point."); const x = Number(value.x); const y = Number(value.y); if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Invalid point."); return { x, y }; }
-function validateMoveToOptions(value: unknown): { durationMs?: number; easing?: string } { const opts = isRecord(value) ? value : {}; const durationMs = opts.durationMs === undefined ? undefined : clampNumber(Number(opts.durationMs), 100, 10_000); const easing = opts.easing === undefined ? undefined : (check(["linear", "ease-in", "ease-out", "ease-in-out"].includes(String(opts.easing)), "Invalid easing."), String(opts.easing)); return { durationMs, easing }; }
+function check(ok: boolean, message: string): void {
+  if (!ok) {
+    throw new Error(message);
+  }
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+}
+
+function validateCssColor(value: unknown, message: string): string {
+  const color = String(value).trim();
+  check(color.length <= 48 && safeCssColorPattern.test(color), message);
+  return color;
+}
+
+function validateStorageKey(key: string): string {
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(String(key))) {
+    throw new Error("Invalid plugin storage key.");
+  }
+  return String(key);
+}
+
+function validatePetHandleId(value: unknown): string {
+  const id = String(value);
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) {
+    throw new Error("Invalid pet handle id.");
+  }
+  return id;
+}
+
+function validateReactOptions(value: unknown): PluginReactOptions | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error("Invalid pet reaction options.");
+  }
+
+  const keys = Object.keys(value);
+  check(keys.every((key) => key === "showMessage"), "Invalid pet reaction option.");
+  if (value.showMessage !== undefined && typeof value.showMessage !== "boolean") {
+    throw new Error("Invalid pet reaction showMessage option.");
+  }
+  if (value.showMessage === undefined) {
+    return {};
+  }
+  return { showMessage: value.showMessage };
+}
+
+function validatePoint(value: unknown): { x: number; y: number } {
+  if (!isRecord(value)) {
+    throw new Error("Invalid point.");
+  }
+  const x = Number(value.x);
+  const y = Number(value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error("Invalid point.");
+  }
+  return { x, y };
+}
+
+function validateMoveToOptions(value: unknown): { durationMs?: number; easing?: string } {
+  const opts = isRecord(value) ? value : {};
+  let durationMs: number | undefined;
+  if (opts.durationMs === undefined) {
+    durationMs = undefined;
+  } else {
+    durationMs = clampNumber(Number(opts.durationMs), 100, 10_000);
+  }
+
+  let easing: string | undefined;
+  if (opts.easing === undefined) {
+    easing = undefined;
+  } else {
+    check(
+      ["linear", "ease-in", "ease-out", "ease-in-out"].includes(String(opts.easing)),
+      "Invalid easing.",
+    );
+    easing = String(opts.easing);
+  }
+
+  return { durationMs, easing };
+}
 
 /** Relaxed screen for model-generated speech (§13.1): longer cap, secrets stripped. */
 export function validateDynamicText(value: string): string {
@@ -1337,10 +1478,59 @@ function validateStatus(status: PluginStatus | string): PluginStatus {
   if (value.tone !== undefined && !["info", "success", "warning", "error"].includes(value.tone)) throw new Error("Plugin status tone must be one of: info, success, warning, error.");
   return { text: value.text, tone: value.tone };
 }
-function validateMoveBy(value: unknown): { x: number; y: number; durationMs?: number } { if (!isRecord(value)) throw new Error("Invalid pet movement options."); const x = Number(value.x); const y = Number(value.y); if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Invalid pet movement distance."); return { x, y, durationMs: value.durationMs === undefined ? undefined : Number(value.durationMs) }; }
-function validateWander(value: unknown): { distance?: number; durationMs?: number } { const options = isRecord(value) ? value : {}; return { distance: options.distance === undefined ? undefined : Number(options.distance), durationMs: options.durationMs === undefined ? undefined : Number(options.durationMs) }; }
-function parseDaily(spec: string | { time: string; days?: number[] }): { time: string; days?: number[] } { const value = typeof spec === "string" ? { time: spec } : spec; const m = /^(\d{2}):(\d{2})$/.exec(value.time); if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) throw new Error("Daily schedule time must be HH:mm between 00:00 and 23:59."); if (value.days && (!Array.isArray(value.days) || value.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6))) throw new Error("Daily schedule days must be weekdays 0-6."); return value; }
-function msUntilDaily(spec: { time: string; days?: number[] }): number { const [hour, minute] = spec.time.split(":").map(Number); const now = new Date(); for (let add = 0; add <= 7; add += 1) { const next = new Date(now); next.setDate(now.getDate() + add); next.setHours(hour ?? 0, minute ?? 0, 0, 0); if (next > now && (!spec.days || spec.days.includes(next.getDay()))) return next.getTime() - now.getTime(); } return 24 * 60 * 60 * 1000; }
+function validateMoveBy(value: unknown): { x: number; y: number; durationMs?: number } {
+  if (!isRecord(value)) {
+    throw new Error("Invalid pet movement options.");
+  }
+  const x = Number(value.x);
+  const y = Number(value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error("Invalid pet movement distance.");
+  }
+  return {
+    x,
+    y,
+    durationMs: value.durationMs === undefined ? undefined : Number(value.durationMs),
+  };
+}
+
+function validateWander(value: unknown): { distance?: number; durationMs?: number } {
+  const options = isRecord(value) ? value : {};
+  const distance = options.distance === undefined ? undefined : Number(options.distance);
+  const durationMs = options.durationMs === undefined ? undefined : Number(options.durationMs);
+  return {
+    distance,
+    durationMs,
+  };
+}
+
+function parseDaily(spec: string | { time: string; days?: number[] }): { time: string; days?: number[] } {
+  const value = typeof spec === "string" ? { time: spec } : spec;
+  const m = /^(\d{2}):(\d{2})$/.exec(value.time);
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) {
+    throw new Error("Daily schedule time must be HH:mm between 00:00 and 23:59.");
+  }
+  if (value.days) {
+    if (!Array.isArray(value.days) || value.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      throw new Error("Daily schedule days must be weekdays 0-6.");
+    }
+  }
+  return value;
+}
+
+function msUntilDaily(spec: { time: string; days?: number[] }): number {
+  const [hour, minute] = spec.time.split(":").map(Number);
+  const now = new Date();
+  for (let add = 0; add <= 7; add += 1) {
+    const next = new Date(now);
+    next.setDate(now.getDate() + add);
+    next.setHours(hour ?? 0, minute ?? 0, 0, 0);
+    if (next > now && (!spec.days || spec.days.includes(next.getDay()))) {
+      return next.getTime() - now.getTime();
+    }
+  }
+  return 24 * 60 * 60 * 1000;
+}
 
 function nextScheduleDelayMs(spec: ScheduleSpec): number | null {
   if (spec.type === "once") return Math.max(1, spec.delayMs);

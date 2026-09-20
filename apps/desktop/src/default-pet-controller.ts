@@ -1,8 +1,8 @@
-import { BrowserWindow, powerMonitor, screen, shell, type Display } from "electron";
+import { BrowserWindow, shell, type Display } from "electron";
 
-import { getAppStateSnapshot, getDefaultPetPosition, getPerMonitorPetPosition, resetDefaultPetPosition, setDefaultPetPosition, setPerMonitorPetPosition, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, getDefaultPetPositionState, recordDefaultPetPosition, resetDefaultPetPosition, updatePreferences } from "./app-state.js";
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
-import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, invalidateDisplayCache, type Point } from "./display.js";
+import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { bindDefaultPetChatWindow, collapseDefaultPetChat, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
@@ -12,12 +12,10 @@ import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.
 import { clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
 import { PetBubbleArbiter, type ActiveBubble, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
-import { reclampAgentPetWindows } from "./agent-pet-controller.js";
-import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
-import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
 import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
 import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
+import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
@@ -352,29 +350,6 @@ export function destroyDefaultPet(): void {
   window.destroy();
 }
 
-export function installDefaultPetDisplayHandlers(): void {
-  screen.on("display-added", debounceDisplayChange("display-added"));
-  screen.on("display-removed", debounceDisplayChange("display-removed"));
-  screen.on("display-metrics-changed", debounceDisplayChange("display-metrics-changed"));
-  powerMonitor.on("resume", recoverDefaultPetWindowAfterResume);
-}
-
-export type DisplayChangeReason = "display-added" | "display-removed" | "display-metrics-changed";
-
-function debounceDisplayChange(reason: DisplayChangeReason): (_event: unknown, display: Display) => void {
-  let timer: NodeJS.Timeout | null = null;
-  let latestDisplay: Display | undefined;
-  return (_event: unknown, display: Display) => {
-    latestDisplay = display;
-    invalidateDisplayCache();
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      reclampAllLivePetWindows(reason, latestDisplay);
-    }, 200);
-  };
-}
-
 function handleBubbleDismissed(dismissToken: string): void {
   debug("pet.default", "bubble dismissed callback", { windowId: defaultPetWindow?.id, dismissToken, currentGeneration: transientPresentation.getDismissToken() });
   if (PetBubbleArbiter.isArbiterToken(dismissToken)) {
@@ -408,7 +383,7 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
   // Do not scan every connected per-monitor entry here: display order is usually
   // primary-first, which can override the true last position with an older
   // primary-display entry.
-  const position = getSafeDefaultPetPosition(getDefaultPetPosition());
+  const position = getSafeDefaultPetPosition(getDefaultPetPositionState().position);
 
   defaultPetWindow = createDefaultPetWindow({
     position,
@@ -563,14 +538,13 @@ function getCurrentDismissToken(): string | undefined {
   return transientPresentation.getDismissToken();
 }
 
-/** Save position both in the flat key (backwards compat) and per-monitor map. */
+/** Save the flat fallback and the per-monitor position in one state operation. */
 function handlePositionChanged(position: Point): void {
-  setDefaultPetPosition(position);
   const displayKey = getDisplayKeyForPosition(position);
-  setPerMonitorPetPosition(displayKey, position);
+  recordDefaultPetPosition(position, displayKey);
 }
 
-function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: Display): void {
+export function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: Display): void {
   if (!defaultPetWindow || defaultPetWindow.isDestroyed()) {
     return;
   }
@@ -584,7 +558,7 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   // pick the primary display first and skip the secondary monitor that was just
   // reconnected.
   if (reason === "display-added" && changedDisplayKey && changedDisplayKey !== currentDisplayKey && getAllDisplayKeys().includes(changedDisplayKey)) {
-    restoredPosition = getPerMonitorPetPosition(changedDisplayKey);
+    restoredPosition = getDefaultPetPositionState().perMonitorPositions?.[changedDisplayKey];
   }
 
   const safePosition = restoredPosition
@@ -603,18 +577,6 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   if (reason === "display-metrics-changed") {
     refreshDefaultPetContent();
   }
-}
-
-function reclampAllLivePetWindows(reason: DisplayChangeReason, changedDisplay?: Display): void {
-  reclampDefaultPetWindow(reason, changedDisplay);
-  reclampAgentPetWindows(reason);
-  reclampLanVisitingPetWindows();
-  reclampPluginPetWindows(reason);
-}
-
-function recoverDefaultPetWindowAfterResume(): void {
-  recoverDefaultPetMouseInterop("power-resume");
-  setTimeout(() => recoverDefaultPetMouseInterop("power-resume+500ms"), 500).unref?.();
 }
 
 export function shouldOpenDefaultPetOnLaunch(): boolean {

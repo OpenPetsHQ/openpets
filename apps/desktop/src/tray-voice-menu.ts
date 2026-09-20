@@ -1,6 +1,6 @@
 import { t } from "./i18n/index.js";
 import type { VoiceOperationSnapshot } from "./voice-operation-state.js";
-import type { VoiceAssistantSessionStatus } from "./voice-assistant-session.js";
+import type { VoiceAssistantSessionStatus } from "./voice-assistant-session-contract.js";
 
 export type TrayVoiceMenuItem = {
   readonly label: string;

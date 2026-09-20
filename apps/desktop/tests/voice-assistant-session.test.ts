@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 
-import {
-  VoiceAssistantSession,
-  type VoiceAssistantActivityEvent,
-  type VoiceAssistantInput,
-  type VoiceAssistantInputOptions,
-  type VoiceAssistantPlayer,
-  type VoiceAssistantSessionEvent,
-  type VoiceAssistantSessionSnapshot,
-  type VoiceAssistantSpeech,
-  type VoiceAssistantSynthesizer,
-  type VoiceAssistantTurnAdapter,
-  type VoiceAssistantTurnResult,
-} from "../src/voice-assistant-session.js";
+import { VoiceAssistantSession } from "../src/voice-assistant-session.js";
+import type {
+  VoiceAssistantActivityEvent,
+  VoiceAssistantInput,
+  VoiceAssistantInputOptions,
+  VoiceAssistantPlayer,
+  VoiceAssistantSessionEvent,
+  VoiceAssistantSessionSnapshot,
+  VoiceAssistantSpeech,
+  VoiceAssistantSynthesizer,
+  VoiceAssistantTurnAdapter,
+  VoiceAssistantTurnResult,
+} from "../src/voice-assistant-session-contract.js";
 import {
   VoiceCaptureService,
   type VoiceCaptureAttempt,

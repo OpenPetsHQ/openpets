@@ -31,7 +31,8 @@ import { getAppStateSnapshot } from "./app-state.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { resolveTrustedPluginSprite } from "./plugin-assets.js";
 import { getPluginService } from "./plugin-service.js";
-import { createNetworkRateSampler, createStaleWhileRevalidateCache, readExtendedSystemMetrics, readNetworkCountersForPlatform } from "./system-metrics.js";
+import { createNetworkRateSampler, createStaleWhileRevalidateCache } from "./system-metrics-core.js";
+import { readExtendedSystemMetrics, readNetworkCountersForPlatform } from "./system-metrics.js";
 
 /**
  * The Electron implementation of every SDK v3 host capability. Built once at

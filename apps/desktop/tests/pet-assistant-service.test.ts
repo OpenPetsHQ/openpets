@@ -13,6 +13,8 @@ import type {
 import { PET_ASSISTANT_HOST_RULES } from "../src/pet-assistant-types.js";
 import { feedbackForAssistantEvent } from "../src/pet-assistant-feedback.js";
 import { PET_ASSISTANT_CONVERSATION_ID } from "../src/pet-assistant-conversation.js";
+import { PET_ASSISTANT_CONVERSATION_ID as ARCHIVE_CONVERSATION_ID } from "../src/pet-assistant-archive.js";
+import type { PetAssistantArchivedMessage, PetAssistantConversationArchive } from "../src/pet-assistant-archive.js";
 
 const handle = { generation: 7 } as PetAssistantGenerationHandle;
 const capability = { pluginId: "focus.buddy", capability: { id: "start", description: "Start focus", inputSchema: { type: "object" } }, handle };
@@ -26,6 +28,24 @@ function runtime(execute: PetAssistantCapabilityRuntime["execute"], capabilities
 function model(responses: readonly PetAssistantTextModelResponse[], requests: PetAssistantTextModelRequest[] = []): PetAssistantTextModel {
   let index = 0;
   return { generate: (request) => { requests.push(request); return responses[index++] ?? { type: "text", text: "fallback" }; } };
+}
+
+function testArchive(initial: readonly PetAssistantArchivedMessage[] = [], append?: (messages: readonly { readonly turnId: string; readonly role: "user" | "assistant"; readonly text: string }[]) => void): PetAssistantConversationArchive {
+  const messages = [...initial];
+  return {
+    list: () => messages,
+    append: (entries) => {
+      append?.(entries);
+      messages.push(...entries.map((entry, index) => ({ ...entry, id: `archive-${messages.length + index}`, conversationId: ARCHIVE_CONVERSATION_ID as "openpets-control-center-current", createdAt: 1 })));
+    },
+    deleteMessage: (id) => {
+      const index = messages.findIndex((message) => message.id === id);
+      if (index < 0) return false;
+      messages.splice(index, 1);
+      return true;
+    },
+    clear: () => { messages.length = 0; },
+  };
 }
 
 // The model can request a capability, receives its unchanged object, and then answers directly.
@@ -164,6 +184,67 @@ function model(responses: readonly PetAssistantTextModelResponse[], requests: Pe
   assert.deepEqual(requests[0]?.messages.filter((message) => message.role === "system").map((message) => message.content), [
     `${PET_ASSISTANT_HOST_RULES}\n\n[BEGIN OPENPETS CURATED CONTEXT]\nThe owner prefers concise answers.\n[END OPENPETS CURATED CONTEXT]\n\n[BEGIN OPENPETS PERSONALITY STYLE]\nBe warm but concise.\n[END OPENPETS PERSONALITY STYLE]`,
   ]);
+}
+
+// Prompt context keeps archived messages before active messages and the current user turn.
+{
+  const requests: PetAssistantTextModelRequest[] = [];
+  const archive = testArchive([
+    { id: "old-user", conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "old-turn", role: "user", text: "Archived question", createdAt: 1 },
+    { id: "old-assistant", conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "old-turn", role: "assistant", text: "Archived answer", createdAt: 1 },
+  ]);
+  const service = new PetAssistantService(model([
+    { type: "text", text: "Active answer" },
+    { type: "text", text: "Current answer" },
+  ], requests), runtime(async () => ({ ok: true, result: {} })), { conversationArchive: archive });
+  await service.startTurn(PET_ASSISTANT_CONVERSATION_ID, "Active question");
+  await service.startTurn(PET_ASSISTANT_CONVERSATION_ID, "Current question");
+  assert.deepEqual(requests[1]?.messages.slice(1).map((message) => message.role === "tool" ? message.toolCallId : message.content), [
+    "Archived question",
+    "Archived answer",
+    "Active question",
+    "Active answer",
+    "Current question",
+  ], "prompt order is archived context, active context, then the current user turn");
+}
+
+// A failed archive append never rolls back the completed active context.
+{
+  const requests: PetAssistantTextModelRequest[] = [];
+  const archiveErrors: unknown[] = [];
+  const archive = testArchive([], () => { throw new Error("archive unavailable"); });
+  const service = new PetAssistantService(model([
+    { type: "text", text: "Active answer" },
+    { type: "text", text: "Next answer" },
+  ], requests), runtime(async () => ({ ok: true, result: {} })), {
+    conversationArchive: archive,
+    onConversationArchiveError: (error) => archiveErrors.push(error),
+  });
+  await service.startTurn(PET_ASSISTANT_CONVERSATION_ID, "Active question");
+  await service.startTurn(PET_ASSISTANT_CONVERSATION_ID, "Next question");
+  assert.equal(archiveErrors.length, 2, "each best-effort append reports its failure");
+  assert.equal(requests[1]?.messages.some((message) => message.role === "user" && message.content === "Active question"), true);
+  assert.equal(requests[1]?.messages.some((message) => message.role === "assistant" && message.content === "Active answer"), true);
+}
+
+// Non-default conversations stay active-only, and clearing one does not touch archive history.
+{
+  const requests: PetAssistantTextModelRequest[] = [];
+  const archive = testArchive([
+    { id: "default-history", conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: "default-turn", role: "assistant", text: "Default archive history", createdAt: 1 },
+  ]);
+  const service = new PetAssistantService(model([
+    { type: "text", text: "Custom answer" },
+    { type: "text", text: "After clear answer" },
+  ], requests), runtime(async () => ({ ok: true, result: {} })), { conversationArchive: archive });
+  await service.startTurn("custom-conversation", "Custom question");
+  assert.deepEqual(archive.list().map((message) => message.text), ["Default archive history"], "custom conversation turns never persist to the default archive");
+  await service.startTurn("custom-conversation", "Before clear");
+  assert.equal(requests[1]?.messages.some((message) => message.role !== "tool" && message.content === "Custom question"), true);
+  service.clearConversation("custom-conversation");
+  await service.startTurn("custom-conversation", "After clear");
+  assert.equal(requests[2]?.messages.some((message) => message.role !== "tool" && message.content === "Custom question"), false);
+  assert.deepEqual(archive.list().map((message) => message.text), ["Default archive history"], "clearing active custom context does not change archive history");
 }
 
 // Owner-authored personality is a bounded communication-data layer after host rules.

@@ -37,7 +37,7 @@ dist checks. Three buckets:
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
-  mapping, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
+  mapping, catalog remote transport/cache behavior and V2/fixture fallback behavior, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
   microphone-track accounting, capture cancellation/cleanup races, separate timeouts,
   empty transcripts, and shutdown behavior. `remote-control.test.ts` covers
   secure opt-in configuration, verifier-only persistence, authentication,
@@ -58,7 +58,9 @@ dist checks. Three buckets:
    fake-endpoint routing, native ElevenLabs Scribe multipart transcription,
    configured TTS voice previews, temporary draft
    credentials, native versus compatible codecs, operation snapshots,
-   redacted status, and no-fetch unsupported realtime. Tests use fake fetches and
+   redacted status, no-fetch unsupported realtime, and provider transport
+   cancellation, bounded-body, malformed-JSON, SSE, and sanitized-error
+   behavior. Tests use fake fetches and
    no credentials. The provider settings tests also cover atomic save rollback
    after credential failure, redacted-header add/delete edits, and preservation
     of secrets outside Control Center snapshots.

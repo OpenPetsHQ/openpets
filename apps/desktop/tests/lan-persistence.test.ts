@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getPersistedLanStatePath, readPersistedLanState, writePersistedLanState } from "../src/lan-persistence.js";
-import type { LanState } from "../src/lan-state.js";
+import type { LanState } from "../src/lan-contract.js";
 
 const root = mkdtempSync(join(tmpdir(), "openpets-lan-persist-"));
 try {

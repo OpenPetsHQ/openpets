@@ -39,12 +39,13 @@ launching a second one.
 `main.ts` runs a deterministic bootstrap (see `src/codemap.md` for the exact
 order): install lifecycle handlers → initialize app state → initialize the
 logger → register the configured Talk shortcut → create the tray → start the
-local IPC server → start the persisted, opt-in remote-control service if enabled
+`PetDisplayCoordinator` → start the local IPC server → start the persisted, opt-in remote-control service if enabled
 → initialize and start the plugin service (with the Electron JS host) → start
 the optional Teams service and reconcile its Team Pack → start the bundled
 Manager Check-ins service → construct the host Pet Assistant service → optionally
-show the default pet. Shutdown unregisters the exact shortcut before stopping
-voice, then stops the bounded Pet Assistant turns and Teams before plugin teardown,
+show the default pet. Shutdown stops the `PetDisplayCoordinator` before
+unregistering the exact shortcut and stopping voice, then stops the bounded Pet
+Assistant turns and Teams before plugin teardown,
 remote-control listener, local IPC server, and pet windows.
 
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
@@ -313,6 +314,9 @@ and role changes atomically.
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).
+The stable generic and Realtime voice-session type contracts are owned by
+`src/voice-assistant-session-contract.ts`; `src/voice-assistant-session.ts`
+retains the mutable generic session stages and lifecycle implementation.
 The shortcut accelerator is persisted in Settings and its runtime status and
 reason are part of the authoritative Talk snapshot/event contract. Runtime
 status is `registered`, `conflict`, `unavailable`, or `invalid`; registration and
@@ -357,9 +361,12 @@ host-owned capability input validator.
 
 ### Pet windows
 
-Pet rendering lives in `pet-window.ts` plus the two controllers
+Pet rendering and lifecycle setup live in `pet-window.ts` plus the two controllers
 (`default-pet-controller.ts`, `agent-pet-controller.ts`) and the motion/mapping
-helpers. This is covered in depth in [Pets](/pets).
+helpers. `pet-display-coordinator.ts` owns display/power listener lifecycle and
+cross-controller topology/recovery fanout. `pet-window-interaction.ts` owns the per-window mouse/drag and renderer
+IPC lifecycle, recovery/watchdog, and speech-completion bridge. This is covered
+in depth in [Pets](/pets).
 
 ### Local IPC server
 
@@ -557,9 +564,15 @@ plugin `ctx.ai` gateway. Capability discovery and execution call the
 generation-pinned `PluginService` APIs; pre-invocation lifecycle rejection is
 unavailable, while a disable/reload after invocation is indeterminate.
 
-The service keeps only bounded in-memory conversation state, validates whole
-tool batches before side effects, bounds context/tool/final payloads, and
-cancels active model/capability waits during idempotent shutdown. Missing model
+`PetAssistantMemory` is the Electron-/filesystem-free owner of completed-turn
+active context and the optional archive seam. It bounds active turns, selects
+archive context before active context with archive-turn deduplication, appends
+only canonical terminal user/assistant text for the default conversation, and
+delegates archive list/delete/clear operations. The service keeps model,
+capability, cancellation, terminal-reduction, and realtime lifecycle ownership;
+it hands memory the outcome only after canonical terminal text replacement.
+The service validates whole tool batches before side effects, bounds
+context/tool/final payloads, and cancels active model/capability waits during idempotent shutdown. Missing model
 configuration fails a turn clearly and does not prevent desktop startup. The
 host injects a synchronous composition provider backed by `app-state.ts`.
 `PetAssistantService` captures the returned profile at the beginning of each
@@ -722,6 +735,7 @@ release flow.
 |---------------------|----------|
 | Tray menu / Control Center routing | `tray.ts`, `windows.ts` |
 | Pet appearance / animation | `pet-window.ts`, `reaction-animation-mapping.ts` ([Pets](/pets)) |
+| Pet drag / click-through / interaction lifecycle | `pet-window-interaction.ts`, `pet-preload.cjs` ([Pets](/pets)) |
 | Agent → pet command path | `local-ipc.ts`, `lease-manager.ts` ([IPC and remote control](/ipc)) |
 | Persisted settings | `app-state.ts` |
 | Plugin behavior | `plugin-service.ts` + `plugin-*.ts` ([Plugin platform](/plugins)) |

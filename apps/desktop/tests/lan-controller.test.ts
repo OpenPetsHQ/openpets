@@ -4,7 +4,8 @@ import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { createLanRequestHandler } from "../src/lan-http-controller.js";
-import { LanCoordinator, type LanState } from "../src/lan-state.js";
+import { LanCoordinator } from "../src/lan-state.js";
+import type { LanState } from "../src/lan-contract.js";
 
 const token = "test-shared-secret";
 let now = 1_000;

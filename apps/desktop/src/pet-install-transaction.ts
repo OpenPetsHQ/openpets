@@ -2,32 +2,33 @@ import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 
-const markerName = "journal.json";
-const transactionRootName = ".openpets-pet-transactions";
-const markerVersion = 1;
-const maxMarkerBytes = 16 * 1024;
+import {
+  assertPetId,
+  assertPetLockId,
+  candidatePetIdFromBasename,
+  isKnownCandidateBasename,
+  isPromotedTopology,
+  isRecord,
+  isStagingCandidateBasename,
+  markerName,
+  markerVersion,
+  markerTempPattern,
+  maxMarkerBytes,
+  parseJournal,
+  parseStagingOwnershipMarker,
+  recoveryAction,
+  serializeJournal,
+  serializeStagingOwnershipMarker,
+  stagingOwnershipPath,
+  stagingOwnerSuffix,
+  transactionRootName,
+  trustedPetIdFromTransactionName,
+  validateJournal,
+  zipImportCandidatePrefix,
+} from "./pet-install-transaction-protocol.js";
+import type { Journal, PetInstallTopology, TransactionPhase } from "./pet-install-transaction-protocol.js";
+
 const maxWarningsPerOperation = 4;
-const petIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const tokenPattern = /^[A-Za-z0-9_-]{6,64}$/;
-const transactionPattern = /^tx-([a-z0-9][a-z0-9_-]{0,63})-([a-f0-9]{32})$/;
-const markerTempPattern = /^journal\.json\.tmp-[a-f0-9]{32}$/;
-const zipImportCandidatePrefix = ".openpets-pet-candidate-__zip-import__-";
-const stagingOwnerSuffix = ".openpets-pet-staging-owner.json";
-const stagingOwnerVersion = 1;
-const phases = ["prepared", "backup-created", "promoted", "state-mutating", "committed"] as const;
-
-type TransactionPhase = typeof phases[number];
-
-interface Journal {
-  readonly version: 1;
-  readonly phase: TransactionPhase;
-  readonly petId: string;
-  readonly finalBasename: string;
-  readonly candidateBasename: string;
-  readonly backupBasename: string;
-  readonly hadFinal: boolean;
-  readonly mutationOutcome?: "rejected" | "succeeded" | "uncertain";
-}
 
 export interface PetInstallWarning {
   readonly message: string;
@@ -350,25 +351,6 @@ export async function recoverPetInstallTransactions(options: RecoverPetInstallTr
   await recoverOwnedStagingCandidates(root, protectedCandidates, blockedPetIds, warning);
 }
 
-interface PetInstallTopology {
-  readonly finalExists: boolean;
-  readonly backupExists: boolean;
-  readonly candidateExists: boolean;
-}
-
-function recoveryAction(journal: Journal, topology: PetInstallTopology): "rollback" | "cleanup" | "remove" {
-  if (journal.phase === "committed" || journal.mutationOutcome === "succeeded") {
-    if (!topology.finalExists) throw new Error("committed new pet final is missing");
-    return "cleanup";
-  }
-  if (journal.mutationOutcome === "uncertain") throw new Error("state mutation outcome is uncertain");
-  if (isRestoredTopology(journal, topology)) return "remove";
-  if (journal.mutationOutcome === "rejected" || isPreMutationTopology(journal, topology)) return "rollback";
-  if (journal.phase === "state-mutating" && isPromotedTopology(journal, topology)) throw new Error("state mutation outcome is uncertain");
-  if (isPromotedTopology(journal, topology)) return "rollback";
-  throw new Error("ambiguous asset topology");
-}
-
 /**
  * A trusted transaction directory fences its pet even when its marker is
  * incomplete or malformed. This prevents stale recovery state from acting on
@@ -447,26 +429,6 @@ async function inspectTopology(journal: Journal, root: string, transactionDir: s
     }
   }
   return { finalExists: exists[0], backupExists: exists[1], candidateExists: exists[2] };
-}
-
-function isPreMutationTopology(journal: Journal, topology: PetInstallTopology): boolean {
-  if (journal.hadFinal) {
-    return (topology.finalExists && !topology.backupExists && topology.candidateExists)
-      || (!topology.finalExists && topology.backupExists);
-  }
-  return topology.candidateExists && !topology.finalExists && !topology.backupExists;
-}
-
-function isPromotedTopology(journal: Journal, topology: PetInstallTopology): boolean {
-  return journal.hadFinal
-    ? topology.finalExists && topology.backupExists
-    : topology.finalExists && !topology.backupExists;
-}
-
-function isRestoredTopology(journal: Journal, topology: PetInstallTopology): boolean {
-  return journal.hadFinal
-    ? topology.finalExists && !topology.backupExists && !topology.candidateExists
-    : !topology.finalExists && !topology.backupExists && !topology.candidateExists;
 }
 
 async function rollback(journal: Journal, root: string, transactionDir: string, warning: (message: string) => void): Promise<void> {
@@ -588,18 +550,12 @@ async function recoverOwnedStagingCandidates(
   }
 }
 
-interface StagingOwnershipMarker {
-  readonly version: 1;
-  readonly candidateBasename: string;
-}
-
 async function createOwnedCandidate(root: string, prefix: string, label: string): Promise<string> {
   const candidateBasename = `${prefix}${randomUUID().replaceAll("-", "")}`;
   const candidate = join(root, candidateBasename);
   const ownerPath = stagingOwnershipPath(root, candidateBasename);
-  const marker: StagingOwnershipMarker = { version: stagingOwnerVersion, candidateBasename };
   try {
-    await writeFile(ownerPath, `${JSON.stringify(marker)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await writeFile(ownerPath, serializeStagingOwnershipMarker(candidateBasename), { encoding: "utf8", mode: 0o600, flag: "wx" });
     await chmod(ownerPath, 0o600);
     await assertPrivateCanonicalFile(ownerPath, "pet staging ownership marker");
     await mkdir(candidate, { mode: 0o700 });
@@ -618,14 +574,7 @@ async function assertStagingOwnership(candidate: string, root: string): Promise<
   const markerPath = stagingOwnershipPath(root, candidateBasename);
   const stats = await assertPrivateCanonicalFile(markerPath, "pet staging ownership marker");
   if (stats.size > maxMarkerBytes) throw new Error("Pet staging ownership marker is too large.");
-  const parsed: unknown = JSON.parse(await readFile(markerPath, "utf8"));
-  if (!isRecord(parsed) || Object.keys(parsed).some((key) => !["version", "candidateBasename"].includes(key))) {
-    throw new Error("Pet staging ownership marker is invalid.");
-  }
-  const marker = parsed as unknown as StagingOwnershipMarker;
-  if (marker.version !== stagingOwnerVersion || marker.candidateBasename !== candidateBasename || !isStagingCandidateBasename(candidateBasename)) {
-    throw new Error("Pet staging ownership marker is invalid.");
-  }
+  parseStagingOwnershipMarker(await readFile(markerPath, "utf8"), candidateBasename);
 }
 
 async function removeStagingOwnershipMarker(candidate: string, root: string, warning: (message: string) => void): Promise<void> {
@@ -638,21 +587,6 @@ async function removeStagingOwnershipMarker(candidate: string, root: string, war
   } catch (error) {
     warning(`Pet installation staging ownership handoff could not finish: ${errorMessage(error)}.`);
   }
-}
-
-function stagingOwnershipPath(root: string, candidateBasename: string): string {
-  return join(root, `${candidateBasename}${stagingOwnerSuffix}`);
-}
-
-function isStagingCandidateBasename(name: string): boolean {
-  if (name.startsWith(zipImportCandidatePrefix)) return tokenPattern.test(name.slice(zipImportCandidatePrefix.length));
-  const match = /^\.openpets-pet-candidate-([a-z0-9][a-z0-9_-]{0,63})-([A-Za-z0-9_-]{6,64})$/.exec(name);
-  return Boolean(match && match[1] !== "builtin" && match[2] && petIdPattern.test(match[1]));
-}
-
-function candidatePetIdFromBasename(name: string): string | null {
-  const match = /^\.openpets-pet-candidate-([a-z0-9][a-z0-9_-]{0,63})-([A-Za-z0-9_-]{6,64})$/.exec(name);
-  return match?.[1] && match[1] !== "builtin" ? match[1] : null;
 }
 
 async function validateMarkerDirectoryEntries(transactionDir: string, markerExpected = true): Promise<string[]> {
@@ -673,10 +607,7 @@ async function assertCandidate(root: string, candidatePath: string, petId: strin
     throw new Error("Pet install candidate must be a direct child of the pets root.");
   }
   const name = candidate.substring(root.length + 1);
-  const petPrefix = `.openpets-pet-candidate-${petId}-`;
-  const prefixes = [petPrefix, zipImportCandidatePrefix];
-  const prefix = prefixes.find((candidatePrefix) => name.startsWith(candidatePrefix));
-  if (!prefix || !tokenPattern.test(name.slice(prefix.length))) {
+  if (!isKnownCandidateBasename(name, petId)) {
     throw new Error("Pet install candidate name is not a known private transaction path.");
   }
   await assertPrivateCanonicalDirectory(candidate, "pet candidate");
@@ -704,24 +635,8 @@ async function assertManagedNamePaths(journal: Journal, root: string, transactio
   await assertPrivateCanonicalDirectory(root, "pets root");
 }
 
-function validateJournal(journal: Journal, root: string, transactionDir: string): void {
-  if (journal.version !== markerVersion || !phases.includes(journal.phase) || !petIdPattern.test(journal.petId)) throw new Error("Pet installation marker is invalid.");
-  if (journal.finalBasename !== journal.petId || !isBasename(journal.finalBasename)) throw new Error("Pet installation marker final path is invalid.");
-  const candidatePrefixes = [`.openpets-pet-candidate-${journal.petId}-`, zipImportCandidatePrefix];
-  const candidatePrefix = candidatePrefixes.find((prefix) => journal.candidateBasename.startsWith(prefix));
-  if (!candidatePrefix || !tokenPattern.test(journal.candidateBasename.slice(candidatePrefix.length))) throw new Error("Pet installation marker candidate path is invalid.");
-  const backupPrefix = `.openpets-pet-backup-${journal.petId}-`;
-  if (!journal.backupBasename.startsWith(backupPrefix) || !tokenPattern.test(journal.backupBasename.slice(backupPrefix.length))) throw new Error("Pet installation marker backup path is invalid.");
-  if (typeof journal.hadFinal !== "boolean") throw new Error("Pet installation marker hadFinal value is invalid.");
-  if (journal.mutationOutcome !== undefined && journal.mutationOutcome !== "rejected" && journal.mutationOutcome !== "succeeded" && journal.mutationOutcome !== "uncertain") throw new Error("Pet installation marker mutation outcome is invalid.");
-  const transactionName = transactionDir.substring(dirname(transactionDir).length + 1);
-  const trustedPetId = trustedPetIdFromTransactionName(transactionName);
-  if (dirname(transactionDir) !== join(root, transactionRootName) || !trustedPetId || trustedPetId !== journal.petId) throw new Error("Pet installation marker transaction path is invalid.");
-}
-
 async function writeJournal(path: string, journal: Journal): Promise<void> {
-  const data = `${JSON.stringify(journal)}\n`;
-  if (Buffer.byteLength(data) > maxMarkerBytes) throw new Error("Pet installation marker is too large.");
+  const data = serializeJournal(journal);
   const tempPath = `${path}.tmp-${randomUUID().replaceAll("-", "")}`;
   let renamed = false;
   try {
@@ -742,11 +657,7 @@ async function writeJournal(path: string, journal: Journal): Promise<void> {
 async function readJournal(path: string, root: string, transactionDir: string): Promise<Journal> {
   const stats = await assertPrivateCanonicalFile(path, "pet transaction marker");
   if (stats.size > maxMarkerBytes) throw new Error("Pet installation marker is too large.");
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  if (!isRecord(parsed) || Object.keys(parsed).some((key) => !["version", "phase", "petId", "finalBasename", "candidateBasename", "backupBasename", "hadFinal", "mutationOutcome"].includes(key))) throw new Error("Pet installation marker has unknown fields.");
-  const journal = parsed as unknown as Journal;
-  validateJournal(journal, root, transactionDir);
-  return journal;
+  return parseJournal(await readFile(path, "utf8"), root, transactionDir);
 }
 
 async function ensurePrivateDirectory(path: string, label: string): Promise<string> {
@@ -817,21 +728,9 @@ function createWarningSink(callback?: (warning: PetInstallWarning) => void, petI
   };
 }
 
-function assertPetId(value: string): void {
-  if (!petIdPattern.test(value) || value === "builtin") throw new Error(`Invalid installed pet id: ${value}`);
-}
-
-function assertPetLockId(value: string): void {
-  if (value !== "builtin") assertPetId(value);
-}
-
 /** Windows' lstat mode contains synthetic POSIX permission bits. */
 export function isPrivateMode(mode: number, platform: NodeJS.Platform = process.platform): boolean {
   return platform === "win32" || (mode & 0o077) === 0;
-}
-
-function isBasename(value: string): boolean {
-  return value.length > 0 && !value.includes("/") && !value.includes("\\") && value !== "." && value !== "..";
 }
 
 function isUncertainStateMutation(error: unknown): boolean {
@@ -841,12 +740,6 @@ function isUncertainStateMutation(error: unknown): boolean {
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return (typeof value === "object" && value !== null || typeof value === "function")
     && typeof (value as { readonly then?: unknown }).then === "function";
-}
-
-function trustedPetIdFromTransactionName(name: string): string | null {
-  const match = transactionPattern.exec(name);
-  if (!match || !match[1] || match[1] === "builtin") return null;
-  return match[1];
 }
 
 function isMissing(error: unknown): boolean {
@@ -859,8 +752,4 @@ function isDirectoryNotEmpty(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return typeof value === "object" && value !== null;
 }

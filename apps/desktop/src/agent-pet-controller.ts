@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
-import type { DisplayChangeReason } from "./default-pet-controller.js";
+import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { clampToTerminalBounds, getConfinementState, getEffectiveConfinementBounds } from "./confinement-manager.js";
 import { defaultPetWindowSize, clampToVisibleWorkArea, getDefaultPetInitialPosition } from "./display.js";

@@ -1,10 +1,9 @@
 import type { PetAssistantService } from "./pet-assistant-service.js";
 import type { HostProviderOperations } from "./provider-service.js";
-import type { VoiceAssistantInput, VoiceAssistantInputOptions, VoiceAssistantInputResult, VoiceAssistantSpeech, VoiceAssistantSessionLike, VoiceAssistantSynthesizer, VoiceAssistantTurnAdapter, VoiceAssistantTurnResult } from "./voice-assistant-session.js";
+import type { VoiceAssistantInput, VoiceAssistantInputOptions, VoiceAssistantInputResult, VoiceAssistantSpeech, VoiceAssistantSessionEvent, VoiceAssistantSessionLike, VoiceAssistantSynthesizer, VoiceAssistantTurnAdapter, VoiceAssistantTurnResult } from "./voice-assistant-session-contract.js";
 import type { VoiceCaptureService } from "./voice-capture.js";
 import { VoiceListeningService } from "./voice-listening-service.js";
 import type { VoiceDeviceService } from "./voice-device-service.js";
-import type { VoiceAssistantSessionEvent } from "./voice-assistant-session.js";
 import { info, warn } from "./logger.js";
 
 const HOST_RECORDING_DURATION_MS = 10_000;

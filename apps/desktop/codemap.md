@@ -27,11 +27,11 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 ## Flow
 
-**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
+**Startup**: `main.ts` → `installAppLifecycle()` → `initializeLogger()` → `initializeAppState()` → safely repair eligible legacy Codex V2 import markers → `createAppTray()` → start `PetDisplayCoordinator` → `startLocalIpcServer()` → initialize plugin service with JavaScript host/SDK bridge → construct Pet Assistant host and local conversation archive → optionally open a validated `OPENPETS_DEV_ROUTE` Control Center route in unpackaged development → optionally `showDefaultPet()`
 
-**Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping
+**Pet Display**: IPC Request → `local-ipc.ts` → `LeaseManager.acquire()` → `agent-pet-controller.ts` → `pet-window.ts` → HTML/CSS spritesheet animation with reaction-to-animation mapping; topology and resume recovery are coordinated by `pet-display-coordinator.ts`
 
-**Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → state update → tray refresh
+**Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → `pet-install-transaction.ts` orchestrates filesystem promotion, state mutation, rollback, recovery, and side effects using the pure `pet-install-transaction-protocol.ts` journal/schema/naming/recovery policy → tray refresh
 
 **Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
 
@@ -69,18 +69,22 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, and Settings
 - `local-ipc.ts`: TCP/Unix socket server for CLI communication
 - `lease-manager.ts`: Pet routing lease lifecycle
-- `pet-window.ts`: Pet rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
+- `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
+- `pet-window-interaction.ts`: Pet-window mouse passthrough, manual/native drag bridge, renderer lifecycle recovery/watchdog, IPC event bridge, dragging state, and speech-completion subscriptions
+- `wayland-layer-backend.ts`/`wayland-layer-protocol.ts`: Native layer-shell Electron adapter plus its Electron-free length-prefixed protocol, incremental decoding, cropped BGRA frame handling, and pointer replay mapping
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
 - `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
 - `pet-window-shape.ts`: Shared compact-composer maximum geometry plus Linux X11/Wayland input shape masks for collapsed carrier and bottom-anchored expanded attached chat panel
 - `pet-assistant-feedback.ts`: Reducer mapping canonical assistant turns and active voice sessions to pet reactions, suppressing duplicate text when chat is open while keeping sprite activity/reaction animations
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
-- `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampAllLivePetWindows()` re-clamps all live pet windows on topology changes
+- `pet-display-coordinator.ts`: Electron-free display/power event coordinator; owns listener lifecycle, per-reason debounce, cache invalidation, and ordered live-pet reclamping/recovery fanout
+- `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampDefaultPetWindow()` and the agent reclamp leaf retain window-specific geometry work
 - `pet-roaming-controller.ts`: Host-side roaming orchestrator — registers every live pet (default + agent) with the motion engine and applies the active physics configuration (gravity + bounce). Unregisters before window destroy to prevent the shared ticker from touching closed windows.
 - `pet-motion-engine.ts`: Shared-ticker motion engine (~60 fps) — `Map<petHandleId, MotionState>`, single `setInterval` for all pets, sub-pixel fractional accumulators, bottom-center gravity-floor anchor, `registerPet`/`unregisterPet` seams, sole continuous position writer.
 - `display.ts`: Screen-geometry helpers — `getDefaultPetInitialPosition`, `clampToVisibleWorkArea` (legacy single-display), `clampToNearestDisplayIfOffscreen` (permissive multi-display), `isOnAnyDisplay`, `setCrossDisplayRoamingEnabled`/`isCrossDisplayRoamingEnabled` flag; display list cache with `invalidateDisplayCache()`
 - `app-state.ts`: Persistent state management (JSON file)
-- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, bounded active context, readable provider-safe capability names, friendly action presentation metadata, and canonical terminal-text archive integration
+- `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, readable provider-safe capability names, friendly action presentation metadata, and terminal-turn coordination
+- `pet-assistant-memory.ts`: Electron-/filesystem-free owner of completed-turn active context, archive-plus-active prompt selection, canonical terminal-text archive appends, and archive management delegation
 - `pet-assistant-archive.ts`: Atomic local archive with 200-message/30-day/512KiB retention, 64KiB entry cap, quarantine recovery, and bounded prompt-window support
 - `agent-setup.ts`: Claude/OpenCode/Cursor/Zed integration logic plus OpenClaw management/status actions
 - `plugin-service.ts`: Plugin orchestration for snapshots, enable/config/reload, command execution, catalog install/update/uninstall, local loading, permission approval, JavaScript host wiring, and runtime reloads
@@ -96,10 +100,14 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-js-host.ts`: Hidden sandboxed BrowserWindow host for JavaScript plugin entry modules, SDK IPC tokening, session hardening, startup handshake, and teardown
 - `plugin-sdk-bridge.ts`: Permission-checked SDK API for JavaScript plugins with quotas, plugin storage, schedules, config listeners, commands/status, logs, and restricted HTTPS fetch
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
-- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, and `voice-privacy-indicator*.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, and teardown cleanup
+- `voice-assistant-session-contract.ts`: Pure generic/Realtime voice-session contracts shared by host, Realtime, feedback, tray, and implementation modules.
+- `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, `voice-privacy-indicator*.ts`, and `voice-assistant-session.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, mutable generic session stages, and teardown cleanup
 - `pet-installation.ts`: Catalog ZIP download and extraction
+- `pet-install-transaction-protocol.ts`: Stable pet-install journal/schema, naming, and recovery-classification protocol
+- `pet-install-transaction.ts`: Filesystem and side-effect orchestration for staged promotion, state mutation, rollback, cleanup, locking, and startup recovery
 - `codex-pets.ts`: Local Codex pet import
-- `catalog.ts`: Remote catalog fetching with V3 pagination and fixture fallback
+- `catalog-remote.ts`: Bounded remote catalog HTTP, endpoint validation, schema validation, and module-instance caches for V3 index/pages/search plus V2
+- `catalog.ts`: Public catalog façade owning V3→V2→fixture fallback, V3-only curated visibility, virtual pagination/search composition, and all-pet V2/fixture fallback lookup
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
@@ -112,7 +120,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 ## Test Structure
 
-- **Behavior tests** (`tests/*.test.ts`): Unit tests for lease manager (incl. PID liveness + pool toggle), state management, version checking, ZIP safety, Codex pets, Claude memory, reaction animation mapping, host Pet Assistant/archive retention and prompt boundaries, plugin bridge/gateway guards, bounded voice capture lifecycle (`voice-lifecycle.test.ts`), private realtime conversation lifecycle (`voice-conversation.test.ts`), display geometry helpers (`display.test.ts`), pet motion-engine clamping and shared-ticker (`pet-motion-engine-clamp.test.ts`, `pet-motion-engine-shared-ticker.test.ts`), gravity seam (`pet-motion-engine-gravity-seam.test.ts`), single-writer invariant (`pet-motion-engine-single-writer.test.ts`), roaming controller (`pet-roaming-controller.test.ts`), and pool toggle (`pool-toggle.test.ts`). Compiled to `.test-dist/tests/`.
+- **Behavior tests** (`tests/*.test.ts`): Unit tests for lease manager (incl. PID liveness + pool toggle), state management, version checking, ZIP safety, Codex pets, Claude memory, reaction animation mapping, catalog V2/fixture fallback visibility and lookup (`catalog-fallback.test.ts`), host Pet Assistant/archive retention and prompt boundaries, plugin bridge/gateway guards, bounded voice capture lifecycle (`voice-lifecycle.test.ts`), private realtime conversation lifecycle (`voice-conversation.test.ts`), display geometry helpers (`display.test.ts`), pet motion-engine clamping and shared-ticker (`pet-motion-engine-clamp.test.ts`, `pet-motion-engine-shared-ticker.test.ts`), gravity seam (`pet-motion-engine-gravity-seam.test.ts`), single-writer invariant (`pet-motion-engine-single-writer.test.ts`), roaming controller (`pet-roaming-controller.test.ts`), and pool toggle (`pool-toggle.test.ts`). Compiled to `.test-dist/tests/`.
 - **Contract tests** (`contracts/*.contract.ts`): Public API boundary validation for catalog fixtures, IPC protocol, and plugin manifest schema. Compiled to `.test-dist/contracts/`.
 - **Runtime checks** (`src/check-*.ts`): Remaining runtime validation checks compiled to `dist/`.
 - `packaging-contract.ts` centralizes the canonical bundled-plugin and unpacked integration-runtime checks used by the packaged-output validator and its artifact fixtures.

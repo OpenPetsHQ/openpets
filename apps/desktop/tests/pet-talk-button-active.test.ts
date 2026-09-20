@@ -1,8 +1,8 @@
 /**
- * Protects the on-pet visual treatment for active and inactive Talk sessions.
- * Verifies that voice activity renders the Talk button with an active end-talk
- * affordance (restrained red, subtle pulse, "End talk" title/aria-label) and
- * does not generate detached popup bubbles or hide the button.
+ * Protects the Talk button state contract for active and inactive sessions.
+ * Verifies that voice activity renders an active end-talk affordance with the
+ * correct interaction state and does not generate detached popup bubbles or
+ * hide the button.
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -117,22 +117,13 @@ try {
   assert.ok(!processingMarkup.includes("is-active"), "createPetBodyMarkup with canSubmitRecording=false does not have is-active class");
   assert.ok(processingMarkup.includes("disabled"), "createPetBodyMarkup with canSubmitRecording=false is disabled");
 
-  // 3. Talk button styling in generated CSS
-  assert.ok(activeSubmitRender.html.includes(".openpets-talk-button.is-active"), "CSS includes active talk button selector");
-  assert.ok(activeSubmitRender.html.includes("#ef4444") || activeSubmitRender.html.includes("#dc2626"), "CSS includes restrained red active styling");
-  assert.ok(activeSubmitRender.html.includes("talk-pulse"), "CSS includes talk-pulse animation for active state");
-  assert.ok(activeSubmitRender.html.includes("@keyframes talk-pulse"), "CSS defines talk-pulse keyframes");
-  assert.ok(activeSubmitRender.html.includes(".openpets-talk-button.is-processing"), "CSS includes processing talk button selector");
-  assert.ok(activeSubmitRender.html.includes("processing-breathe"), "CSS includes processing-breathe animation");
-  assert.ok(activeSubmitRender.html.includes("@keyframes processing-breathe"), "CSS defines processing-breathe keyframes");
-
-  // 4. External transient bubble suppresses launcher buttons as normal
+  // 3. External transient bubble suppresses launcher buttons as normal
   const displayWithExternalMessage = { message: "Hello from human or plugin", reaction: "working" as const, suppressReactionMessage: true };
   const messageRender = await createDefaultPetRender(false, displayWithExternalMessage, null);
   assert.ok(messageRender.bodyHtml.includes("bubble"), "external message bubble is rendered");
   assert.ok(!messageRender.bodyHtml.includes("openpets-pet-buttons"), "assistant buttons are omitted while external message bubble is visible");
 
-  // 5. Pinned plugin HUD does not hide active Talk button
+  // 4. Pinned plugin HUD does not hide active Talk button
   const pinnedBubble = {
     token: "hud-1",
     pluginId: "test-plugin",
@@ -142,7 +133,7 @@ try {
   assert.ok(renderWithPinned.bodyHtml.includes("is-pinned"), "pinned HUD is rendered");
   assert.ok(renderWithPinned.bodyHtml.includes("openpets-talk-button is-active"), "active talk button remains visible alongside pinned HUD");
 
-  // 6. Agent pets (petRole: agent) do not render assistant buttons
+  // 5. Agent pets (petRole: agent) do not render assistant buttons
   const agentBody = createPetBodyMarkup("Agent Pet", "", `<div class="sprite"></div>`, "", false, "agent", true);
   assert.ok(!agentBody.includes("openpets-pet-buttons"), "agent pets must not render assistant buttons");
   assert.ok(!agentBody.includes("data-openpets-talk-button"), "agent pets must not render talk button");

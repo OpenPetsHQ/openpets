@@ -1,4 +1,4 @@
-import { app, globalShortcut, powerMonitor } from "electron";
+import { app, globalShortcut, powerMonitor, screen, type Display } from "electron";
 import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
@@ -9,7 +9,7 @@ import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
 import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
 import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, installDefaultPetDisplayHandlers, isDefaultPetVisible, presentManagerCheckInOffer, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
 import { initializeLanController, isDefaultPetAwayForLan, startLanController } from "./lan-controller.js";
 import { debug, error as logError, getLogFilePath, info, initializeLogger, warn } from "./logger.js";
@@ -39,10 +39,16 @@ import { findTeamEnrollmentLink } from "./team-protocol.js";
 import { resolveDevControlCenterRoute } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
+import { invalidateDisplayCache } from "./display.js";
+import { reclampAgentPetWindows } from "./agent-pet-controller.js";
+import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
+import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
+import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
 let pendingTeamEnrollmentLink: string | null = null;
+let petDisplayCoordinator: PetDisplayCoordinator<Display> | null = null;
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
 // real encryption backend. On Linux use the keyring so safeStorage can
@@ -136,6 +142,9 @@ if (!gotSingleInstanceLock) {
       teamService?.stop() ?? Promise.resolve(),
     stopManagerCheckIns: () => {
       return managerCheckInService?.stop() ?? Promise.resolve();
+    },
+    stopPetDisplayCoordinator: () => {
+      petDisplayCoordinator?.stop();
     },
   });
 
@@ -232,7 +241,17 @@ if (!gotSingleInstanceLock) {
     installInternalUiHandlers();
     installDefaultPetChatIpcHandlers();
     createAppTray();
-    installDefaultPetDisplayHandlers();
+    petDisplayCoordinator = new PetDisplayCoordinator({
+      displaySource: screen,
+      powerSource: powerMonitor,
+      invalidateDisplayCache,
+      reclampDefaultPetWindow,
+      reclampAgentPetWindows,
+      reclampLanVisitingPetWindows,
+      reclampPluginPetWindows,
+      recoverDefaultPetMouseInterop,
+    });
+    petDisplayCoordinator.start();
     await startLocalIpcServer();
     releaseStartupInstallLock();
     const roots = parseDevPluginEnv(process.env.OPENPETS_DEV_PLUGIN_ROOTS);

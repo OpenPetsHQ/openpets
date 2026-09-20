@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { URL } from "node:url";
 
-import { LanCoordinator, normalizeLanEdge, normalizeLanHost, normalizeLanPetId, normalizeLanPoint, type LanState } from "./lan-state.js";
+import { LanCoordinator } from "./lan-state.js";
+import { normalizeLanEdge, normalizeLanHost, normalizeLanPetId, normalizeLanPoint, type LanState } from "./lan-contract.js";
 
 const maxLanRequestBodyBytes = 16 * 1024;
 const lanSessionHeader = "x-openpets-lan-session";

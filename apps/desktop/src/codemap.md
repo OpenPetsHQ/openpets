@@ -39,14 +39,15 @@ main.ts
 
 **IPC Request Flow**:
 ```
-local-ipc.ts → parseIpcRequest() → handleRequest()
+local-ipc.ts → local-ipc-request-handler.ts → parseIpcRequest() → handleRequest()
 ├── hello/status/pets.list/pets.install
 └── lease.acquire/heartbeat/release
     └── lease-manager.ts
         ├── resolveTarget() (default vs explicit pet)
         ├── onFirstExplicitLease → agent-pet-controller.showAgentPet()
         └── onLastExplicitLease → agent-pet-controller.closeAgentPetIfOpen()
-        └── Logging via logger.ts (ipc, lease scopes)
+    └── local-ipc-confinement.ts → confinement-poller.ts → window-tracker.ts
+└── Logging via logger.ts (ipc, lease scopes)
 ```
 
 **Pet Display Flow**:
@@ -76,33 +77,45 @@ pet-window.ts
 │   ├── reaction-messages.ts (pickReactionMessage for bubbles)
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
-└── pet-preload.cjs (renderer IPC for drag/click-through)
+├── pet-preload.cjs (source renderer IPC entry; Vite bundles it with pet-chat-markdown.ts and pet-chat-view-state.ts into dist/pet-preload.cjs)
+├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)
+└── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, and draft derivation)
+pet-window-interaction.ts
+└── mouse passthrough, drag, renderer lifecycle recovery/watchdog, IPC bridge, and speech completion subscriptions
 
 Plugin motion APIs:
 plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 └── pet-motion-engine.ts tick() calculates interpolated target vectors for spawned/default pets
 ```
 
+`pet-display-coordinator.ts` owns display-topology and power-resume events and
+fans out to the default, agent, LAN visitor, and plugin reclamp leaves.
+
 **Agent Setup Flow**:
 ```
-windows.ts (IPC handlers)
-└── agent-setup.ts
-    ├── detectClaudeCodeStatus() (claude --version, claude mcp list)
-    ├── runAgentSetupAction()
-    │   ├── configure/replace/remove (MCP commands)
-    │   ├── install-memory (claude-memory.ts)
-    │   └── install-hooks/uninstall-hooks/doctor-hooks (@open-pets/claude)
-    ├── OpenCode global config management (@open-pets/opencode)
-    ├── Cursor global MCP config management (@open-pets/cursor)
-    ├── OpenClaw version/list/inspect + install/update/enable/remove management (@open-pets/openclaw/management)
-    └── Zed global JSONC MCP settings management (@open-pets/zed)
+windows.ts (IPC handler adaptation)
+└── control-center-agent-setup-ipc.ts
+    └── agent-setup.ts
+        ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
+        ├── agent-setup-claude.ts (Claude Code MCP, hooks, and memory lifecycle adapter; receives façade command, formatting, preflight, runner, and journal dependencies)
+        ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
+        ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
+        ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
+        ├── runAgentSetupAction() (global action lock, validation, and adapter dispatch)
+        │   └── Claude lifecycle actions delegate to agent-setup-claude.ts
+        ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
+        ├── Cursor global MCP config management (@open-pets/cursor)
+        ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
+        └── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
 ```
 
 **Pet Installation Flow**:
 ```
 catalog/local ZIP/local folder/codex-pets.ts
 ├── fully validate and stage a private candidate as a direct child of pets/
-└── pet-install-transaction.ts
+└── pet-install-transaction.ts + pet-install-transaction-protocol.ts
+    ├── protocol owns the durable journal/schema, managed names, topology classifiers, and recovery policy
+    ├── transaction owns filesystem promotion, state mutation, rollback/recovery execution, and side effects
     ├── per-metadata.id lock (local parsing/staging stays parallel)
     ├── journal explicit prepared → backup-created → promoted → state-mutating → committed phases
     ├── preserve old final as a backup, atomically promote the candidate
@@ -116,6 +129,15 @@ pet-installation.ts
 codex-pets.ts → validated Codex metadata/assets → runPetInstallTransaction()
 ```
 
+**Catalog Flow**:
+```
+catalog.ts
+├── catalog-remote.ts → bounded HTTP, final-URL validation, and remote caches
+├── V3 index/pages/search → schema validation and V3-to-V2 page conversion
+├── V3-only curated visibility and virtual page/search composition
+└── V3 → V2 → fixture fallback, with all validated V2/fixture pets browseable and lookupable
+```
+
 **Control Center Flow**:
 ```
 tray.ts → openControlCenterWindow(route) → windows.ts
@@ -125,13 +147,21 @@ tray.ts → openControlCenterWindow(route) → windows.ts
 └── renderer/src/main.tsx routes Dashboard/Pets/Integrations/Plugins/Settings
 ```
 
+Control Center pet-management IPC:
+```
+windows.ts → control-center-pet-management-ipc.ts
+└── injected Electron-free catalog, pet-state, installation, import, pool, and
+    default-position handlers with sender authorization supplied by the window host
+```
+
 **Plugin Flow**:
 ```
 main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, ElectronPluginJsHost).start()
 ├── plugin-state.ts reads/writes userData/openpets-plugin-state.json
 ├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
 ├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
-├── provider-service.ts resolves redacted role operation snapshots and compatible/native text, STT, TTS, and private realtime codecs
+├── provider-service.ts resolves redacted role operation snapshots, credentials, adapter URLs/headers/codecs, and provider diagnostics
+├── provider-transport.ts owns provider-neutral fetch lifetime, timeout/cancellation composition, bounded response reads, JSON/SSE decoding, and sanitized HTTP errors
 ├── provider-configuration-test.ts validates and probes unsaved provider drafts without changing durable settings or credentials; network probes honor caller cancellation; STT uses the host session controller
 ├── provider-test-lifecycle.ts cancels all provider-test requests for a sender and serializes replacements across modal, renderer, and shutdown teardown
 ├── plugin-assets.ts validates/resolves declared plugin assets for SDK refs and rendered UI
@@ -184,11 +214,12 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `local-ipc.ts` ↔ `lease-manager.ts` ↔ `agent-pet-controller.ts`
   - `windows.ts` ↔ `app-state.ts`, `agent-setup.ts`, `catalog.ts`, `codex-pets.ts`, `update-checker.ts` for Control Center route snapshots/actions
   - `windows.ts` ↔ `plugin-service.ts` for Control Center plugin UI IPC, plugin commands, and Dashboard plugin health
-  - `pet-window.ts` ↔ `default-pet-controller.ts`, `agent-pet-controller.ts`
+  - `pet-window.ts` ↔ `pet-window-interaction.ts`, `default-pet-controller.ts`, `agent-pet-controller.ts`
   - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
   - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
-  - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
+  - `pet-install-transaction-protocol.ts` ↔ `pet-install-transaction.ts`; owns the stable durable journal/schema, managed naming, topology classifiers, and recovery policy
+  - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns filesystem/side-effect orchestration, private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
   - `plugin-service.ts` ↔ `plugin-state.ts`, `plugin-runtime.ts`, `plugin-catalog.ts`, `plugin-package.ts`, `plugin-local-loader.ts`, `plugin-js-host.ts`, `plugin-sdk-bridge.ts`, plugin SDK namespace modules, diagnostics, assets, settings, panels, voice, OAuth, secrets, and user sounds
   - `i18n/` ↔ `tray.ts`, `windows.ts`, `pet-window.ts`, `reaction-messages.ts`, `plugin-i18n.ts`
 
@@ -213,8 +244,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance) with logging; stops plugin service, IPC, and pet windows on quit
 - `state.ts`: Simple shell pause state
 - `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
+- `default-pet-position-state.ts`: Electron-free default-pet position shape, coordinate/display-key normalization, and bounded per-monitor LRU updates
 - `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, idle cursor-gaze default/normalization, onboarding normalization
-- `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, bounded active/archive context, archive query/erase seam, and generation-pinned capability routing
+- `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, terminal outcome reduction, and generation-pinned capability routing
+- `pet-assistant-memory.ts`: Electron-/filesystem-free completed-turn memory owner with bounded active context, archive deduplication/context selection, canonical terminal-text appends, and archive list/delete/clear delegation
 - `pet-assistant-archive.ts`: Host-owned local terminal-text archive with atomic writes, retention/quarantine, and bounded prompt-window support
 - `pet-assistant-history-ipc.ts`: Pure narrow history list/delete/clear handler helpers, including startup and identifier validation
 - `pet-assistant-conversation.ts`: Host-owned current-session presentation projection, stable typed-chat controller, cancellation seam, and normalized voice-transcript seam
@@ -231,6 +264,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
+- `control-center-agent-setup-ipc.ts`: Injected fixed Control Center agent-setup IPC registrations, sender authorization, action validation, and agent-setup delegation
+- `control-center-remote-ipc.ts`: Injected fixed Control Center remote-control IPC registrations, sender authorization, request validation, snapshot composition, and RemoteControlService delegation
+- `control-center-pet-management-ipc.ts`: Injected Electron-free Control Center pet/catalog management IPC registrations, state/layout snapshots, installation/import mutations, pool ordering, and position reset
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
@@ -241,9 +277,15 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Pet window creation (transparent, frameless, always-on-top), HTML/CSS generation, bundled V2 and installed V1/V2 sprite animation states, shared preference-gated movement-driven V2 idle cursor-gaze ticker, compact default-pet companion launcher, bottom-anchored upward-growing attached chat panel styles, unpinned bubble suppression during full chat, status badges, transient displays, and validated atlas layout selection
+- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, and context-menu installation delegation
+- `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
+- `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
+- `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
+- `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, and plugin command form handling
+- `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
+- `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
 - `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, logging
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
@@ -253,21 +295,25 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
-- `local-ipc.ts`: net.Server implementation, request routing, discovery file management, network security (loopback/private address filtering), logging
+- `local-ipc.ts`: net.Server implementation, socket transport facade, discovery file management, network security (loopback/private address filtering), logging, and request-handler/confinement composition
+- `local-ipc-request-handler.ts`: Electron-free injected local IPC parsing, validation, request routing, side-effect ordering, and protocol response handling
+- `local-ipc-confinement.ts`: Electron-free module-lifetime coordination between explicit leases, terminal tracking, confinement state updates, and tracker cancellation
 - `local-ipc-protocol.ts`: Protocol constants, request/response types, validation functions
 - `local-ipc-paths.ts`: Platform-specific socket paths and discovery file locations
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution
 
 **Installation**:
 - `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
-- `pet-install-transaction.ts`: Electron-free staged pet commit protocol, canonical private-root/marker validation, per-ID lock, rollback, bounded cleanup warnings, and idempotent startup recovery
+- `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
+- `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
 - `pet-file-safety.ts`: Bounded, no-follow regular-file reads shared by pet import and installed-pet rendering
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
 - `codex-pets-core.ts`: Codex V1/V2 metadata, exact V2 atlas, and neutral-pose layout validation
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews
-- `catalog.ts`: Remote catalog fetch with V3 pagination support, search, fixture fallback, and V1/V2 sprite metadata conversion
+- `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
+- `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup, and V1/V2 sprite metadata conversion
 - `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 
@@ -298,7 +344,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-sdk-ui.ts`: Host-rendered UI namespace for bubbles, alerts, menu items, panels, and dynamic interaction callbacks.
 - `plugin-assets.ts`: Declared asset resolution and validation for icon/image/svg/sprite/sound references used by plugin SDK calls and catalog cards.
 - `plugin-bubble-arbiter.ts`: Priority/coalescing arbiter for transient and pinned plugin bubble slots.
-- `system-metrics.ts`: Best-effort OS metric collectors and stale-while-revalidate cache for GPU, disk, battery, and aggregate network throughput derived from per-interface samples; optional fields carry extended-sample freshness metadata.
+- `system-metrics-core.ts`: Electron-independent metric/counter types, pure parsers/calculations, network throughput sampler, and stale-while-revalidate cache.
+- `system-metrics.ts`: Best-effort OS command/filesystem adapters for GPU, disk, battery, and aggregate network throughput; optional fields carry extended-sample freshness metadata.
 - `plugin-diagnostics.ts`: Per-plugin error/quota/settings-block collector surfaced to inspector and plugin health views.
 - `plugin-events-source.ts`: Host event source adapter for pet/window/system events consumed by `plugin-sdk-events.ts`.
 - `plugin-host-capabilities.ts`: Main-process capability bundle injected into the bridge for Electron side effects.
@@ -308,14 +355,16 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-pet-registry.ts`: Registry for default and plugin-spawned pets, including lifecycle and SDK targeting.
 - `plugin-platform-settings.ts`: Global plugin-platform settings for audio, voice, speech, microphone, quiet hours, and independent provider profiles/selections; versioned migration/quarantine; host-owned atomic profile/credential/role saves and redacted-header add/replace/delete patches; no legacy `ai` object is read.
 - `provider-contract.ts`: Pure canonical provider adapter definitions, typed adapter-specific profiles (including native ElevenLabs Scribe STT), role support, credential policies, default auth, and preset catalog owned by the host and exposed through the renderer contract.
-- `provider-service.ts`: Host-owned provider operation boundary; credentials come from `PluginSecretsStore`, status is redacted, provider failures remain operation errors rather than plugin health failures, and text/STT/TTS/realtime requests emit bounded outbound and terminal diagnostics. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
+- `provider-service.ts`: Host-owned provider operation boundary; resolves snapshots and credentials, constructs adapter URLs/headers/payloads, validates adapter responses, and emits bounded outbound/terminal diagnostics. Transcription preserves the generic OpenAI-compatible multipart route and uses the typed ElevenLabs `/speech-to-text` `model_id` route for Scribe.
+- `provider-transport.ts`: Provider-neutral fetch lease with redirect rejection, timeout/caller-abort composition, bounded body consumption, JSON/SSE decoding, sanitized HTTP error detail, and idempotent response cleanup.
 - `plugin-secrets.ts`: Plugin-scoped encrypted secret storage backed by Electron safe storage primitives.
 - `plugin-toast.ts`: Host toast/notification routing for plugin UI events.
 - `plugin-user-sound-store.ts`: Plugin-scoped imported user sound registry that stores opaque sound refs instead of raw filesystem paths.
  - `plugin-voice.ts`: Voice/TTS and one-shot listen facade gated by settings and permissions; owns host cancellation hooks, shared operation reservations, and the private realtime conversation entry points.
 - `provider-configuration-test-session.ts` / `voice-media-player.ts`: Bounded provider transcription session with ownership reserved before initialization, and a serialized trusted persistent-partition player for generated audio, with explicit sink-routing fallback and trusted output capability probing.
 - `provider-test-lifecycle.ts`: Shared per-sender cancellation and replacement-lane helpers ensuring rapid provider tests serialize teardown, renderer loss reaches queued/initializing work, and only the latest replacement starts capture.
-- `voice-assistant-host-core.ts` / `voice-assistant-session.ts`: Host-owned one-shot Talk toggle and generic recording state machine; submission clears its capability before capture stop settles, terminal output ends the session without automatic re-listen, and primary toggles are non-destructive during processing and native Realtime activity.
+- `voice-assistant-session-contract.ts`: Pure exported generic/Realtime voice-session contracts shared by the host, Realtime adapter, feedback reducer, tray, and session implementation.
+- `voice-assistant-host-core.ts` / `voice-assistant-session.ts`: Host-owned one-shot Talk toggle and generic recording state machine; the implementation retains mutable stage/lifecycle ownership while consuming the pure session contracts. Submission clears its capability before capture stop settles, terminal output ends the session without automatic re-listen, and primary toggles are non-destructive during processing and native Realtime activity.
 - `voice-device-service.ts` / `voice-device-resolver.ts` / `voice-device-electron.ts` / `voice-device-permissions.ts`: Host-owned durable voice input/output preferences, capability-safe snapshots, immutable per-operation input resolution, trusted `setSinkId` probing, shared trusted media partition, and restricted audio permission boundary.
 - `voice-capture.ts` / `voice-capture-electron.ts`: One-active-at-a-time microphone capture with separate acquisition timeout, media-track cleanup, temporary-session teardown, and bounded lifecycle diagnostics.
 - `voice-microphone-arbiter.ts`: Shared lease boundary preventing one-shot and realtime microphone ownership from overlapping.
@@ -342,9 +391,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 |--------|-------------|------|
 | Catalog API | `catalog.ts` | `CatalogV2/V3` JSON with pagination |
 | ZIP/local/Codex staging | `pet-installation.ts` / `codex-pets.ts` | Fully validated private candidate under `userData/pets/` |
-| Pet promotion/recovery | `pet-install-transaction.ts` | Journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
+| Pet promotion/recovery | `pet-install-transaction-protocol.ts` + `pet-install-transaction.ts` | Stable journal/schema/naming/recovery policy plus filesystem/side-effect orchestration for journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
 | `app-state.ts` | `userData/openpets-state.json` | Atomic JSON writes with reaction animation overrides |
-| `pet-assistant-service.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
+| `pet-assistant-service.ts` | `pet-assistant-memory.ts` | Completed-turn outcome and message handoff; lifecycle remains responsible for model/capability work and terminal events |
+| `pet-assistant-memory.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
 | CLI via IPC | `local-ipc.ts` | `pet.react`, `pet.say`, `lease.*` |
 | `lease-manager.ts` | `agent-pet-controller.ts` | Show/close agent pets |
 | `windows.ts` | Renderer | State snapshots via IPC invoke |

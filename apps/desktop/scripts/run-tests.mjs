@@ -13,7 +13,7 @@ import { discoverArtifacts, relativePath } from "./test-discovery.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
 
-const preloadChecks = ["control-center-preload.cjs", "pet-preload.cjs", "pet-tts-helper.cjs", "plugin-sdk-preload.cjs", "panel-preload.cjs", "voice-realtime-preload.cjs"];
+const preloadChecks = ["control-center-preload.cjs", "dist/pet-preload.cjs", "pet-tts-helper.cjs", "plugin-sdk-preload.cjs", "panel-preload.cjs", "voice-realtime-preload.cjs"];
 
 async function assertArtifactsExist(label, artifacts) {
   const missing = [];
@@ -78,6 +78,7 @@ async function main() {
 
   // 1. Preload syntax checks
   console.log("\n[1/5] Checking preload syntax...");
+  await run("pnpm", ["build:preload"]);
   for (const preload of preloadChecks) await run("node", ["--check", preload]);
 
   // 2. Build tests
