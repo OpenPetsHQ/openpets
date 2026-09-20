@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { resolveAppImageSquashfsOffset } from "../src/appimage-payload.js";
 
 const validArtifact = createElfArtifact({ sectionOffset: 256, sectionSize: 64 });
-assert.equal(resolveAppImageSquashfsOffset(validArtifact), 320, "uses the greatest section end as the SquashFS payload offset");
+assert.equal(resolveAppImageSquashfsOffset(validArtifact), 192, "uses the end of the ELF section header table as the Type-2 payload offset");
 
 const invalidHeader = Buffer.from(validArtifact);
 invalidHeader[0] = 0;
@@ -14,7 +14,7 @@ writeElfHeader(overflowingSectionTable, 224, 1);
 assert.throws(() => resolveAppImageSquashfsOffset(overflowingSectionTable), /section header table exceeds/, "rejects an out-of-file section header table");
 
 const missingSquashfs = createElfArtifact({ sectionOffset: 256, sectionSize: 64 });
-missingSquashfs.write("nope", 320, "ascii");
+missingSquashfs.write("nope", 192, "ascii");
 assert.throws(() => resolveAppImageSquashfsOffset(missingSquashfs), /SquashFS payload is missing/, "requires SquashFS at the calculated payload offset");
 
 console.error("AppImage payload offset validation passed.");
@@ -24,7 +24,7 @@ function createElfArtifact({ sectionOffset, sectionSize }: { readonly sectionOff
   writeElfHeader(artifact, 128, 1);
   artifact.writeBigUInt64LE(BigInt(sectionOffset), 128 + 24);
   artifact.writeBigUInt64LE(BigInt(sectionSize), 128 + 32);
-  artifact.write("hsqs", sectionOffset + sectionSize, "ascii");
+  artifact.write("hsqs", 192, "ascii");
   return artifact;
 }
 
