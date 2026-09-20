@@ -87,19 +87,20 @@ plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 
 **Agent Setup Flow**:
 ```
-windows.ts (IPC handlers)
-└── agent-setup.ts
-    ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
-    ├── agent-setup-claude.ts (Claude Code MCP, hooks, and memory lifecycle adapter; receives façade command, formatting, preflight, runner, and journal dependencies)
-    ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
-    ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
-    ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
-    ├── runAgentSetupAction() (global action lock, validation, and adapter dispatch)
-    │   └── Claude lifecycle actions delegate to agent-setup-claude.ts
-    ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
-    ├── Cursor global MCP config management (@open-pets/cursor)
-    ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
-    └── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
+windows.ts (IPC handler adaptation)
+└── control-center-agent-setup-ipc.ts
+    └── agent-setup.ts
+        ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
+        ├── agent-setup-claude.ts (Claude Code MCP, hooks, and memory lifecycle adapter; receives façade command, formatting, preflight, runner, and journal dependencies)
+        ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
+        ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
+        ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
+        ├── runAgentSetupAction() (global action lock, validation, and adapter dispatch)
+        │   └── Claude lifecycle actions delegate to agent-setup-claude.ts
+        ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
+        ├── Cursor global MCP config management (@open-pets/cursor)
+        ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
+        └── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
 ```
 
 **Pet Installation Flow**:
@@ -235,6 +236,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
+- `control-center-agent-setup-ipc.ts`: Injected fixed Control Center agent-setup IPC registrations, sender authorization, action validation, and agent-setup delegation
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning

@@ -32,6 +32,7 @@ import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata,
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
 import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
+import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
 import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
 import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
@@ -398,6 +399,14 @@ export function installInternalUiHandlers(): void {
     },
   });
 
+  installControlCenterAgentSetupIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getAgentSetupSnapshot,
+    runAgentSetupAction,
+    updateAgentSetupCommandPaths,
+  });
+
   controlCenterProviderIpc = installControlCenterProviderIpcHandlers({
     registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
     authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
@@ -690,24 +699,6 @@ export function installInternalUiHandlers(): void {
     return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getSettingsStateSnapshot() : getAppStateSnapshot();
   });
 
-  ipcMain.handle("openpets:agent-setup-snapshot", async (event, selectedPetId: unknown, commandMode: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getAgentSetupSnapshot(selectedPetId, commandMode);
-  });
-
-  ipcMain.handle("openpets:agent-setup-action", async (event, action: unknown, selectedPetId: unknown, commandMode: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (action !== "configure" && action !== "replace" && action !== "remove" && action !== "install-memory" && action !== "doctor-hooks" && action !== "install-hooks" && action !== "uninstall-hooks" && action !== "opencode-install" && action !== "opencode-remove" && action !== "cursor-install" && action !== "cursor-replace" && action !== "cursor-remove" && action !== "openclaw-install" && action !== "openclaw-update" && action !== "openclaw-remove" && action !== "zed-install" && action !== "zed-replace" && action !== "zed-remove") {
-      throw new Error("Invalid agent setup action.");
-    }
-
-    return runAgentSetupAction(action, selectedPetId, commandMode);
-  });
-
-  ipcMain.handle("openpets:agent-setup-command-paths", (event, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return updateAgentSetupCommandPaths(patch);
-  });
 }
 
 async function chooseLocalPetImportKind(owner: BrowserWindow | undefined): Promise<"zip" | "folder" | null> {
