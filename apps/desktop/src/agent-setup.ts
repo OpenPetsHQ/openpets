@@ -4,15 +4,15 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { createRequire } from "node:module";
 
 import { app } from "electron";
-import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, classifyClaudeMcpStatus, createOpenPetsHookSettingsPreview, doctorClaudeHooks, installClaudeHooks, mapAsarPathToUnpacked, uninstallClaudeHooks, type ClaudeCommandSpec, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type OpenPetsCommandMode, type ParsedClaudeMcpEntry } from "@open-pets/claude";
+import { createOpenPetsHookSettingsPreview, mapAsarPathToUnpacked, type ClaudeCommandSpec, type OpenPetsCommandMode } from "@open-pets/claude";
 import { buildOpenClawCommand, openClawMaxStructuredOutputBytes, type OpenClawCommandAction } from "@open-pets/openclaw/management";
 import { getZedGlobalSettingsPath, isValidZedNodeCommand } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { buildExtraCommandPaths, resolveCommandMode } from "./agent-command-env.js";
-import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaudeOpenPetsMemory, type ClaudeOpenPetsMemoryStatus } from "./claude-memory.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 import { getCursorSetup, installCursorGlobal, removeCursorGlobal, replaceCursorGlobal, type CursorSetupPreview, type CursorSetupStatus } from "./agent-setup-cursor.js";
+import { getClaudeSetup as buildClaudeSetup, runClaudeAction as applyClaudeAction, type ClaudeCodeStatus, type ClaudeCommandResult, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type ClaudeOpenPetsMemoryStatus, type ClaudeSetupAction, type ClaudeSetupDependencies, type ClaudeSetupJournalEntry } from "./agent-setup-claude.js";
 import { getOpenCodeConfigDir, getOpenCodeSetup as buildOpenCodeSetup, installOpenCodeGlobal as applyOpenCodeInstall, removeOpenCodeGlobal as applyOpenCodeRemove, type OpenCodeSetupPreview, type OpenCodeSetupStatus } from "./agent-setup-opencode.js";
 import { getOpenClawSetup as buildOpenClawSetup, mutateOpenClaw as applyOpenClawMutation, type OpenClawPluginStatus, type OpenClawSetupPreview } from "./agent-setup-openclaw.js";
 import { getZedSetup as buildZedSetup, installZedGlobal as applyZedInstall, removeZedGlobal as applyZedRemove, replaceZedGlobal as applyZedReplace, type ZedSetupPreview, type ZedSetupStatus } from "./agent-setup-zed.js";
@@ -20,6 +20,7 @@ import { getZedSetup as buildZedSetup, installZedGlobal as applyZedInstall, remo
 export type { CursorSetupPreview, CursorSetupStatus } from "./agent-setup-cursor.js";
 export type { OpenCodeSetupPreview, OpenCodeSetupStatus } from "./agent-setup-opencode.js";
 export type { ZedSetupPreview, ZedSetupStatus } from "./agent-setup-zed.js";
+export type { ClaudeCodeStatus } from "./agent-setup-claude.js";
 
 export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove";
 export type JournalAction = "configure" | "update" | "replace" | "remove";
@@ -28,19 +29,6 @@ export interface AgentSetupPetOption {
   readonly id: string;
   readonly displayName: string;
   readonly default: boolean;
-}
-
-export interface ClaudeCodeStatus {
-  readonly state: "detected" | "not_detected" | "configured" | "needs_setup" | "error";
-  readonly label: string;
-  readonly details: string;
-  readonly claudeCommand?: string;
-  readonly version?: string;
-  readonly mcpListWorks: boolean;
-  readonly openPetsEntry: ParsedClaudeMcpEntry;
-  readonly canConfigure: boolean;
-  readonly canReplace: boolean;
-  readonly canRemove: boolean;
 }
 
 export interface AgentSetupSnapshot {
@@ -116,12 +104,7 @@ let lastAction: AgentSetupActionResult | undefined;
 export async function getAgentSetupSnapshot(selectedPetId?: unknown, commandModeInput?: unknown): Promise<AgentSetupSnapshot> {
   const petId = validateSelectedPetId(selectedPetId);
   const commandMode = validateCommandMode(commandModeInput);
-  const preview = safeBuildClaudeMcpPreview(petId, commandMode);
-  const status = preview.error ? createBundledResourceErrorStatus(preview.error) : await detectClaudeCodeStatus(petId, commandMode);
-  const rawHookStatus = preview.error ? createHookErrorStatus(preview.error) : safeDoctorClaudeHooks(commandMode, petId);
-  const hookStatus = { ...rawHookStatus, settingsPath: formatUserPath(rawHookStatus.settingsPath) ?? rawHookStatus.settingsPath, backupPath: formatUserPath(rawHookStatus.backupPath) };
-  const rawMemoryStatus = doctorClaudeOpenPetsMemory(app.getPath("home"));
-  const memoryStatus = { ...rawMemoryStatus, claudeMdPath: formatUserPath(rawMemoryStatus.claudeMdPath) ?? rawMemoryStatus.claudeMdPath, openPetsMemoryPath: formatUserPath(rawMemoryStatus.openPetsMemoryPath) ?? rawMemoryStatus.openPetsMemoryPath };
+  const claude = await buildClaudeSetup(getClaudeSetupDependencies(petId, commandMode));
   const opencode = await getOpenCodeSetup(commandMode, petId);
   const cursor = await getCursorSetup(petId, getCursorSetupDependencies());
   const openclaw = await getOpenClawSetup();
@@ -132,10 +115,10 @@ export async function getAgentSetupSnapshot(selectedPetId?: unknown, commandMode
     commandMode,
     localDevAvailable: !app.isPackaged,
     petOptions: getPetOptions(),
-    preview: preview.preview,
-    status,
-    hookStatus,
-    memoryStatus,
+    preview: claude.preview,
+    status: claude.status,
+    hookStatus: claude.hookStatus,
+    memoryStatus: claude.memoryStatus,
     opencodeStatus: opencode.status,
     opencodePreview: opencode.preview,
     cursorStatus: cursor.status,
@@ -192,54 +175,8 @@ export function sanitizeAgentSetupOutput(value: string): string {
     .slice(0, 500);
 }
 
-function safeBuildClaudeMcpPreview(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): { readonly preview: ClaudeMcpPreview; readonly error?: string } {
-  try {
-    return { preview: withPreferredClaudeCommand(buildClaudeMcpPreview(selectedPetId, commandMode, getPreferredNodeCommand())) };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Packaged OpenPets command resources are unavailable.";
-    return { preview: createErrorPreview(commandMode, message), error: message };
-  }
-}
-
-function safeDoctorClaudeHooks(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): ClaudeHookDoctorResult {
-  try {
-    return doctorClaudeHooks(undefined, commandMode, selectedPetId, getPreferredNodeCommand());
-  } catch (error) {
-    return createHookErrorStatus(error instanceof Error ? error.message : "Packaged OpenPets hook resources are unavailable.");
-  }
-}
-
-function createErrorPreview(commandMode: OpenPetsCommandMode, message: string): ClaudeMcpPreview {
-  const claude = getPreferredClaudeCommand();
-  return {
-    commandMode,
-    add: { command: claude, args: [] },
-    remove: { command: claude, args: ["mcp", "remove", "--scope", "user", "openpets"] },
-    mcpJson: { mcpServers: { openpets: { type: "stdio", command: "node", args: [] } } },
-    displayCommand: message,
-  };
-}
-
-function withPreferredClaudeCommand(preview: ClaudeMcpPreview): ClaudeMcpPreview {
-  const claude = getPreferredClaudeCommand();
-  if (claude === preview.add.command && claude === preview.remove.command) return preview;
-  return {
-    ...preview,
-    add: { ...preview.add, command: claude },
-    remove: { ...preview.remove, command: claude },
-    displayCommand: preview.displayCommand.replace(/^claude(?=\s|$)/, quoteCommandForDisplay(claude)),
-  };
-}
-
-function createBundledResourceErrorStatus(message: string): ClaudeCodeStatus {
-  return createStatus("error", "Packaged commands unavailable", message, undefined, { ok: false, timedOut: false, exitCode: null, stdout: "", stderr: "", error: message }, { present: false, source: "none", verified: false, matchesExpected: false });
-}
-
-function createHookErrorStatus(message: string): ClaudeHookDoctorResult {
-  return { status: "error", settingsPath: "~/.claude/settings.json", exists: false, valid: false, message, preview: {}, asyncSupported: false };
-}
-
 async function runAction(action: AgentSetupAction, selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
+  if (isClaudeSetupAction(action)) return applyClaudeAction(action, getClaudeSetupDependencies(selectedPetId, commandMode));
   if (action === "opencode-install") return installOpenCodeGlobal(selectedPetId, commandMode);
   if (action === "opencode-remove") return removeOpenCodeGlobal();
   if (action === "openclaw-install") return mutateOpenClaw("configure");
@@ -251,85 +188,40 @@ async function runAction(action: AgentSetupAction, selectedPetId: string | undef
   if (action === "zed-install") return installZedGlobal(selectedPetId, commandMode);
   if (action === "zed-replace") return replaceZedGlobal(selectedPetId, commandMode);
   if (action === "zed-remove") return removeZedGlobal(selectedPetId, commandMode);
-  if (action === "doctor-hooks") {
-    const doctor = safeDoctorClaudeHooks(commandMode, selectedPetId);
-    writeActionJournal({ action: "update", selectedPetId, command: createHookJournalCommand("doctor-hooks", selectedPetId), previousStatus: doctor.status, success: doctor.status !== "error", message: doctor.message });
-    return { ok: doctor.status !== "error", action, message: doctor.message, changed: false };
-  }
-  if (action === "uninstall-hooks") {
-    let result;
-    try {
-      result = uninstallClaudeHooks(undefined, commandMode);
-    } catch (error) {
-      return { ok: false, action, message: error instanceof Error ? error.message : "OpenPets hook uninstall failed.", changed: false };
-    }
-    const message = result.changed ? `Uninstalled OpenPets Claude hooks. Backup: ${formatUserPath(result.backupPath) ?? "not needed"}` : result.message;
-    writeActionJournal({ action: "remove", selectedPetId, command: ["open-pets-claude", "uninstall-hooks"], previousStatus: result.status, success: result.status !== "error", message });
-    return { ok: result.status !== "error", action, message, changed: result.changed };
-  }
-  if (action === "install-memory") {
-    const result = safeInstallClaudeMemory();
-    return { ok: result.ok, action, message: result.ok ? result.message : `Claude instructions were not updated: ${result.message}`, changed: result.ok && result.message.startsWith("Added") };
-  }
-  if (action === "remove") {
-    return runRemove(createErrorPreview(commandMode, ""), selectedPetId, "Unknown", action);
-  }
-  if (commandMode === "bundled") {
-    const node = await runCommand({ command: getPreferredNodeCommand(), args: ["--version"] });
-    if (!node.ok) return { ok: false, action, message: `Node.js is required for packaged OpenPets commands. Open Claude configuration, set the Node.js command path, then try again. ${summarizeCommandResult(node)}`, changed: false };
-  }
-  const previewResult = safeBuildClaudeMcpPreview(selectedPetId, commandMode);
-  if (previewResult.error) return { ok: false, action, message: previewResult.error, changed: false };
+  throw new Error("Unsupported agent setup action.");
+}
 
-  if (action === "install-hooks") {
-    let result;
-    try {
-      result = installClaudeHooks(undefined, commandMode, selectedPetId, getPreferredNodeCommand());
-    } catch (error) {
-      return { ok: false, action, message: error instanceof Error ? error.message : "OpenPets hook install failed.", changed: false };
-    }
-    const message = result.changed ? `Installed OpenPets Claude hooks. Backup: ${formatUserPath(result.backupPath) ?? "not needed"}` : result.message;
-    writeActionJournal({ action: "update", selectedPetId, command: createHookJournalCommand("install-hooks", selectedPetId), previousStatus: result.status, success: result.status !== "error", message });
-    return { ok: result.status !== "error", action, message, changed: result.changed };
-  }
-  const detection = await detectClaudeCodeStatus(selectedPetId, commandMode);
-  const previousStatus = detection.label;
-  const preview = previewResult.preview;
+function isClaudeSetupAction(action: AgentSetupAction): action is ClaudeSetupAction {
+  return action === "configure"
+    || action === "replace"
+    || action === "remove"
+    || action === "install-memory"
+    || action === "doctor-hooks"
+    || action === "install-hooks"
+    || action === "uninstall-hooks";
+}
 
-  if (detection.state === "not_detected") {
-    const result = { ok: false, action, message: "Claude Code was not found. Install Claude Code or use Copy command to configure manually.", changed: false };
-    writeActionJournal({ action: journalActionFor(action), selectedPetId, command: [preview.add.command, ...preview.add.args], previousStatus, success: false, message: result.message });
-    return result;
-  }
-
-  if (action === "configure") {
-    if (detection.openPetsEntry.present && detection.openPetsEntry.verified && detection.openPetsEntry.matchesExpected) {
-      const memoryResult = safeInstallClaudeMemory();
-      const message = `OpenPets MCP is already configured for Claude Code.${memoryResult.ok ? ` ${memoryResult.message}` : ` Claude instructions were not updated: ${memoryResult.message}`}`;
-      return { ok: true, action, message, changed: memoryResult.ok && memoryResult.message.startsWith("Added") };
-    }
-    if (detection.openPetsEntry.present) {
-      return { ok: false, action, message: "Claude already has an openpets MCP entry. OpenPets will keep it as installed; use Replace only if you want to recreate it with the recommended command.", changed: false };
-    }
-    return runAdd(preview, selectedPetId, previousStatus, action);
-  }
-
-  if (!detection.openPetsEntry.present) {
-    return runAdd(preview, selectedPetId, previousStatus, action);
-  }
-
-  const removed = await runRemove(preview, selectedPetId, previousStatus, action);
-  if (!removed.ok) return removed;
-  const added = await runAdd(preview, selectedPetId, previousStatus, action);
-  if (!added.ok) {
-    return {
-      ok: false,
-      action,
-      message: `${added.message} The previous openpets entry was removed; use this command to restore the intended entry: ${preview.displayCommand}`,
-      changed: true,
-    };
-  }
-  return { ok: true, action, message: `Replaced Claude Code OpenPets MCP entry.${summarizeMemoryMessages(removed.message, added.message)}`, changed: true };
+function getClaudeSetupDependencies(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): ClaudeSetupDependencies {
+  return {
+    selectedPetId,
+    commandMode,
+    preferredClaudeCommand: getPreferredClaudeCommand(),
+    preferredNodeCommand: getPreferredNodeCommand(),
+    homeDir: app.getPath("home"),
+    formatUserPath,
+    sanitizeOutput: sanitizeAgentSetupOutput,
+    summarizeCommandResult: (result: ClaudeCommandResult) => summarizeCommandResult({
+      ok: result.ok,
+      timedOut: result.timedOut,
+      exitCode: result.exitCode ?? null,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      error: result.error,
+    }),
+    runClaudeCommand: (spec) => runClaudeCommand(spec),
+    runNodePreflight: () => runCommand({ command: getPreferredNodeCommand(), args: ["--version"] }),
+    finishAction: (entry: ClaudeSetupJournalEntry) => writeActionJournal(entry),
+  };
 }
 
 async function getOpenCodeSetup(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): Promise<{ readonly status: OpenCodeSetupStatus; readonly preview: OpenCodeSetupPreview }> {
@@ -573,106 +465,6 @@ function getCursorSetupDependencies(): {
   return { homeDir: app.getPath("home"), mcpVersion: getMcpPackageVersion(), formatUserPath };
 }
 
-function summarizeMemoryMessages(...messages: readonly string[]): string {
-  const memoryMessages = messages.flatMap((message) => message.match(/Claude (?:OpenPets )?instructions[^.]*\./g) ?? []);
-  return memoryMessages.length > 0 ? ` ${memoryMessages.join(" ")}` : "";
-}
-
-function createHookJournalCommand(command: "doctor-hooks" | "install-hooks", selectedPetId: string | undefined): readonly string[] {
-  return selectedPetId ? ["open-pets-claude", command, "--pet", selectedPetId] : ["open-pets-claude", command];
-}
-
-async function runAdd(preview: ClaudeMcpPreview, selectedPetId: string | undefined, previousStatus: string, action: AgentSetupAction): Promise<AgentSetupActionResult> {
-  const result = await runClaudeCommand(preview.add);
-  const memoryResult = result.ok ? safeInstallClaudeMemory() : { ok: false as const, message: "" };
-  const message = result.ok
-    ? `Configured Claude Code OpenPets MCP entry.${memoryResult.ok ? ` ${memoryResult.message}` : ` Claude instructions were not updated: ${memoryResult.message}`}`
-    : `Claude MCP add failed: ${summarizeCommandResult(result)}`;
-  writeActionJournal({ action: journalActionFor(action), selectedPetId, command: [preview.add.command, ...preview.add.args], previousStatus, success: result.ok, message });
-  return { ok: result.ok, action, message, changed: result.ok };
-}
-
-async function runRemove(preview: ClaudeMcpPreview, selectedPetId: string | undefined, previousStatus: string, action: AgentSetupAction): Promise<AgentSetupActionResult> {
-  const result = await runClaudeCommand(preview.remove);
-  const memoryResult = result.ok ? safeUninstallClaudeMemory() : { ok: false as const, message: "" };
-  const message = result.ok
-    ? `Removed Claude Code OpenPets MCP entry.${memoryResult.ok ? ` ${memoryResult.message}` : ` Claude instructions were not updated: ${memoryResult.message}`}`
-    : `Claude MCP remove failed: ${summarizeCommandResult(result)}`;
-  writeActionJournal({ action: journalActionFor(action), selectedPetId, command: [preview.remove.command, ...preview.remove.args], previousStatus, success: result.ok, message });
-  return { ok: result.ok, action, message, changed: result.ok };
-}
-
-function safeInstallClaudeMemory(): { readonly ok: true; readonly message: string } | { readonly ok: false; readonly message: string } {
-  try {
-    const result = installClaudeOpenPetsMemory(app.getPath("home"));
-    return { ok: true, message: result.changed ? "Added Claude OpenPets instructions." : "Claude OpenPets instructions already present." };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Unknown error." };
-  }
-}
-
-function safeUninstallClaudeMemory(): { readonly ok: true; readonly message: string } | { readonly ok: false; readonly message: string } {
-  try {
-    const result = uninstallClaudeOpenPetsMemory(app.getPath("home"));
-    return { ok: true, message: result.changed ? "Removed Claude OpenPets instructions." : "Claude OpenPets instructions were already absent." };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Unknown error." };
-  }
-}
-
-async function detectClaudeCodeStatus(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<ClaudeCodeStatus> {
-  if (commandMode === "bundled") {
-    const node = await runCommand({ command: getPreferredNodeCommand(), args: ["--version"] });
-    if (!node.ok) return createStatus("error", "Node required", `Node.js is required for packaged OpenPets commands. Open Claude configuration, expand Advanced detection, set the Node.js command path, then try again. ${summarizeCommandResult(node)}`, undefined, node, { present: false, source: "none", verified: false, matchesExpected: false });
-  }
-
-  const version = await runClaudeCommand({ command: "claude", args: ["--version"] });
-  if (!version.ok) {
-    const hasOverride = getPreferredClaudeCommand() !== "claude";
-    return createStatus("not_detected", "Not detected", `${hasOverride ? "Claude Code did not run from the saved command path" : "Claude Code was not found or did not run"}: ${summarizeCommandResult(version)}`, undefined, version, { present: false, source: "none", verified: false, matchesExpected: false });
-  }
-
-  const list = await runClaudeCommandWithTimeoutRetry({ command: "claude", args: ["mcp", "list"] });
-  if (!list.ok) {
-    return createStatus("error", "Error / needs attention", `Claude Code was detected, but MCP status failed: ${summarizeCommandResult(list)}`, sanitizeAgentSetupOutput(version.stdout || version.stderr), list, { present: false, source: "none", verified: false, matchesExpected: false });
-  }
-
-  const listed = classifyClaudeMcpStatus(list.stdout, undefined, selectedPetId, commandMode, getPreferredNodeCommand());
-  let entry = listed;
-  if (listed.present) {
-    const get = await runClaudeCommand(buildClaudeMcpGetCommand());
-    if (get.ok) entry = classifyClaudeMcpStatus(list.stdout, get.stdout, selectedPetId, commandMode, getPreferredNodeCommand());
-  }
-
-  if (!entry.present) return createStatus("needs_setup", "Needs setup", "Claude Code is detected, but OpenPets MCP is not configured.", sanitizeAgentSetupOutput(version.stdout || version.stderr), list, entry);
-  if (entry.verified && entry.matchesExpected) return createStatus("configured", "Configured", "Claude Code has the expected OpenPets MCP entry.", sanitizeAgentSetupOutput(version.stdout || version.stderr), list, entry);
-  if (entry.verified) return createStatus("configured", "Installed — custom", "Claude Code has an openpets MCP entry with a custom command. OpenPets will leave it alone unless you choose Replace with recommended.", sanitizeAgentSetupOutput(version.stdout || version.stderr), list, entry);
-  return createStatus("configured", "Installed — unverified", "Claude Code lists an openpets MCP entry, but command details were not available. OpenPets will leave it alone unless you choose Replace with recommended.", sanitizeAgentSetupOutput(version.stdout || version.stderr), list, entry);
-}
-
-async function runClaudeCommandWithTimeoutRetry(spec: ClaudeCommandSpec): Promise<CommandResult> {
-  const first = await runClaudeCommand(spec);
-  if (!first.timedOut) return first;
-  await delay(250);
-  const second = await runClaudeCommand(spec);
-  return second.ok ? second : first;
-}
-
-function createStatus(state: ClaudeCodeStatus["state"], label: string, details: string, version: string | undefined, listResult: CommandResult, entry: ParsedClaudeMcpEntry): ClaudeCodeStatus {
-  return {
-    state,
-    label,
-    details,
-    claudeCommand: "claude",
-    version,
-    mcpListWorks: listResult.ok,
-    openPetsEntry: entry,
-    canConfigure: state === "needs_setup",
-    canReplace: entry.present && !(entry.verified && entry.matchesExpected),
-    canRemove: entry.present,
-  };
-}
-
 function validateSelectedPetId(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string") throw new Error("Invalid selected pet id.");
@@ -788,10 +580,6 @@ function formatCommandOutput(value: string, sanitize: boolean, outputLimitBytes:
   return sanitize ? sanitizeAgentSetupOutput(value) : value.slice(0, outputLimitBytes);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function getClaudeCommandCandidates(command: string): readonly string[] {
   if (command !== "claude") return [command];
   const preferred = getPreferredClaudeCommand();
@@ -883,12 +671,6 @@ function getJournalPath(): string {
 
 function isJournalEntry(value: unknown): value is AgentSetupJournalEntry {
   return typeof value === "object" && value !== null && typeof (value as { timestamp?: unknown }).timestamp === "string";
-}
-
-function journalActionFor(action: AgentSetupAction): JournalAction {
-  if (action === "replace" || action === "cursor-replace") return "replace";
-  if (action === "remove" || action === "cursor-remove") return "remove";
-  return "configure";
 }
 
 export const agentSetupInternalsForChecks = {

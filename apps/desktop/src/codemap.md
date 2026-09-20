@@ -90,14 +90,12 @@ plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 windows.ts (IPC handlers)
 └── agent-setup.ts
     ├── agent-setup-cursor.ts (Cursor global MCP lifecycle adapter)
+    ├── agent-setup-claude.ts (Claude Code MCP, hooks, and memory lifecycle adapter; receives façade command, formatting, preflight, runner, and journal dependencies)
     ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
     ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
     ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
-    ├── detectClaudeCodeStatus() (claude --version, claude mcp list)
-    ├── runAgentSetupAction()
-    │   ├── configure/replace/remove (MCP commands)
-    │   ├── install-memory (claude-memory.ts)
-    │   └── install-hooks/uninstall-hooks/doctor-hooks (@open-pets/claude)
+    ├── runAgentSetupAction() (global action lock, validation, and adapter dispatch)
+    │   └── Claude lifecycle actions delegate to agent-setup-claude.ts
     ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
     ├── Cursor global MCP config management (@open-pets/cursor)
     ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
