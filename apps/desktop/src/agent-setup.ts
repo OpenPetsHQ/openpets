@@ -6,7 +6,6 @@ import { createRequire } from "node:module";
 import { app } from "electron";
 import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, classifyClaudeMcpStatus, createOpenPetsHookSettingsPreview, doctorClaudeHooks, installClaudeHooks, mapAsarPathToUnpacked, uninstallClaudeHooks, type ClaudeCommandSpec, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type OpenPetsCommandMode, type ParsedClaudeMcpEntry } from "@open-pets/claude";
 import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
-import { doctorOpenCodeGlobalSetup, getGlobalOpenCodeConfigDir, parseOpenCodeConfig, prepareOpenCodeGlobalRemove, prepareOpenCodeGlobalSetup, writePreparedOpenCodeGlobalRemove, writePreparedOpenCodeGlobalSetup } from "@open-pets/opencode";
 import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, isValidZedNodeCommand, planZedMcpInstall, planZedMcpRemove, planZedMcpReplace, readZedSettings, type ZedMcpEntry, type ZedMcpPreviewOptions, type ZedMcpStatusResult } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
@@ -14,8 +13,10 @@ import { buildExtraCommandPaths, resolveCommandMode } from "./agent-command-env.
 import { doctorClaudeOpenPetsMemory, installClaudeOpenPetsMemory, uninstallClaudeOpenPetsMemory, type ClaudeOpenPetsMemoryStatus } from "./claude-memory.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 import { getCursorSetup, installCursorGlobal, removeCursorGlobal, replaceCursorGlobal, type CursorSetupPreview, type CursorSetupStatus } from "./agent-setup-cursor.js";
+import { getOpenCodeConfigDir, getOpenCodeSetup as buildOpenCodeSetup, installOpenCodeGlobal as applyOpenCodeInstall, removeOpenCodeGlobal as applyOpenCodeRemove, type OpenCodeSetupPreview, type OpenCodeSetupStatus } from "./agent-setup-opencode.js";
 
 export type { CursorSetupPreview, CursorSetupStatus } from "./agent-setup-cursor.js";
+export type { OpenCodeSetupPreview, OpenCodeSetupStatus } from "./agent-setup-opencode.js";
 
 export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove";
 export type JournalAction = "configure" | "update" | "replace" | "remove";
@@ -66,26 +67,6 @@ export interface AgentSetupCommandPaths {
   readonly node: string;
   readonly opencode: string;
   readonly openclaw: string;
-}
-
-export interface OpenCodeSetupStatus {
-  readonly state: "configured" | "needs_setup" | "not_detected" | "error";
-  readonly label: string;
-  readonly details: string;
-  readonly configDir: string;
-  readonly canInstall: boolean;
-  readonly canRemove: boolean;
-}
-
-export interface OpenCodeSetupPreview {
-  readonly global: true;
-  readonly configDir: string;
-  readonly configPath: string;
-  readonly cleanupConfigPaths: readonly string[];
-  readonly mcpCommand: readonly string[];
-  readonly plugin: readonly unknown[] | string;
-  readonly instructionPath: string;
-  readonly configPreview: Record<string, unknown>;
 }
 
 export interface OpenClawSetupPreview {
@@ -373,35 +354,19 @@ async function runAction(action: AgentSetupAction, selectedPetId: string | undef
 }
 
 async function getOpenCodeSetup(commandMode: OpenPetsCommandMode, selectedPetId: string | undefined): Promise<{ readonly status: OpenCodeSetupStatus; readonly preview: OpenCodeSetupPreview }> {
-  const configDir = getGlobalOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
-  const petId = selectedPetId || undefined;
-  const cliVersion = getCliPackageVersion();
-  const pluginVersion = getOpenCodePackageVersion();
-  const cliEntryPath = commandMode === "published" ? undefined : getDesktopCliEntryPath(commandMode);
-  const prepared = safePrepareOpenCode(configDir, petId, cliVersion, pluginVersion, commandMode, cliEntryPath);
+  const configDir = getOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
   const detected = await runOpenCodeCommand(["--version"]);
-  const globalState = doctorOpenCodeGlobalSetup(configDir);
-  const configured = globalState.status === "installed";
-  return {
-    status: {
-      state: globalState.status === "error" || globalState.status === "custom" || globalState.status === "conflict" ? "error" : configured ? "configured" : detected.ok ? "needs_setup" : "not_detected",
-      label: configured ? "Installed" : globalState.status === "custom" || globalState.status === "conflict" ? "Needs attention" : detected.ok ? "Ready" : "Not detected",
-      details: globalState.status === "custom" || globalState.status === "conflict" || globalState.status === "error" ? globalState.message : configured ? globalState.message : detected.ok ? "OpenCode was detected. Desktop setup writes global OpenCode config." : getPreferredOpenCodeCommand() === getDefaultOpenCodeCommand() ? "OpenCode was not found on PATH or in a Scoop shim directory. You can still preview setup, but OpenCode must be installed to use it." : "OpenCode did not run from the saved command path. You can still preview setup, but OpenCode must be installed to use it.",
-      configDir: formatUserPath(configDir) ?? configDir,
-      canInstall: prepared.ok && !configured,
-      canRemove: configured,
-    },
-    preview: {
-      global: true,
-      configDir: formatUserPath(configDir) ?? configDir,
-      configPath: prepared.ok ? (formatUserPath(prepared.configPath) ?? prepared.configPath) : "",
-      cleanupConfigPaths: prepared.ok ? prepared.cleanupConfigPaths.map((path) => formatUserPath(path) ?? path) : [],
-      mcpCommand: prepared.ok ? prepared.command : [],
-      plugin: prepared.ok ? prepared.plugin : (petId ? [`@open-pets/opencode@${pluginVersion}`, { pet: petId }] : `@open-pets/opencode@${pluginVersion}`),
-      instructionPath: prepared.ok ? (formatUserPath(prepared.instructionPath) ?? prepared.instructionPath) : "",
-      configPreview: prepared.ok ? prepared.configPreview : {},
-    },
-  };
+  return buildOpenCodeSetup({
+    configDir,
+    selectedPetId,
+    cliVersion: getCliPackageVersion(),
+    pluginVersion: getOpenCodePackageVersion(),
+    commandMode,
+    cliEntryPath: commandMode === "published" ? undefined : getDesktopCliEntryPath(commandMode),
+    detected: detected.ok,
+    preferredCommandIsDefault: getPreferredOpenCodeCommand() === getDefaultOpenCodeCommand(),
+    formatUserPath,
+  });
 }
 
 async function getOpenClawSetup(): Promise<{ readonly status: OpenClawPluginStatus; readonly preview: OpenClawSetupPreview }> {
@@ -592,43 +557,26 @@ function quoteCommandForDisplay(command: string): string {
   return /\s/.test(command) ? JSON.stringify(command) : command;
 }
 
-function safePrepareOpenCode(configDir: string, selectedPetId: string | undefined, cliVersion: string, pluginVersion: string, commandMode: OpenPetsCommandMode, cliEntryPath: string | undefined): { readonly ok: true; readonly command: readonly string[]; readonly configPath: string; readonly cleanupConfigPaths: readonly string[]; readonly instructionPath: string; readonly plugin: readonly unknown[] | string; readonly configPreview: Record<string, unknown> } | { readonly ok: false; readonly message: string } {
-  try {
-    const prepared = prepareOpenCodeGlobalSetup({ configDir, petId: selectedPetId || undefined, cliVersion, pluginVersion, commandMode, cliEntryPath });
-    const parsed = parseOpenCodeConfig(prepared.configWrite.content);
-    if (!parsed.ok) return { ok: false, message: parsed.message };
-    const config = parsed.value as { mcp?: { openpets?: { command?: readonly string[] } }; plugin?: readonly unknown[] };
-    const plugin = Array.isArray(config.plugin) ? config.plugin[config.plugin.length - 1] : undefined;
-    return { ok: true, command: config.mcp?.openpets?.command ?? [], configPath: prepared.configPath, cleanupConfigPaths: prepared.cleanupConfigWrites.map((write) => write.targetPath), instructionPath: prepared.instructionPath, plugin: plugin === undefined ? [] : (plugin as readonly unknown[] | string), configPreview: parsed.value };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "OpenCode setup preview failed." };
-  }
-}
-
 async function installOpenCodeGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
   if (commandMode === "bundled") {
     const node = await runCommand({ command: getPreferredNodeCommand(), args: ["--version"] });
     if (!node.ok) return { ok: false, action: "opencode-install", message: `Node.js is required for packaged OpenPets commands. Open OpenCode configuration, set the Node.js command path, then try again. ${summarizeCommandResult(node)}`, changed: false };
   }
-  try {
-    const configDir = getGlobalOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
-    const prepared = prepareOpenCodeGlobalSetup({ configDir, petId: selectedPetId || undefined, cliVersion: getCliPackageVersion(), pluginVersion: getOpenCodePackageVersion(), commandMode, cliEntryPath: commandMode === "published" ? undefined : getDesktopCliEntryPath(commandMode) });
-    writePreparedOpenCodeGlobalSetup(prepared);
-    return { ok: true, action: "opencode-install", message: `Installed global OpenCode OpenPets setup. Config: ${formatUserPath(prepared.configPath) ?? prepared.configPath}. Instructions: ${formatUserPath(prepared.instructionPath) ?? prepared.instructionPath}.`, changed: true };
-  } catch (error) {
-    return { ok: false, action: "opencode-install", message: error instanceof Error ? error.message : "OpenCode setup failed.", changed: false };
-  }
+  const configDir = getOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
+  return applyOpenCodeInstall({
+    configDir,
+    selectedPetId,
+    cliVersion: getCliPackageVersion(),
+    pluginVersion: getOpenCodePackageVersion(),
+    commandMode,
+    cliEntryPath: commandMode === "published" ? undefined : getDesktopCliEntryPath(commandMode),
+    formatUserPath,
+  });
 }
 
 async function removeOpenCodeGlobal(): Promise<AgentSetupActionResult> {
-  try {
-    const configDir = getGlobalOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
-    const prepared = prepareOpenCodeGlobalRemove(configDir);
-    writePreparedOpenCodeGlobalRemove(prepared);
-    return { ok: true, action: "opencode-remove", message: prepared.configWrites.length > 0 ? "Removed global OpenCode OpenPets setup." : "Global OpenCode OpenPets setup was already absent.", changed: prepared.configWrites.length > 0 };
-  } catch (error) {
-    return { ok: false, action: "opencode-remove", message: error instanceof Error ? error.message : "OpenCode removal failed.", changed: false };
-  }
+  const configDir = getOpenCodeConfigDir(process.env, app.getPath("home"), process.platform);
+  return applyOpenCodeRemove({ configDir });
 }
 
 async function installZedGlobal(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): Promise<AgentSetupActionResult> {
