@@ -6,11 +6,9 @@ import { pathToFileURL } from "node:url";
 import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
-import { getActiveLocale, t } from "./i18n/index.js";
-import { defaultMediaDurationMs } from "./local-ipc-protocol.js";
-import { pickReactionMessage } from "./reaction-messages.js";
+import { t } from "./i18n/index.js";
 import { debug, error as logError, info, warn } from "./logger.js";
-import { defaultPetSprite, getConfiguredSpriteStates, type PetMotionState, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, type PetMotionState, type UniversalSpriteState } from "./reaction-animation-mapping.js";
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
 import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayland-layer-backend.js";
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
@@ -19,7 +17,7 @@ import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
 import { getActiveChatPanelHeight, isDefaultPetChatCompactOpen, isDefaultPetChatExpanded } from "./default-pet-chat.js";
 
 import type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
-import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender, getReactionSpriteState } from "./pet-window-render.js";
+import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
 import { registerPetGazeWindow, resetPetGazeWindow, setPetGazeDragging, setPetGazeMotionState, setPetGazePluginOverride, setPetGazeReactionState, setPetGazeRendererReady, suspendPetGazeForMovement, updatePetGazeConfiguration } from "./pet-window-gaze.js";
 import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
@@ -28,6 +26,7 @@ export type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, 
 export { createPetBodyMarkup, pluginBubblesCacheKey } from "./pet-window-render.js";
 export { refreshPetGazePreference } from "./pet-window-gaze.js";
 export { buildPetContextMenuTemplate, handlePetScaleChange } from "./pet-window-context-menu.js";
+export { clearTransientReaction, getTransientDisplayDurationMs, getTransientReactionAnimationMs, mergePetTransientDisplay, preparePetTransientDisplay } from "./pet-transient-policy.js";
 
 const petWindowRenderCache = new WeakMap<BrowserWindow, string>();
 
@@ -411,39 +410,6 @@ function applyPetWindowFocusPolicy(window: BrowserWindow, hasInteractiveInput: b
   } catch (error) {
     logError("pet.window", "focus policy failed", error instanceof Error ? error : { windowId: window.id, focusable, hasInteractiveInput, error });
   }
-}
-
-export function preparePetTransientDisplay(display: PetTransientDisplay): PetTransientDisplay {
-  if (display.suppressReactionMessage) return display;
-  if (!display.reaction || display.message || display.reactionMessage) return display;
-  return { ...display, reactionMessage: pickReactionMessage(display.reaction, Math.random, getActiveLocale()) };
-}
-
-export function mergePetTransientDisplay(current: PetTransientDisplay | null, next: PetTransientDisplay): PetTransientDisplay {
-  if (next.message || next.mediaPath || !next.reaction || !current?.message) return preparePetTransientDisplay(next);
-  return { ...current, reaction: next.reaction, dismissToken: next.dismissToken ?? current.dismissToken };
-}
-
-export function getTransientReactionAnimationMs(display: PetTransientDisplay): number | null {
-  if (!display.reaction) return null;
-  const state = getReactionSpriteState(display.reaction);
-  const row = getConfiguredSpriteStates(getAppStateSnapshot().preferences.waitingAnimationDurationMs)[state];
-  const iterations = "iterations" in row ? row.iterations : "infinite";
-  return typeof iterations === "number" ? row.durationMs * iterations : null;
-}
-
-export function getTransientDisplayDurationMs(display: PetTransientDisplay): number {
-  if (display.displayDurationMs) return display.displayDurationMs;
-  if (display.mediaPath) return defaultMediaDurationMs;
-  const baseMs = display.reaction === "success" || display.reaction === "error" ? 5_000 : 4_000;
-  const message = display.message ?? display.reactionMessage;
-  if (!message) return baseMs;
-  return Math.min(12_000, Math.max(baseMs, message.length * 70));
-}
-
-export function clearTransientReaction(display: PetTransientDisplay): PetTransientDisplay {
-  if (!display.reaction) return display;
-  return { ...display, reaction: undefined };
 }
 
 export function setPetReactionState(window: BrowserWindow, state: UniversalSpriteState): void {
