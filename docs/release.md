@@ -1022,7 +1022,11 @@ are skipped automatically, so a failed partial publish can be retried safely.
 The helper pins its npm authentication check, registry probes, and `pnpm publish`
 commands to `https://registry.npmjs.org`. Registry, process, network, and
 authentication failures stop the release rather than being treated as missing
-packages:
+packages. npm can take time to expose a newly written package version or
+dist-tag; after each staging and final-tag write, the helper reports the missing
+entries and retries registry verification every 10 seconds for up to five
+minutes. It still aborts on an actual registry, process, or authentication
+failure:
 
 ```bash
 pnpm release:npm -- --yes

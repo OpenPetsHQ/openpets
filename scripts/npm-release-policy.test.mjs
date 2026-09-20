@@ -47,6 +47,38 @@ async function main() {
   assertEqual(tagChanges.filter(([, tag]) => tag === "latest").length, 2, "requested tag promotion count");
   assertEqual(smokeCount, 1, "CLI smoke sequencing");
 
+  const delayedTags = new Map(packages.map((pkg) => [pkg.name, {}]));
+  let staleStagingReads = 2;
+  let staleLatestReads = 2;
+  let propagationWaits = 0;
+  const propagationLogs = [];
+  await publishStagedRelease({
+    packages,
+    existing: packages,
+    requestedTag: "latest",
+    publishPackage: async () => { throw new Error("already-published packages must not be republished"); },
+    addDistTag: async (pkg, tag) => { delayedTags.get(pkg.name)[tag] = pkg.version; },
+    inspectExact: async () => true,
+    inspectDistTags: async (pkg) => {
+      const tags = delayedTags.get(pkg.name);
+      if (tags[stagingTag("3.5.0")] && staleStagingReads > 0) {
+        staleStagingReads -= 1;
+        return { ...tags, [stagingTag("3.5.0")]: undefined };
+      }
+      if (tags.latest && staleLatestReads > 0) {
+        staleLatestReads -= 1;
+        return { ...tags, latest: undefined };
+      }
+      return { ...tags };
+    },
+    registryVerificationAttempts: 2,
+    registryVerificationDelayMs: 1,
+    wait: async () => { propagationWaits += 1; },
+    log: (message) => { propagationLogs.push(message); },
+  });
+  assertEqual(propagationWaits, 2, "registry propagation retries");
+  assertEqual(propagationLogs.filter((message) => message.includes("Waiting for npm registry propagation")).length, 2, "registry propagation progress reporting");
+
   assertRejectsSync(
     () => assertStagingTagSafe({ packageName: "@fixture/base", stageTag: stagingTag("3.5.0"), currentVersion: "3.6.0", targetVersion: "3.5.0" }),
     /deterministic staging tag.*3.6.0 to 3.5.0/,
@@ -75,6 +107,7 @@ async function main() {
     addDistTag: async (_pkg, tag) => { if (tag === "latest") incompletePromotions += 1; },
     inspectExact: async () => true,
     inspectDistTags: async () => incompleteTags.get("@fixture/base"),
+    registryVerificationAttempts: 1,
   }), /Staged npm release is incomplete/, "no promotion before complete staging");
   assertEqual(incompletePromotions, 0, "incomplete release promotion count");
 
@@ -88,6 +121,7 @@ async function main() {
     addDistTag: async (_pkg, tag) => { if (tag === "latest") finalPromotionAttempts += 1; },
     inspectExact: async () => true,
     inspectDistTags: async (pkg) => finalTags.get(pkg.name),
+    registryVerificationAttempts: 1,
   }), /Final npm tag verification failed/, "post-promotion final tag verification");
   assertEqual(finalPromotionAttempts, 2, "final tag verification observes promotion attempts");
 
