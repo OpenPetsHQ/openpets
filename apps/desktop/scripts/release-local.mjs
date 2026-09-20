@@ -521,7 +521,7 @@ function preflight(state) {
   }
   requireCommand("pnpm", ["--version"]);
   requireCommand("gh", ["--version"]);
-  if (!commandSucceeds("unsquashfs", ["-version"], { cwd: repoRoot })) {
+  if (!commandExists("unsquashfs", { cwd: repoRoot })) {
     throw new Error("Linux AppImage payload validation requires unsquashfs. Install it with: brew install squashfs");
   }
   run("gh", ["auth", "status", "--hostname", "github.com"], { cwd: repoRoot });
@@ -1003,6 +1003,10 @@ function requireCommand(command, args) {
 
 function commandSucceeds(command, args, options) {
   return spawnSync(command, args, { cwd: options.cwd, stdio: "ignore" }).status === 0;
+}
+
+function commandExists(command, options) {
+  return !spawnSync(command, [], { cwd: options.cwd, stdio: "ignore" }).error;
 }
 
 function commandOutput(command, args, options) {
