@@ -119,8 +119,8 @@ function main() {
     return;
   }
 
-  preflight(state);
-  context.previousTag = findPreviousReleaseTag(head, resume || isStageComplete(state, "tag"));
+  const tagAlreadyCreated = preflight(state);
+  context.previousTag = findPreviousReleaseTag(head, tagAlreadyCreated);
 
   console.log(`\nStaged release plan for ${tag} (${stages.length} stages):`);
   for (const [index, stage] of stages.entries()) {
@@ -544,7 +544,7 @@ function preflight(state) {
   const localTagExists = commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/${tag}`], { cwd: repoRoot });
   const remoteTagCommit = getRemoteTagCommit();
   const release = getReleaseDetails();
-  const tagAlreadyCreated = resume || isStageComplete(state, "tag");
+  const tagAlreadyCreated = resume || isStageComplete(state, "tag") || (localTagExists && remoteTagCommit === localHead);
 
   if (tagAlreadyCreated) {
     if (!localTagExists || !remoteTagCommit) {
@@ -552,7 +552,7 @@ function preflight(state) {
     }
     assertTagAtHead(localTagExists, remoteTagCommit);
     if (release && !release.isDraft) throw new Error(`GitHub release ${tag} is already published; the release script refuses to modify published releases.`);
-    return;
+    return true;
   }
 
   if (localTagExists) throw new Error(`Git tag already exists locally: ${tag}`);
@@ -560,9 +560,16 @@ function preflight(state) {
   if (release) {
     throw new Error(`GitHub release already exists: ${tag}`);
   }
+  return false;
 }
 
 function createAndPushTag(target) {
+  const localTagExists = commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/${tag}`], { cwd: repoRoot });
+  const remoteTagCommit = getRemoteTagCommit();
+  if (localTagExists && remoteTagCommit) {
+    assertTagAtHead(localTagExists, remoteTagCommit);
+    return;
+  }
   run("git", ["tag", "--annotate", tag, "--message", `OpenPets ${tag}`, target], { cwd: repoRoot });
   run("git", ["push", "origin", `refs/tags/${tag}`], { cwd: repoRoot });
   assertTagAtHead(true, target);

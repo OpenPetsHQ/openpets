@@ -54,6 +54,7 @@ jobs:
         shell: bash
         run: |
           pnpm --dir apps/desktop exec tsc
+          pnpm --dir apps/desktop build:preload
           pnpm --dir apps/desktop exec vite build
 
       - name: Clean package output

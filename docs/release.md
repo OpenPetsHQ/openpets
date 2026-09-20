@@ -262,7 +262,9 @@ Preflight still enforces macOS, `pnpm`/`gh` availability, GitHub CLI auth, an
 `origin` pointing at `alvinunreal/openpets`, a clean working tree, an upstream
 branch, `HEAD` matching upstream, and stable non-zero semver. It refuses an
 existing tag or release unless the checkpoint says this release already reached
-the `tag` stage at this `HEAD`.
+the `tag` stage at this `HEAD`, or both the local and origin tags already point
+to this unpublished/draft release `HEAD`. The latter recovery path makes the
+tag stage a no-op if a checkpoint was lost after tagging.
 
 ### Resuming after a failure
 
@@ -409,7 +411,7 @@ Current repository support:
 
 Note: Windows SmartScreen can still show a "not commonly downloaded" prompt for a newly signed OpenPets installer. That does **not** mean the signature is invalid; it usually means the file hash has little distribution history.
 
-The workflow builds the Windows x64 unpacked app on `windows-latest`, uploads `openpets.exe` for SignPath signing, replaces the unpacked app executable with the signed file, builds the NSIS installer from that signed app, uploads the installer for SignPath signing, then publishes the signed installer as a GitHub Actions artifact. The project is linked to the GitHub.com trusted-build system; its repository variables `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PROJECT_SLUG`, plus the `SIGNPATH_API_TOKEN` secret, must remain configured.
+The workflow builds the Windows x64 unpacked app and its generated preloads on `windows-latest`, uploads `openpets.exe` for SignPath signing, replaces the unpacked app executable with the signed file, builds the NSIS installer from that signed app, uploads the installer for SignPath signing, then publishes the signed installer as a GitHub Actions artifact. The project is linked to the GitHub.com trusted-build system; its repository variables `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PROJECT_SLUG`, plus the `SIGNPATH_API_TOKEN` secret, must remain configured.
 
 Verification steps after download (before first run):
 
