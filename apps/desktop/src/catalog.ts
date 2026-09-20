@@ -111,7 +111,7 @@ export async function getCatalogPet(petId: string): Promise<CatalogPetV2> {
   }
 
   const catalog = await getV2CatalogOrFixture();
-  const pet = filterSurfaceablePets(catalog.pets).find((candidate) => candidate.id === petId);
+  const pet = catalog.pets.find((candidate) => candidate.id === petId);
   if (!pet) throw new Error(`Pet is not available in the validated catalog: ${petId}`);
   return pet;
 }
@@ -123,12 +123,12 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (remote.ok) {
     return {
       source: "remote",
-      pets: filterSurfaceablePets(remote.catalog.pets),
+      pets: remote.catalog.pets,
       generatedAt: remote.catalog.generatedAt,
       error: `v3 unavailable: ${remoteV3Error}`,
       fallbackReason: "v3_to_v2_remote",
       version: 2,
-      total: filterSurfaceablePets(remote.catalog.pets).length,
+      total: remote.catalog.pets.length,
       supportsCategories: false,
     };
   }
@@ -138,11 +138,11 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (fixture.ok) {
     return {
       source: "fixture",
-      pets: filterSurfaceablePets(fixture.catalog.pets),
+      pets: fixture.catalog.pets,
       generatedAt: fixture.catalog.generatedAt,
       error: `Catalog unavailable: ${remoteV3Error}; v2 unavailable: ${remote.error}`,
       version: 2,
-      total: filterSurfaceablePets(fixture.catalog.pets).length,
+      total: fixture.catalog.pets.length,
       supportsCategories: false,
     };
   }

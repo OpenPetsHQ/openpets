@@ -75,9 +75,11 @@ streaming, final-URL checks, schema validation at the remote boundary, and the
 module-instance caches for the V3 index/pages/search data and V2 catalog. It
 keeps successful V3 pages cacheable while allowing a failed page request to be
 retried. `catalog.ts` remains the product façade: it owns fixture fallback,
-curated visibility, virtual pagination/search composition, and explicit lookup
-semantics. This extraction does not change the existing V3 → V2 → fixture
-precedence or visibility behavior.
+V3-only curated visibility, virtual pagination/search composition, and explicit
+lookup semantics. When V3 is unavailable, the validated V2 catalog and bundled
+fixture expose all of their validated pets for browsing and lookup/install;
+their V2-compatible entries do not require V3 `original`/`featured` metadata.
+The V3 → V2 → fixture precedence and error behavior remain unchanged.
 
 The legacy V2 catalog may also carry the optional exact numeric
 `spriteVersionNumber: 2`; desktop V3-to-compat and V2 fallback conversion
