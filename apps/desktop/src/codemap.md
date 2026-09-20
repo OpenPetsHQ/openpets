@@ -46,7 +46,8 @@ local-ipc.ts → local-ipc-request-handler.ts → parseIpcRequest() → handleRe
         ├── resolveTarget() (default vs explicit pet)
         ├── onFirstExplicitLease → agent-pet-controller.showAgentPet()
         └── onLastExplicitLease → agent-pet-controller.closeAgentPetIfOpen()
-        └── Logging via logger.ts (ipc, lease scopes)
+    └── local-ipc-confinement.ts → confinement-poller.ts → window-tracker.ts
+└── Logging via logger.ts (ipc, lease scopes)
 ```
 
 **Pet Display Flow**:
@@ -274,8 +275,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
-- `local-ipc.ts`: net.Server implementation, socket transport facade, discovery file management, network security (loopback/private address filtering), logging, and request-handler composition
+- `local-ipc.ts`: net.Server implementation, socket transport facade, discovery file management, network security (loopback/private address filtering), logging, and request-handler/confinement composition
 - `local-ipc-request-handler.ts`: Electron-free injected local IPC parsing, validation, request routing, side-effect ordering, and protocol response handling
+- `local-ipc-confinement.ts`: Electron-free module-lifetime coordination between explicit leases, terminal tracking, confinement state updates, and tracker cancellation
 - `local-ipc-protocol.ts`: Protocol constants, request/response types, validation functions
 - `local-ipc-paths.ts`: Platform-specific socket paths and discovery file locations
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution

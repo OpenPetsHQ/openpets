@@ -15,26 +15,26 @@ import { errorResponse, IpcProtocolError, maxIpcMessageBytes } from "./local-ipc
 import { installPet, installPetFromFolderWithResult, installPetFromZipFileWithResult } from "./pet-installation.js";
 import { clearConfinementState, setConfinementState } from "./confinement-manager.js";
 import { isConfinementSupported } from "./capabilities.js";
-import { resolveAndSubscribe, type ConfinementPollerDeps } from "./confinement-poller.js";
-import { findTerminalWindowForPid, subscribeWindowTracking, type TerminalWindowInfo } from "./window-tracker.js";
+import { findTerminalWindowForPid, subscribeWindowTracking } from "./window-tracker.js";
 import { warnPetFallback } from "./pet-fallback-notify.js";
 import { getEligiblePoolPetIds, resolvePoolAssignment } from "./pet-pool.js";
 import { t } from "./i18n/index.js";
 import { broadcastLanPetActivity } from "./lan-controller.js";
 import { createLocalIpcRequestHandler } from "./local-ipc-request-handler.js";
+import { createLocalIpcConfinementCoordinator, type LocalIpcConfinementCoordinator } from "./local-ipc-confinement.js";
 
 let ipcServer: net.Server | null = null;
 let ipcDiscovery: OpenPetsDiscoveryFile | null = null;
 let leaseCleanupTimer: NodeJS.Timeout | null = null;
 /** leaseId → window-tracking unsubscribe function (for confined agent pets). */
-const confinementUnsubscribers = new Map<string, () => void>();
+let confinementCoordinator: LocalIpcConfinementCoordinator;
 const leaseManager = new LeaseManager({
   resolveTarget: resolveLeaseTarget,
   getDefaultPetId: () => getCurrentDefaultPet().id,
   getPetDisplayName: (petId, targetKind) => targetKind === "default" ? getCurrentDefaultPet().displayName : getPetDisplayName(petId),
   onFirstExplicitLease: showAgentPet,
   onLastExplicitLease: handleLastExplicitLease,
-  onLeaseReleased: (lease) => unsubscribeConfinement(lease.leaseId),
+  onLeaseReleased: (lease) => confinementCoordinator.stopLease(lease.leaseId),
   onLog: (level, message, fields) => level === "debug" ? debug("lease", message, fields) : info("lease", message, fields),
   isPetEligible,
 });
@@ -46,6 +46,43 @@ const warnedFallbackPets = new Set<string>();
 const suspendedPoolSessions = new Map<number, string | undefined>();
 
 const safePetIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+confinementCoordinator = createLocalIpcConfinementCoordinator({
+  getRawLease: (leaseId) => leaseManager.getRawLease(leaseId),
+  findTerminalWindow: findTerminalWindowForPid,
+  subscribeWindowTracking,
+  setTerminalIdentity: (leaseId, terminalInfo) => leaseManager.setTerminalIdentity(leaseId, {
+    terminalOwnerPid: terminalInfo.terminalPid,
+    terminalAppName: terminalInfo.appName,
+    terminalWindowId: terminalInfo.window?.id,
+  }),
+  setConfinementState,
+  repositionConfinedPet,
+  clearConfinementState,
+  getScreenPermissionStatus: () =>
+    process.platform === "darwin"
+      ? systemPreferences.getMediaAccessStatus("screen")
+      : "granted",
+  promptScreenPermission: () => {
+    if (process.platform === "darwin") {
+      void shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
+    }
+  },
+  notifyScreenPermission: (leaseId, onAction) => {
+    if (process.platform !== "darwin") return;
+    info("ipc", "Screen Recording permission not granted — showing notification", {
+      leaseId,
+      status: systemPreferences.getMediaAccessStatus("screen"),
+    });
+    if (!Notification.isSupported()) return;
+    const title = t("confinement.screenPermission.title");
+    const body = t("confinement.screenPermission.body");
+    const notification = new Notification({ title, body, silent: true });
+    notification.on("click", onAction);
+    notification.show();
+  },
+  log: (message, fields) => info("ipc", message, fields),
+});
 
 const handleRawRequest = createLocalIpcRequestHandler({
   getAppVersion: () => ipcDiscovery?.appVersion ?? "0.0.0",
@@ -66,7 +103,7 @@ const handleRawRequest = createLocalIpcRequestHandler({
     // Resolve terminal window identity asynchronously (non-blocking).
     // Only attempt on macOS where window-bounds polling is supported.
     if (clientPid !== undefined && isConfinementSupported()) {
-      void resolveTerminalIdentity(lease.leaseId, clientPid);
+      void confinementCoordinator.trackLease(lease.leaseId, clientPid);
     }
   },
   applyAgentPetReaction,
@@ -304,110 +341,7 @@ function handleLastExplicitLease(petId: string): void {
   try {
     clearAgentPetLeaseState(petId);
   } finally {
-    clearConfinementState(petId);
-  }
-}
-
-async function resolveTerminalIdentity(leaseId: string, clientPid: number): Promise<void> {
-  // Get the petId — required to key confinement state. Non-explicit leases
-  // don't participate in window confinement.
-  const lease = leaseManager.getRawLease(leaseId);
-  if (!lease || lease.targetKind !== "explicit") return;
-  const petId = lease.actualPetId;
-
-  const deps: ConfinementPollerDeps = {
-    findTerminal: async (pid) => {
-      const termInfo = await findTerminalWindowForPid(pid);
-      // Diagnostic: distinguish (A) zero windows [permission], (B) no ancestor,
-      // (C) resolved. window-tracker already logs windowCount at info level.
-      if (!termInfo) {
-        info("ipc", "terminal identity first resolve returned null — poller will self-heal", {
-          leaseId,
-          clientPid: pid,
-        });
-      } else {
-        info("ipc", "terminal identity resolved", {
-          leaseId,
-          clientPid: pid,
-          terminalPid: termInfo.terminalPid,
-          appName: termInfo.appName,
-          isMinimized: termInfo.isMinimized,
-          isOccluded: termInfo.isOccluded,
-        });
-      }
-      return termInfo;
-    },
-    subscribe: (id, pid, onFound, onNull) => subscribeWindowTracking(id, pid, onFound, onNull),
-    setIdentity: (termInfo) => leaseManager.setTerminalIdentity(leaseId, {
-      terminalOwnerPid: termInfo.terminalPid,
-      terminalAppName: termInfo.appName,
-      terminalWindowId: termInfo.window?.id,
-    }),
-    applyUpdate: (termInfo) => applyConfinementUpdate(petId, termInfo),
-    isAlive: () => !!leaseManager.getRawLease(leaseId),
-    onDead: () => unsubscribeConfinement(leaseId),
-    reportError: (error) => {
-      info("ipc", "confinement poller resilience failure", {
-        leaseId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-    // Phase 2: Screen Recording permission — macOS only.
-    // On Windows and Linux there is no SR permission concept; window enumeration
-    // is available without it, so we treat the status as always "granted".
-    getScreenPermissionStatus: () =>
-      process.platform === "darwin"
-        ? systemPreferences.getMediaAccessStatus("screen")
-        : "granted",
-    // Phase 2: opens the SR pane in System Settings on macOS.
-    // No-op on other platforms (they have no equivalent permission to grant).
-    promptScreenPermission: () => {
-      if (process.platform === "darwin") {
-        void shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
-      }
-    },
-    // Phase 2: fires the one-time actionable notification (macOS only).
-    notifyScreenPermission: (onAction) => {
-      if (process.platform !== "darwin") return;
-      info("ipc", "Screen Recording permission not granted — showing notification", {
-        leaseId,
-        status: systemPreferences.getMediaAccessStatus("screen"),
-      });
-      if (!Notification.isSupported()) return;
-      const title = t("confinement.screenPermission.title");
-      const body = t("confinement.screenPermission.body");
-      const n = new Notification({ title, body, silent: true });
-      n.on("click", onAction);
-      n.show();
-    },
-  };
-
-  try {
-    await resolveAndSubscribe(leaseId, clientPid, deps, confinementUnsubscribers);
-  } catch (err) {
-    info("ipc", "terminal identity resolution error", { leaseId, clientPid, error: String(err) });
-  }
-}
-
-function applyConfinementUpdate(petId: string, info: TerminalWindowInfo): void {
-  setConfinementState(petId, {
-    terminalBounds: info.window?.bounds ?? null,
-    terminalMinimized: info.isMinimized,
-    terminalOccluded: info.isOccluded,
-    terminalOwnerPid: info.terminalPid,
-    appName: info.appName,
-  });
-  // Immediately reposition the pet if it's already visible.
-  repositionConfinedPet(petId);
-}
-
-function unsubscribeConfinement(leaseId: string): void {
-  const unsub = confinementUnsubscribers.get(leaseId);
-  if (!unsub) return;
-  try {
-    unsub();
-  } finally {
-    confinementUnsubscribers.delete(leaseId);
+    confinementCoordinator.clearPetConfinement(petId);
   }
 }
 
