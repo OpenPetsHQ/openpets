@@ -81,8 +81,10 @@ precise Linux hit-mask shapes.
   terminates, the lease is released within ~5 s and the pet window closes.
   See the lease model in [IPC and remote control](/ipc).
 
-Both are created by `pet-window.ts` as transparent, frameless, always-on-top
-windows, driven through `pet-preload.cjs` for drag and click-through behavior.
+Both are created by the `pet-window.ts` lifecycle facade as transparent, frameless,
+always-on-top windows. `pet-window-interaction.ts` owns the per-window mouse
+passthrough, drag, renderer lifecycle, recovery/watchdog, and IPC bridge driven
+through `pet-preload.cjs`.
 
 Experimental multi-pet LAN mode adds a third, isolated controller for visiting
 pets. Windows are keyed by LAN owner host rather than pet ID, so they do not
@@ -98,10 +100,10 @@ Electron delivers on macOS and Windows but not on Linux (Linux pet windows are
 kept interactive instead). Both compositors can silently stop forwarding - macOS
 across Space switches, display sleep, and fullscreen transitions; Windows after
 rapid pet reloads and fullscreen sweeps - which would leave the pet stuck
-click-through and impossible to grab. A cursor-probe watchdog in `pet-window.ts`
-re-arms forwarding from the main process (`screen.getCursorScreenPoint()`), which
-keeps working even when forwarding is dead. The platform predicates live in
-`mouse-forwarding.ts`.
+click-through and impossible to grab. A cursor-probe watchdog in
+`pet-window-interaction.ts` re-arms forwarding from the main process
+(`screen.getCursorScreenPoint()`), which keeps working even when forwarding is
+dead. The platform predicates live in `mouse-forwarding.ts`.
 
 Right-clicking any pet offers a **Size** submenu with the same global scale
 choices as Settings. The current size is checked; selecting another size saves
@@ -393,7 +395,7 @@ images silently fall back to the default pet. This is the single most common
 |---------------------|----------|
 | How a reaction looks | `reaction-animation-mapping.ts` |
 | What a pet says | `reaction-messages.ts` + `i18n/reactions/` |
-| Window behavior (drag, click-through, horizontal flip) | `pet-window.ts`, `pet-preload.cjs` |
+| Window behavior (drag, click-through, horizontal flip) | `pet-window.ts`, `pet-window-interaction.ts`, `pet-preload.cjs` |
 | Default vs agent visibility | `default-pet-controller.ts`, `agent-pet-controller.ts` |
 | Installing / extracting | `pet-installation.ts`, `zip-safety.ts` |
 | Standalone install | `packages/install-pet/` |

@@ -77,6 +77,8 @@ pet-window.ts
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
 └── pet-preload.cjs (renderer IPC for drag/click-through)
+pet-window-interaction.ts
+└── mouse passthrough, drag, renderer lifecycle recovery/watchdog, IPC bridge, and speech completion subscriptions
 
 Plugin motion APIs:
 plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
@@ -184,7 +186,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `local-ipc.ts` ↔ `lease-manager.ts` ↔ `agent-pet-controller.ts`
   - `windows.ts` ↔ `app-state.ts`, `agent-setup.ts`, `catalog.ts`, `codex-pets.ts`, `update-checker.ts` for Control Center route snapshots/actions
   - `windows.ts` ↔ `plugin-service.ts` for Control Center plugin UI IPC, plugin commands, and Dashboard plugin health
-  - `pet-window.ts` ↔ `default-pet-controller.ts`, `agent-pet-controller.ts`
+  - `pet-window.ts` ↔ `pet-window-interaction.ts`, `default-pet-controller.ts`, `agent-pet-controller.ts`
   - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
   - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
@@ -242,6 +244,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Pets**:
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, and context-menu installation delegation
+- `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
 - `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, and plugin command form handling
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, gaze eligibility, and gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator managing expanded/collapsed carrier window states, IPC authorization, conversation transcript streams, and talk control subscriptions

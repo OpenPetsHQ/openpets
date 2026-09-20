@@ -357,9 +357,11 @@ host-owned capability input validator.
 
 ### Pet windows
 
-Pet rendering lives in `pet-window.ts` plus the two controllers
+Pet rendering and lifecycle setup live in `pet-window.ts` plus the two controllers
 (`default-pet-controller.ts`, `agent-pet-controller.ts`) and the motion/mapping
-helpers. This is covered in depth in [Pets](/pets).
+helpers. `pet-window-interaction.ts` owns the per-window mouse/drag and renderer
+IPC lifecycle, recovery/watchdog, and speech-completion bridge. This is covered
+in depth in [Pets](/pets).
 
 ### Local IPC server
 
@@ -722,6 +724,7 @@ release flow.
 |---------------------|----------|
 | Tray menu / Control Center routing | `tray.ts`, `windows.ts` |
 | Pet appearance / animation | `pet-window.ts`, `reaction-animation-mapping.ts` ([Pets](/pets)) |
+| Pet drag / click-through / interaction lifecycle | `pet-window-interaction.ts`, `pet-preload.cjs` ([Pets](/pets)) |
 | Agent → pet command path | `local-ipc.ts`, `lease-manager.ts` ([IPC and remote control](/ipc)) |
 | Persisted settings | `app-state.ts` |
 | Plugin behavior | `plugin-service.ts` + `plugin-*.ts` ([Plugin platform](/plugins)) |
