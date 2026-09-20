@@ -36,10 +36,6 @@ import { getPetAssistantConversationController } from "./pet-assistant-host.js";
 import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
 import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
 import { getRemoteControlService } from "./remote-control-service.js";
-import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
-import { deleteProviderCredentialForProfile } from "./provider-service.js";
-import { beginProviderTranscriptionTest, testProviderConfiguration } from "./provider-configuration-test.js";
-import type { ProviderTranscriptionTestSession } from "./provider-configuration-test-session.js";
 import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
@@ -47,29 +43,10 @@ import { configurePetToggleShortcut, getPetToggleShortcutSnapshot, resolvePetTog
 import { getTeamService } from "./team-service.js";
 import { getManagerCheckInService } from "./manager-check-in-service.js";
 import { managerCheckInFeelingCodes } from "./team-api-client.js";
-import {
-  buildProviderControlCenterSnapshot,
-  createProviderProfile,
-  deleteProviderProfile,
-  getPluginPlatformSettings,
-  isProviderSecretRefReferenced,
-  isProviderRole,
-  previewProviderConfiguration,
-  selectProviderProfile,
-  saveProviderConfiguration,
-  updateProviderProfile,
-  updatePluginPlatformSettings,
-  validateProviderGatesPatch,
-  validateProviderProfilePatch,
-  validateProviderProfile,
-  type ProviderProfileInput,
-  type ProviderConfigurationSaveInput,
-} from "./plugin-platform-settings.js";
 import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type ControlCenterRoute, type ControlCenterRouteTarget } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
-import { getSharedVoiceMediaPlayer } from "./voice-media-player.js";
-import { cancelProviderTestsForSender, ProviderTestReplacementLanes, registerProviderTestRequest } from "./provider-test-lifecycle.js";
+import { installControlCenterProviderIpcHandlers, type ControlCenterProviderIpcLifecycle } from "./control-center-provider-ipc.js";
 
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
@@ -79,12 +56,7 @@ let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingManagerCheckInFormRequest = false;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
-let nextProviderTestSessionId = 0;
-const providerTestSessions = new Map<string, { readonly senderId: number; readonly session: ProviderTranscriptionTestSession }>();
-const providerTestRequests = new Map<number, Set<AbortController>>();
-const providerTestReplacementLanes = new ProviderTestReplacementLanes();
-let providerPreviewRequestId: string | null = null;
-let nextProviderPreviewId = 0;
+let controlCenterProviderIpc: ControlCenterProviderIpcLifecycle | null = null;
 const dockHideShowCooldownMs = 1100;
 
 function hasOpenInternalUiWindows(): boolean {
@@ -259,8 +231,6 @@ export function installInternalUiHandlers(): void {
   }
 
   internalUiHandlersInstalled = true;
-  app.on("before-quit", () => { void cancelAllProviderTests("OpenPets is shutting down."); });
-
   // Apply the persisted petConfinementEnabled preference as the initial value
   // for the confinement-manager flag. This runs once after app-state is loaded.
   setConfinementEnabled(getAppStateSnapshot().preferences.petConfinementEnabled);
@@ -428,190 +398,11 @@ export function installInternalUiHandlers(): void {
     },
   });
 
-  ipcMain.handle("openpets:provider-profiles-get", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-create", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const profile = validateProviderProfile(input) as ProviderProfileInput;
-    createProviderProfile(profile);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-update", async (event, id: unknown, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !isPlainObject(patch)) throw new Error("Invalid provider profile update.");
-    const previous = getPluginPlatformSettings().profiles[id];
-    updateProviderProfile(id, validateProviderProfilePatch(patch));
-    const next = getPluginPlatformSettings().profiles[id];
-    if (previous?.secretRef && previous.secretRef !== next?.secretRef && !isProviderSecretRefReferenced(getPluginPlatformSettings(), previous.secretRef)) await getProviderCapabilities().secretsStore.delete("__openpets-host", `provider:${previous.secretRef}`);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-save", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const save = validateProviderConfigurationSaveInput(input);
-    const capabilities = getProviderCapabilities();
-    await saveProviderConfiguration(save, {
-      get: (ref) => capabilities.secretsStore.get("__openpets-host", `provider:${ref}`),
-      set: (ref, value) => capabilities.secretsStore.set("__openpets-host", `provider:${ref}`, value),
-      delete: (ref) => capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`),
-    });
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-test", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const controller = new AbortController();
-    const unregister = registerProviderTestRequest(providerTestRequests, event.sender.id, controller);
-    const preemption = cancelProviderTestsForSender(event.sender.id, "Provider configuration test was preempted.", providerTestRequests, providerTestSessions, controller);
-    try {
-      return await providerTestReplacementLanes.enqueue(event.sender.id, async () => {
-        await preemption;
-        if (controller.signal.aborted) throw new Error("Provider configuration test was cancelled.");
-        const save = validateProviderConfigurationSaveInput(input);
-        const profile = previewProviderConfiguration(save);
-        debug("plugin", "Testing unsaved provider configuration", {
-          profileId: profile.id,
-          adapter: profile.adapter,
-        });
-        const capabilities = getProviderCapabilities();
-        const credential = save.credentialValue
-          ?? (profile.secretRef
-            ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
-            : undefined);
-        if (controller.signal.aborted) throw new Error("Provider configuration test was cancelled.");
-        return testProviderConfiguration(profile, credential, controller.signal);
-      });
-    } finally {
-      unregister();
-    }
-  });
-  ipcMain.handle("openpets:provider-profile-test-begin", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const initializationController = new AbortController();
-    const unregisterInitialization = registerProviderTestRequest(providerTestRequests, event.sender.id, initializationController);
-    const preemption = cancelProviderTestsForSender(event.sender.id, "Provider transcription test was preempted.", providerTestRequests, providerTestSessions, initializationController);
-    try {
-      return await providerTestReplacementLanes.enqueue(event.sender.id, async () => {
-        await preemption;
-        if (initializationController.signal.aborted) throw new Error("Provider transcription test was cancelled.");
-        const save = validateProviderConfigurationSaveInput(input);
-        const profile = previewProviderConfiguration(save);
-        if (profile.adapter !== "openai-compatible-transcription" && profile.adapter !== "elevenlabs-transcription") {
-          throw new Error("The selected provider does not support transcription tests.");
-        }
-        const capabilities = getProviderCapabilities();
-        const credential = save.credentialValue
-          ?? (profile.secretRef
-            ? await capabilities.secretsStore.get("__openpets-host", `provider:${profile.secretRef}`)
-            : undefined);
-        if (initializationController.signal.aborted) throw new Error("Provider transcription test was cancelled.");
-        const { session } = await beginProviderTranscriptionTest(profile, credential);
-        if (initializationController.signal.aborted) {
-          await session.cancel("Provider transcription test was cancelled.");
-          throw new Error("Provider transcription test was cancelled.");
-        }
-        const id = `provider-test-${++nextProviderTestSessionId}`;
-        const entry = { senderId: event.sender.id, session };
-        providerTestSessions.set(id, entry);
-        void session.result.finally(() => {
-          if (providerTestSessions.get(id) === entry) providerTestSessions.delete(id);
-        }).catch(() => undefined);
-        return { sessionId: id };
-      });
-    } finally {
-      unregisterInitialization();
-    }
-  });
-  ipcMain.handle("openpets:provider-profile-test-finish", async (event, sessionId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const entry = getProviderTestSession(event.sender.id, sessionId);
-    const result = await entry.session.finish();
-    providerTestSessions.delete(sessionId as string);
-    return { kind: "stt", detail: result.text || "Transcription completed (no speech detected)." } as const;
-  });
-  ipcMain.handle("openpets:provider-profile-test-cancel", async (event, sessionId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (sessionId === undefined || sessionId === null) {
-      await cancelProviderTestsForSender(event.sender.id, "Provider transcription test was cancelled.", providerTestRequests, providerTestSessions);
-      return { cancelled: true } as const;
-    }
-    if (typeof sessionId !== "string") return { cancelled: false } as const;
-    const entry = providerTestSessions.get(sessionId);
-    if (!entry || entry.senderId !== event.sender.id) return { cancelled: false } as const;
-    providerTestSessions.delete(sessionId);
-    await entry.session.cancel("Provider transcription test was cancelled.");
-    return { cancelled: true } as const;
-  });
-  ipcMain.handle("openpets:provider-preview-play", async (event, bytes: unknown, mimeType: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024 || typeof mimeType !== "string" || mimeType.length === 0) {
-      throw new Error("Invalid provider preview audio.");
-    }
-    const requestId = `provider-preview-${++nextProviderPreviewId}`;
-    providerPreviewRequestId = requestId;
-    try {
-      return await getSharedVoiceMediaPlayer().play(requestId, bytes, mimeType);
-    } finally {
-      if (providerPreviewRequestId === requestId) providerPreviewRequestId = null;
-    }
-  });
-  ipcMain.handle("openpets:provider-preview-stop", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    const requestId = providerPreviewRequestId;
-    providerPreviewRequestId = null;
-    return requestId ? getSharedVoiceMediaPlayer().stop(requestId) : undefined;
-  });
-  ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const existing = getPluginPlatformSettings().profiles[id];
-    const settings = deleteProviderProfile(id);
-    const capabilities = getProviderCapabilities();
-    const ref = existing?.secretRef;
-    if (ref && !isProviderSecretRefReferenced(settings, ref)) await capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-gates-update", async (event, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    updatePluginPlatformSettings(validateProviderGatesPatch(patch));
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-select", async (event, role: unknown, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!isProviderRole(role) || (id !== null && typeof id !== "string")) throw new Error("Invalid provider profile selection.");
-    selectProviderProfile(role, id as string | null);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-credential-set", async (event, id: unknown, value: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 || value.length === 0) throw new Error("Invalid provider credential.");
-    const capabilities = getProviderCapabilities();
-    await saveProviderConfiguration({
-      isEditing: true,
-      profileId: id,
-      payload: { id },
-      credentialValue: value,
-      activatedRoles: [],
-      deactivatedRoles: [],
-    }, {
-      get: (ref) => capabilities.secretsStore.get("__openpets-host", `provider:${ref}`),
-      set: (ref, credential) => capabilities.secretsStore.set("__openpets-host", `provider:${ref}`, credential),
-      delete: (ref) => capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`),
-    });
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-credential-status", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    return { hasCredential: Boolean(profile?.secretRef && await getProviderCapabilities().secretsStore.has("__openpets-host", `provider:${profile.secretRef}`)) };
-  });
-  ipcMain.handle("openpets:provider-profile-credential-delete", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    if (profile) await deleteProviderCredentialForProfile(getProviderCapabilities().secretsStore, profile, Object.values(getPluginPlatformSettings().profiles));
-    return getProviderControlCenterSnapshot();
+  controlCenterProviderIpc = installControlCenterProviderIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    registerBeforeQuit: (listener) => app.on("before-quit", () => listener()),
+    logger: { debug: (message, fields) => debug("plugin", message, fields) },
   });
 
   ipcMain.handle("openpets:get-catalog", async (event) => {
@@ -1063,10 +854,10 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
-    void cancelProviderTestsForSender(window.webContents.id, "Control Center renderer was lost.", providerTestRequests, providerTestSessions);
+    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center renderer was lost.");
   });
   window.on("closed", () => {
-    void cancelProviderTestsForSender(window.webContents.id, "Control Center window was closed.", providerTestRequests, providerTestSessions);
+    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center window was closed.");
     controlCenterWindow = null;
     syncDockVisibilityForInternalUi();
   });
@@ -1216,48 +1007,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function validateProviderConfigurationSaveInput(value: unknown): ProviderConfigurationSaveInput {
-  if (!isPlainObject(value)
-    || typeof value.isEditing !== "boolean"
-    || typeof value.profileId !== "string"
-    || !isPlainObject(value.payload)
-    || !Array.isArray(value.activatedRoles)
-    || !Array.isArray(value.deactivatedRoles)) {
-    throw new Error("Invalid provider configuration save.");
-  }
-  if (value.credentialValue !== undefined
-    && (typeof value.credentialValue !== "string"
-      || value.credentialValue.length === 0
-      || Buffer.byteLength(value.credentialValue, "utf8") > 16 * 1024)) {
-    throw new Error("Invalid provider credential.");
-  }
-  return {
-    isEditing: value.isEditing,
-    profileId: value.profileId,
-    payload: value.payload as ProviderConfigurationSaveInput["payload"],
-    ...(value.credentialValue === undefined ? {} : { credentialValue: value.credentialValue }),
-    activatedRoles: value.activatedRoles as ProviderConfigurationSaveInput["activatedRoles"],
-    deactivatedRoles: value.deactivatedRoles as ProviderConfigurationSaveInput["deactivatedRoles"],
-  };
-}
-
-function getProviderTestSession(senderId: number, value: unknown): { readonly senderId: number; readonly session: ProviderTranscriptionTestSession } {
-  if (typeof value !== "string" || value.length === 0 || value.length > 128) throw new Error("Invalid provider test session.");
-  const entry = providerTestSessions.get(value);
-  if (!entry || entry.senderId !== senderId) throw new Error("Provider test session is no longer active.");
-  return entry;
-}
-
-async function cancelAllProviderTests(reason: string): Promise<void> {
-  for (const controllers of providerTestRequests.values()) {
-    for (const controller of controllers) controller.abort(reason);
-  }
-  const entries = [...providerTestSessions.entries()];
-  providerTestSessions.clear();
-  for (const [, entry] of entries) await entry.session.cancel(reason).catch(() => undefined);
-  await providerTestReplacementLanes.waitForAll();
-}
-
 function getControlCenterPreloadPath(): string {
   return join(app.getAppPath(), "control-center-preload.cjs");
 }
@@ -1275,20 +1024,6 @@ function getSafeControlCenterDevUrl(): string | null {
     return null;
   }
   return null;
-}
-
-function getProviderCapabilities(): ElectronPluginHostCapabilities {
-  const capabilities = getPluginHostCapabilitiesForUi();
-  if (capabilities) return capabilities;
-  throw new Error("Plugin host capabilities are unavailable.");
-}
-
-async function getProviderControlCenterSnapshot(): Promise<import("./plugin-platform-settings.js").ProviderControlCenterSnapshot> {
-  const capabilities = getProviderCapabilities();
-  const settings = getPluginPlatformSettings();
-  const credentialRefs = new Set<string>();
-  for (const profile of Object.values(settings.profiles)) if (profile.secretRef && await capabilities.secretsStore.has("__openpets-host", `provider:${profile.secretRef}`)) credentialRefs.add(profile.secretRef);
-  return buildProviderControlCenterSnapshot(settings, (profile) => Boolean(profile.secretRef && credentialRefs.has(profile.secretRef)));
 }
 
 function assertAllowedSender(event: { readonly sender: { readonly id: number } }, allowedKinds: readonly InternalUiWindowKind[]): void {
