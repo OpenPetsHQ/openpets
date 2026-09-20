@@ -4,6 +4,8 @@ import { basename, extname, join } from "node:path";
 
 import sevenZip from "7zip-bin";
 
+import { resolveAppImageSquashfsOffset } from "./appimage-payload.js";
+
 export type ExtractedArtifactPayload = { readonly payloadDir: string; readonly cleanup: () => void };
 
 export function extractArtifactPayload(artifactPath: string, destination: string): ExtractedArtifactPayload {
@@ -26,8 +28,7 @@ export function extractArtifactPayload(artifactPath: string, destination: string
     return { payloadDir: destination, cleanup: () => {} };
   }
   if (extname(artifactPath) === ".AppImage") {
-    extractAppImage(artifactPath, destination);
-    return { payloadDir: destination, cleanup: () => {} };
+    return { payloadDir: extractAppImage(artifactPath, destination), cleanup: () => {} };
   }
   if (extname(artifactPath) === ".exe") {
     run(sevenZip.path7za, ["x", "-y", artifactPath, `-o${destination}`]);
@@ -76,10 +77,11 @@ function extractRpm(artifactPath: string, destination: string): void {
   if (result.status !== 0) throw new Error(`cpio failed to extract ${artifactPath}: ${result.stderr || "unknown error"}`);
 }
 
-function extractAppImage(artifactPath: string, destination: string): void {
-  const nativeResult = spawnSync(artifactPath, ["--appimage-extract"], { cwd: destination, stdio: "pipe" });
-  if (nativeResult.status === 0) return;
-  run(sevenZip.path7za, ["x", "-y", artifactPath, `-o${destination}`]);
+function extractAppImage(artifactPath: string, destination: string): string {
+  const payloadOffset = resolveAppImageSquashfsOffset(readFileSync(artifactPath));
+  const payloadDir = join(destination, "squashfs-root");
+  run("unsquashfs", ["-f", "-no-progress", "-no-xattrs", "-offset", String(payloadOffset), "-d", payloadDir, artifactPath]);
+  return payloadDir;
 }
 
 function mountDmg(artifactPath: string, destination: string): ExtractedArtifactPayload {

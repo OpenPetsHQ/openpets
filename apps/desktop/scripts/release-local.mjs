@@ -521,6 +521,9 @@ function preflight(state) {
   }
   requireCommand("pnpm", ["--version"]);
   requireCommand("gh", ["--version"]);
+  if (!commandSucceeds("unsquashfs", ["-version"], { cwd: repoRoot })) {
+    throw new Error("Linux AppImage payload validation requires unsquashfs. Install it with: brew install squashfs");
+  }
   run("gh", ["auth", "status", "--hostname", "github.com"], { cwd: repoRoot });
 
   const remoteUrl = commandOutput("git", ["remote", "get-url", "origin"], { cwd: repoRoot }).trim();

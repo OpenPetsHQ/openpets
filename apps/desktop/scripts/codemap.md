@@ -21,7 +21,7 @@ Resolve dist-electron path → Validate path components → rmSync recursive
 **Local Release** (`release-local.mjs`):
 ```
 Load/validate checkpoint in .release-state/v<version>.json (discarded when HEAD or version moves)
-→ Preflight checks (git clean, remote sync, version validity, tag/release expectations)
+→ Preflight checks (git clean, remote sync, version validity, AppImage `unsquashfs` availability, tag/release expectations)
 → Capture previous release tag before any new tag
 → Run the stage plan, skipping stages already checkpointed with intact outputs
    (the always-run npm verification stages re-run on every invocation):

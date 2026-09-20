@@ -341,6 +341,14 @@ and SignPath-signs the Windows x64 installer:
 - Linux RPM: x64
 - Linux tar.gz: x64
 
+The macOS release host validates the payload inside the actual Linux AppImage
+without executing it. Install its required SquashFS extractor before starting a
+desktop release:
+
+```bash
+brew install squashfs
+```
+
 Expected main artifacts look like:
 
 ```txt
