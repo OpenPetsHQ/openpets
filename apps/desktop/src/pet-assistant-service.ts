@@ -23,7 +23,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { buildPetAssistantTools, type PetAssistantToolSet } from "./pet-assistant-tools.js";
 import { normalizePetAssistantPersonality, serializePetAssistantPersonality, type PetAssistantPersonality } from "./pet-assistant-personality.js";
-import { PET_ASSISTANT_ARCHIVED_CONTEXT_MAX_BYTES, PET_ASSISTANT_ARCHIVED_CONTEXT_MAX_MESSAGES, PET_ASSISTANT_CONVERSATION_ID, type PetAssistantArchivedMessage, type PetAssistantConversationArchive } from "./pet-assistant-archive.js";
+import { PET_ASSISTANT_CONVERSATION_ID, type PetAssistantArchivedMessage, type PetAssistantConversationArchive } from "./pet-assistant-archive.js";
+import { PetAssistantMemory } from "./pet-assistant-memory.js";
 
 export type PetAssistantServiceOptions = {
   readonly limits?: Partial<PetAssistantLimits>;
@@ -38,7 +39,6 @@ export type PetAssistantServiceOptions = {
   readonly onConversationArchiveError?: (error: unknown) => void;
 };
 
-type StoredTurn = { readonly archiveTurnId: string; readonly messages: readonly PetAssistantMessage[] };
 type ActiveTurn = {
   readonly turnId: string;
   /** Archive identity is unique across process lifetimes; canonical turn ids need not be. */
@@ -82,9 +82,7 @@ export class PetAssistantService {
   readonly #runtime: PetAssistantCapabilityRuntime;
   readonly #limits: PetAssistantLimits;
   readonly #compositionProvider: () => PetAssistantComposition;
-  readonly #conversationArchive?: PetAssistantConversationArchive;
-  readonly #onConversationArchiveError?: (error: unknown) => void;
-  readonly #conversations = new Map<string, StoredTurn[]>();
+  readonly #memory: PetAssistantMemory;
   readonly #active = new Map<string, ActiveTurn>();
   readonly #listeners = new Set<PetAssistantEventListener>();
   #nextTurn = 1;
@@ -105,8 +103,7 @@ export class PetAssistantService {
     this.#compositionProvider = options.compositionProvider
       ? () => normalizeComposition(options.compositionProvider!(), this.#limits.maxCompositionBytes)
       : () => initialComposition;
-    this.#conversationArchive = options.conversationArchive;
-    this.#onConversationArchiveError = options.onConversationArchiveError;
+    this.#memory = new PetAssistantMemory(this.#limits.maxConversationTurns, options.conversationArchive, options.onConversationArchiveError);
   }
 
   get limits(): PetAssistantLimits { return this.#limits; }
@@ -253,23 +250,22 @@ export class PetAssistantService {
 
   clearConversation(conversationId: string): void {
     if (this.#active.has(conversationId)) throw new Error(`Conversation ${conversationId} has an active turn.`);
-    this.#conversations.delete(conversationId);
+    this.#memory.clearConversation(conversationId);
   }
 
   /** Read persisted terminal text without touching the text model or provider. */
   getConversationHistory(): readonly PetAssistantArchivedMessage[] {
-    if (!this.#conversationArchive) return [];
-    return this.#conversationArchive.list();
+    return this.#memory.getConversationHistory();
   }
 
   /** Delete one persisted message; the later IPC lane can expose this narrow operation. */
   deleteConversationHistoryMessage(id: string): boolean {
-    return this.#conversationArchive?.deleteMessage(id) ?? false;
+    return this.#memory.deleteConversationHistoryMessage(id);
   }
 
   /** Delete the complete persisted archive without clearing active in-memory context. */
   clearConversationHistory(): void {
-    this.#conversationArchive?.clear();
+    this.#memory.clearConversationHistory();
   }
 
   async #runTurn(conversationId: string, text: string, signal: AbortSignal, active: ActiveTurn): Promise<PetAssistantTurnResult> {
@@ -281,20 +277,11 @@ export class PetAssistantService {
         .filter((message): message is Extract<PetAssistantMessage, { readonly role: "tool" }> => message.role === "tool")
         .map((message): PetAssistantToolOutcome => ({ id: message.toolCallId, name: message.name, result: message.result }));
       const outcomeSummary = summarizeCapabilityOutcomes(toolOutcomes);
-      if (outcomeSummary !== undefined && active.turnMessages && active.turnMessages.length > 0) {
-        const lastIndex = active.turnMessages.length - 1;
-        const lastMessage = active.turnMessages[lastIndex];
-        if (lastMessage?.role === "assistant" && lastMessage.toolCalls === undefined) {
-          active.turnMessages[lastIndex] = deepFreeze({ role: "assistant", content: outcomeSummary });
-        }
-      }
+      replaceTerminalAssistantText(active.turnMessages, outcomeSummary);
       const terminalResult = toolOutcomes.length > 0
         ? { ...result, ...(outcomeSummary === undefined ? {} : { response: outcomeSummary }), toolOutcomes }
         : result;
-      if (terminalResult.status === "completed" && active.turnMessages && active.turnMessages.length > 0) {
-        this.#commit(conversationId, active.archiveTurnId, active.turnMessages);
-      }
-      this.#archiveTerminalText(conversationId, active.archiveTurnId, terminalResult, active.turnMessages);
+      this.#memory.commitCompletedTurn(conversationId, active.archiveTurnId, terminalResult, active.turnMessages);
       active.terminal.value = freezeEvent(terminalResult);
       if (result.status === "cancelled") this.#emitActivity(conversationId, turnId, "cancelled", active.activeToolName);
       else if (result.status === "failed") this.#emitActivity(conversationId, turnId, "failed");
@@ -326,13 +313,9 @@ export class PetAssistantService {
       const snapshot = await waitFor(this.#runtime.snapshot(signal), signal);
       if (active.terminal.value) return active.terminal.value;
       const toolSet = buildPetAssistantTools(snapshot);
-      const history = this.#conversations.get(conversationId) ?? [];
-      const activeArchiveTurnIds = new Set(history.map((turn) => turn.archiveTurnId));
-      const archivedContext = this.#getArchivedContext(conversationId, activeArchiveTurnIds);
       let messages: PetAssistantMessage[] = [
         deepFreeze({ role: "system", content: composeHostSystemPrompt(active.composition) }),
-        ...archivedContext,
-        ...history.flatMap((turn) => turn.messages),
+        ...this.#memory.getPromptContext(conversationId),
         user,
       ];
       const turnMessages = active.turnMessages ?? [user];
@@ -454,9 +437,9 @@ export class PetAssistantService {
       .filter((message): message is Extract<PetAssistantMessage, { readonly role: "tool" }> => message.role === "tool")
       .map((message): PetAssistantToolOutcome => ({ id: message.toolCallId, name: message.name, result: message.result }));
     const summary = summarizeCapabilityOutcomes(outcomes);
+    replaceTerminalAssistantText(state.messages, summary);
     const terminalResult = outcomes.length > 0 ? { ...result, ...(summary === undefined ? {} : { response: summary }), toolOutcomes: outcomes } : result;
-    if (terminalResult.status === "completed" && state.messages.length > 0) this.#commit(PET_ASSISTANT_CONVERSATION_ID, state.archiveTurnId, state.messages);
-    this.#archiveTerminalText(PET_ASSISTANT_CONVERSATION_ID, state.archiveTurnId, terminalResult, state.messages);
+    this.#memory.commitCompletedTurn(PET_ASSISTANT_CONVERSATION_ID, state.archiveTurnId, terminalResult, state.messages);
     state.terminal.value = freezeEvent(terminalResult);
     if (result.status === "cancelled") this.#emitActivity(PET_ASSISTANT_CONVERSATION_ID, state.turnId, "cancelled", state.activeToolName);
     this.#emit({ type: "lifecycle", sequence: 0, lifecycle: "idle", conversationId: PET_ASSISTANT_CONVERSATION_ID, turnId: state.turnId });
@@ -469,42 +452,8 @@ export class PetAssistantService {
     return !this.#stopped && this.#realtimeTurns.get(PET_ASSISTANT_CONVERSATION_ID) === state && !state.terminal.value;
   }
 
-  #commit(conversationId: string, archiveTurnId: string, messages: readonly PetAssistantMessage[]): void {
-    const turns = this.#conversations.get(conversationId) ?? [];
-    turns.push({ archiveTurnId, messages: Object.freeze([...messages]) });
-    while (turns.length > this.#limits.maxConversationTurns) turns.shift();
-    this.#conversations.set(conversationId, turns);
-  }
-
   #failed(conversationId: string, turnId: string, error: string): PetAssistantTurnResult {
     return { conversationId, turnId, status: "failed", error };
-  }
-
-  #archiveTerminalText(conversationId: string, archiveTurnId: string, result: PetAssistantTurnResult, messages: readonly PetAssistantMessage[] | undefined): void {
-    if (!this.#conversationArchive || conversationId !== PET_ASSISTANT_CONVERSATION_ID || result.status !== "completed" || !messages || messages.length === 0) return;
-    const user = messages.find((message): message is Extract<PetAssistantMessage, { readonly role: "user" }> => message.role === "user");
-    const assistant = [...messages].reverse().find((message): message is Extract<PetAssistantMessage, { readonly role: "assistant" }> => message.role === "assistant"
-      && message.toolCalls === undefined && typeof message.content === "string" && message.content.trim() !== "");
-    const archived = [
-      user && { turnId: archiveTurnId, role: "user" as const, text: user.content },
-      assistant && { turnId: archiveTurnId, role: "assistant" as const, text: assistant.content! },
-    ].filter((message): message is { readonly turnId: string; readonly role: "user" | "assistant"; readonly text: string } => Boolean(message));
-    if (archived.length === 0) return;
-    try {
-      this.#conversationArchive.append(archived);
-    } catch (error) {
-      this.#onConversationArchiveError?.(error);
-    }
-  }
-
-  #getArchivedContext(conversationId: string, activeArchiveTurnIds: ReadonlySet<string>): PetAssistantMessage[] {
-    if (!this.#conversationArchive || conversationId !== PET_ASSISTANT_CONVERSATION_ID) return [];
-    try {
-      return selectArchivedContext(this.#conversationArchive.list(), activeArchiveTurnIds);
-    } catch (error) {
-      this.#onConversationArchiveError?.(error);
-      return [];
-    }
   }
 
   #emitTranscript(conversationId: string, turnId: string, message: PetAssistantMessage): void {
@@ -560,21 +509,21 @@ function composeHostSystemPrompt(composition: PetAssistantComposition): string {
   ].filter((section): section is string => section !== undefined).join("\n\n");
 }
 
-function selectArchivedContext(messages: readonly PetAssistantArchivedMessage[], activeArchiveTurnIds: ReadonlySet<string>): PetAssistantMessage[] {
-  const selected = messages
-    .filter((message) => !activeArchiveTurnIds.has(message.turnId))
-    .slice(-PET_ASSISTANT_ARCHIVED_CONTEXT_MAX_MESSAGES)
-    .map((message): PetAssistantMessage => deepFreeze({ role: message.role, content: message.text }));
-  while (selected.length > 0 && jsonByteLength(selected) > PET_ASSISTANT_ARCHIVED_CONTEXT_MAX_BYTES) selected.shift();
-  return selected;
-}
-
 /** Structured non-completed outcomes replace untrusted final model prose. */
 function summarizeCapabilityOutcomes(outcomes: readonly PetAssistantToolOutcome[]): string | undefined {
   const counts = { completed: 0, rejected: 0, unavailable: 0, indeterminate: 0 };
   for (const outcome of outcomes) counts[outcome.result.status] += 1;
   if (counts.rejected === 0 && counts.unavailable === 0 && counts.indeterminate === 0) return undefined;
   return `Capability outcomes: completed=${counts.completed}, rejected=${counts.rejected}, unavailable=${counts.unavailable}, indeterminate=${counts.indeterminate}.`;
+}
+
+function replaceTerminalAssistantText(messages: PetAssistantMessage[] | undefined, summary: string | undefined): void {
+  if (summary === undefined || messages === undefined || messages.length === 0) return;
+  const lastIndex = messages.length - 1;
+  const lastMessage = messages[lastIndex];
+  if (lastMessage?.role === "assistant" && lastMessage.toolCalls === undefined) {
+    messages[lastIndex] = deepFreeze({ role: "assistant", content: summary });
+  }
 }
 
 function validateToolCalls(

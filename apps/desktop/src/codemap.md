@@ -233,7 +233,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
 - `default-pet-position-state.ts`: Electron-free default-pet position shape, coordinate/display-key normalization, and bounded per-monitor LRU updates
 - `app-state-core.ts`: Pet scale options, waiting-duration options/normalization, idle cursor-gaze default/normalization, onboarding normalization
-- `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, bounded active/archive context, archive query/erase seam, and generation-pinned capability routing
+- `pet-assistant-host.ts` / `pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, per-turn prompt composition, terminal outcome reduction, and generation-pinned capability routing
+- `pet-assistant-memory.ts`: Electron-/filesystem-free completed-turn memory owner with bounded active context, archive deduplication/context selection, canonical terminal-text appends, and archive list/delete/clear delegation
 - `pet-assistant-archive.ts`: Host-owned local terminal-text archive with atomic writes, retention/quarantine, and bounded prompt-window support
 - `pet-assistant-history-ipc.ts`: Pure narrow history list/delete/clear handler helpers, including startup and identifier validation
 - `pet-assistant-conversation.ts`: Host-owned current-session presentation projection, stable typed-chat controller, cancellation seam, and normalized voice-transcript seam
@@ -372,7 +373,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 | ZIP/local/Codex staging | `pet-installation.ts` / `codex-pets.ts` | Fully validated private candidate under `userData/pets/` |
 | Pet promotion/recovery | `pet-install-transaction-protocol.ts` + `pet-install-transaction.ts` | Stable journal/schema/naming/recovery policy plus filesystem/side-effect orchestration for journaled atomic promotion to `userData/pets/{id}/`, rollback, and startup recovery |
 | `app-state.ts` | `userData/openpets-state.json` | Atomic JSON writes with reaction animation overrides |
-| `pet-assistant-service.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
+| `pet-assistant-service.ts` | `pet-assistant-memory.ts` | Completed-turn outcome and message handoff; lifecycle remains responsible for model/capability work and terminal events |
+| `pet-assistant-memory.ts` | `pet-assistant-archive.ts` | Canonical terminal user/assistant text; bounded recent archive prompt window; owner query/delete-one/delete-all seam |
 | CLI via IPC | `local-ipc.ts` | `pet.react`, `pet.say`, `lease.*` |
 | `lease-manager.ts` | `agent-pet-controller.ts` | Show/close agent pets |
 | `windows.ts` | Renderer | State snapshots via IPC invoke |

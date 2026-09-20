@@ -559,9 +559,15 @@ plugin `ctx.ai` gateway. Capability discovery and execution call the
 generation-pinned `PluginService` APIs; pre-invocation lifecycle rejection is
 unavailable, while a disable/reload after invocation is indeterminate.
 
-The service keeps only bounded in-memory conversation state, validates whole
-tool batches before side effects, bounds context/tool/final payloads, and
-cancels active model/capability waits during idempotent shutdown. Missing model
+`PetAssistantMemory` is the Electron-/filesystem-free owner of completed-turn
+active context and the optional archive seam. It bounds active turns, selects
+archive context before active context with archive-turn deduplication, appends
+only canonical terminal user/assistant text for the default conversation, and
+delegates archive list/delete/clear operations. The service keeps model,
+capability, cancellation, terminal-reduction, and realtime lifecycle ownership;
+it hands memory the outcome only after canonical terminal text replacement.
+The service validates whole tool batches before side effects, bounds
+context/tool/final payloads, and cancels active model/capability waits during idempotent shutdown. Missing model
 configuration fails a turn clearly and does not prevent desktop startup. The
 host injects a synchronous composition provider backed by `app-state.ts`.
 `PetAssistantService` captures the returned profile at the beginning of each
