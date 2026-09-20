@@ -237,6 +237,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `control-center-agent-setup-ipc.ts`: Injected fixed Control Center agent-setup IPC registrations, sender authorization, action validation, and agent-setup delegation
+- `control-center-remote-ipc.ts`: Injected fixed Control Center remote-control IPC registrations, sender authorization, request validation, snapshot composition, and RemoteControlService delegation
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
