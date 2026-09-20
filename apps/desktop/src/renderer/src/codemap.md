@@ -20,7 +20,13 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/teams-state.ts`: Pure state helpers for snapshot validation, display name validation, authoritative enrollment-action gating, error code mapping, and permission tone/label lookup.
 - **Dashboard**: Reads a narrowed dashboard snapshot for default pet preview, install/catalog counts, plugin health, update status, and activity totals.
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
-- **Integrations**: Card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows.
+- **Integrations**: Modularized under `integrations/` for card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows:
+  - `integrations/IntegrationsView.tsx`: Top-level orchestrator rendering agent cards, status pills, action buttons, command mode switching, error/toast handling, and guided configuration dialogs for Claude Code, OpenCode, Cursor, OpenClaw, Zed, and Pi.
+  - `integrations/IntegrationIcon.tsx`: Brand and tool iconography supporting Claude, OpenCode, Cursor, Pi, VS Code, Windsurf, and Zed, with a consistent SVG fallback glyph.
+  - `integrations/PathField.tsx`: Dedicated executable path input with dirty tracking and inline save action.
+  - `integrations/types.ts`: TypeScript contracts for agent setup actions, snapshots, command paths, status descriptors, and integration preload bridge APIs.
+  - `integrations/icons.tsx`: Dedicated SVG icons matching Control Center design conventions for install, replace, remove, refresh, hook, memory, and configure actions.
+  - `integrations/index.ts`: Module entry.
 - **Plugins**: Gallery-first plugin hub for installed/catalog/local/broken filters, catalog refresh, local load, install/update/uninstall, enable/disable, config modal, command execution, runtime/status display, and broken-state feedback.
 - **Assistant**: Top-level route owning the Pet Assistant feature surfaces — chat/talk button and shortcut preferences, personality authoring, conversation archive management, and model/speech provider profiles (Pet Brain text & reasoning, Hearing STT, Speech TTS) with realtime status. Deep links target it via `assistantTab` (currently `providers`).
 - **Settings**: Startup, launch-at-login, pet scale, persisted idle cursor-gaze toggle, voice devices hardware routing, reaction-animation mapping, host capability gates, update check, default-pet position reset, and pet reaction previews.

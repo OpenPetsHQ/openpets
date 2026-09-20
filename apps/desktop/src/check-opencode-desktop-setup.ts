@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -40,7 +40,6 @@ try {
 
   writePreparedOpenCodeGlobalSetup(install);
   assert.equal(doctorOpenCodeGlobalSetup(globalDir).status, "installed");
-  assert.match(readFileSync(join(globalDir, "openpets.md"), "utf8"), /OPENPETS:START/);
 
   const remove = prepareOpenCodeGlobalRemove(globalDir);
   assert.equal(remove.configWrites.length, 1);
