@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
+
+type PackagingPlatform = "darwin" | "linux" | "win32";
 
 export function assertNoForbiddenPackageOutput(outputDir: string): void {
   for (const path of walkPackageOutput(outputDir)) {
@@ -26,4 +28,26 @@ export function walkPackageOutput(dir: string): string[] {
     if (entry.isDirectory()) result.push(...walkPackageOutput(path));
   }
   return result;
+}
+
+export function assertNoEscapingPackageOutputSymlinks(outputDir: string, platform: PackagingPlatform): void {
+  const outputReal = realpathSync(outputDir);
+  for (const path of walkPackageOutput(outputDir)) {
+    const stat = lstatSync(path);
+    if (!stat.isSymbolicLink()) continue;
+
+    const target = realpathSync(path);
+    const rel = relative(outputDir, path);
+    if (isExpectedMacDmgApplicationsAlias(rel, target, platform)) continue;
+    assert.ok(isInside(outputReal, target), `package output symlink escapes package directory: ${rel} -> ${target}`);
+  }
+}
+
+export function isExpectedMacDmgApplicationsAlias(relativePath: string, target: string, platform: PackagingPlatform): boolean {
+  return platform === "darwin" && relativePath === "Applications" && target === "/Applications";
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { allowedReactions } from "./local-ipc-protocol.js";
 import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
-import { assertNoForbiddenPackageOutput, walkPackageOutput } from "./packaging-output-contract.js";
+import { assertNoEscapingPackageOutputSymlinks, assertNoForbiddenPackageOutput } from "./packaging-output-contract.js";
 import { pickReactionMessage, reactionMessagePools } from "./reaction-messages.js";
 
 const distDir = dirname(fileURLToPath(import.meta.url));
@@ -103,7 +103,7 @@ console.error("Packaging contract validation passed.");
 function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assert.ok(existsSync(outputDir), "dist-electron output must exist after packaging.");
   assertNoForbiddenPackageOutput(outputDir);
-  assertNoEscapingSymlinks(outputDir);
+  assertNoEscapingPackageOutputSymlinks(outputDir, target.platform);
 
   const appResourceDir = findPackagedAppResourceDir(outputDir);
   assert.ok(appResourceDir, "packaged app resources directory was not found.");
@@ -148,21 +148,6 @@ function collectDirectories(dir: string, result: string[], depth: number): void 
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) collectDirectories(join(dir, entry.name), result, depth - 1);
   }
-}
-
-function assertNoEscapingSymlinks(outputDir: string): void {
-  const outputReal = realpathSync(outputDir);
-  for (const path of walkPackageOutput(outputDir)) {
-    const stat = lstatSync(path);
-    if (!stat.isSymbolicLink()) continue;
-    const target = realpathSync(path);
-    assert.ok(isInside(outputReal, target), `package output symlink escapes package directory: ${relative(outputDir, path)} -> ${target}`);
-  }
-}
-
-function isInside(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function checkCleanupHelper(): void {

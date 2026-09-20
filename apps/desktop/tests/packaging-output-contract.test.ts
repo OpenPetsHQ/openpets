@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assertNoForbiddenPackageOutput } from "../src/packaging-output-contract.js";
+import { assertNoForbiddenPackageOutput, isExpectedMacDmgApplicationsAlias } from "../src/packaging-output-contract.js";
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), "openpets-packaging-output-"));
 
@@ -19,6 +19,10 @@ try {
   const sensitiveDependencyOutput = join(fixtureRoot, "sensitive-dependency-output");
   writeFixtureFile(sensitiveDependencyOutput, "resources/app.asar.unpacked/node_modules/example/.env");
   assert.throws(() => assertNoForbiddenPackageOutput(sensitiveDependencyOutput), /forbidden path segment/, "sensitive files remain forbidden inside dependencies");
+
+  assert.equal(isExpectedMacDmgApplicationsAlias("Applications", "/Applications", "darwin"), true, "macOS DMGs allow the standard Applications alias");
+  assert.equal(isExpectedMacDmgApplicationsAlias("Applications", "/Applications", "linux"), false, "the Applications alias is macOS-only");
+  assert.equal(isExpectedMacDmgApplicationsAlias("Applications", "/tmp", "darwin"), false, "only the standard Applications target is allowed");
 
   console.error("Packaging output contract validation passed.");
 } finally {
