@@ -12,22 +12,20 @@ export const expandedPetWindowSize: WindowSize = {
  * pattern chips regardless of pet scale. Tuned while dogfooding breathing.
  */
 export const sessionPetWindowWidth = 460;
-export const sessionTopbarTop = 10;
-export const sessionTopbarHeight = 48;
-export const sessionOrbTopGap = 18;
-export const sessionCardEstimatedHeight = 216;
-export const sessionCardBottomInset = 14;
-export const sessionOrbCardGap = 18;
+/** Clearance above the orb for its rim glow. */
+export const sessionOrbTopGap = 16;
 
 export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
-  return Math.max(110, Math.min(260, Math.round(scaledSpriteHeight * 1.1)));
+  return Math.max(110, Math.min(240, Math.round(scaledSpriteHeight)));
 }
+export const sessionCardEstimatedHeight = 268;
+export const sessionCardBottomInset = 14;
+export const sessionOrbCardGap = 10;
+
 
 export function calculateSessionWindowSize(scaledSpriteHeight: number): WindowSize {
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
-  const height = sessionTopbarTop
-    + sessionTopbarHeight
-    + sessionOrbTopGap
+  const height = sessionOrbTopGap
     + orbRadius * 2
     + sessionOrbCardGap
     + sessionCardEstimatedHeight

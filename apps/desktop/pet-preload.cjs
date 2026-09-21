@@ -2319,11 +2319,8 @@ const installDefaultPetSession = () => {
     const raw = Number(getComputedStyle(document.documentElement).getPropertyValue(name));
     return Number.isFinite(raw) && raw > 0 ? raw : fallback;
   };
-  let ORB_RADIUS = readGeometryVar("--session-orb-radius", 150);
-  let RING_R = ORB_RADIUS + 12;
-  let RING_SIZE = readGeometryVar("--session-ring-size", RING_R * 2 + 24);
-  let RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
-  const ORB_CARD_GAP = 18;
+  let ORB_RADIUS = readGeometryVar("--session-orb-radius", 140);
+  const ORB_CARD_GAP = 10;
   const CARD_BOTTOM_INSET = 14;
 
   const PHASE_STYLE = {
@@ -2439,71 +2436,23 @@ const installDefaultPetSession = () => {
   root.setAttribute("role", "region");
   root.setAttribute("aria-label", "Practice session");
 
-  const backdrop = document.createElement("div");
-  backdrop.className = "session-backdrop";
-  root.appendChild(backdrop);
-
   const orbCanvas = document.createElement("canvas");
   orbCanvas.className = "session-orb-canvas";
   root.appendChild(orbCanvas);
 
-  const svgNs = "http://www.w3.org/2000/svg";
-  const ring = document.createElementNS(svgNs, "svg");
-  ring.setAttribute("class", "session-ring");
-  ring.setAttribute("viewBox", `0 0 ${RING_SIZE} ${RING_SIZE}`);
-  const ringDefs = document.createElementNS(svgNs, "defs");
-  const ringGradient = document.createElementNS(svgNs, "linearGradient");
-  ringGradient.setAttribute("id", "session-ring-gradient");
-  ringGradient.setAttribute("x1", "0%");
-  ringGradient.setAttribute("y1", "0%");
-  ringGradient.setAttribute("x2", "100%");
-  ringGradient.setAttribute("y2", "100%");
-  const ringStopA = document.createElementNS(svgNs, "stop");
-  ringStopA.setAttribute("offset", "0%");
-  ringStopA.setAttribute("stop-color", "#93c5fd");
-  const ringStopB = document.createElementNS(svgNs, "stop");
-  ringStopB.setAttribute("offset", "100%");
-  ringStopB.setAttribute("stop-color", "#3b82f6");
-  ringGradient.appendChild(ringStopA);
-  ringGradient.appendChild(ringStopB);
-  ringDefs.appendChild(ringGradient);
-  ring.appendChild(ringDefs);
-  const ringTrack = document.createElementNS(svgNs, "circle");
-  ringTrack.setAttribute("class", "ring-track");
-  ringTrack.setAttribute("cx", String(RING_SIZE / 2));
-  ringTrack.setAttribute("cy", String(RING_SIZE / 2));
-  ringTrack.setAttribute("r", String(RING_R));
-  const ringProgress = document.createElementNS(svgNs, "circle");
-  ringProgress.setAttribute("class", "ring-progress");
-  ringProgress.setAttribute("cx", String(RING_SIZE / 2));
-  ringProgress.setAttribute("cy", String(RING_SIZE / 2));
-  ringProgress.setAttribute("r", String(RING_R));
-  ringProgress.setAttribute("stroke-dasharray", String(RING_CIRCUMFERENCE));
-  ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE));
-  const ringDotGroup = document.createElementNS(svgNs, "g");
-  const ringDot = document.createElementNS(svgNs, "circle");
-  ringDot.setAttribute("class", "ring-dot");
-  ringDot.setAttribute("cx", String(RING_SIZE / 2 + RING_R));
-  ringDot.setAttribute("cy", String(RING_SIZE / 2));
-  ringDot.setAttribute("r", "7");
-  ringDotGroup.appendChild(ringDot);
-  ring.appendChild(ringTrack);
-  ring.appendChild(ringProgress);
-  ring.appendChild(ringDotGroup);
-  root.appendChild(ring);
 
   const topbar = document.createElement("div");
-  topbar.className = "session-topbar";
+  topbar.className = "session-card-header";
   const topbarIcon = document.createElement("div");
-  topbarIcon.className = "session-topbar-icon";
+  topbarIcon.className = "session-header-icon";
   // lucide:leaf (via better-icons/Iconify)
   topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>';
   const topbarTitles = document.createElement("div");
-  topbarTitles.className = "session-topbar-titles";
+  topbarTitles.className = "session-header-titles";
   const topbarTitle = document.createElement("div");
-  topbarTitle.className = "session-topbar-title";
+  topbarTitle.className = "session-header-title";
   const topbarSubtitle = document.createElement("div");
-  topbarSubtitle.className = "session-topbar-subtitle";
+  topbarSubtitle.className = "session-header-subtitle";
   topbarTitles.appendChild(topbarTitle);
   topbarTitles.appendChild(topbarSubtitle);
   // The top bar doubles as the phase HUD: during a run it shows the phase
@@ -2511,7 +2460,7 @@ const installDefaultPetSession = () => {
   const phaseName = topbarTitle;
   const phaseGuidance = topbarSubtitle;
   const phaseCount = document.createElement("div");
-  phaseCount.className = "session-topbar-count";
+  phaseCount.className = "session-header-count";
   const phaseCountValue = document.createElement("span");
   const phaseCountUnit = document.createElement("span");
   phaseCountUnit.className = "count-unit";
@@ -2533,17 +2482,20 @@ const installDefaultPetSession = () => {
   closeBtn.setAttribute("title", "Close (Esc)");
   // lucide:x (via better-icons/Iconify)
   closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+
+  const card = document.createElement("div");
+  card.className = "session-card";
+
+  // Row 1: the header (phase name/guidance, countdown, mute, close) — the
+  // former top bar, merged into the single bottom HUD.
   topbar.appendChild(topbarIcon);
   topbar.appendChild(topbarTitles);
   topbar.appendChild(phaseCount);
   topbar.appendChild(audioBtn);
   topbar.appendChild(closeBtn);
-  root.appendChild(topbar);
+  card.appendChild(topbar);
 
-  const card = document.createElement("div");
-  card.className = "session-card";
-
-  // Row 1: cycle dots (or a slim bar for long/until-stopped runs) + count.
+  // Row 2: cycle dots (or a slim bar for long/until-stopped runs) + count.
   const dotsRow = document.createElement("div");
   dotsRow.className = "session-dots-row";
   const dotsBox = document.createElement("div");
@@ -2681,14 +2633,11 @@ const installDefaultPetSession = () => {
     const currentLift = parseCurrentPetLift(hitbox);
     const restCenterY = spriteRect.top + spriteRect.height / 2 + currentLift;
 
-    // Keep the orb inside the band between the top bar and the card.
-    const topbarReserved = 10 + 48 + 10;
-    const bandHeight = window.innerHeight - topbarReserved - (CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP);
-    const maxRadius = Math.max(96, Math.floor(bandHeight / 2));
-    ORB_RADIUS = Math.max(96, Math.min(Math.min(260, maxRadius), Math.round(spriteRect.height * 1.1)));
-    RING_R = ORB_RADIUS + 12;
-    RING_SIZE = RING_R * 2 + 24;
-    RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
+    // Keep the orb (rim glow included) inside the band above the card.
+    const rimReserved = 18;
+    const bandHeight = window.innerHeight - rimReserved - (CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP);
+    const maxRadius = Math.max(96, Math.floor((bandHeight - 40) / 2));
+    ORB_RADIUS = Math.max(96, Math.min(Math.min(240, maxRadius), Math.round(spriteRect.height)));
 
     const orbCenterBottom = CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP + ORB_RADIUS;
     const desiredCenterY = window.innerHeight - orbCenterBottom;
@@ -2696,20 +2645,9 @@ const installDefaultPetSession = () => {
 
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--session-orb-radius", String(ORB_RADIUS));
-    rootStyle.setProperty("--session-ring-size", String(RING_SIZE));
     rootStyle.setProperty("--session-orb-center-bottom", String(orbCenterBottom));
-    rootStyle.setProperty("--session-topbar-bottom", String(orbCenterBottom + RING_R + 18));
     rootStyle.setProperty("--session-pet-lift", `${petLift}px`);
 
-    ring.setAttribute("viewBox", `0 0 ${RING_SIZE} ${RING_SIZE}`);
-    for (const circle of [ringTrack, ringProgress]) {
-      circle.setAttribute("cx", String(RING_SIZE / 2));
-      circle.setAttribute("cy", String(RING_SIZE / 2));
-      circle.setAttribute("r", String(RING_R));
-    }
-    ringProgress.setAttribute("stroke-dasharray", String(RING_CIRCUMFERENCE));
-    ringDot.setAttribute("cx", String(RING_SIZE / 2 + RING_R));
-    ringDot.setAttribute("cy", String(RING_SIZE / 2));
   };
 
   const scheduleSessionGeometry = () => {
@@ -2787,7 +2725,11 @@ const installDefaultPetSession = () => {
         float breathScale = 0.84 + 0.13 * u_breath;
         float d = length(p) / breathScale;
 
-        vec3 deep = vec3(0.035, 0.09, 0.24);
+        // Saturated galaxy palette: indigo base + violet nebula accent.
+        // No near-black bases — dark desaturated colors read as gray fog
+        // once composited at partial alpha over light desktops.
+        vec3 deep = vec3(0.10, 0.16, 0.46);
+        vec3 nebulaViolet = vec3(0.54, 0.32, 0.95);
         vec3 tint = u_tint;
         vec3 color = vec3(0.0);
         float alpha = 0.0;
@@ -2796,14 +2738,23 @@ const installDefaultPetSession = () => {
           float z = sqrt(max(0.0, 1.0 - d * d));
           vec3 n = vec3(p / breathScale, z);
 
+          // The galaxy's own night sky: a near-opaque deep-space disc fitted
+          // exactly to the sphere (it breathes with it), so the nebula reads
+          // the same on light and dark desktops.
+          float discMask = smoothstep(1.0, 0.975, d);
+          vec3 space = vec3(0.014, 0.028, 0.082);
+
           // Volumetric wisps: two drifting fbm layers, weighted toward depth.
           vec2 q = rotate(p, u_time * 0.05) * 1.9;
           float w1 = fbm(q + vec2(0.0, -u_time * 0.09));
           float w2 = fbm(rotate(p, -u_time * 0.03) * 3.1 + vec2(u_time * 0.05, 0.0));
           float wisps = (w1 * 0.72 + w2 * 0.45) * (0.35 + 0.65 * z);
+          // Only the bright filaments render — the space between strands stays
+          // fully transparent so the orb never fogs the desktop behind it.
+          float strands = max(0.0, wisps - 0.42) * 1.9;
 
-          // Luminous core swells with the breath.
-          float core = exp(-d * d * 2.2) * (0.34 + 0.58 * u_breath);
+          // A compact luminous heart that swells with the breath.
+          float core = exp(-d * d * 4.5) * (0.22 + 0.5 * u_breath);
 
           // Rim light (fresnel) sells the sphere.
           float fresnel = pow(1.0 - z, 2.4);
@@ -2821,36 +2772,47 @@ const installDefaultPetSession = () => {
           float mote = smoothstep(0.11, 0.02, moteDist) * step(0.78, hash(moteCell + 7.3)) * z;
           float twinkle = mote * (0.30 + 0.70 * (0.5 + 0.5 * sin(u_time * 1.7 + hash(moteCell.yx) * 6.283)));
 
-          vec3 body = mix(deep, tint, clamp(0.30 + 0.70 * wisps, 0.0, 1.0));
-          color = body * (core + wisps * 0.62 + 0.10 * z)
-            + tint * fresnel * 0.95
-            + vec3(1.0) * spec
-            + vec3(0.85, 0.93, 1.0) * twinkle * 0.55;
-          alpha = clamp(core * 1.1 + wisps * 0.42 + fresnel * 0.9 + spec + twinkle * 0.55, 0.0, 1.0);
+          // Broad colored galaxy volume: saturated, so it tints white
+          // desktops instead of graying them (compositing is single-alpha).
+          float bodyGlow = (0.30 + 0.38 * wisps) * z;
 
-          // Inner shading floor keeps the glass readable over bright desktops.
-          alpha = max(alpha, 0.34 * z);
-          color = max(color, deep * z);
+          vec3 body = mix(deep, tint, clamp(0.28 + 0.55 * wisps, 0.0, 1.0));
+          body = mix(body, nebulaViolet, clamp(w2 * 0.65, 0.0, 0.65));
+          color = space * discMask
+            + body * (core * 1.5 + strands * 1.1 + bodyGlow)
+            + tint * fresnel * 0.95
+            + vec3(0.80, 0.88, 1.0) * spec * 0.5
+            + vec3(0.85, 0.93, 1.0) * twinkle * 0.55;
+          alpha = clamp(core * 1.2 + strands * 0.6 + bodyGlow * 0.85 + fresnel * 0.9 + spec * 0.5 + twinkle * 0.55, 0.0, 1.0);
+          alpha = max(alpha, discMask * 0.96);
         }
 
-        // Halo + crisp rim band.
+        // Halo + crisp rim band. The halo is windowed to a hard outer edge so
+        // the canvas never veils the desktop beyond the glow.
         float rim = exp(-abs(d - 1.0) * 26.0);
-        float halo = d >= 1.0 ? exp(-(d - 1.0) * 3.4) * 0.30 : 0.0;
+        float haloWindow = 1.0 - smoothstep(1.02, 1.42, d);
+        float halo = d >= 1.0 ? exp(-(d - 1.0) * 4.2) * 0.28 * haloWindow : 0.0;
         color += tint * (rim * 0.85 + halo);
         alpha = clamp(alpha + rim * 0.75 + halo, 0.0, 1.0);
 
-        // Expanding ripple on phase change.
+        // Expanding ripple on phase change: icy phase-tinted light.
         float pulseAge = u_time - u_pulse;
         if (pulseAge >= 0.0 && pulseAge < 1.6) {
           float rippleRadius = 1.0 + pulseAge * 0.30;
           float rippleFade = (1.0 - pulseAge / 1.6);
-          float ripple = exp(-abs(d - rippleRadius) * 34.0) * rippleFade * rippleFade * 0.8;
-          color += tint * ripple;
+          float ripple = exp(-abs(d - rippleRadius) * 34.0) * rippleFade * rippleFade * 0.7;
+          vec3 rippleColor = mix(tint, vec3(0.85, 0.93, 1.0), 0.35);
+          color += rippleColor * ripple;
           alpha = clamp(alpha + ripple, 0.0, 1.0);
         }
 
         alpha *= u_energy;
-        gl_FragColor = vec4(color * u_energy * alpha, alpha);
+        // Hard floor: fully transparent outside the visible glow.
+        if (alpha < 0.006) alpha = 0.0;
+        // Premultiplied output: color already carries the light energy — do
+        // NOT multiply by alpha again, or every semi-transparent pixel
+        // composites darker than its true color (black-fringed glows).
+        gl_FragColor = vec4(min(color * u_energy, vec3(1.0)), alpha);
       }
     `;
 
@@ -3181,11 +3143,14 @@ const installDefaultPetSession = () => {
     const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
 
     // Breath eases toward its target so pauses and pattern hops stay smooth.
+    const settlingToStart = runState === "countdown" && countdownRemainingMs < 1600;
     const breathTarget = runState === "complete"
       ? 0.3
-      : runState === "idle" || runState === "countdown"
-        ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
-        : breathTargetFor(phase, phaseProgress);
+      : settlingToStart
+        ? 0.02
+        : runState === "idle" || runState === "countdown"
+          ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+          : breathTargetFor(phase, phaseProgress);
     const smoothing = runState === "active" ? 0.16 : 0.05;
     breathValue += (breathTarget - breathValue) * smoothing;
 
@@ -3194,7 +3159,7 @@ const installDefaultPetSession = () => {
       currentColor[channel] += (target - currentColor[channel]) * 0.06;
     }
 
-    // Countdown + ring reflect the live phase clock.
+    // Countdown reflects the live phase clock.
     if (phase && runState === "active") {
       const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
       const text = String(remaining);
@@ -3203,13 +3168,6 @@ const installDefaultPetSession = () => {
         phaseCountValue.textContent = text;
       }
     }
-    let ringProgressValue = runState === "complete" ? 1 : phase ? phaseProgress : 0;
-    if (runState === "countdown") {
-      const totalMs = Math.max(1, Number(descriptor?.countdownSeconds) * 1000);
-      ringProgressValue = Math.min(1, Math.max(0, 1 - countdownRemainingMs / totalMs));
-    }
-    ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE * (1 - ringProgressValue)));
-    ringDotGroup.setAttribute("transform", `rotate(${ringProgressValue * 360} ${RING_SIZE / 2} ${RING_SIZE / 2})`);
 
     // Session timer tile (whole-session remaining, or elapsed when endless)
     // plus the slim per-cycle bar used for long/until-stopped runs.
@@ -3297,6 +3255,7 @@ const installDefaultPetSession = () => {
     const pattern = selectedPattern();
     if (!pattern) return;
     resetClock();
+    breathValue = Math.min(breathValue, 0.05);
     runState = "active";
     triggerPulse(performance.now() / 1000);
     renderStatics();

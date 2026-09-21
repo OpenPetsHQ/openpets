@@ -334,6 +334,45 @@ Newest first.
   Still deferred: guided breathing + other techniques, custom patterns,
   docs/*.md (until Alvin signs off breathing per this file's rule).
 
+2026-09-22 — night-sky orb, ring removed (Alvin).
+  The orb now carries a fitted near-opaque deep-space disc (breathes with
+  the sphere) so the galaxy reads identically on light and dark desktops.
+  The outer progress ring is REMOVED entirely (SVG, CSS, geometry): the
+  orb's rim + breathing is the visual; progress lives in the card (dots,
+  segment track, timer). Orb sits 10px above the card (gaps tightened
+  post-ring); top clearance 16px for rim glow.
+
+2026-09-22 — light-background transparency + galaxy color rounds (Alvin).
+  Root cause found: the orb shader premultiplied color by alpha TWICE, so
+  every semi-transparent pixel composited darker than its true color — the
+  source of all "gray fog"/"black pulse" artifacts on white desktops. Fixed
+  to single-alpha premultiplied output. Also: vignette backdrop removed
+  (full transparency), halo hard-windowed + alpha floor cut (no canvas
+  veil), card drop shadow removed (border + inset only), ring is fill-only
+  (no track/groove/bevels — unfilled remainder is fully transparent), phase
+  ripple tinted icy phase-color, orb interior is a saturated indigo→violet
+  galaxy volume with bright strands + breath-swelling colored core (no
+  desaturated bases anywhere; reads as color on white, not gray).
+
+2026-09-22 — single HUD + ring behavior tuning (Alvin rounds).
+  - Top bar removed: its content (breathing icon tile, phase name/guidance,
+    countdown, mute, close) is now the first row of the bottom card — one HUD.
+    Carrier height formula updated (no topbar terms; card estimate 268).
+  - Orb smaller (radius = 1.0× measured sprite height, 110–240) and the ring
+    hugs the orb's outside edge (+8px) instead of orbiting away from it.
+  - Ring is a breath pendulum: winds up on inhale, holds, unwinds on exhale —
+    no more one-direction lapping. Frozen and empty during idle/countdown;
+    starts moving exactly when breathing begins; pinned full on complete.
+
+2026-09-22 — design-system alignment + 3D progress ring.
+  Overlay/Info buttons now use the Control Center .btn language (vertical
+  #3b96ff→#176df2 gradient + inset highlight, rounded-xl, monoDisplay
+  uppercase black, .btn-secondary white/blue for ghost + ⓘ); breathing icon
+  tile uses the .thumb white→blue-100 treatment; dot/step-fill glow shadows
+  removed (flat brand colors). The outer progress ring is now a layered 3D
+  tube per the mock: inset dark groove with bevel rims, blurred glow arc,
+  gradient tube, thin white gloss core, sphere-shaded lead dot with halo.
+
 2026-09-22 — calm lead-in countdown before every run.
   Instant starts felt anxious. New descriptor field `countdownSeconds`
   (0–15, default 5): every run (autoStart, Start, Restart) now opens with a

@@ -13,7 +13,6 @@ import {
   sessionCardBottomInset,
   sessionCardEstimatedHeight,
   sessionOrbTopGap,
-  sessionTopbarHeight,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
@@ -1530,12 +1529,9 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
   // the pet, the pet sits at the orb centre, and the orb rests on the card
   // for every pet asset and scale.
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
-  const topbarHeight = sessionTopbarHeight;
   const orbCenterFromBottom = sessionCardBottomInset + sessionCardEstimatedHeight + sessionOrbTopGap + orbRadius;
   const petBottom = 22;
   const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petBottom - scaledSpriteHeight / 2));
-  const ringRadius = orbRadius + 12;
-  const ringSize = ringRadius * 2 + 24;
   const cardInsetX = 18;
 
   return `
@@ -1543,9 +1539,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     :root {
       --session-pet-lift: ${sessionPetLift}px;
       --session-orb-radius: ${orbRadius};
-      --session-ring-size: ${ringSize};
       --session-orb-center-bottom: ${orbCenterFromBottom};
-      --session-topbar-bottom: ${orbCenterFromBottom + ringRadius + 18};
     }
     .openpets-session-overlay {
       position: absolute;
@@ -1561,6 +1555,8 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     html[data-session-open="true"] .bubble:not(.is-pinned),
     html[data-session-open="true"] .openpets-pet-buttons,
     html[data-session-open="true"] .openpets-compact-composer,
+    html[data-session-open="true"] .openpets-chat-panel,
+    html[data-session-open="true"] .openpets-check-in-panel,
     html[data-session-open="true"] .bubble.is-pinned {
       display: none !important;
     }
@@ -1570,19 +1566,6 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     html[data-session-open="true"] .pet-hitbox {
       transform: translateX(-50%) translateY(calc(-1 * var(--session-pet-lift)));
       cursor: default;
-    }
-    .session-backdrop {
-      position: absolute;
-      inset: 0;
-      z-index: 0;
-      background:
-        radial-gradient(circle calc((var(--session-orb-radius) + 140) * 1px) at 50% calc(100% - var(--session-orb-center-bottom) * 1px), rgba(6, 12, 30, 0.52), rgba(6, 12, 30, 0.30) 58%, rgba(6, 12, 30, 0) 78%),
-        radial-gradient(circle at 50% calc(100% - 110px), rgba(6, 12, 30, 0.20), rgba(6, 12, 30, 0) 70%);
-      opacity: 0;
-      transition: opacity 700ms ease;
-    }
-    html[data-session-open="true"] .session-backdrop {
-      opacity: 1;
     }
     .session-orb-canvas {
       position: absolute;
@@ -1594,59 +1577,18 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       z-index: 0;
       pointer-events: none;
     }
-    .session-ring {
-      position: absolute;
-      left: 50%;
-      bottom: calc(var(--session-orb-center-bottom) * 1px);
-      width: calc(var(--session-ring-size) * 1px);
-      height: calc(var(--session-ring-size) * 1px);
-      transform: translate(-50%, 50%) rotate(-90deg);
-      z-index: 0;
-      pointer-events: none;
-      overflow: visible;
-    }
-    .session-ring .ring-track {
-      fill: none;
-      stroke: rgba(148, 197, 255, 0.16);
-      stroke-width: 3;
-    }
-    .session-ring .ring-progress {
-      fill: none;
-      stroke: url(#session-ring-gradient);
-      stroke-width: 4;
-      stroke-linecap: round;
-      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.85));
-      transition: stroke 400ms ease;
-    }
-    .session-ring .ring-dot {
-      fill: #eaf4ff;
-      filter: drop-shadow(0 0 10px rgba(147, 197, 253, 1)) drop-shadow(0 0 22px rgba(59, 130, 246, 0.9));
-    }
-    .session-topbar {
-      position: absolute;
-      bottom: calc(var(--session-topbar-bottom) * 1px);
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 40;
-      height: ${topbarHeight}px;
-      box-sizing: border-box;
+    .session-card-header {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 0 10px 0 14px;
-      min-width: 330px;
-      max-width: ${windowWidth - 48}px;
-      background: linear-gradient(135deg, rgba(255, 255, 255, 0.97) 0%, rgba(239, 246, 255, 0.94) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.85);
-      border-radius: 16px;
-      box-shadow: 0 14px 34px rgba(2, 8, 23, 0.30), 0 2px 6px rgba(2, 8, 23, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
-      pointer-events: auto;
-      -webkit-app-region: no-drag;
+      padding-bottom: 10px;
+      margin-bottom: 11px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.28);
       user-select: none;
     }
-    .session-topbar-icon {
-      width: 26px;
-      height: 26px;
+    .session-header-icon {
+      width: 28px;
+      height: 28px;
       border-radius: 9px;
       display: grid;
       place-items: center;
@@ -1655,18 +1597,18 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       color: #176df2;
       flex-shrink: 0;
     }
-    .session-topbar-icon svg {
-      width: 14px;
-      height: 14px;
+    .session-header-icon svg {
+      width: 15px;
+      height: 15px;
     }
-    .session-topbar-titles {
+    .session-header-titles {
       display: flex;
       flex-direction: column;
       min-width: 0;
       flex: 1 1 auto;
     }
-    .session-topbar-title {
-      font-size: 14px;
+    .session-header-title {
+      font-size: 15px;
       font-weight: 800;
       color: #0f172a;
       letter-spacing: -0.01em;
@@ -1674,27 +1616,27 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .session-topbar-subtitle {
-      font-size: 10.5px;
+    .session-header-subtitle {
+      font-size: 11px;
       font-weight: 600;
       color: #64748b;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .session-topbar-count {
+    .session-header-count {
       display: flex;
       align-items: baseline;
       flex-shrink: 0;
       margin: 0 4px 0 10px;
-      font-size: 26px;
+      font-size: 25px;
       font-weight: 800;
       line-height: 1;
       letter-spacing: -0.02em;
       color: #1d4ed8;
       font-variant-numeric: tabular-nums;
     }
-    .session-topbar-count .count-unit {
+    .session-header-count .count-unit {
       font-size: 13px;
       font-weight: 700;
       color: #64748b;
@@ -1728,9 +1670,9 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       box-sizing: border-box;
       padding: 14px 16px 12px;
       background: linear-gradient(160deg, rgba(255, 255, 255, 0.97) 0%, rgba(240, 246, 255, 0.95) 60%, rgba(235, 238, 254, 0.94) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.38);
       border-radius: 20px;
-      box-shadow: 0 22px 48px rgba(2, 8, 23, 0.34), 0 4px 10px rgba(2, 8, 23, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
       pointer-events: auto;
       -webkit-app-region: no-drag;
       user-select: none;
