@@ -5,7 +5,16 @@ import { pathToFileURL } from "node:url";
 import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexV2GazeSpritePosition, getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { compactComposerGeometry } from "./pet-window-shape.js";
-import { calculateChatPanelBottom, defaultPetChatPanelLayout } from "./default-pet-chat-geometry.js";
+import {
+  calculateChatPanelBottom,
+  calculateSessionOrbRadius,
+  calculateSessionWindowSize,
+  defaultPetChatPanelLayout,
+  sessionCardBottomInset,
+  sessionCardEstimatedHeight,
+  sessionOrbTopGap,
+  sessionTopbarHeight,
+} from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
 
@@ -513,6 +522,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       padding: 3px 6px;
       line-height: 1.3;
     }
+    ${createSessionOverlayCss(scaledHeight)}
     /* --- In-Pet Attached Chat Panel --- */
     .openpets-chat-panel {
       position: absolute;
@@ -1503,6 +1513,597 @@ export function createSpriteRule(selector: string, state: UniversalSpriteState, 
     ? " --sprite-animation: pet-frames var(--sprite-duration) steps(var(--sprite-frames)) var(--sprite-iterations);"
     : " --sprite-animation: none;";
   return `${selector} { --sprite-row-y: -${row.row * layout.frameHeight}px; --sprite-offset-x: ${startOffset}px; --sprite-end-offset-x: ${endOffset}px; --sprite-frames: ${row.frames}; --sprite-duration: ${row.durationMs}ms; --sprite-iterations: ${iterations};${animation} }`;
+}
+
+/**
+ * Practice session overlay (`ui:session`) chrome drawn around the pet inside
+ * the expanded session carrier. The WebGL orb itself is painted onto
+ * `.session-orb-canvas` by the pet preload; everything here is layout, the
+ * session card, the phase text, and the Info sheet. All geometry derives from
+ * `sessionPetWindowSize` so the carrier and the CSS stay in lockstep.
+ */
+function createSessionOverlayCss(scaledSpriteHeight: number): string {
+  const windowSize = calculateSessionWindowSize(scaledSpriteHeight);
+  const windowWidth = windowSize.width;
+  // Static fallbacks only: the preload measures the real rendered sprite and
+  // the real card at runtime and overrides these variables so the orb hugs
+  // the pet, the pet sits at the orb centre, and the orb rests on the card
+  // for every pet asset and scale.
+  const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
+  const topbarHeight = sessionTopbarHeight;
+  const orbCenterFromBottom = sessionCardBottomInset + sessionCardEstimatedHeight + sessionOrbTopGap + orbRadius;
+  const petBottom = 22;
+  const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petBottom - scaledSpriteHeight / 2));
+  const ringRadius = orbRadius + 12;
+  const ringSize = ringRadius * 2 + 24;
+  const cardInsetX = 18;
+
+  return `
+    /* --- Practice Session Overlay (ui:session) --- */
+    :root {
+      --session-pet-lift: ${sessionPetLift}px;
+      --session-orb-radius: ${orbRadius};
+      --session-ring-size: ${ringSize};
+      --session-orb-center-bottom: ${orbCenterFromBottom};
+      --session-topbar-bottom: ${orbCenterFromBottom + ringRadius + 18};
+    }
+    .openpets-session-overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: light;
+    }
+    html[data-session-open="true"] .openpets-session-overlay {
+      display: block;
+    }
+    html[data-session-open="true"] .bubble:not(.is-pinned),
+    html[data-session-open="true"] .openpets-pet-buttons,
+    html[data-session-open="true"] .openpets-compact-composer,
+    html[data-session-open="true"] .bubble.is-pinned {
+      display: none !important;
+    }
+    .pet-hitbox {
+      transition: transform 1100ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    html[data-session-open="true"] .pet-hitbox {
+      transform: translateX(-50%) translateY(calc(-1 * var(--session-pet-lift)));
+      cursor: default;
+    }
+    .session-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(circle calc((var(--session-orb-radius) + 140) * 1px) at 50% calc(100% - var(--session-orb-center-bottom) * 1px), rgba(6, 12, 30, 0.52), rgba(6, 12, 30, 0.30) 58%, rgba(6, 12, 30, 0) 78%),
+        radial-gradient(circle at 50% calc(100% - 110px), rgba(6, 12, 30, 0.20), rgba(6, 12, 30, 0) 70%);
+      opacity: 0;
+      transition: opacity 700ms ease;
+    }
+    html[data-session-open="true"] .session-backdrop {
+      opacity: 1;
+    }
+    .session-orb-canvas {
+      position: absolute;
+      left: 50%;
+      bottom: calc(var(--session-orb-center-bottom) * 1px);
+      width: ${windowWidth}px;
+      height: calc((var(--session-orb-radius) * 2 + 200) * 1px);
+      transform: translate(-50%, 50%);
+      z-index: 0;
+      pointer-events: none;
+    }
+    .session-ring {
+      position: absolute;
+      left: 50%;
+      bottom: calc(var(--session-orb-center-bottom) * 1px);
+      width: calc(var(--session-ring-size) * 1px);
+      height: calc(var(--session-ring-size) * 1px);
+      transform: translate(-50%, 50%) rotate(-90deg);
+      z-index: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .session-ring .ring-track {
+      fill: none;
+      stroke: rgba(148, 197, 255, 0.16);
+      stroke-width: 3;
+    }
+    .session-ring .ring-progress {
+      fill: none;
+      stroke: url(#session-ring-gradient);
+      stroke-width: 4;
+      stroke-linecap: round;
+      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.85));
+      transition: stroke 400ms ease;
+    }
+    .session-ring .ring-dot {
+      fill: #eaf4ff;
+      filter: drop-shadow(0 0 10px rgba(147, 197, 253, 1)) drop-shadow(0 0 22px rgba(59, 130, 246, 0.9));
+    }
+    .session-topbar {
+      position: absolute;
+      bottom: calc(var(--session-topbar-bottom) * 1px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 40;
+      height: ${topbarHeight}px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px 0 14px;
+      min-width: 330px;
+      max-width: ${windowWidth - 48}px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.97) 0%, rgba(239, 246, 255, 0.94) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 16px;
+      box-shadow: 0 14px 34px rgba(2, 8, 23, 0.30), 0 2px 6px rgba(2, 8, 23, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      user-select: none;
+    }
+    .session-topbar-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(140deg, #3b82f6, #6366f1);
+      color: #ffffff;
+      box-shadow: 0 3px 8px rgba(59, 130, 246, 0.45);
+      flex-shrink: 0;
+    }
+    .session-topbar-icon svg {
+      width: 14px;
+      height: 14px;
+    }
+    .session-topbar-titles {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .session-topbar-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-topbar-subtitle {
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-topbar-count {
+      display: flex;
+      align-items: baseline;
+      flex-shrink: 0;
+      margin: 0 4px 0 10px;
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: #1d4ed8;
+      font-variant-numeric: tabular-nums;
+    }
+    .session-topbar-count .count-unit {
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748b;
+      margin-left: 2px;
+    }
+    .session-close-btn {
+      width: 26px;
+      height: 26px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: none;
+      border-radius: 9px;
+      background: rgba(15, 23, 42, 0.06);
+      color: #64748b;
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+    .session-close-btn:hover {
+      background: rgba(15, 23, 42, 0.12);
+      color: #0f172a;
+      transform: scale(1.06);
+    }
+    .session-card {
+      position: absolute;
+      left: ${cardInsetX}px;
+      right: ${cardInsetX}px;
+      bottom: 14px;
+      z-index: 40;
+      box-sizing: border-box;
+      padding: 14px 16px 12px;
+      background: linear-gradient(160deg, rgba(255, 255, 255, 0.97) 0%, rgba(240, 246, 255, 0.95) 60%, rgba(235, 238, 254, 0.94) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 20px;
+      box-shadow: 0 22px 48px rgba(2, 8, 23, 0.34), 0 4px 10px rgba(2, 8, 23, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      user-select: none;
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity 500ms ease 200ms, transform 550ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+    }
+    html[data-session-open="true"] .session-card {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .session-card-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .session-card-pattern {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-card-pattern .pattern-hint {
+      margin-left: 7px;
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #64748b;
+    }
+    .session-card-cycles {
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .session-card-cycles .cycles-current {
+      color: #2563eb;
+      font-weight: 800;
+    }
+    .session-cycle-bar {
+      margin-top: 8px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.12);
+      overflow: hidden;
+    }
+    .session-cycle-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #60a5fa, #3b82f6);
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+      transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .session-steps {
+      margin-top: 12px;
+      display: flex;
+      gap: 6px;
+    }
+    .session-step {
+      flex-grow: 1;
+      min-width: 0;
+    }
+    .session-step-bar {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.10);
+      overflow: hidden;
+    }
+    .session-step-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #7dd3fc, #3b82f6);
+    }
+    .session-step.is-done .session-step-fill {
+      width: 100%;
+      background: rgba(59, 130, 246, 0.45);
+    }
+    .session-step-label {
+      margin-top: 5px;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 250ms ease;
+    }
+    .session-step.is-active .session-step-label {
+      color: #1d4ed8;
+    }
+    .session-chips {
+      margin-top: 12px;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+    .session-chips::-webkit-scrollbar {
+      display: none;
+    }
+    .session-chip {
+      flex-shrink: 0;
+      padding: 5px 11px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.85);
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+    }
+    .session-chip:hover {
+      background: #ffffff;
+      color: #1d4ed8;
+      border-color: rgba(59, 130, 246, 0.55);
+      transform: translateY(-1px);
+    }
+    .session-chip.is-active {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      border-color: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4);
+    }
+    .session-controls {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .session-info-btn {
+      width: 34px;
+      height: 34px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #475569;
+      cursor: pointer;
+      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+    }
+    .session-info-btn:hover {
+      background: #ffffff;
+      color: #1d4ed8;
+      border-color: rgba(59, 130, 246, 0.55);
+      transform: translateY(-1px);
+    }
+    .session-controls-spacer {
+      flex: 1 1 auto;
+    }
+    .session-primary-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 22px;
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 800;
+      font-family: inherit;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+    }
+    .session-primary-btn:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.06);
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+    .session-primary-btn:active {
+      transform: translateY(0) scale(0.98);
+    }
+    .session-primary-btn svg {
+      width: 13px;
+      height: 13px;
+    }
+    .session-ghost-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 16px;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #475569;
+      font-size: 12.5px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+    }
+    .session-ghost-btn:hover {
+      background: #ffffff;
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.5);
+      transform: translateY(-1px);
+    }
+    .session-ghost-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+    .session-complete-note {
+      margin-top: 12px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #047857;
+    }
+    .session-card.is-complete .session-complete-note {
+      display: flex;
+    }
+    /* --- Info sheet --- */
+    .session-info-sheet {
+      position: absolute;
+      left: ${cardInsetX}px;
+      right: ${cardInsetX}px;
+      top: calc(100% - (var(--session-topbar-bottom) - 10) * 1px);
+      bottom: 14px;
+      z-index: 60;
+      box-sizing: border-box;
+      display: none;
+      flex-direction: column;
+      background: linear-gradient(165deg, rgba(255, 255, 255, 0.99) 0%, rgba(243, 247, 255, 0.98) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 22px;
+      box-shadow: 0 26px 60px rgba(2, 8, 23, 0.4), 0 4px 12px rgba(2, 8, 23, 0.18);
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+      overflow: hidden;
+    }
+    .session-info-sheet.is-open {
+      display: flex;
+      animation: session-sheet-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .session-info-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+      flex-shrink: 0;
+    }
+    .session-info-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+    .session-info-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 14px 18px 18px;
+      user-select: text;
+    }
+    .session-info-intro {
+      font-size: 12.5px;
+      line-height: 1.65;
+      font-weight: 500;
+      color: #334155;
+      margin: 0 0 14px;
+    }
+    .session-info-section {
+      margin: 0 0 16px;
+    }
+    .session-info-heading {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #2563eb;
+      margin: 0 0 6px;
+    }
+    .session-info-text {
+      font-size: 12.5px;
+      line-height: 1.65;
+      font-weight: 500;
+      color: #334155;
+      margin: 0;
+      white-space: pre-line;
+    }
+    .session-info-citations {
+      margin: 4px 0 14px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.14);
+    }
+    .session-info-citation {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #475569;
+      margin: 0 0 6px;
+    }
+    .session-info-citation:last-child {
+      margin-bottom: 0;
+    }
+    .session-info-citation-link {
+      flex-shrink: 0;
+      padding: 1px 8px;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 999px;
+      background: transparent;
+      color: #2563eb;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 140ms ease;
+    }
+    .session-info-citation-link:hover {
+      background: rgba(59, 130, 246, 0.1);
+    }
+    .session-info-disclaimer {
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(217, 119, 6, 0.07);
+      border: 1px solid rgba(217, 119, 6, 0.22);
+      font-size: 11.5px;
+      line-height: 1.55;
+      font-weight: 600;
+      color: #92400e;
+    }
+    .session-info-site {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #475569;
+    }
+    .session-info-site-link {
+      padding: 4px 12px;
+      border: 1px solid rgba(59, 130, 246, 0.45);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #2563eb;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 140ms ease, transform 140ms ease;
+    }
+    .session-info-site-link:hover {
+      background: rgba(59, 130, 246, 0.08);
+      transform: translateY(-1px);
+    }
+    @keyframes session-sheet-enter {
+      from { opacity: 0; transform: translateY(16px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+  `;
 }
 
 export function escapeCssUrl(value: string): string {

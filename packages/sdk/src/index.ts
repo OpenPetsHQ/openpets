@@ -50,6 +50,7 @@ export type OpenPetsPermission =
   | "ui:toast"
   | "ui:panel"
   | "ui:delivery"
+  | "ui:session"
   | "notify"
   | "bus"
   | "ai"
@@ -301,6 +302,107 @@ export interface OpenPetsDeliveryHandle {
   onDismiss(handler: (reason: OpenPetsDeliveryDismissReason) => void): void;
 }
 
+// ---------------------------------------------------------------------------
+// Practice session overlay (§7.4)
+// ---------------------------------------------------------------------------
+
+/** One timed phase of a breathing pattern. */
+export interface OpenPetsBreathPhase {
+  /** Breath direction: inhale, hold, or exhale. */
+  kind: "in" | "hold" | "out";
+  /** Phase duration in seconds (1–30; holds may be omitted entirely). */
+  seconds: number;
+  /** Short guidance line shown with the phase (e.g. "Breathe in slowly"). */
+  label?: string;
+}
+
+/** A named breathing pattern selectable inside the session overlay. */
+export interface OpenPetsBreathPattern {
+  /** Stable pattern id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Display name (e.g. "Calm 4-6"). */
+  name: string;
+  /** One-line hint shown with the pattern chip (e.g. "longer exhale"). */
+  hint?: string;
+  /** Ordered phases of one cycle (1–8 phases). */
+  phases: OpenPetsBreathPhase[];
+  /** Cycles per session (1–99), or null/omitted for until-stopped. */
+  cycles?: number | null;
+}
+
+/** One structured section of the session Info sheet. */
+export interface OpenPetsSessionInfoSection {
+  heading: string;
+  /** Plain-text body; blank lines separate paragraphs. */
+  body: string;
+}
+
+/** A citation listed at the end of the Info sheet. */
+export interface OpenPetsSessionCitation {
+  /** Human-readable reference (authors, year, journal). */
+  label: string;
+  /** Optional https link to the source. */
+  url?: string;
+}
+
+/** On-demand knowledge layer for the current technique. */
+export interface OpenPetsSessionInfo {
+  /** Short lead paragraph. */
+  intro?: string;
+  /** Structured sections (how it works, science, tips…), 1–8. */
+  sections: OpenPetsSessionInfoSection[];
+  citations?: OpenPetsSessionCitation[];
+  /** Clinical disclaimer line rendered distinctly. */
+  disclaimer?: string;
+  /** Product attribution link rendered as a real URL (https only). */
+  site?: { label: string; url: string };
+}
+
+/**
+ * Descriptor for the host-rendered practice session overlay. The overlay is
+ * drawn around the default pet inside the pet window (breathing orb, phase
+ * ring, step track, controls, Info sheet). The host owns rendering and the
+ * phase clock; the plugin supplies patterns and knowledge content and
+ * receives lifecycle events.
+ */
+export interface OpenPetsBreathingSessionOptions {
+  kind: "breathing";
+  /** Overlay title (e.g. "Breathing"). */
+  title: string;
+  /** Small line under the title (e.g. "Anxiety Aid Tools"). */
+  subtitle?: string;
+  /** Patterns offered by the picker (1–12). */
+  patterns: OpenPetsBreathPattern[];
+  /** Initially selected pattern id; defaults to the first pattern. */
+  patternId?: string;
+  /** Start the phase clock immediately (default true). */
+  autoStart?: boolean;
+  /** Info sheet content for the current technique. */
+  info?: OpenPetsSessionInfo;
+}
+
+/** Lifecycle and interaction events emitted by the session overlay. */
+export type OpenPetsSessionEvent =
+  | { type: "started"; patternId: string }
+  | { type: "paused"; patternId: string; cycle: number }
+  | { type: "resumed"; patternId: string; cycle: number }
+  | { type: "patternChanged"; patternId: string }
+  | { type: "completed"; patternId: string; cycles: number }
+  | { type: "stopped"; reason: OpenPetsSessionStopReason; patternId: string; cycle: number }
+  | { type: "infoOpened" };
+
+export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin-stopped";
+
+/** Live handle to the session overlay. */
+export interface OpenPetsSessionHandle {
+  readonly id: string;
+  /** Replace the selected pattern, the pattern list, or the Info content. */
+  update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
+  /** Close the overlay (emits a final `stopped` event when a run was active). */
+  close(): Promise<void>;
+  onEvent(handler: (event: OpenPetsSessionEvent) => void): void;
+}
+
 /** Alert header indicator rendered above alert text. Custom art must be a manifest-declared asset. */
 export interface OpenPetsAlertIndicator {
   /** Visible/accessibility label shown next to the icon. */
@@ -351,6 +453,12 @@ export interface OpenPetsUiApi {
   panel(spec: OpenPetsPanelOptions): Promise<OpenPetsPanelHandle>;
   /** Show a host-owned delivery surface on the cursor display. Requires `ui:delivery`. */
   delivery(spec: OpenPetsDelivery): Promise<OpenPetsDeliveryHandle>;
+  /**
+   * Open the host-rendered practice session overlay around the default pet
+   * (§7.4). One session may be open at a time; opening another replaces it.
+   * Requires `ui:session`.
+   */
+  session(spec: OpenPetsBreathingSessionOptions): Promise<OpenPetsSessionHandle>;
   /** Fully dynamic context-menu section. Requires `commands`. */
   menu: OpenPetsMenuApi;
 }

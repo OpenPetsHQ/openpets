@@ -88,6 +88,7 @@ function executePreload(source: string): {
     if (path === "pet.speak" || path === "ui.bubble" || path === "ui.alert") return { bubbleId: "bubble-1" };
     if (path === "ui.panel") return { panelId: "panel-1" };
     if (path === "ui.delivery") return { deliveryId: "delivery-1" };
+    if (path === "ui.session") return { sessionId: "session-1" };
     if (
       path.endsWith(".on") ||
       path.endsWith("Subscribe") ||
@@ -197,6 +198,14 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   });
   await delivery.dismiss();
   delivery.onDismiss(() => undefined);
+  const session = await sdk.ui.session({
+    kind: "breathing",
+    title: "Breathing",
+    patterns: [{ id: "calm", name: "Calm 4-6", phases: [{ kind: "in", seconds: 4 }, { kind: "out", seconds: 6 }], cycles: 12 }],
+  });
+  session.onEvent(() => undefined);
+  await session.update({ patternId: "calm" });
+  await session.close();
   await sdk.ui.menu.setItems([]);
   const menuDisposer = sdk.ui.menu.onSelect(() => undefined);
   menuDisposer();

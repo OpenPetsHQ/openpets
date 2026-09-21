@@ -44,6 +44,7 @@ import type {
   OpenPetsReaction,
   OpenPetsScheduleHandler,
   OpenPetsStatus,
+  OpenPetsSessionEvent,
   OpenPetsUserSoundRef,
 } from "./index.js";
 
@@ -518,6 +519,19 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
         return panel;
       },
       delivery: async (spec) => makeDelivery(spec),
+      session: async (spec) => {
+        requirePermission("ui:session");
+        const id = newId("session");
+        let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
+        return {
+          id,
+          update: async (patch) => { void patch; },
+          close: async () => {
+            onEvent?.({ type: "stopped", reason: "user", patternId: spec.patternId ?? spec.patterns[0]?.id ?? "", cycle: 0 });
+          },
+          onEvent: (handler) => { onEvent = handler; },
+        };
+      },
       menu: {
         setItems: async (items) => { requirePermission("commands"); calls.menuItems = items.map((item) => ({ ...item })); },
         onSelect: () => () => undefined,

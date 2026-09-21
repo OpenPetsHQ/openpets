@@ -118,6 +118,16 @@ function makeDeliveryHandle(result) {
   };
 }
 
+function makeSessionHandle(result) {
+  const sessionId = result && result.sessionId;
+  return {
+    id: String(sessionId),
+    update: (patch) => call("ui.sessionUpdate", [sessionId, patch]),
+    close: () => call("ui.sessionClose", [sessionId]),
+    onEvent: (fn) => { void call("ui.sessionSubscribe", [sessionId, registerCallback(fn)]).catch(() => undefined); },
+  };
+}
+
 function wrapPickedFile(file) {
   const handle = {
     // This is an opaque host handle, not a filesystem path. Keep it on the
@@ -186,6 +196,7 @@ const sdk = {
     toast: (spec) => call("ui.toast", [spec]),
     panel: (spec) => call("ui.panel", [spec]).then(makePanelHandle),
     delivery: (spec) => call("ui.delivery", [spec]).then(makeDeliveryHandle),
+    session: (spec) => call("ui.session", [spec]).then(makeSessionHandle),
     menu: {
       setItems: (items) => call("ui.menuSetItems", [items]),
       onSelect: (fn) => subscription("ui.menuOnSelect", "ui.menuOffSelect", [], fn),

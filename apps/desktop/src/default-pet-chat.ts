@@ -17,14 +17,18 @@ import {
 import {
   calculateCollapsedCarrierBounds,
   calculateExpandedCarrierBounds,
+  calculateSessionWindowSize,
   defaultPetChatPanelLayout,
   expandedPetWindowSize,
+  toCollapsedPosition,
 } from "./default-pet-chat-geometry.js";
-import { defaultPetWindowSize, type Point } from "./display.js";
+import { getAppStateSnapshot } from "./app-state.js";
+import { defaultPetSprite } from "./reaction-animation-mapping.js";
+import { defaultPetWindowSize, type Point, type WindowSize } from "./display.js";
 import { getManagerCheckInService, type ManagerCheckInPetSnapshot } from "./manager-check-in-service.js";
 
 let defaultPetWindowRef: BrowserWindow | null = null;
-const defaultPetPanelStates = ["collapsed", "compact-chat", "expanded-chat", "expanded-check-in"] as const;
+const defaultPetPanelStates = ["collapsed", "compact-chat", "expanded-chat", "expanded-check-in", "expanded-session"] as const;
 export type DefaultPetPanelState = (typeof defaultPetPanelStates)[number];
 let carrierState: DefaultPetPanelState = "collapsed";
 let activeChatPanelHeight: number | undefined;
@@ -87,8 +91,10 @@ export function bindDefaultPetChatWindow(window: BrowserWindow): void {
 export function unbindDefaultPetChatWindow(): void {
   teardownHostSubscriptions();
   defaultPetWindowRef = null;
+  const previousState = carrierState;
   carrierState = "collapsed";
   activeChatPanelHeight = undefined;
+  if (previousState !== "collapsed") notifyPanelStateListeners("collapsed");
 }
 
 export function expandDefaultPetChat(): void {
@@ -111,12 +117,50 @@ export function toggleDefaultPetChat(): void {
 
 export function setDefaultPetChatCompactOpen(open: boolean): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
-  if (carrierState === "expanded-chat" || carrierState === "expanded-check-in") return;
+  if (isExpandedCarrierState(carrierState)) return;
   setCarrierMode(defaultPetWindowRef, open ? "compact-chat" : "collapsed");
 }
 
 export function setCarrierExpansion(window: BrowserWindow, expanded: boolean): void {
   setCarrierMode(window, expanded ? "expanded-chat" : "collapsed");
+}
+
+export function isDefaultPetSessionOpen(): boolean {
+  return carrierState === "expanded-session";
+}
+
+/** Expand the carrier into the practice session overlay surface. */
+export function openDefaultPetSession(): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  setCarrierMode(defaultPetWindowRef, "expanded-session");
+}
+
+/** Collapse the session overlay if it is the active carrier surface. */
+export function closeDefaultPetSession(): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  if (carrierState === "expanded-session") setCarrierMode(defaultPetWindowRef, "collapsed");
+}
+
+const panelStateListeners = new Set<(state: DefaultPetPanelState) => void>();
+
+/**
+ * Host-side carrier state subscription (renderer state travels separately via
+ * `openpets:default-pet-panel-state`). The session coordinator uses this to
+ * notice when another surface displaces an active session overlay.
+ */
+export function subscribeDefaultPetPanelState(listener: (state: DefaultPetPanelState) => void): () => void {
+  panelStateListeners.add(listener);
+  return () => panelStateListeners.delete(listener);
+}
+
+function notifyPanelStateListeners(state: DefaultPetPanelState): void {
+  for (const listener of panelStateListeners) {
+    try {
+      listener(state);
+    } catch (error) {
+      logError("pet.chat", "panel state listener failed", error instanceof Error ? error : { error });
+    }
+  }
 }
 
 export function openDefaultPetCheckIn(): void {
@@ -127,6 +171,16 @@ export function openDefaultPetCheckIn(): void {
 export function closeDefaultPetCheckIn(): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
   if (carrierState === "expanded-check-in") setCarrierMode(defaultPetWindowRef, "collapsed");
+}
+
+/** The expanded window size a carrier state renders at, or null when collapsed-sized. */
+function expandedCarrierSizeFor(state: DefaultPetPanelState): WindowSize | null {
+  if (state === "expanded-chat" || state === "expanded-check-in") return expandedPetWindowSize;
+  if (state === "expanded-session") {
+    const scale = Number(getAppStateSnapshot().preferences.petScale) || 1;
+    return calculateSessionWindowSize(Math.ceil(defaultPetSprite.frameHeight * scale));
+  }
+  return null;
 }
 
 function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState): void {
@@ -144,16 +198,29 @@ function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState):
   const currentPos: Point = { x: currentBounds.x, y: currentBounds.y };
   const currentDisplay = screen.getDisplayMatching(currentBounds);
   const workArea = currentDisplay?.workArea;
+  // The previous expanded size is read from the live bounds (not recomputed)
+  // so a pet-scale change mid-session cannot desync the collapse math.
+  const previousSize = isExpandedCarrierState(previousState)
+    ? { width: currentBounds.width, height: currentBounds.height }
+    : null;
+  const nextSize = expandedCarrierSizeFor(nextState);
 
-  if (isExpanded && !wasExpanded) {
-    const nextBounds = calculateExpandedCarrierBounds(currentPos, defaultPetWindowSize, expandedPetWindowSize, workArea);
-    debug("pet.chat", "expanding carrier window", { currentPos, nextBounds, windowId: window.id });
+  if (nextSize && !previousSize) {
+    const nextBounds = calculateExpandedCarrierBounds(currentPos, defaultPetWindowSize, nextSize, workArea);
+    debug("pet.chat", "expanding carrier window", { currentPos, nextBounds, state: nextState, windowId: window.id });
     window.setBounds(nextBounds, false);
     window.setFocusable(true);
     window.focus();
-  } else if (!isExpanded && wasExpanded) {
-    const nextBounds = calculateCollapsedCarrierBounds(currentPos, expandedPetWindowSize, defaultPetWindowSize, workArea);
-    debug("pet.chat", "collapsing carrier window", { currentPos, nextBounds, windowId: window.id });
+  } else if (!nextSize && previousSize) {
+    const nextBounds = calculateCollapsedCarrierBounds(currentPos, previousSize, defaultPetWindowSize, workArea);
+    debug("pet.chat", "collapsing carrier window", { currentPos, nextBounds, state: nextState, windowId: window.id });
+    window.setBounds(nextBounds, false);
+  } else if (nextSize && previousSize && (nextSize.width !== previousSize.width || nextSize.height !== previousSize.height)) {
+    // Expanded-to-expanded with different sizes: re-anchor through the
+    // collapsed position so the pet's on-screen anchor stays stationary.
+    const collapsedPos = toCollapsedPosition(currentPos, previousSize, defaultPetWindowSize);
+    const nextBounds = calculateExpandedCarrierBounds(collapsedPos, defaultPetWindowSize, nextSize, workArea);
+    debug("pet.chat", "resizing carrier window between expanded states", { currentPos, nextBounds, state: nextState, windowId: window.id });
     window.setBounds(nextBounds, false);
   }
 
@@ -172,11 +239,16 @@ function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState):
     if (compactWasOpen !== compactIsOpen) {
       window.webContents.send("openpets:default-pet-chat-compact-changed", compactIsOpen);
     }
-    if (wasExpanded !== isExpanded) {
+    // The expansion-changed signal drives the chat panel specifically; session
+    // transitions are carried by the panel-state message alone so the chat UI
+    // never flashes open while the session overlay owns the carrier.
+    const sessionInvolved = previousState === "expanded-session" || nextState === "expanded-session";
+    if (wasExpanded !== isExpanded && !sessionInvolved) {
       window.webContents.send("openpets:default-pet-chat-expansion-changed", isExpanded);
     }
     sendPanelState(window);
   }
+  notifyPanelStateListeners(nextState);
 }
 
 export function installDefaultPetChatIpcHandlers(): void {
@@ -446,5 +518,5 @@ function sendPanelState(window: BrowserWindow): void {
 }
 
 function isExpandedCarrierState(state: DefaultPetPanelState): boolean {
-  return state === "expanded-chat" || state === "expanded-check-in";
+  return state === "expanded-chat" || state === "expanded-check-in" || state === "expanded-session";
 }

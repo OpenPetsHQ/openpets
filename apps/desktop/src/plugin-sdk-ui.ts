@@ -1,7 +1,8 @@
 import type { OpenPetsJavascriptPluginManifest, PluginPermission } from "./plugin-manifest.js";
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
-import type { BubbleSlot, DeliverySlot, PluginRuntimeState } from "./plugin-sdk-state.js";
-import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginStatus } from "./plugin-sdk-bridge.js";
+import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
+import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -94,6 +95,36 @@ export function createPluginUiApi(options: {
     return { deliveryId };
   };
 
+  const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
+    requirePermission("ui:session");
+    state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    const descriptor = validateSessionDescriptor(spec);
+    const sessionId = opaqueId("session");
+    const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
+    slot.host = await capabilities.session.open({
+      pluginId,
+      descriptor,
+      callbacks: {
+        onEvent: (event: PluginSessionEvent) => {
+          if (slot.closed) return;
+          try { slot.onEvent?.(event); } catch (error) { onError(safeError(error)); }
+        },
+        onClosed: () => {
+          slot.closed = true;
+          state.sessions.delete(sessionId);
+        },
+      },
+    });
+    if (!slot.closed) state.sessions.set(sessionId, slot);
+    return { sessionId };
+  };
+
+  const requireSession = (sessionId: unknown): SessionSlot => {
+    const slot = state.sessions.get(String(sessionId));
+    if (!slot || slot.closed) throw new Error("Plugin session overlay is no longer open.");
+    return slot;
+  };
+
   const validateDelivery = (value: unknown): PluginDeliveryDescriptor => {
     if (!isRecord(value)) throw new Error("Invalid delivery descriptor.");
     check(Object.keys(value).every((key) => ["key", "courier", "title", "detail", "expiresAt"].includes(key)), "Invalid delivery descriptor field.");
@@ -172,6 +203,25 @@ export function createPluginUiApi(options: {
       panelPost: async (panelId: unknown, msg: unknown) => { await requirePanel(state, panelId).postMessage(normalizeJson(msg, quotas.busPayloadBytes, "panel message")); },
       panelClose: async (panelId: unknown) => { const panel = state.panels.get(String(panelId)); if (panel) { await panel.close(); state.panels.delete(String(panelId)); } },
       panelOnMessage: (panelId: unknown, handler: (msg: unknown) => void) => { requirePanel(state, panelId).onMessage = guardCallback(handler); },
+      session: openSession,
+      sessionUpdate: async (sessionId: unknown, patch: unknown) => {
+        const slot = requireSession(sessionId);
+        await slot.host.update(validateSessionUpdate(patch));
+      },
+      sessionClose: async (sessionId: unknown) => {
+        const slot = state.sessions.get(String(sessionId));
+        if (slot && !slot.closed) await slot.host.close().catch(() => undefined);
+        state.sessions.delete(String(sessionId));
+      },
+      sessionSubscribe: (sessionId: unknown, handler: (event: PluginSessionEvent) => void) => {
+        const slot = state.sessions.get(String(sessionId));
+        if (!slot || slot.closed) {
+          logger("debug", "plugin session subscribe skipped", { id: manifest.id, sessionId: String(sessionId), reason: "not-live" });
+          return { ok: false };
+        }
+        slot.onEvent = handler;
+        return { ok: true };
+      },
       delivery,
       deliveryDismiss: async (deliveryId: unknown) => { await Promise.resolve(state.deliveries.get(String(deliveryId))?.host?.dismiss()); },
       deliverySubscribe: (deliveryId: unknown, handler: (reason: PluginDeliveryDismissReason) => void) => {

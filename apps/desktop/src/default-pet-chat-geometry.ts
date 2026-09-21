@@ -5,6 +5,36 @@ export const expandedPetWindowSize: WindowSize = {
   height: 640,
 };
 
+/**
+ * Practice session overlay geometry. The orb wraps the pet, so its radius —
+ * and from it the whole carrier height — derives from the pet's scaled sprite
+ * size. Width stays fixed: the session card needs room for the step track and
+ * pattern chips regardless of pet scale. Tuned while dogfooding breathing.
+ */
+export const sessionPetWindowWidth = 560;
+export const sessionTopbarTop = 10;
+export const sessionTopbarHeight = 48;
+export const sessionOrbTopGap = 18;
+export const sessionCardEstimatedHeight = 170;
+export const sessionCardBottomInset = 14;
+export const sessionOrbCardGap = 18;
+
+export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
+  return Math.max(110, Math.min(260, Math.round(scaledSpriteHeight * 1.1)));
+}
+
+export function calculateSessionWindowSize(scaledSpriteHeight: number): WindowSize {
+  const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
+  const height = sessionTopbarTop
+    + sessionTopbarHeight
+    + sessionOrbTopGap
+    + orbRadius * 2
+    + sessionOrbCardGap
+    + sessionCardEstimatedHeight
+    + sessionCardBottomInset;
+  return { width: sessionPetWindowWidth, height };
+}
+
 export const defaultPetChatPanelLayout = {
   width: 390,
   minHeight: 220,

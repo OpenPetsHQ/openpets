@@ -1,0 +1,8 @@
+{
+  "plugin.name": "Anxiety Aid Tools",
+  "plugin.description": "Guided calm practices around your pet, starting with breathing. The OpenPets companion of https://anxietyaidtools.com/.",
+  "command.open.title": "Open Anxiety Aid Tools",
+  "command.open.description": "Open the practice session around the pet.",
+  "command.start.title": "Start breathing",
+  "command.start.description": "Start a breathing session with your last-used pattern."
+}

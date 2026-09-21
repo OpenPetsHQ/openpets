@@ -87,7 +87,7 @@ const updateOnPetTalkButton = (snapshot) => {
 
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
 };
 
 const dismissBubble = (event) => {
@@ -1268,7 +1268,7 @@ const installDefaultPetChat = () => {
   });
 
   // --- Carrier Panel State Listener ---
-  const validCarrierStates = new Set(["collapsed", "compact-chat", "expanded-chat", "expanded-check-in"]);
+  const validCarrierStates = new Set(["collapsed", "compact-chat", "expanded-chat", "expanded-check-in", "expanded-session"]);
   let latestPanelStateSequence = -1;
   const handleCarrierPanelState = (payload) => {
     const rawState = payload && typeof payload.state === "string" ? payload.state : (typeof payload === "string" ? payload : null);
@@ -1303,6 +1303,14 @@ const installDefaultPetChat = () => {
       if (panelEl && typeof panelEl.offsetHeight === "number" && panelEl.offsetHeight > 0) {
         ipcRenderer.send("openpets:default-pet-chat-panel-resize", Math.round(panelEl.offsetHeight));
       }
+    } else if (rawState === "expanded-session") {
+      // The practice session overlay owns the carrier; every chat surface closes.
+      document.documentElement.dataset.checkInExpanded = "false";
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.compactComposerOpen = "false";
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      updateDraftState({ type: "compact-changed", compactOpen: false });
+      handleCheckInCarrierCollapsed();
     } else if (rawState === "compact-chat") {
       document.documentElement.dataset.checkInExpanded = "false";
       document.documentElement.dataset.chatExpanded = "false";
@@ -2293,6 +2301,949 @@ const installLayerShellContextMenu = () => {
   });
 };
 
+// ---------------------------------------------------------------------------
+// Practice session overlay (ui:session) — breathing orb around the pet.
+// The host coordinator sends a validated descriptor over
+// "openpets:session-overlay"; this module owns the 60fps orb shader, the
+// phase clock, the session card, and reports control events back.
+// ---------------------------------------------------------------------------
+
+const installDefaultPetSession = () => {
+  if (document.documentElement?.dataset?.petRole !== "default") return;
+
+  // The stylesheet ships static fallback geometry; the source of truth is a
+  // runtime measurement of the real rendered sprite and session card, applied
+  // as :root CSS variable overrides so the orb hugs the pet, the pet sits at
+  // the orb centre, and the orb rests on the card for any pet asset or scale.
+  const readGeometryVar = (name, fallback) => {
+    const raw = Number(getComputedStyle(document.documentElement).getPropertyValue(name));
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  };
+  let ORB_RADIUS = readGeometryVar("--session-orb-radius", 150);
+  let RING_R = ORB_RADIUS + 12;
+  let RING_SIZE = readGeometryVar("--session-ring-size", RING_R * 2 + 24);
+  let RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
+  const ORB_CARD_GAP = 18;
+  const CARD_BOTTOM_INSET = 14;
+
+  const PHASE_PRESENTATION = {
+    in: { name: "Inhale", guidance: "Breathe in slowly", color: [0.42, 0.68, 1.0], css: "#7ab3ff" },
+    hold: { name: "Hold", guidance: "Hold gently", color: [0.72, 0.62, 1.0], css: "#b7a4ff" },
+    out: { name: "Exhale", guidance: "Breathe out slowly", color: [0.30, 0.86, 0.78], css: "#4fdcc5" },
+  };
+  const IDLE_COLOR = [0.45, 0.62, 0.98];
+
+  let descriptor = null;
+  let runState = "idle"; // idle | active | paused | complete
+  let selectedPatternId = null;
+  let phaseIndex = 0;
+  let cycleIndex = 0;
+  let phaseElapsedMs = 0;
+  let lastFrameAt = 0;
+  let rafHandle = null;
+  let pulseStartedAt = -10;
+  let breathValue = 0;
+  let currentColor = IDLE_COLOR.slice();
+  let targetColor = IDLE_COLOR.slice();
+  let lastCountdownText = "";
+
+  const sendSessionEvent = (payload) => {
+    ipcRenderer.send("openpets:session-overlay-event", payload);
+  };
+
+  const selectedPattern = () => {
+    if (!descriptor) return null;
+    return descriptor.patterns.find((pattern) => pattern.id === selectedPatternId) ?? descriptor.patterns[0];
+  };
+
+  // --- DOM ---------------------------------------------------------------
+
+  const root = document.createElement("div");
+  root.className = "openpets-session-overlay";
+  root.setAttribute("role", "region");
+  root.setAttribute("aria-label", "Practice session");
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "session-backdrop";
+  root.appendChild(backdrop);
+
+  const orbCanvas = document.createElement("canvas");
+  orbCanvas.className = "session-orb-canvas";
+  root.appendChild(orbCanvas);
+
+  const svgNs = "http://www.w3.org/2000/svg";
+  const ring = document.createElementNS(svgNs, "svg");
+  ring.setAttribute("class", "session-ring");
+  ring.setAttribute("viewBox", `0 0 ${RING_SIZE} ${RING_SIZE}`);
+  const ringDefs = document.createElementNS(svgNs, "defs");
+  const ringGradient = document.createElementNS(svgNs, "linearGradient");
+  ringGradient.setAttribute("id", "session-ring-gradient");
+  ringGradient.setAttribute("x1", "0%");
+  ringGradient.setAttribute("y1", "0%");
+  ringGradient.setAttribute("x2", "100%");
+  ringGradient.setAttribute("y2", "100%");
+  const ringStopA = document.createElementNS(svgNs, "stop");
+  ringStopA.setAttribute("offset", "0%");
+  ringStopA.setAttribute("stop-color", "#93c5fd");
+  const ringStopB = document.createElementNS(svgNs, "stop");
+  ringStopB.setAttribute("offset", "100%");
+  ringStopB.setAttribute("stop-color", "#3b82f6");
+  ringGradient.appendChild(ringStopA);
+  ringGradient.appendChild(ringStopB);
+  ringDefs.appendChild(ringGradient);
+  ring.appendChild(ringDefs);
+  const ringTrack = document.createElementNS(svgNs, "circle");
+  ringTrack.setAttribute("class", "ring-track");
+  ringTrack.setAttribute("cx", String(RING_SIZE / 2));
+  ringTrack.setAttribute("cy", String(RING_SIZE / 2));
+  ringTrack.setAttribute("r", String(RING_R));
+  const ringProgress = document.createElementNS(svgNs, "circle");
+  ringProgress.setAttribute("class", "ring-progress");
+  ringProgress.setAttribute("cx", String(RING_SIZE / 2));
+  ringProgress.setAttribute("cy", String(RING_SIZE / 2));
+  ringProgress.setAttribute("r", String(RING_R));
+  ringProgress.setAttribute("stroke-dasharray", String(RING_CIRCUMFERENCE));
+  ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE));
+  const ringDotGroup = document.createElementNS(svgNs, "g");
+  const ringDot = document.createElementNS(svgNs, "circle");
+  ringDot.setAttribute("class", "ring-dot");
+  ringDot.setAttribute("cx", String(RING_SIZE / 2 + RING_R));
+  ringDot.setAttribute("cy", String(RING_SIZE / 2));
+  ringDot.setAttribute("r", "7");
+  ringDotGroup.appendChild(ringDot);
+  ring.appendChild(ringTrack);
+  ring.appendChild(ringProgress);
+  ring.appendChild(ringDotGroup);
+  root.appendChild(ring);
+
+  const topbar = document.createElement("div");
+  topbar.className = "session-topbar";
+  const topbarIcon = document.createElement("div");
+  topbarIcon.className = "session-topbar-icon";
+  topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
+  const topbarTitles = document.createElement("div");
+  topbarTitles.className = "session-topbar-titles";
+  const topbarTitle = document.createElement("div");
+  topbarTitle.className = "session-topbar-title";
+  const topbarSubtitle = document.createElement("div");
+  topbarSubtitle.className = "session-topbar-subtitle";
+  topbarTitles.appendChild(topbarTitle);
+  topbarTitles.appendChild(topbarSubtitle);
+  // The top bar doubles as the phase HUD: during a run it shows the phase
+  // name, guidance, and the live countdown instead of the plugin title.
+  const phaseName = topbarTitle;
+  const phaseGuidance = topbarSubtitle;
+  const phaseCount = document.createElement("div");
+  phaseCount.className = "session-topbar-count";
+  const phaseCountValue = document.createElement("span");
+  const phaseCountUnit = document.createElement("span");
+  phaseCountUnit.className = "count-unit";
+  phaseCountUnit.textContent = "s";
+  phaseCount.appendChild(phaseCountValue);
+  phaseCount.appendChild(phaseCountUnit);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "session-close-btn";
+  closeBtn.setAttribute("aria-label", "Close session");
+  closeBtn.setAttribute("title", "Close (Esc)");
+  closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  topbar.appendChild(topbarIcon);
+  topbar.appendChild(topbarTitles);
+  topbar.appendChild(phaseCount);
+  topbar.appendChild(closeBtn);
+  root.appendChild(topbar);
+
+  const card = document.createElement("div");
+  card.className = "session-card";
+  const cardHeader = document.createElement("div");
+  cardHeader.className = "session-card-header";
+  const cardPattern = document.createElement("div");
+  cardPattern.className = "session-card-pattern";
+  const cardCycles = document.createElement("div");
+  cardCycles.className = "session-card-cycles";
+  cardHeader.appendChild(cardPattern);
+  cardHeader.appendChild(cardCycles);
+  card.appendChild(cardHeader);
+  const cycleBar = document.createElement("div");
+  cycleBar.className = "session-cycle-bar";
+  const cycleFill = document.createElement("div");
+  cycleFill.className = "session-cycle-fill";
+  cycleBar.appendChild(cycleFill);
+  card.appendChild(cycleBar);
+  const steps = document.createElement("div");
+  steps.className = "session-steps";
+  card.appendChild(steps);
+  const chips = document.createElement("div");
+  chips.className = "session-chips";
+  card.appendChild(chips);
+  const controls = document.createElement("div");
+  controls.className = "session-controls";
+  const infoBtn = document.createElement("button");
+  infoBtn.type = "button";
+  infoBtn.className = "session-info-btn";
+  infoBtn.setAttribute("aria-label", "About this technique");
+  infoBtn.setAttribute("title", "About this technique");
+  infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  const controlsSpacer = document.createElement("div");
+  controlsSpacer.className = "session-controls-spacer";
+  const stopBtn = document.createElement("button");
+  stopBtn.type = "button";
+  stopBtn.className = "session-ghost-btn";
+  stopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg><span>Stop</span>';
+  const primaryBtn = document.createElement("button");
+  primaryBtn.type = "button";
+  primaryBtn.className = "session-primary-btn";
+  controls.appendChild(infoBtn);
+  controls.appendChild(controlsSpacer);
+  controls.appendChild(stopBtn);
+  controls.appendChild(primaryBtn);
+  card.appendChild(controls);
+  root.appendChild(card);
+
+  const infoSheet = document.createElement("div");
+  infoSheet.className = "session-info-sheet";
+  const infoHeader = document.createElement("div");
+  infoHeader.className = "session-info-header";
+  const infoTitle = document.createElement("div");
+  infoTitle.className = "session-info-title";
+  const infoCloseBtn = document.createElement("button");
+  infoCloseBtn.type = "button";
+  infoCloseBtn.className = "session-close-btn";
+  infoCloseBtn.setAttribute("aria-label", "Close info");
+  infoCloseBtn.innerHTML = closeBtn.innerHTML;
+  infoHeader.appendChild(infoTitle);
+  infoHeader.appendChild(infoCloseBtn);
+  const infoBody = document.createElement("div");
+  infoBody.className = "session-info-body";
+  infoSheet.appendChild(infoHeader);
+  infoSheet.appendChild(infoBody);
+  root.appendChild(infoSheet);
+
+  document.body.appendChild(root);
+
+  // --- Runtime geometry ------------------------------------------------------
+  // Measures the real rendered sprite and card, then aligns orb, ring, and
+  // pet lift so the composition is exact for any pet asset and scale.
+
+  const parseCurrentPetLift = (hitbox) => {
+    const transform = getComputedStyle(hitbox).transform;
+    if (!transform || transform === "none") return 0;
+    const match = /matrix\(([^)]+)\)/.exec(transform);
+    if (!match) return 0;
+    const parts = match[1].split(",").map((value) => Number(value.trim()));
+    const translateY = parts.length === 6 && Number.isFinite(parts[5]) ? parts[5] : 0;
+    return -translateY;
+  };
+
+  const applySessionGeometry = () => {
+    if (!descriptor) return;
+    const sprite = document.querySelector(".installed-sprite, .sprite");
+    const hitbox = document.querySelector(".pet-hitbox");
+    if (!sprite || !hitbox) return;
+    const cardHeight = Math.max(110, Math.round(card.getBoundingClientRect().height));
+    const spriteRect = sprite.getBoundingClientRect();
+    if (spriteRect.height <= 0 || window.innerHeight <= 0) return;
+
+    // The lift transform may already (or still) be applied; subtracting the
+    // live translation recovers the sprite's resting centre.
+    const currentLift = parseCurrentPetLift(hitbox);
+    const restCenterY = spriteRect.top + spriteRect.height / 2 + currentLift;
+
+    // Keep the orb inside the band between the top bar and the card.
+    const topbarReserved = 10 + 48 + 10;
+    const bandHeight = window.innerHeight - topbarReserved - (CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP);
+    const maxRadius = Math.max(96, Math.floor(bandHeight / 2));
+    ORB_RADIUS = Math.max(96, Math.min(Math.min(260, maxRadius), Math.round(spriteRect.height * 1.1)));
+    RING_R = ORB_RADIUS + 12;
+    RING_SIZE = RING_R * 2 + 24;
+    RING_CIRCUMFERENCE = 2 * Math.PI * RING_R;
+
+    const orbCenterBottom = CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP + ORB_RADIUS;
+    const desiredCenterY = window.innerHeight - orbCenterBottom;
+    const petLift = Math.max(0, Math.round(restCenterY - desiredCenterY));
+
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--session-orb-radius", String(ORB_RADIUS));
+    rootStyle.setProperty("--session-ring-size", String(RING_SIZE));
+    rootStyle.setProperty("--session-orb-center-bottom", String(orbCenterBottom));
+    rootStyle.setProperty("--session-topbar-bottom", String(orbCenterBottom + RING_R + 18));
+    rootStyle.setProperty("--session-pet-lift", `${petLift}px`);
+
+    ring.setAttribute("viewBox", `0 0 ${RING_SIZE} ${RING_SIZE}`);
+    for (const circle of [ringTrack, ringProgress]) {
+      circle.setAttribute("cx", String(RING_SIZE / 2));
+      circle.setAttribute("cy", String(RING_SIZE / 2));
+      circle.setAttribute("r", String(RING_R));
+    }
+    ringProgress.setAttribute("stroke-dasharray", String(RING_CIRCUMFERENCE));
+    ringDot.setAttribute("cx", String(RING_SIZE / 2 + RING_R));
+    ringDot.setAttribute("cy", String(RING_SIZE / 2));
+  };
+
+  const scheduleSessionGeometry = () => {
+    requestAnimationFrame(() => requestAnimationFrame(applySessionGeometry));
+  };
+
+  window.addEventListener("resize", () => {
+    if (descriptor) scheduleSessionGeometry();
+  });
+
+  // --- WebGL orb -----------------------------------------------------------
+
+  const orbGl = createOrbRenderer(orbCanvas);
+
+  function createOrbRenderer(canvas) {
+    const gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true, antialias: true });
+    if (!gl) {
+      // Graceful fallback: a layered radial gradient still reads as an orb.
+      canvas.style.background = "radial-gradient(circle at 50% 42%, rgba(120,170,255,0.55), rgba(48,90,190,0.34) 42%, rgba(20,40,90,0.18) 58%, transparent 68%)";
+      canvas.style.borderRadius = "50%";
+      return null;
+    }
+
+    const vertexSource = `
+      attribute vec2 a_position;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+    const fragmentSource = `
+      precision highp float;
+      uniform vec2 u_resolution;
+      uniform float u_radius;
+      uniform float u_time;
+      uniform float u_breath;
+      uniform float u_energy;
+      uniform float u_pulse;
+      uniform vec3 u_tint;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.55;
+        for (int i = 0; i < 4; i++) {
+          value += amplitude * noise(p);
+          p = p * 2.03 + vec2(17.7, 9.2);
+          amplitude *= 0.5;
+        }
+        return value;
+      }
+
+      vec2 rotate(vec2 p, float a) {
+        float c = cos(a);
+        float s = sin(a);
+        return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+      }
+
+      void main() {
+        vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_radius;
+        p.y = -p.y;
+        float breathScale = 0.84 + 0.13 * u_breath;
+        float d = length(p) / breathScale;
+
+        vec3 deep = vec3(0.035, 0.09, 0.24);
+        vec3 tint = u_tint;
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+
+        if (d < 1.0) {
+          float z = sqrt(max(0.0, 1.0 - d * d));
+          vec3 n = vec3(p / breathScale, z);
+
+          // Volumetric wisps: two drifting fbm layers, weighted toward depth.
+          vec2 q = rotate(p, u_time * 0.05) * 1.9;
+          float w1 = fbm(q + vec2(0.0, -u_time * 0.09));
+          float w2 = fbm(rotate(p, -u_time * 0.03) * 3.1 + vec2(u_time * 0.05, 0.0));
+          float wisps = (w1 * 0.72 + w2 * 0.45) * (0.35 + 0.65 * z);
+
+          // Luminous core swells with the breath.
+          float core = exp(-d * d * 2.2) * (0.34 + 0.58 * u_breath);
+
+          // Rim light (fresnel) sells the sphere.
+          float fresnel = pow(1.0 - z, 2.4);
+
+          // Soft glint from the top-left (p is y-down here).
+          vec3 lightDir = normalize(vec3(-0.42, -0.58, 0.72));
+          float spec = pow(max(dot(n, lightDir), 0.0), 34.0) * 0.7;
+
+          // Sparse round motes drifting inside the volume.
+          vec2 moteCoord = rotate(p, u_time * 0.02) * 7.0 + vec2(0.0, u_time * 0.12);
+          vec2 moteCell = floor(moteCoord);
+          vec2 moteLocal = fract(moteCoord) - 0.5;
+          vec2 moteOffset = vec2(hash(moteCell) - 0.5, hash(moteCell + 19.7) - 0.5) * 0.6;
+          float moteDist = length(moteLocal - moteOffset);
+          float mote = smoothstep(0.11, 0.02, moteDist) * step(0.78, hash(moteCell + 7.3)) * z;
+          float twinkle = mote * (0.30 + 0.70 * (0.5 + 0.5 * sin(u_time * 1.7 + hash(moteCell.yx) * 6.283)));
+
+          vec3 body = mix(deep, tint, clamp(0.30 + 0.70 * wisps, 0.0, 1.0));
+          color = body * (core + wisps * 0.62 + 0.10 * z)
+            + tint * fresnel * 0.95
+            + vec3(1.0) * spec
+            + vec3(0.85, 0.93, 1.0) * twinkle * 0.55;
+          alpha = clamp(core * 1.1 + wisps * 0.42 + fresnel * 0.9 + spec + twinkle * 0.55, 0.0, 1.0);
+
+          // Inner shading floor keeps the glass readable over bright desktops.
+          alpha = max(alpha, 0.34 * z);
+          color = max(color, deep * z);
+        }
+
+        // Halo + crisp rim band.
+        float rim = exp(-abs(d - 1.0) * 26.0);
+        float halo = d >= 1.0 ? exp(-(d - 1.0) * 3.4) * 0.30 : 0.0;
+        color += tint * (rim * 0.85 + halo);
+        alpha = clamp(alpha + rim * 0.75 + halo, 0.0, 1.0);
+
+        // Expanding ripple on phase change.
+        float pulseAge = u_time - u_pulse;
+        if (pulseAge >= 0.0 && pulseAge < 1.6) {
+          float rippleRadius = 1.0 + pulseAge * 0.30;
+          float rippleFade = (1.0 - pulseAge / 1.6);
+          float ripple = exp(-abs(d - rippleRadius) * 34.0) * rippleFade * rippleFade * 0.8;
+          color += tint * ripple;
+          alpha = clamp(alpha + ripple, 0.0, 1.0);
+        }
+
+        alpha *= u_energy;
+        gl_FragColor = vec4(color * u_energy * alpha, alpha);
+      }
+    `;
+
+    const compile = (type, source) => {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error("Session orb shader failed to compile.", gl.getShaderInfoLog(shader));
+        return null;
+      }
+      return shader;
+    };
+    const vertexShader = compile(gl.VERTEX_SHADER, vertexSource);
+    const fragmentShader = compile(gl.FRAGMENT_SHADER, fragmentSource);
+    if (!vertexShader || !fragmentShader) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error("Session orb shader failed to link.", gl.getProgramInfoLog(program));
+      return null;
+    }
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const positionLocation = gl.getAttribLocation(program, "a_position");
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    return {
+      gl,
+      uniforms: {
+        resolution: gl.getUniformLocation(program, "u_resolution"),
+        radius: gl.getUniformLocation(program, "u_radius"),
+        time: gl.getUniformLocation(program, "u_time"),
+        breath: gl.getUniformLocation(program, "u_breath"),
+        energy: gl.getUniformLocation(program, "u_energy"),
+        pulse: gl.getUniformLocation(program, "u_pulse"),
+        tint: gl.getUniformLocation(program, "u_tint"),
+      },
+    };
+  }
+
+  const resizeOrbCanvas = () => {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const width = orbCanvas.clientWidth || 1;
+    const height = orbCanvas.clientHeight || 1;
+    if (orbCanvas.width !== Math.round(width * dpr) || orbCanvas.height !== Math.round(height * dpr)) {
+      orbCanvas.width = Math.round(width * dpr);
+      orbCanvas.height = Math.round(height * dpr);
+      if (orbGl) orbGl.gl.viewport(0, 0, orbCanvas.width, orbCanvas.height);
+    }
+    return dpr;
+  };
+
+  // --- Phase clock ---------------------------------------------------------
+
+  const phasePresentation = (phase) => {
+    const base = PHASE_PRESENTATION[phase.kind] ?? PHASE_PRESENTATION.in;
+    return {
+      name: base.name,
+      guidance: typeof phase.label === "string" && phase.label ? phase.label : base.guidance,
+      color: base.color,
+    };
+  };
+
+  const easeInOutSine = (t) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
+
+  const breathTargetFor = (phase, progress) => {
+    if (!phase) return 0.25;
+    if (phase.kind === "in") return easeInOutSine(progress);
+    if (phase.kind === "out") return 1 - easeInOutSine(progress);
+    // Hold keeps the lungs where the previous phase left them.
+    const pattern = selectedPattern();
+    if (!pattern) return 0.5;
+    const previous = pattern.phases[(phaseIndex + pattern.phases.length - 1) % pattern.phases.length];
+    return previous && previous.kind === "out" ? 0.06 : 1;
+  };
+
+  const triggerPulse = (nowSeconds) => {
+    pulseStartedAt = nowSeconds;
+  };
+
+  const advanceClock = (deltaMs, nowSeconds) => {
+    const pattern = selectedPattern();
+    if (!pattern || runState !== "active") return;
+    phaseElapsedMs += deltaMs;
+    let guard = 0;
+    while (guard < 16) {
+      guard += 1;
+      const phase = pattern.phases[phaseIndex];
+      const phaseMs = phase.seconds * 1000;
+      if (phaseElapsedMs < phaseMs) break;
+      phaseElapsedMs -= phaseMs;
+      phaseIndex += 1;
+      triggerPulse(nowSeconds);
+      if (phaseIndex >= pattern.phases.length) {
+        phaseIndex = 0;
+        cycleIndex += 1;
+        if (pattern.cycles !== null && cycleIndex >= pattern.cycles) {
+          runState = "complete";
+          phaseElapsedMs = 0;
+          sendSessionEvent({ type: "completed", patternId: pattern.id, cycles: pattern.cycles });
+          renderStatics();
+          return;
+        }
+      }
+      renderPhaseText();
+    }
+  };
+
+  // --- Rendering -----------------------------------------------------------
+
+  const renderPhaseText = () => {
+    const pattern = selectedPattern();
+    if (!descriptor || !pattern) return;
+    if (runState === "complete") {
+      phaseName.textContent = "Complete";
+      phaseGuidance.textContent = "Nice work. Take a moment.";
+      phaseCount.style.display = "none";
+      updateStepStates();
+      return;
+    }
+    if (runState === "idle") {
+      phaseName.textContent = descriptor.title;
+      phaseGuidance.textContent = descriptor.subtitle ?? "Press start when you're ready";
+      phaseCount.style.display = "none";
+      updateStepStates();
+      return;
+    }
+    const phase = pattern.phases[phaseIndex];
+    const presentation = phasePresentation(phase);
+    phaseName.textContent = runState === "paused" ? "Paused" : presentation.name;
+    phaseGuidance.textContent = runState === "paused" ? "Resume when you're ready" : presentation.guidance;
+    phaseCount.style.display = runState === "paused" ? "none" : "";
+    targetColor = presentation.color;
+    updateStepStates();
+  };
+
+  const updateStepStates = () => {
+    const stepElements = steps.children;
+    for (let index = 0; index < stepElements.length; index += 1) {
+      const step = stepElements[index];
+      step.classList.toggle("is-active", runState !== "idle" && index === phaseIndex);
+      step.classList.toggle("is-done", runState !== "idle" && index < phaseIndex);
+    }
+  };
+
+  const primaryButtonContent = () => {
+    if (runState === "active") {
+      return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.4"/><rect x="14" y="5" width="4" height="14" rx="1.4"/></svg><span>Pause</span>';
+    }
+    if (runState === "paused") {
+      return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg><span>Resume</span>';
+    }
+    if (runState === "complete") {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v5h5"/></svg><span>Restart</span>';
+    }
+    return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg><span>Start</span>';
+  };
+
+  const renderStatics = () => {
+    const pattern = selectedPattern();
+    if (!descriptor || !pattern) return;
+
+    cardPattern.textContent = pattern.name;
+    if (pattern.hint) {
+      const hint = document.createElement("span");
+      hint.className = "pattern-hint";
+      hint.textContent = pattern.hint;
+      cardPattern.appendChild(hint);
+    }
+
+    steps.textContent = "";
+    for (const phase of pattern.phases) {
+      const step = document.createElement("div");
+      step.className = "session-step";
+      step.style.flexGrow = String(Math.max(1, phase.seconds));
+      const bar = document.createElement("div");
+      bar.className = "session-step-bar";
+      const fill = document.createElement("div");
+      fill.className = "session-step-fill";
+      bar.appendChild(fill);
+      const label = document.createElement("div");
+      label.className = "session-step-label";
+      label.textContent = `${phasePresentation(phase).name} · ${formatSeconds(phase.seconds)}`;
+      step.appendChild(bar);
+      step.appendChild(label);
+      steps.appendChild(step);
+    }
+
+    chips.textContent = "";
+    chips.style.display = descriptor.patterns.length > 1 ? "" : "none";
+    for (const candidate of descriptor.patterns) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "session-chip";
+      chip.classList.toggle("is-active", candidate.id === pattern.id);
+      chip.textContent = candidate.name;
+      if (candidate.hint) chip.title = candidate.hint;
+      chip.addEventListener("click", () => {
+        if (!descriptor || candidate.id === selectedPatternId) return;
+        selectPattern(candidate.id);
+        sendSessionEvent({ type: "patternChanged", patternId: candidate.id });
+      });
+      chips.appendChild(chip);
+    }
+
+    card.classList.toggle("is-complete", runState === "complete");
+    primaryBtn.innerHTML = primaryButtonContent();
+    stopBtn.style.display = runState === "active" || runState === "paused" ? "" : "none";
+    infoBtn.style.display = descriptor.info ? "" : "none";
+    renderCycles();
+    renderPhaseText();
+    renderInfoSheet();
+    // Card contents can change its height (chips, complete note), and the orb
+    // stack is anchored to the card — re-measure after this render settles.
+    scheduleSessionGeometry();
+  };
+
+  const renderCycles = () => {
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    const displayCycle = runState === "complete"
+      ? (pattern.cycles ?? cycleIndex)
+      : Math.min(cycleIndex + 1, pattern.cycles ?? Number.MAX_SAFE_INTEGER);
+    if (pattern.cycles !== null) {
+      cardCycles.innerHTML = "";
+      const current = document.createElement("span");
+      current.className = "cycles-current";
+      current.textContent = String(runState === "idle" ? pattern.cycles : displayCycle);
+      cardCycles.appendChild(current);
+      cardCycles.appendChild(document.createTextNode(runState === "idle" ? " cycles" : ` / ${pattern.cycles}`));
+    } else {
+      cardCycles.textContent = runState === "idle" ? "until stopped" : `cycle ${cycleIndex + 1}`;
+    }
+  };
+
+  const formatSeconds = (seconds) => {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}s`;
+  };
+
+  const renderInfoSheet = () => {
+    infoBody.textContent = "";
+    if (!descriptor?.info) return;
+    infoTitle.textContent = `About · ${selectedPattern()?.name ?? descriptor.title}`;
+    const info = descriptor.info;
+    if (info.intro) {
+      const intro = document.createElement("p");
+      intro.className = "session-info-intro";
+      intro.textContent = info.intro;
+      infoBody.appendChild(intro);
+    }
+    for (const section of info.sections) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "session-info-section";
+      const heading = document.createElement("h3");
+      heading.className = "session-info-heading";
+      heading.textContent = section.heading;
+      const body = document.createElement("p");
+      body.className = "session-info-text";
+      body.textContent = section.body;
+      wrapper.appendChild(heading);
+      wrapper.appendChild(body);
+      infoBody.appendChild(wrapper);
+    }
+    if (info.citations && info.citations.length > 0) {
+      const citations = document.createElement("div");
+      citations.className = "session-info-citations";
+      for (const citation of info.citations) {
+        const row = document.createElement("div");
+        row.className = "session-info-citation";
+        const label = document.createElement("span");
+        label.textContent = citation.label;
+        row.appendChild(label);
+        if (citation.url) {
+          const link = document.createElement("button");
+          link.type = "button";
+          link.className = "session-info-citation-link";
+          link.textContent = "Open";
+          link.addEventListener("click", () => ipcRenderer.send("openpets:session-overlay-open-url", citation.url));
+          row.appendChild(link);
+        }
+        citations.appendChild(row);
+      }
+      infoBody.appendChild(citations);
+    }
+    if (info.disclaimer) {
+      const disclaimer = document.createElement("p");
+      disclaimer.className = "session-info-disclaimer";
+      disclaimer.textContent = info.disclaimer;
+      infoBody.appendChild(disclaimer);
+    }
+    if (info.site) {
+      const site = document.createElement("div");
+      site.className = "session-info-site";
+      const label = document.createElement("span");
+      label.textContent = info.site.url.replace(/^https:\/\//, "").replace(/\/$/, "");
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "session-info-site-link";
+      link.textContent = info.site.label;
+      link.addEventListener("click", () => ipcRenderer.send("openpets:session-overlay-open-url", info.site.url));
+      site.appendChild(link);
+      site.appendChild(label);
+      infoBody.appendChild(site);
+    }
+  };
+
+  // --- Frame loop ----------------------------------------------------------
+
+  const frame = (now) => {
+    rafHandle = null;
+    if (!descriptor) return;
+    const nowSeconds = now / 1000;
+    const deltaMs = lastFrameAt > 0 ? Math.min(120, now - lastFrameAt) : 0;
+    lastFrameAt = now;
+
+    advanceClock(runState === "active" ? deltaMs : 0, nowSeconds);
+
+    const pattern = selectedPattern();
+    const phase = pattern && runState !== "idle" ? pattern.phases[phaseIndex] : null;
+    const phaseMs = phase ? phase.seconds * 1000 : 1;
+    const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+
+    // Breath eases toward its target so pauses and pattern hops stay smooth.
+    const breathTarget = runState === "complete" ? 0.3 : runState === "idle" ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8) : breathTargetFor(phase, phaseProgress);
+    const smoothing = runState === "active" ? 0.16 : 0.05;
+    breathValue += (breathTarget - breathValue) * smoothing;
+
+    for (let channel = 0; channel < 3; channel += 1) {
+      const target = runState === "active" ? targetColor[channel] : IDLE_COLOR[channel];
+      currentColor[channel] += (target - currentColor[channel]) * 0.06;
+    }
+
+    // Countdown + ring reflect the live phase clock.
+    if (phase && runState === "active") {
+      const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
+      const text = String(remaining);
+      if (text !== lastCountdownText) {
+        lastCountdownText = text;
+        phaseCountValue.textContent = text;
+      }
+    }
+    const ringProgressValue = runState === "complete" ? 1 : phase ? phaseProgress : 0;
+    ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE * (1 - ringProgressValue)));
+    ringDotGroup.setAttribute("transform", `rotate(${ringProgressValue * 360} ${RING_SIZE / 2} ${RING_SIZE / 2})`);
+
+    if (pattern && pattern.cycles !== null) {
+      const cycleProgress = runState === "complete" ? 1 : (cycleIndex + (runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress))) / pattern.cycles;
+      cycleFill.style.width = `${Math.min(100, cycleProgress * 100)}%`;
+    } else {
+      cycleFill.style.width = runState === "active" ? `${cycleProgressWithinCycle(pattern, phaseProgress) * 100}%` : "0%";
+    }
+
+    if (phase) {
+      const fills = steps.querySelectorAll(".session-step-fill");
+      const activeFill = fills[phaseIndex];
+      if (activeFill) activeFill.style.width = `${phaseProgress * 100}%`;
+    }
+
+    if (orbGl) {
+      const dpr = resizeOrbCanvas();
+      const { gl, uniforms } = orbGl;
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(uniforms.resolution, orbCanvas.width, orbCanvas.height);
+      gl.uniform1f(uniforms.radius, ORB_RADIUS * dpr);
+      gl.uniform1f(uniforms.time, nowSeconds);
+      gl.uniform1f(uniforms.breath, breathValue);
+      gl.uniform1f(uniforms.energy, runState === "paused" ? 0.55 : runState === "idle" ? 0.7 : 1.0);
+      gl.uniform1f(uniforms.pulse, pulseStartedAt);
+      gl.uniform3f(uniforms.tint, currentColor[0], currentColor[1], currentColor[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    rafHandle = requestAnimationFrame(frame);
+  };
+
+  const cycleProgressWithinCycle = (pattern, phaseProgress) => {
+    if (!pattern) return 0;
+    const total = pattern.phases.reduce((sum, phase) => sum + phase.seconds, 0);
+    let elapsed = 0;
+    for (let index = 0; index < phaseIndex; index += 1) elapsed += pattern.phases[index].seconds;
+    const current = pattern.phases[phaseIndex];
+    elapsed += (current ? current.seconds : 0) * phaseProgress;
+    return total > 0 ? Math.min(1, elapsed / total) : 0;
+  };
+
+  const startFrameLoop = () => {
+    if (rafHandle === null) {
+      lastFrameAt = 0;
+      rafHandle = requestAnimationFrame(frame);
+    }
+  };
+
+  const stopFrameLoop = () => {
+    if (rafHandle !== null) {
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+  };
+
+  // --- Run control ---------------------------------------------------------
+
+  const resetClock = () => {
+    phaseIndex = 0;
+    cycleIndex = 0;
+    phaseElapsedMs = 0;
+    lastCountdownText = "";
+  };
+
+  const startRun = () => {
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    resetClock();
+    runState = "active";
+    triggerPulse(performance.now() / 1000);
+    renderStatics();
+    sendSessionEvent({ type: "started", patternId: pattern.id });
+  };
+
+  const selectPattern = (patternId) => {
+    selectedPatternId = patternId;
+    const wasRunning = runState === "active" || runState === "paused";
+    resetClock();
+    if (wasRunning) runState = "active";
+    renderStatics();
+  };
+
+  const currentCycleNumber = () => cycleIndex + 1;
+
+  primaryBtn.addEventListener("click", () => {
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    if (runState === "active") {
+      runState = "paused";
+      sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else if (runState === "paused") {
+      runState = "active";
+      sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else {
+      startRun();
+    }
+  });
+
+  stopBtn.addEventListener("click", () => {
+    const pattern = selectedPattern();
+    if (!pattern || (runState !== "active" && runState !== "paused")) return;
+    sendSessionEvent({ type: "stopped", patternId: pattern.id, cycle: currentCycleNumber() });
+    runState = "idle";
+    resetClock();
+    renderStatics();
+  });
+
+  infoBtn.addEventListener("click", () => {
+    if (!descriptor?.info) return;
+    infoSheet.classList.add("is-open");
+    sendSessionEvent({ type: "infoOpened" });
+  });
+
+  infoCloseBtn.addEventListener("click", () => {
+    infoSheet.classList.remove("is-open");
+  });
+
+  const dismissOverlay = () => {
+    sendSessionEvent({ type: "dismissed" });
+  };
+
+  closeBtn.addEventListener("click", dismissOverlay);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !descriptor) return;
+    if (infoSheet.classList.contains("is-open")) {
+      infoSheet.classList.remove("is-open");
+      return;
+    }
+    dismissOverlay();
+  });
+
+  // --- Descriptor intake ---------------------------------------------------
+
+  const applyDescriptor = (next) => {
+    const previous = descriptor;
+    descriptor = next && typeof next === "object" ? next : null;
+    if (!descriptor) {
+      document.documentElement.dataset.sessionOpen = "false";
+      infoSheet.classList.remove("is-open");
+      runState = "idle";
+      resetClock();
+      stopFrameLoop();
+      return;
+    }
+    document.documentElement.dataset.sessionOpen = "true";
+    const patternChanged = selectedPatternId !== descriptor.patternId || !previous;
+    selectedPatternId = descriptor.patternId;
+    if (!previous) {
+      runState = "idle";
+      resetClock();
+      renderStatics();
+      startFrameLoop();
+      if (descriptor.autoStart) startRun();
+    } else if (patternChanged) {
+      selectPattern(descriptor.patternId);
+    } else {
+      renderStatics();
+    }
+  };
+
+  ipcRenderer.on("openpets:session-overlay", (_event, next) => applyDescriptor(next));
+
+  ipcRenderer
+    .invoke("openpets:session-overlay-get")
+    .then((existing) => {
+      if (existing && !descriptor) applyDescriptor(existing);
+    })
+    .catch(() => {});
+};
+
 const installMouseInterop = () => {
   lastInteractiveHit = null;
   dragging = false;
@@ -2306,6 +3257,7 @@ const installMouseInterop = () => {
   installPetSenses();
   installDefaultPetChat();
   installDefaultPetManagerCheckIn();
+  installDefaultPetSession();
   if (usesNativePetDrag()) installLayerShellContextMenu();
 
   let dragStartPoint = null;

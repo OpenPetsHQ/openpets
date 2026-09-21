@@ -297,7 +297,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `display.ts`: Screen geometry helpers, pet window positioning
 - `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the bottom-anchored expanded attached chat panel
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
-- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed (200x200) and expanded (420x640) carrier states, plus bottom-relative panel positioning calculations
+- `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed, expanded-chat (420x640), and pet-scale-derived session carrier states, plus bottom-relative panel positioning and session orb/window sizing calculations
+- `pet-session-overlay.ts`: Practice session overlay coordinator for the `ui:session` plugin surface — owns the single active session descriptor, relays overlay control events back to the owning plugin, and manages carrier open/replace/displacement/close lifecycles
+- `plugin-session-descriptor.ts`: Pure validation and types for the practice session overlay descriptor (breathing patterns, phases, Info sheet content, https-only links)
 - `window-tracker-latch.ts`: Re-entrancy latch helper (`createLatchedTick`) that prevents overlapping async ticks from stacking; used by the window-tracking poller
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
@@ -366,7 +368,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `plugin-sdk-state.ts`: Shared plugin context state, listener cleanup, and lifecycle bookkeeping used by route handlers.
 - `plugin-sdk-storage.ts`: Quota-bound plugin storage namespace with key enumeration and subscriptions.
 - `plugin-sdk-types.ts`: Internal host-side SDK interfaces mirroring the published `@open-pets/plugin-sdk` contract.
-- `plugin-sdk-ui.ts`: Host-rendered UI namespace for bubbles, alerts, menu items, panels, and dynamic interaction callbacks.
+- `plugin-sdk-ui.ts`: Host-rendered UI namespace for bubbles, alerts, menu items, panels, practice session overlays, and dynamic interaction callbacks.
 - `plugin-assets.ts`: Declared asset resolution and validation for icon/image/svg/sprite/sound references used by plugin SDK calls and catalog cards.
 - `plugin-bubble-arbiter.ts`: Priority/coalescing arbiter for transient and pinned plugin bubble slots.
 - `system-metrics-core.ts`: Electron-independent metric/counter types, pure parsers/calculations, network throughput sampler, and stale-while-revalidate cache.

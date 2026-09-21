@@ -24,6 +24,7 @@ import { normalizeAssistantResult, PluginAssistantCapabilityError, validateAssis
 import type { PluginStateRecord, PluginStateStore } from "./plugin-state.js";
 import { classifyPluginError } from "./plugin-diagnostics.js";
 import { normalizeNetHeaders, safeHttpFetch, safeHttpStream, validateNetOptions } from "./plugin-sdk-network.js";
+import type { PluginSessionDescriptor, PluginSessionEvent, PluginSessionUpdate, SessionStopReason as PluginSessionStopReason } from "./plugin-session-descriptor.js";
 
 // ---------------------------------------------------------------------------
 // Public bridge types
@@ -127,6 +128,12 @@ export type PluginAiRequest = { system?: string; messages: Array<{ role: "user" 
 export type PluginAiResult = { text: string; toolCalls?: Array<{ name: string; input: Record<string, unknown> }> };
 export type PluginOauthTokens = { accessToken: string; refreshToken?: string; expiresAt?: number };
 export interface PluginPanelHostHandle { readonly id: string; show(): Promise<void>; hide(): Promise<void>; postMessage(msg: unknown): Promise<void>; close(): Promise<void> }
+
+/** Host handle for the practice session overlay (§7.4). */
+export interface PluginSessionHostHandle {
+  update(patch: PluginSessionUpdate): Promise<void>;
+  close(): Promise<void>;
+}
 export type PluginDeliveryDescriptor = { key: string; courier: { kind: "sprite"; name: string }; title: string; detail: string; expiresAt: number };
 export type PluginDeliveryDismissReason = "click" | "manual" | "expired" | "plugin-stopped";
 export interface PluginDeliveryHostHandle { dismiss(): void; onDismiss(handler: (reason: PluginDeliveryDismissReason) => void): void }
@@ -173,6 +180,9 @@ export interface PluginHostCapabilities {
   delivery: {
     register(pluginId: string, descriptor: PluginDeliveryDescriptor): Promise<PluginDeliveryHostHandle>;
     teardown(pluginId: string): void;
+  };
+  session: {
+    open(opts: { pluginId: string; descriptor: PluginSessionDescriptor; callbacks: { onEvent: (event: PluginSessionEvent) => void; onClosed?: (reason: PluginSessionStopReason) => void } }): Promise<PluginSessionHostHandle>;
   };
   secrets: {
     get(pluginId: string, key: string): Promise<string | undefined>;
@@ -273,6 +283,7 @@ export function createDefaultPluginHostCapabilities(petApi: PluginPetApi): Plugi
     notify: async () => undefined,
     panels: { open: unavailable("panels.open") },
     delivery: { register: unavailable("delivery.register"), teardown: () => undefined },
+    session: { open: unavailable("session.open") },
     secrets: (() => {
       const store = new Map<string, string>();
       return {
@@ -1080,6 +1091,8 @@ export class PluginSdkBridge {
     this.#capabilities.delivery.teardown(id);
     for (const panel of state.panels.values()) { void panel.close().catch(() => undefined); }
     state.panels.clear();
+    for (const slot of state.sessions.values()) { void slot.host.close().catch(() => undefined); }
+    state.sessions.clear();
     for (const petHandleId of state.spawnedPets) { void this.#capabilities.pets.close(id, petHandleId).catch(() => undefined); }
     state.spawnedPets.clear();
     state.pickedFiles.clear();
@@ -1095,7 +1108,7 @@ export class PluginSdkBridge {
       state = {
         commands: new Map(), assistantCapabilities: new Map(), menuItems: [], menuHandlers: new Set(), schedules: new Map(), configListeners: new Set(),
         storageSubscriptions: new Map(), busSubscriptions: new Map(), eventSubscriptions: new Map(), tickSubscriptions: new Map(),
-        bubbles: new Map(), deliveries: new Map(), panels: new Map(), spawnedPets: new Set(), pickedFiles: new Set(), userCommandDepth: 0,
+        bubbles: new Map(), deliveries: new Map(), panels: new Map(), sessions: new Map(), spawnedPets: new Set(), pickedFiles: new Set(), userCommandDepth: 0,
         petWindow: new WindowCounter(), logWindow: new WindowCounter(), httpWindow: new WindowCounter(), busWindow: new WindowCounter(),
         audioWindow: new WindowCounter(), notifyWindow: new WindowCounter(), toastWindow: new WindowCounter(), deliveryWindow: new WindowCounter(), aiWindow: new WindowCounter(), voiceWindow: new WindowCounter(),
       };
