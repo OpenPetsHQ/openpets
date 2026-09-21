@@ -330,11 +330,27 @@ export interface OpenPetsBreathPattern {
   cycles?: number | null;
 }
 
-/** One structured section of the session Info sheet. */
+/** A titled card inside an Info section (mechanism, research finding, tip). */
+export interface OpenPetsSessionInfoCard {
+  title: string;
+  body: string;
+  /** Optional https link (e.g. the study the card summarizes). */
+  url?: string;
+}
+
+/**
+ * One structured section of the session Info window. At least one of `body`,
+ * `items`, or `cards` must be present; they may be combined (e.g. a lead
+ * paragraph followed by cards).
+ */
 export interface OpenPetsSessionInfoSection {
   heading: string;
   /** Plain-text body; blank lines separate paragraphs. */
-  body: string;
+  body?: string;
+  /** Bullet list (rendered as a checklist), 1–8 entries. */
+  items?: string[];
+  /** Titled cards, 1–6 entries. */
+  cards?: OpenPetsSessionInfoCard[];
 }
 
 /** A citation listed at the end of the Info sheet. */
@@ -345,7 +361,10 @@ export interface OpenPetsSessionCitation {
   url?: string;
 }
 
-/** On-demand knowledge layer for the current technique. */
+/**
+ * On-demand knowledge layer for the current technique, rendered by the host
+ * as a dedicated Info window (opened from the session overlay's Info button).
+ */
 export interface OpenPetsSessionInfo {
   /** Short lead paragraph. */
   intro?: string;
@@ -356,6 +375,8 @@ export interface OpenPetsSessionInfo {
   disclaimer?: string;
   /** Product attribution link rendered as a real URL (https only). */
   site?: { label: string; url: string };
+  /** Manifest-declared SVG shown centered in the Info window header. */
+  logo?: OpenPetsAssetRef;
 }
 
 /**
@@ -398,6 +419,12 @@ export interface OpenPetsSessionHandle {
   readonly id: string;
   /** Replace the selected pattern, the pattern list, or the Info content. */
   update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
+  /** Pause the running phase clock (no-op unless a run is active). */
+  pause(): Promise<void>;
+  /** Resume a paused run (no-op unless paused). */
+  resume(): Promise<void>;
+  /** End the current run and return the overlay to its idle state. */
+  stop(): Promise<void>;
   /** Close the overlay (emits a final `stopped` event when a run was active). */
   close(): Promise<void>;
   onEvent(handler: (event: OpenPetsSessionEvent) => void): void;

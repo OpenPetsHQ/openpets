@@ -8,5 +8,10 @@
   "icon": "heart",
   "sdkVersion": "3.0.0",
   "entry": "index.js",
-  "permissions": ["ui:session", "commands", "storage"]
+  "assets": {
+    "svgs": {
+      "logo": "assets/logo.svg"
+    }
+  },
+  "permissions": ["ui:session", "commands"]
 }

@@ -1,8 +1,8 @@
-import type { OpenPetsJavascriptPluginManifest, PluginPermission } from "./plugin-manifest.js";
+import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermission } from "./plugin-manifest.js";
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
-import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent } from "./plugin-session-descriptor.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -15,6 +15,7 @@ export function createPluginUiApi(options: {
   readonly guardCallback: <A extends unknown[]>(fn: (...args: A) => unknown) => ((...args: A) => void);
   readonly validateBubbleSpec: (spec: unknown, forUpdate?: boolean) => PluginBubbleDescriptor;
   readonly validatePetHandleId: (value: unknown) => string;
+  readonly resolveAssetRef: (ref: unknown, kinds: readonly PluginAssetKind[]) => { path: string };
   readonly resolvePanelPath: (name: string) => string;
   readonly normalizeJson: (value: unknown, maxBytes: number, label: string) => unknown;
   readonly validateMenuItems: (value: unknown) => PluginMenuItem[];
@@ -24,7 +25,7 @@ export function createPluginUiApi(options: {
   readonly onError: (reason: string) => void;
   readonly quotas: { petActionsPerMinute: number; activeBubbles: number; notifyPerMinute: number; toastPerMinute: number; activePanels: number; deliveriesPerMinute: number; busPayloadBytes: number };
 }) {
-  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
+  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
 
   const showBubble = async (petHandleId: string, spec: unknown): Promise<{ bubbleId: string }> => {
     requirePermission("pet:speak");
@@ -95,10 +96,19 @@ export function createPluginUiApi(options: {
     return { deliveryId };
   };
 
+  /** Swap the raw manifest logo ref for its resolved on-disk SVG path. */
+  const resolveSessionInfoLogo = <T extends { info?: PluginSessionInfo }>(validated: T): T => {
+    const info = validated.info;
+    if (!info?.logo) return validated;
+    const { logo, ...rest } = info;
+    const resolved = resolveAssetRef(logo, ["svgs"]);
+    return { ...validated, info: { ...rest, logoSvgPath: resolved.path } };
+  };
+
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
-    const descriptor = validateSessionDescriptor(spec);
+    const descriptor = resolveSessionInfoLogo(validateSessionDescriptor(spec));
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
     slot.host = await capabilities.session.open({
@@ -206,8 +216,11 @@ export function createPluginUiApi(options: {
       session: openSession,
       sessionUpdate: async (sessionId: unknown, patch: unknown) => {
         const slot = requireSession(sessionId);
-        await slot.host.update(validateSessionUpdate(patch));
+        await slot.host.update(resolveSessionInfoLogo(validateSessionUpdate(patch)));
       },
+      sessionPause: async (sessionId: unknown) => { await requireSession(sessionId).host.pause(); },
+      sessionResume: async (sessionId: unknown) => { await requireSession(sessionId).host.resume(); },
+      sessionStop: async (sessionId: unknown) => { await requireSession(sessionId).host.stop(); },
       sessionClose: async (sessionId: unknown) => {
         const slot = state.sessions.get(String(sessionId));
         if (slot && !slot.closed) await slot.host.close().catch(() => undefined);

@@ -522,14 +522,28 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       session: async (spec) => {
         requirePermission("ui:session");
         const id = newId("session");
+        const patternId = spec.patternId ?? spec.patterns[0]?.id ?? "";
         let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
+        // Auto-start delivers on subscription so plugins that attach their
+        // handler right after `await ctx.ui.session(...)` never miss it.
+        let pendingStart = spec.autoStart !== false;
+        const cycle = 0;
         return {
           id,
           update: async (patch) => { void patch; },
+          pause: async () => { onEvent?.({ type: "paused", patternId, cycle }); },
+          resume: async () => { onEvent?.({ type: "resumed", patternId, cycle }); },
+          stop: async () => { onEvent?.({ type: "stopped", reason: "user", patternId, cycle }); },
           close: async () => {
-            onEvent?.({ type: "stopped", reason: "user", patternId: spec.patternId ?? spec.patterns[0]?.id ?? "", cycle: 0 });
+            onEvent?.({ type: "stopped", reason: "user", patternId, cycle });
           },
-          onEvent: (handler) => { onEvent = handler; },
+          onEvent: (handler) => {
+            onEvent = handler;
+            if (pendingStart) {
+              pendingStart = false;
+              handler({ type: "started", patternId });
+            }
+          },
         };
       },
       menu: {

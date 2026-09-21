@@ -2326,12 +2326,38 @@ const installDefaultPetSession = () => {
   const ORB_CARD_GAP = 18;
   const CARD_BOTTOM_INSET = 14;
 
-  const PHASE_PRESENTATION = {
-    in: { name: "Inhale", guidance: "Breathe in slowly", color: [0.42, 0.68, 1.0], css: "#7ab3ff" },
-    hold: { name: "Hold", guidance: "Hold gently", color: [0.72, 0.62, 1.0], css: "#b7a4ff" },
-    out: { name: "Exhale", guidance: "Breathe out slowly", color: [0.30, 0.86, 0.78], css: "#4fdcc5" },
+  const PHASE_STYLE = {
+    in: { nameKey: "inhale", guidanceKey: "inhaleGuidance", color: [0.42, 0.68, 1.0], css: "#7ab3ff" },
+    hold: { nameKey: "hold", guidanceKey: "holdGuidance", color: [0.72, 0.62, 1.0], css: "#b7a4ff" },
+    out: { nameKey: "exhale", guidanceKey: "exhaleGuidance", color: [0.30, 0.86, 0.78], css: "#4fdcc5" },
   };
   const IDLE_COLOR = [0.45, 0.62, 0.98];
+
+  // Host-localized chrome strings arrive with the descriptor; English is the
+  // in-place fallback so a missing key never renders blank.
+  const chromeFallback = {
+    inhale: "Inhale", hold: "Hold", exhale: "Exhale",
+    inhaleGuidance: "Breathe in slowly", holdGuidance: "Hold gently", exhaleGuidance: "Breathe out slowly",
+    paused: "Paused", pausedGuidance: "Resume when you're ready",
+    complete: "Complete", completeGuidance: "Nice work. Take a moment.",
+    idleGuidance: "Press start when you're ready",
+    pause: "Pause", resume: "Resume", start: "Start", done: "Done", restart: "Restart", again: "Again",
+    remaining: "remaining", elapsed: "elapsed", breathPace: "breath pace",
+    cyclesCount: "{count} cycles", cycleN: "cycle {n}", untilStopped: "until stopped",
+    footerBreathing: "breathing with {name}", footerComplete: "nicely done", footerReady: "ready when you are",
+    close: "Close", about: "About this technique",
+  };
+  let chromeStrings = { ...chromeFallback };
+
+  const chromeText = (key, vars) => {
+    let text = typeof chromeStrings[key] === "string" && chromeStrings[key] ? chromeStrings[key] : chromeFallback[key] ?? "";
+    if (vars) {
+      for (const [name, value] of Object.entries(vars)) {
+        text = text.split(`{${name}}`).join(String(value));
+      }
+    }
+    return text;
+  };
 
   let descriptor = null;
   let runState = "idle"; // idle | active | paused | complete
@@ -2345,6 +2371,7 @@ const installDefaultPetSession = () => {
   let breathValue = 0;
   let currentColor = IDLE_COLOR.slice();
   let targetColor = IDLE_COLOR.slice();
+  let currentPhaseCss = "#7ab3ff";
   let lastCountdownText = "";
 
   const sendSessionEvent = (payload) => {
@@ -2420,7 +2447,8 @@ const installDefaultPetSession = () => {
   topbar.className = "session-topbar";
   const topbarIcon = document.createElement("div");
   topbarIcon.className = "session-topbar-icon";
-  topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>';
+  // lucide:leaf (via better-icons/Iconify)
+  topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>';
   const topbarTitles = document.createElement("div");
   topbarTitles.className = "session-topbar-titles";
   const topbarTitle = document.createElement("div");
@@ -2446,7 +2474,8 @@ const installDefaultPetSession = () => {
   closeBtn.className = "session-close-btn";
   closeBtn.setAttribute("aria-label", "Close session");
   closeBtn.setAttribute("title", "Close (Esc)");
-  closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  // lucide:x (via better-icons/Iconify)
+  closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
   topbar.appendChild(topbarIcon);
   topbar.appendChild(topbarTitles);
   topbar.appendChild(phaseCount);
@@ -2455,27 +2484,85 @@ const installDefaultPetSession = () => {
 
   const card = document.createElement("div");
   card.className = "session-card";
-  const cardHeader = document.createElement("div");
-  cardHeader.className = "session-card-header";
-  const cardPattern = document.createElement("div");
-  cardPattern.className = "session-card-pattern";
-  const cardCycles = document.createElement("div");
-  cardCycles.className = "session-card-cycles";
-  cardHeader.appendChild(cardPattern);
-  cardHeader.appendChild(cardCycles);
-  card.appendChild(cardHeader);
-  const cycleBar = document.createElement("div");
-  cycleBar.className = "session-cycle-bar";
-  const cycleFill = document.createElement("div");
-  cycleFill.className = "session-cycle-fill";
-  cycleBar.appendChild(cycleFill);
-  card.appendChild(cycleBar);
+
+  // Row 1: cycle dots (or a slim bar for long/until-stopped runs) + count.
+  const dotsRow = document.createElement("div");
+  dotsRow.className = "session-dots-row";
+  const dotsBox = document.createElement("div");
+  dotsBox.className = "session-dots";
+  const dotsBar = document.createElement("div");
+  dotsBar.className = "session-dots-bar";
+  const dotsBarFill = document.createElement("div");
+  dotsBarFill.className = "session-dots-bar-fill";
+  dotsBar.appendChild(dotsBarFill);
+  const dotsCount = document.createElement("div");
+  dotsCount.className = "session-dots-count";
+  dotsRow.appendChild(dotsBox);
+  dotsRow.appendChild(dotsBar);
+  dotsRow.appendChild(dotsCount);
+  card.appendChild(dotsRow);
+
+  // Row 2: session timer · animated lungs · breath pace.
+  const tiles = document.createElement("div");
+  tiles.className = "session-tiles";
+  const makeTile = (extraClass) => {
+    const tile = document.createElement("div");
+    tile.className = `session-tile${extraClass ? ` ${extraClass}` : ""}`;
+    return tile;
+  };
+  const timerTile = makeTile("");
+  const timerIcon = document.createElement("div");
+  timerIcon.className = "session-tile-icon";
+  // lucide:timer (via better-icons/Iconify)
+  timerIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M10 2h4m-2 12l3-3"/><circle cx="12" cy="14" r="8"/></svg>';
+  const timerContent = document.createElement("div");
+  timerContent.className = "session-tile-content";
+  const timerValue = document.createElement("div");
+  timerValue.className = "session-tile-value";
+  const timerLabel = document.createElement("div");
+  timerLabel.className = "session-tile-label";
+  timerLabel.textContent = "remaining";
+  timerContent.appendChild(timerValue);
+  timerContent.appendChild(timerLabel);
+  timerTile.appendChild(timerIcon);
+  timerTile.appendChild(timerContent);
+
+  const lungsTile = makeTile("is-middle");
+  const lungsIcon = document.createElement("div");
+  lungsIcon.className = "session-lungs";
+  lungsIcon.setAttribute("aria-hidden", "true");
+  // tabler:lungs (via better-icons/Iconify)
+  lungsIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" aria-hidden="true"><path d="M6.081 20C7.693 20 9 18.665 9 17.02V7.257C9 6.563 8.448 6 7.768 6c-.205 0-.405.052-.584.15l-.13.083C5.594 7.292 4.622 8.88 3.65 12.057q-.63 2.055-.648 4.775c-.012 1.675 1.261 3.054 2.877 3.161zm11.839 0C16.307 20 15 18.665 15 17.02V7.257C15 6.563 15.552 6 16.233 6c.204 0 .405.052.584.15l.13.083c1.46 1.059 2.432 2.647 3.405 5.824q.63 2.055.648 4.775c.012 1.675-1.261 3.054-2.878 3.161zM9 12a3 3 0 0 0 3-3a3 3 0 0 0 3 3m-3-8v5"/></svg>';
+  lungsTile.appendChild(lungsIcon);
+
+  const paceTile = makeTile("");
+  const paceIcon = document.createElement("div");
+  paceIcon.className = "session-tile-icon";
+  // lucide:audio-waveform (via better-icons/Iconify)
+  paceIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/></svg>';
+  const paceContent = document.createElement("div");
+  paceContent.className = "session-tile-content";
+  const paceValue = document.createElement("div");
+  paceValue.className = "session-tile-value";
+  const paceLabel = document.createElement("div");
+  paceLabel.className = "session-tile-label";
+  paceLabel.textContent = "breath pace";
+  paceContent.appendChild(paceValue);
+  paceContent.appendChild(paceLabel);
+  paceTile.appendChild(paceIcon);
+  paceTile.appendChild(paceContent);
+
+  tiles.appendChild(timerTile);
+  tiles.appendChild(lungsTile);
+  tiles.appendChild(paceTile);
+  card.appendChild(tiles);
+
+  // Row 3: the phase segment track.
   const steps = document.createElement("div");
   steps.className = "session-steps";
   card.appendChild(steps);
-  const chips = document.createElement("div");
-  chips.className = "session-chips";
-  card.appendChild(chips);
+
+  // Row 4: Info · Restart · Pause/Resume/Done.
   const controls = document.createElement("div");
   controls.className = "session-controls";
   const infoBtn = document.createElement("button");
@@ -2483,41 +2570,28 @@ const installDefaultPetSession = () => {
   infoBtn.className = "session-info-btn";
   infoBtn.setAttribute("aria-label", "About this technique");
   infoBtn.setAttribute("title", "About this technique");
-  infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  // lucide:info (via better-icons/Iconify)
+  infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>';
   const controlsSpacer = document.createElement("div");
   controlsSpacer.className = "session-controls-spacer";
-  const stopBtn = document.createElement("button");
-  stopBtn.type = "button";
-  stopBtn.className = "session-ghost-btn";
-  stopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg><span>Stop</span>';
+  const restartBtn = document.createElement("button");
+  restartBtn.type = "button";
+  restartBtn.className = "session-ghost-btn";
   const primaryBtn = document.createElement("button");
   primaryBtn.type = "button";
   primaryBtn.className = "session-primary-btn";
   controls.appendChild(infoBtn);
   controls.appendChild(controlsSpacer);
-  controls.appendChild(stopBtn);
+  controls.appendChild(restartBtn);
   controls.appendChild(primaryBtn);
   card.appendChild(controls);
-  root.appendChild(card);
 
-  const infoSheet = document.createElement("div");
-  infoSheet.className = "session-info-sheet";
-  const infoHeader = document.createElement("div");
-  infoHeader.className = "session-info-header";
-  const infoTitle = document.createElement("div");
-  infoTitle.className = "session-info-title";
-  const infoCloseBtn = document.createElement("button");
-  infoCloseBtn.type = "button";
-  infoCloseBtn.className = "session-close-btn";
-  infoCloseBtn.setAttribute("aria-label", "Close info");
-  infoCloseBtn.innerHTML = closeBtn.innerHTML;
-  infoHeader.appendChild(infoTitle);
-  infoHeader.appendChild(infoCloseBtn);
-  const infoBody = document.createElement("div");
-  infoBody.className = "session-info-body";
-  infoSheet.appendChild(infoHeader);
-  infoSheet.appendChild(infoBody);
-  root.appendChild(infoSheet);
+  // Footer: paws + companion line.
+  const footer = document.createElement("div");
+  footer.className = "session-footer";
+  card.appendChild(footer);
+
+  root.appendChild(card);
 
   document.body.appendChild(root);
 
@@ -2781,10 +2855,10 @@ const installDefaultPetSession = () => {
   // --- Phase clock ---------------------------------------------------------
 
   const phasePresentation = (phase) => {
-    const base = PHASE_PRESENTATION[phase.kind] ?? PHASE_PRESENTATION.in;
+    const base = PHASE_STYLE[phase.kind] ?? PHASE_STYLE.in;
     return {
-      name: base.name,
-      guidance: typeof phase.label === "string" && phase.label ? phase.label : base.guidance,
+      name: chromeText(base.nameKey),
+      guidance: typeof phase.label === "string" && phase.label ? phase.label : chromeText(base.guidanceKey),
       color: base.color,
     };
   };
@@ -2829,6 +2903,7 @@ const installDefaultPetSession = () => {
           renderStatics();
           return;
         }
+        renderProgressMeta();
       }
       renderPhaseText();
     }
@@ -2840,25 +2915,27 @@ const installDefaultPetSession = () => {
     const pattern = selectedPattern();
     if (!descriptor || !pattern) return;
     if (runState === "complete") {
-      phaseName.textContent = "Complete";
-      phaseGuidance.textContent = "Nice work. Take a moment.";
+      phaseName.textContent = chromeText("complete");
+      phaseGuidance.textContent = chromeText("completeGuidance");
       phaseCount.style.display = "none";
       updateStepStates();
       return;
     }
     if (runState === "idle") {
       phaseName.textContent = descriptor.title;
-      phaseGuidance.textContent = descriptor.subtitle ?? "Press start when you're ready";
+      phaseGuidance.textContent = descriptor.subtitle ?? chromeText("idleGuidance");
       phaseCount.style.display = "none";
       updateStepStates();
       return;
     }
     const phase = pattern.phases[phaseIndex];
     const presentation = phasePresentation(phase);
-    phaseName.textContent = runState === "paused" ? "Paused" : presentation.name;
-    phaseGuidance.textContent = runState === "paused" ? "Resume when you're ready" : presentation.guidance;
+    phaseName.textContent = runState === "paused" ? chromeText("paused") : presentation.name;
+    phaseGuidance.textContent = runState === "paused" ? chromeText("pausedGuidance") : presentation.guidance;
     phaseCount.style.display = runState === "paused" ? "none" : "";
     targetColor = presentation.color;
+    currentPhaseCss = PHASE_STYLE[phase.kind]?.css ?? "#7ab3ff";
+    document.documentElement.style.setProperty("--session-phase-color", currentPhaseCss);
     updateStepStates();
   };
 
@@ -2871,30 +2948,50 @@ const installDefaultPetSession = () => {
     }
   };
 
+  // Control glyphs from better-icons/Iconify: lucide:pause, lucide:play,
+  // lucide:check, lucide:rotate-ccw. Pause/play are filled so the primary
+  // pill glyph stays solid at 13px.
+  const pauseSvg = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><rect width="5" height="18" x="14" y="3" rx="1"/><rect width="5" height="18" x="5" y="3" rx="1"/></svg>';
+  const playSvg = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>';
+  const doneSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+  const restartSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+
+  const escapeChromeText = (key, vars) => escapeHtml(chromeText(key, vars));
+
   const primaryButtonContent = () => {
-    if (runState === "active") {
-      return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.4"/><rect x="14" y="5" width="4" height="14" rx="1.4"/></svg><span>Pause</span>';
-    }
-    if (runState === "paused") {
-      return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg><span>Resume</span>';
-    }
-    if (runState === "complete") {
-      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v5h5"/></svg><span>Restart</span>';
-    }
-    return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg><span>Start</span>';
+    if (runState === "active") return `${pauseSvg}<span>${escapeChromeText("pause")}</span>`;
+    if (runState === "paused") return `${playSvg}<span>${escapeChromeText("resume")}</span>`;
+    if (runState === "complete") return `${doneSvg}<span>${escapeChromeText("done")}</span>`;
+    return `${playSvg}<span>${escapeChromeText("start")}</span>`;
   };
+
+  const petCompanionName = () => {
+    const name = document.documentElement.dataset.petDisplayName;
+    return typeof name === "string" && name.trim() ? name.trim() : "your pet";
+  };
+
+  const cycleSeconds = (pattern) => pattern.phases.reduce((sum, phase) => sum + phase.seconds, 0);
+
+  const formatClock = (totalSeconds) => {
+    const clamped = Math.max(0, Math.round(totalSeconds));
+    const minutes = Math.floor(clamped / 60);
+    const seconds = clamped % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
+  const formatPace = (pattern) => {
+    const seconds = cycleSeconds(pattern);
+    if (seconds <= 0) return "";
+    const perMinute = 60 / seconds;
+    const rounded = Math.round(perMinute * 10) / 10;
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)} / min`;
+  };
+
+  const maxCycleDots = 16;
 
   const renderStatics = () => {
     const pattern = selectedPattern();
     if (!descriptor || !pattern) return;
-
-    cardPattern.textContent = pattern.name;
-    if (pattern.hint) {
-      const hint = document.createElement("span");
-      hint.className = "pattern-hint";
-      hint.textContent = pattern.hint;
-      cardPattern.appendChild(hint);
-    }
 
     steps.textContent = "";
     for (const phase of pattern.phases) {
@@ -2914,122 +3011,73 @@ const installDefaultPetSession = () => {
       steps.appendChild(step);
     }
 
-    chips.textContent = "";
-    chips.style.display = descriptor.patterns.length > 1 ? "" : "none";
-    for (const candidate of descriptor.patterns) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "session-chip";
-      chip.classList.toggle("is-active", candidate.id === pattern.id);
-      chip.textContent = candidate.name;
-      if (candidate.hint) chip.title = candidate.hint;
-      chip.addEventListener("click", () => {
-        if (!descriptor || candidate.id === selectedPatternId) return;
-        selectPattern(candidate.id);
-        sendSessionEvent({ type: "patternChanged", patternId: candidate.id });
-      });
-      chips.appendChild(chip);
+    // Cycle dots for short finite runs; a slim bar otherwise.
+    const useDots = pattern.cycles !== null && pattern.cycles <= maxCycleDots;
+    dotsBox.style.display = useDots ? "" : "none";
+    dotsBar.style.display = useDots ? "none" : "";
+    if (useDots) {
+      dotsBox.textContent = "";
+      for (let index = 0; index < pattern.cycles; index += 1) {
+        const dot = document.createElement("span");
+        dot.className = "session-dot";
+        dotsBox.appendChild(dot);
+      }
     }
 
+    paceValue.textContent = formatPace(pattern);
+    paceLabel.textContent = chromeText("breathPace");
+    closeBtn.setAttribute("aria-label", chromeText("close"));
+    closeBtn.setAttribute("title", `${chromeText("close")} (Esc)`);
+    infoBtn.setAttribute("aria-label", chromeText("about"));
+    infoBtn.setAttribute("title", chromeText("about"));
     card.classList.toggle("is-complete", runState === "complete");
     primaryBtn.innerHTML = primaryButtonContent();
-    stopBtn.style.display = runState === "active" || runState === "paused" ? "" : "none";
+    restartBtn.innerHTML = `${restartSvg}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
+    restartBtn.style.display = runState === "idle" ? "none" : "";
     infoBtn.style.display = descriptor.info ? "" : "none";
-    renderCycles();
+    renderProgressMeta();
     renderPhaseText();
-    renderInfoSheet();
-    // Card contents can change its height (chips, complete note), and the orb
-    // stack is anchored to the card — re-measure after this render settles.
+    // Card contents can change its height across states, and the orb stack is
+    // anchored to the card — re-measure after this render settles.
     scheduleSessionGeometry();
   };
 
-  const renderCycles = () => {
+  /** Cycle dots/bar state, the count label, and the paw footer line. */
+  const renderProgressMeta = () => {
     const pattern = selectedPattern();
     if (!pattern) return;
-    const displayCycle = runState === "complete"
-      ? (pattern.cycles ?? cycleIndex)
-      : Math.min(cycleIndex + 1, pattern.cycles ?? Number.MAX_SAFE_INTEGER);
+
     if (pattern.cycles !== null) {
-      cardCycles.innerHTML = "";
-      const current = document.createElement("span");
-      current.className = "cycles-current";
-      current.textContent = String(runState === "idle" ? pattern.cycles : displayCycle);
-      cardCycles.appendChild(current);
-      cardCycles.appendChild(document.createTextNode(runState === "idle" ? " cycles" : ` / ${pattern.cycles}`));
+      dotsCount.innerHTML = "";
+      if (runState === "idle") {
+        dotsCount.textContent = chromeText("cyclesCount", { count: pattern.cycles });
+      } else {
+        const displayCycle = runState === "complete" ? pattern.cycles : Math.min(cycleIndex + 1, pattern.cycles);
+        const current = document.createElement("span");
+        current.className = "count-current";
+        current.textContent = String(displayCycle);
+        dotsCount.appendChild(current);
+        dotsCount.appendChild(document.createTextNode(` / ${pattern.cycles}`));
+      }
     } else {
-      cardCycles.textContent = runState === "idle" ? "until stopped" : `cycle ${cycleIndex + 1}`;
+      dotsCount.textContent = runState === "idle" ? chromeText("untilStopped") : chromeText("cycleN", { n: cycleIndex + 1 });
     }
+
+    const dots = dotsBox.children;
+    for (let index = 0; index < dots.length; index += 1) {
+      const done = runState === "complete" || index < cycleIndex;
+      const isCurrent = runState !== "complete" && runState !== "idle" && index === cycleIndex;
+      dots[index].classList.toggle("is-done", done);
+      dots[index].classList.toggle("is-current", isCurrent);
+    }
+
+    if (runState === "complete") footer.textContent = `🐾  ${chromeText("footerComplete")}  🐾`;
+    else if (runState === "idle") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
+    else footer.textContent = `🐾  ${chromeText("footerBreathing", { name: petCompanionName() })}  🐾`;
   };
 
   const formatSeconds = (seconds) => {
     return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}s`;
-  };
-
-  const renderInfoSheet = () => {
-    infoBody.textContent = "";
-    if (!descriptor?.info) return;
-    infoTitle.textContent = `About · ${selectedPattern()?.name ?? descriptor.title}`;
-    const info = descriptor.info;
-    if (info.intro) {
-      const intro = document.createElement("p");
-      intro.className = "session-info-intro";
-      intro.textContent = info.intro;
-      infoBody.appendChild(intro);
-    }
-    for (const section of info.sections) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "session-info-section";
-      const heading = document.createElement("h3");
-      heading.className = "session-info-heading";
-      heading.textContent = section.heading;
-      const body = document.createElement("p");
-      body.className = "session-info-text";
-      body.textContent = section.body;
-      wrapper.appendChild(heading);
-      wrapper.appendChild(body);
-      infoBody.appendChild(wrapper);
-    }
-    if (info.citations && info.citations.length > 0) {
-      const citations = document.createElement("div");
-      citations.className = "session-info-citations";
-      for (const citation of info.citations) {
-        const row = document.createElement("div");
-        row.className = "session-info-citation";
-        const label = document.createElement("span");
-        label.textContent = citation.label;
-        row.appendChild(label);
-        if (citation.url) {
-          const link = document.createElement("button");
-          link.type = "button";
-          link.className = "session-info-citation-link";
-          link.textContent = "Open";
-          link.addEventListener("click", () => ipcRenderer.send("openpets:session-overlay-open-url", citation.url));
-          row.appendChild(link);
-        }
-        citations.appendChild(row);
-      }
-      infoBody.appendChild(citations);
-    }
-    if (info.disclaimer) {
-      const disclaimer = document.createElement("p");
-      disclaimer.className = "session-info-disclaimer";
-      disclaimer.textContent = info.disclaimer;
-      infoBody.appendChild(disclaimer);
-    }
-    if (info.site) {
-      const site = document.createElement("div");
-      site.className = "session-info-site";
-      const label = document.createElement("span");
-      label.textContent = info.site.url.replace(/^https:\/\//, "").replace(/\/$/, "");
-      const link = document.createElement("button");
-      link.type = "button";
-      link.className = "session-info-site-link";
-      link.textContent = info.site.label;
-      link.addEventListener("click", () => ipcRenderer.send("openpets:session-overlay-open-url", info.site.url));
-      site.appendChild(link);
-      site.appendChild(label);
-      infoBody.appendChild(site);
-    }
   };
 
   // --- Frame loop ----------------------------------------------------------
@@ -3071,12 +3119,30 @@ const installDefaultPetSession = () => {
     ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE * (1 - ringProgressValue)));
     ringDotGroup.setAttribute("transform", `rotate(${ringProgressValue * 360} ${RING_SIZE / 2} ${RING_SIZE / 2})`);
 
-    if (pattern && pattern.cycles !== null) {
-      const cycleProgress = runState === "complete" ? 1 : (cycleIndex + (runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress))) / pattern.cycles;
-      cycleFill.style.width = `${Math.min(100, cycleProgress * 100)}%`;
-    } else {
-      cycleFill.style.width = runState === "active" ? `${cycleProgressWithinCycle(pattern, phaseProgress) * 100}%` : "0%";
+    // Session timer tile (whole-session remaining, or elapsed when endless)
+    // plus the slim per-cycle bar used for long/until-stopped runs.
+    if (pattern) {
+      const secondsPerCycle = cycleSeconds(pattern);
+      const withinCycleSeconds = runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress) * secondsPerCycle;
+      const elapsedSeconds = cycleIndex * secondsPerCycle + withinCycleSeconds;
+      let timerText;
+      if (pattern.cycles !== null) {
+        const totalSeconds = pattern.cycles * secondsPerCycle;
+        timerText = formatClock(runState === "complete" ? 0 : totalSeconds - elapsedSeconds);
+        timerLabel.textContent = chromeText("remaining");
+      } else {
+        timerText = formatClock(elapsedSeconds);
+        timerLabel.textContent = chromeText("elapsed");
+      }
+      if (timerValue.textContent !== timerText) timerValue.textContent = timerText;
+      if (dotsBar.style.display !== "none") {
+        dotsBarFill.style.width = `${Math.min(100, (withinCycleSeconds / Math.max(1, secondsPerCycle)) * 100)}%`;
+      }
     }
+
+    // The lungs tile breathes with the orb and takes the phase tint.
+    lungsIcon.style.transform = `scale(${(0.88 + 0.24 * breathValue).toFixed(3)})`;
+    lungsIcon.style.color = runState === "active" ? currentPhaseCss : "";
 
     if (phase) {
       const fills = steps.querySelectorAll(".session-step-fill");
@@ -3166,28 +3232,22 @@ const installDefaultPetSession = () => {
       runState = "active";
       sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
       renderStatics();
+    } else if (runState === "complete") {
+      dismissOverlay();
     } else {
       startRun();
     }
   });
 
-  stopBtn.addEventListener("click", () => {
-    const pattern = selectedPattern();
-    if (!pattern || (runState !== "active" && runState !== "paused")) return;
-    sendSessionEvent({ type: "stopped", patternId: pattern.id, cycle: currentCycleNumber() });
-    runState = "idle";
-    resetClock();
-    renderStatics();
+  restartBtn.addEventListener("click", () => {
+    if (!selectedPattern() || runState === "idle") return;
+    startRun();
   });
 
   infoBtn.addEventListener("click", () => {
     if (!descriptor?.info) return;
-    infoSheet.classList.add("is-open");
+    // The host opens the dedicated Info window in response.
     sendSessionEvent({ type: "infoOpened" });
-  });
-
-  infoCloseBtn.addEventListener("click", () => {
-    infoSheet.classList.remove("is-open");
   });
 
   const dismissOverlay = () => {
@@ -3198,21 +3258,20 @@ const installDefaultPetSession = () => {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !descriptor) return;
-    if (infoSheet.classList.contains("is-open")) {
-      infoSheet.classList.remove("is-open");
-      return;
-    }
     dismissOverlay();
   });
 
   // --- Descriptor intake ---------------------------------------------------
 
-  const applyDescriptor = (next) => {
+  const applyPayload = (payload) => {
+    const next = payload && typeof payload === "object" ? payload.descriptor : null;
+    if (payload && typeof payload === "object" && payload.chrome && typeof payload.chrome === "object") {
+      chromeStrings = { ...chromeFallback, ...payload.chrome };
+    }
     const previous = descriptor;
     descriptor = next && typeof next === "object" ? next : null;
     if (!descriptor) {
       document.documentElement.dataset.sessionOpen = "false";
-      infoSheet.classList.remove("is-open");
       runState = "idle";
       resetClock();
       stopFrameLoop();
@@ -3234,12 +3293,32 @@ const installDefaultPetSession = () => {
     }
   };
 
-  ipcRenderer.on("openpets:session-overlay", (_event, next) => applyDescriptor(next));
+  ipcRenderer.on("openpets:session-overlay", (_event, payload) => applyPayload(payload));
+
+  // Plugin-driven controls (pet menu commands relayed through the host).
+  ipcRenderer.on("openpets:session-overlay-control", (_event, action) => {
+    const pattern = selectedPattern();
+    if (!descriptor || !pattern) return;
+    if (action === "pause" && runState === "active") {
+      runState = "paused";
+      sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else if (action === "resume" && runState === "paused") {
+      runState = "active";
+      sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else if (action === "stop" && (runState === "active" || runState === "paused")) {
+      sendSessionEvent({ type: "stopped", patternId: pattern.id, cycle: currentCycleNumber() });
+      runState = "idle";
+      resetClock();
+      renderStatics();
+    }
+  });
 
   ipcRenderer
     .invoke("openpets:session-overlay-get")
     .then((existing) => {
-      if (existing && !descriptor) applyDescriptor(existing);
+      if (existing && !descriptor) applyPayload(existing);
     })
     .catch(() => {});
 };

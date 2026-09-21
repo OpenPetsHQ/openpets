@@ -29,14 +29,28 @@ export interface SessionBreathPattern {
   readonly cycles: number | null;
 }
 
+export interface SessionInfoCard {
+  readonly title: string;
+  readonly body: string;
+  readonly url?: string;
+}
+
 export interface SessionInfoSection {
   readonly heading: string;
-  readonly body: string;
+  readonly body?: string;
+  readonly items?: readonly string[];
+  readonly cards?: readonly SessionInfoCard[];
 }
 
 export interface SessionCitation {
   readonly label: string;
   readonly url?: string;
+}
+
+/** Manifest asset reference passed through for host-side resolution. */
+export interface SessionAssetRef {
+  readonly kind: string;
+  readonly name: string;
 }
 
 export interface SessionInfo {
@@ -45,6 +59,10 @@ export interface SessionInfo {
   readonly citations: readonly SessionCitation[];
   readonly disclaimer?: string;
   readonly site?: { readonly label: string; readonly url: string };
+  /** Raw manifest asset ref; the SDK bridge resolves it into `logoSvgPath`. */
+  readonly logo?: SessionAssetRef;
+  /** Absolute path of the resolved, manifest-declared logo SVG. */
+  readonly logoSvgPath?: string;
 }
 
 export interface PluginSessionDescriptor {
@@ -191,18 +209,11 @@ function validatePhase(value: unknown): SessionBreathPhase {
 
 function validateSessionInfo(value: unknown): SessionInfo {
   check(isRecord(value), "Invalid session info.");
-  checkKnownKeys(value, ["intro", "sections", "citations", "disclaimer", "site"], "session info");
+  checkKnownKeys(value, ["intro", "sections", "citations", "disclaimer", "site", "logo"], "session info");
   const intro = value.intro === undefined ? undefined : validateText(value.intro, 1, 600, "session info intro");
   check(Array.isArray(value.sections), "Session info sections must be an array.");
   check(value.sections.length >= 1 && value.sections.length <= maxSections, `Session info sections must contain 1–${maxSections} entries.`);
-  const sections = value.sections.map((section): SessionInfoSection => {
-    check(isRecord(section), "Invalid session info section.");
-    checkKnownKeys(section, ["heading", "body"], "session info section");
-    return {
-      heading: validateLine(section.heading, 1, 60, "session info heading"),
-      body: validateText(section.body, 1, 2_400, "session info body"),
-    };
-  });
+  const sections = value.sections.map((section) => validateInfoSection(section));
 
   let citations: readonly SessionCitation[] = [];
   if (value.citations !== undefined) {
@@ -229,6 +240,14 @@ function validateSessionInfo(value: unknown): SessionInfo {
       url: validateHttpsUrl(value.site.url, "session info site url"),
     };
   }
+  let logo: SessionAssetRef | undefined;
+  if (value.logo !== undefined) {
+    check(isRecord(value.logo), "Invalid session info logo.");
+    checkKnownKeys(value.logo, ["kind", "name"], "session info logo");
+    check(typeof value.logo.kind === "string" && value.logo.kind.length <= 16, "Invalid session info logo kind.");
+    check(typeof value.logo.name === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.logo.name), "Invalid session info logo name.");
+    logo = { kind: value.logo.kind, name: value.logo.name };
+  }
 
   return {
     ...(intro === undefined ? {} : { intro }),
@@ -236,6 +255,46 @@ function validateSessionInfo(value: unknown): SessionInfo {
     citations,
     ...(disclaimer === undefined ? {} : { disclaimer }),
     ...(site === undefined ? {} : { site }),
+    ...(logo === undefined ? {} : { logo }),
+  };
+}
+
+function validateInfoSection(value: unknown): SessionInfoSection {
+  check(isRecord(value), "Invalid session info section.");
+  checkKnownKeys(value, ["heading", "body", "items", "cards"], "session info section");
+  const heading = validateLine(value.heading, 1, 60, "session info heading");
+  const body = value.body === undefined ? undefined : validateText(value.body, 1, 2_400, "session info body");
+
+  let items: readonly string[] | undefined;
+  if (value.items !== undefined) {
+    check(Array.isArray(value.items), "Session info items must be an array.");
+    check(value.items.length >= 1 && value.items.length <= 8, "Session info items must contain 1–8 entries.");
+    items = value.items.map((item) => validateText(item, 1, 200, "session info item"));
+  }
+
+  let cards: readonly SessionInfoCard[] | undefined;
+  if (value.cards !== undefined) {
+    check(Array.isArray(value.cards), "Session info cards must be an array.");
+    check(value.cards.length >= 1 && value.cards.length <= 6, "Session info cards must contain 1–6 entries.");
+    cards = value.cards.map((card): SessionInfoCard => {
+      check(isRecord(card), "Invalid session info card.");
+      checkKnownKeys(card, ["title", "body", "url"], "session info card");
+      const url = card.url === undefined ? undefined : validateHttpsUrl(card.url, "session info card url");
+      return {
+        title: validateLine(card.title, 1, 80, "session info card title"),
+        body: validateText(card.body, 1, 600, "session info card body"),
+        ...(url === undefined ? {} : { url }),
+      };
+    });
+  }
+
+  check(body !== undefined || items !== undefined || cards !== undefined, "Session info section needs a body, items, or cards.");
+
+  return {
+    heading,
+    ...(body === undefined ? {} : { body }),
+    ...(items === undefined ? {} : { items }),
+    ...(cards === undefined ? {} : { cards }),
   };
 }
 

@@ -296,6 +296,59 @@ a first slice.
 
 Newest first.
 
+2026-09-21 — Info window + full plugin realization (goal round).
+  Scope per Alvin: ONLY simple breathing (Calm 4-6) fully realized; guided
+  breathing and other practices come later.
+  - Info is now a dedicated host-rendered window (pet-session-info-window.ts),
+    opened from the overlay's ⓘ, replacing the in-overlay sheet. AAT-depth
+    content mirroring anxietyaidtools.com/breathing: How it works (+3
+    mechanism cards), The science (+3 research cards each linking its PMC
+    study), When to practice, What you'll notice, Tips (3 cards), 6 real
+    citations, disclaimer, site attribution. AAT logo (copied from the AAT
+    repo, plugin-declared SVG asset) centered in the header. Script-free page,
+    default-deny CSP; links open externally only if present in the validated
+    descriptor.
+  - SDK extended: info sections now support items (checklists) and cards
+    (title/body/https url), info.logo manifest asset ref (bridge resolves to
+    logoSvgPath), and handle.pause()/resume()/stop() for programmatic control
+    (routes ui.sessionPause/Resume/Stop; harness mock updated; conformance
+    exercises everything).
+  - Localization: overlay chrome strings are host-localized (session.* keys in
+    all 7 host locales) and attached to the descriptor payload by the
+    coordinator; all plugin content (pattern, phase labels, full Info copy)
+    ships in locales/{en,es-419,ja,ko,pt-BR,zh-Hans,zh-Hant}.json with key
+    parity (plugins:locales green). Citations stay in English by convention.
+  - Pet menu: while a run is active/paused the plugin sets dynamic menu items
+    Pause/Resume/Stop breathing (ui.menu + handle controls), cleared on
+    stop/complete/close — task.txt §6 command list is now real.
+  - Golden test plugins/official/openpets.anxiety-aid-tools/test.js (pattern
+    contract, science links, citations, harness command → session → menu).
+  - All green: desktop typecheck/build, SDK build, conformance, plugins:test
+    (16 tests), plugins:locales, plugins:check, plugins:package,
+    plugins:validate-release (17 plugins).
+  Still deferred: audio cues, guided breathing + other techniques, custom
+  patterns, docs/*.md (until Alvin signs off breathing per this file's rule).
+
+2026-09-21 — session card redesigned with Alvin (round 3) + width cut.
+  Carrier width 560 → 460. Simple breathing is single-pattern (Calm 4-6):
+  pattern chips removed; other patterns stay in the plugin as data for a
+  future separate guided-breathing practice in the same plugin. Card rows:
+  1. cycle dots (≤16 cycles; slim per-cycle bar + "cycle n" otherwise)
+     + "4 / 10" count — replaces pattern header + full-width cycle bar.
+  2. tiles: whole-session timer (remaining / elapsed) · animated lungs icon
+     (breath-synced scale, phase tint, icon-only middle tile) · breath pace
+     ("6 / min", honest replacement for the mock's banned Calmness meter).
+  3. thick mock-style phase segment track (10px, proportional, labels under).
+  4. controls: Info ⓘ left · Restart ghost · primary pill right that never
+     moves (Pause → Resume → Done-closes; complete shows Again + Done).
+     Stop button removed — top-bar × is the single way to end.
+  5. paw footer: "🐾 breathing with {pet name} 🐾" (companion framing, no ad
+     copy; "nicely done" on complete).
+  Top bar unchanged (phase + guidance + countdown; title only while idle).
+  Runtime geometry from round 2 (measured sprite/card, orb hugs pet, stack
+  bottom-anchored) unchanged. Plugin dropped storage permission (nothing to
+  persist in single-pattern simple breathing).
+
 2026-09-21 — SURFACE REVERSAL: no dedicated window. The practice happens
   around the pet itself, like the Pet Assistant chat — mock lfs/breathing.png
   with the real pet inside the orb. The §4 panel plan is dead; the panel

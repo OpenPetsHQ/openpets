@@ -7,13 +7,55 @@ import {
   openDefaultPetSession,
   subscribeDefaultPetPanelState,
 } from "./default-pet-chat.js";
+import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
+import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
 import type {
   PluginSessionDescriptor,
   PluginSessionEvent,
   PluginSessionUpdate,
   SessionStopReason,
 } from "./plugin-session-descriptor.js";
+
+/**
+ * Host-localized strings for the overlay chrome (buttons, tiles, footers).
+ * Built at send time so a locale change is picked up on the next render.
+ */
+export function buildSessionChrome(): Record<string, string> {
+  return {
+    inhale: t("session.inhale"),
+    hold: t("session.hold"),
+    exhale: t("session.exhale"),
+    inhaleGuidance: t("session.inhaleGuidance"),
+    holdGuidance: t("session.holdGuidance"),
+    exhaleGuidance: t("session.exhaleGuidance"),
+    paused: t("session.paused"),
+    pausedGuidance: t("session.pausedGuidance"),
+    complete: t("session.complete"),
+    completeGuidance: t("session.completeGuidance"),
+    idleGuidance: t("session.idleGuidance"),
+    pause: t("session.pause"),
+    resume: t("session.resume"),
+    start: t("session.start"),
+    done: t("session.done"),
+    restart: t("session.restart"),
+    again: t("session.again"),
+    remaining: t("session.remaining"),
+    elapsed: t("session.elapsed"),
+    breathPace: t("session.breathPace"),
+    cyclesCount: t("session.cyclesCount"),
+    cycleN: t("session.cycleN"),
+    untilStopped: t("session.untilStopped"),
+    footerBreathing: t("session.footerBreathing"),
+    footerComplete: t("session.footerComplete"),
+    footerReady: t("session.footerReady"),
+    close: t("session.close"),
+    about: t("session.about"),
+    references: t("session.references"),
+    readStudy: t("session.readStudy"),
+    openStudy: t("session.openStudy"),
+  };
+}
 
 /**
  * Practice session overlay coordinator.
@@ -33,6 +75,9 @@ export interface SessionOverlayCallbacks {
 
 export interface SessionOverlayHostHandle {
   update(patch: PluginSessionUpdate): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  stop(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -121,12 +166,30 @@ export function openPluginSessionOverlay(options: {
       };
       session.lastPatternId = patternId;
       sendDescriptorToRenderer();
+      refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
+    },
+    async pause(): Promise<void> {
+      sendControlToRenderer(session, "pause");
+    },
+    async resume(): Promise<void> {
+      sendControlToRenderer(session, "resume");
+    },
+    async stop(): Promise<void> {
+      sendControlToRenderer(session, "stop");
     },
     async close(): Promise<void> {
       if (session.closed || activeSession !== session) return;
       finishActiveSession("user");
     },
   };
+}
+
+function sendControlToRenderer(session: ActiveSessionOverlay, action: "pause" | "resume" | "stop"): void {
+  if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
+  const window = getDefaultPetWindowForPlugins();
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+  debug("pet.session", "session overlay control", { pluginId: session.pluginId, action });
+  window.webContents.send("openpets:session-overlay-control", action);
 }
 
 /** Close the active overlay when its owning plugin stops or reloads. */
@@ -153,6 +216,7 @@ function finishActiveSession(reason: SessionStopReason, options: { collapseCarri
     }
   }
   if (options.notifyRenderer !== false) sendDescriptorToRenderer();
+  closeSessionInfoWindow();
   if (options.collapseCarrier !== false && isDefaultPetSessionOpen()) {
     closeDefaultPetSession();
   }
@@ -166,10 +230,15 @@ function emitToPlugin(session: ActiveSessionOverlay, event: PluginSessionEvent):
   }
 }
 
+function currentRendererPayload(): { descriptor: PluginSessionDescriptor; chrome: Record<string, string> } | null {
+  if (!activeSession || activeSession.closed) return null;
+  return { descriptor: activeSession.descriptor, chrome: buildSessionChrome() };
+}
+
 function sendDescriptorToRenderer(): void {
   const window = getDefaultPetWindowForPlugins();
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
-  window.webContents.send(sessionOverlayChannel, activeSession && !activeSession.closed ? activeSession.descriptor : null);
+  window.webContents.send(sessionOverlayChannel, currentRendererPayload());
 }
 
 function isAuthorizedSessionSender(senderWebContentsId: number): boolean {
@@ -177,13 +246,18 @@ function isAuthorizedSessionSender(senderWebContentsId: number): boolean {
   return Boolean(window && !window.isDestroyed() && window.webContents.id === senderWebContentsId);
 }
 
-function installSessionOverlayIpcHandlers(): void {
+/**
+ * Install the overlay IPC handlers. Called once at startup (the pet window's
+ * preload probes `session-overlay-get` on every load, session or not) and
+ * defensively before each open.
+ */
+export function installSessionOverlayIpcHandlers(): void {
   if (handlersInstalled) return;
   handlersInstalled = true;
 
   ipcMain.handle("openpets:session-overlay-get", (event: IpcMainInvokeEvent) => {
     if (!isAuthorizedSessionSender(event.sender.id)) return null;
-    return activeSession && !activeSession.closed ? activeSession.descriptor : null;
+    return currentRendererPayload();
   });
 
   ipcMain.on("openpets:session-overlay-event", (event: IpcMainEvent, payload: unknown) => {
@@ -207,6 +281,9 @@ function installSessionOverlayIpcHandlers(): void {
     }
     if (parsed.event.type === "started" || parsed.event.type === "resumed") session.runActive = true;
     if (parsed.event.type === "completed" || parsed.event.type === "stopped") session.runActive = false;
+    if (parsed.event.type === "infoOpened") {
+      showSessionInfoWindow(session.descriptor, buildSessionChrome());
+    }
     emitToPlugin(session, parsed.event);
   });
 

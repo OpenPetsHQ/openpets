@@ -123,6 +123,9 @@ function makeSessionHandle(result) {
   return {
     id: String(sessionId),
     update: (patch) => call("ui.sessionUpdate", [sessionId, patch]),
+    pause: () => call("ui.sessionPause", [sessionId]),
+    resume: () => call("ui.sessionResume", [sessionId]),
+    stop: () => call("ui.sessionStop", [sessionId]),
     close: () => call("ui.sessionClose", [sessionId]),
     onEvent: (fn) => { void call("ui.sessionSubscribe", [sessionId, registerCallback(fn)]).catch(() => undefined); },
   };

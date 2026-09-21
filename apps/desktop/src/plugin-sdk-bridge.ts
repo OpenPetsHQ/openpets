@@ -132,6 +132,9 @@ export interface PluginPanelHostHandle { readonly id: string; show(): Promise<vo
 /** Host handle for the practice session overlay (§7.4). */
 export interface PluginSessionHostHandle {
   update(patch: PluginSessionUpdate): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  stop(): Promise<void>;
   close(): Promise<void>;
 }
 export type PluginDeliveryDescriptor = { key: string; courier: { kind: "sprite"; name: string }; title: string; detail: string; expiresAt: number };
@@ -652,7 +655,7 @@ export class PluginSdkBridge {
     };
 
     const audio = createPluginAudioApi({ pluginId, state, capabilities: caps, requirePermission, audioPerMinute: quotas.audioPerMinute, resolveAssetRef });
-    const ui = createPluginUiApi({ pluginId, manifest, installPath: record.installPath, state, capabilities: caps, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolvePanelPath: (name) => resolveDeclaredPanelPath(manifest, record.installPath, name), normalizeJson, validateMenuItems, validateSayMessage, safeError, logger: this.#logger, onError: (reason) => this.#onError(pluginId, reason), quotas });
+    const ui = createPluginUiApi({ pluginId, manifest, installPath: record.installPath, state, capabilities: caps, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, resolvePanelPath: (name) => resolveDeclaredPanelPath(manifest, record.installPath, name), normalizeJson, validateMenuItems, validateSayMessage, safeError, logger: this.#logger, onError: (reason) => this.#onError(pluginId, reason), quotas });
     const storage = createPluginStorageApi({ pluginId, state, storage: this.#storage, requireActive, requirePermission, guardCallback, validateStorageKey, onError: (reason) => this.#onError(pluginId, reason), safeError, storageSubscriptionsQuota: quotas.storageSubscriptions });
     const config = createPluginConfigApi({ state, getConfig, requireActive });
     const events = createPluginEventsApi({ state, capabilities: caps, requireActive, requirePermission, guardCallback, allowedEventNames, eventSubscriptionsQuota: quotas.eventSubscriptions });

@@ -205,6 +205,9 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   });
   session.onEvent(() => undefined);
   await session.update({ patternId: "calm" });
+  await session.pause();
+  await session.resume();
+  await session.stop();
   await session.close();
   await sdk.ui.menu.setItems([]);
   const menuDisposer = sdk.ui.menu.onSelect(() => undefined);

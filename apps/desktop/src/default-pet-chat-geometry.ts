@@ -11,11 +11,11 @@ export const expandedPetWindowSize: WindowSize = {
  * size. Width stays fixed: the session card needs room for the step track and
  * pattern chips regardless of pet scale. Tuned while dogfooding breathing.
  */
-export const sessionPetWindowWidth = 560;
+export const sessionPetWindowWidth = 460;
 export const sessionTopbarTop = 10;
 export const sessionTopbarHeight = 48;
 export const sessionOrbTopGap = 18;
-export const sessionCardEstimatedHeight = 170;
+export const sessionCardEstimatedHeight = 216;
 export const sessionCardBottomInset = 14;
 export const sessionOrbCardGap = 18;
 
