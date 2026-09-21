@@ -285,11 +285,31 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       border: 1px solid rgba(148, 163, 184, 0.32);
       box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
     }
+    .card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 7px;
+    }
+    .card-icon {
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: linear-gradient(140deg, rgba(59, 130, 246, 0.14), rgba(99, 102, 241, 0.12));
+      color: #2563eb;
+    }
+    .card-icon svg {
+      width: 14px;
+      height: 14px;
+    }
     .card-title {
       font-size: 12.5px;
       font-weight: 800;
       color: #0f172a;
-      margin: 0 0 6px;
+      margin: 0;
       letter-spacing: -0.01em;
     }
     .card-body {
@@ -405,7 +425,29 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
 
 const tickSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
-function buildSectionMarkup(section: { heading: string; body?: string; items?: readonly string[]; cards?: readonly { title: string; body: string; url?: string }[] }, index: number, chrome: Record<string, string>): string {
+/** Named card icons (Lucide via better-icons/Iconify, normalized to stroke-only). */
+const cardIconSvgs: Record<string, string> = {
+  "activity": '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+  "wind": '<path d="M12.8 19.6A2 2 0 1 0 14 16H2m15.5-8a2.5 2.5 0 1 1 2 4H2m7.8-7.6A2 2 0 1 1 11 8H2"/>',
+  "trending-down": '<path d="M16 17h6v-6"/><path d="m22 17l-8.5-8.5l-5 5L2 7"/>',
+  "heart-pulse": '<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676a.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1l2 4.5l2-7l1.5 3.5h5.27"/>',
+  "shield-check": '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12l2 2l4-4"/>',
+  "brain": '<path d="M12 18V5m3 8a4.17 4.17 0 0 1-3-4a4.17 4.17 0 0 1-3 4m8.598-6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/>',
+  "person-standing": '<circle cx="12" cy="5" r="1"/><path d="m9 20l3-6l3 6M6 8l6 2l6-2m-6 2v4"/>',
+  "armchair": '<path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0zm2 2v2m14-2v2"/>',
+  "calendar-check": '<path d="M8 2v3m8-3v3"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 15l2 2l4-4"/>',
+  "leaf": '<path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/>',
+  "sparkles": '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4"/><circle cx="4" cy="20" r="2"/>',
+  "timer": '<path d="M10 2h4m-2 12l3-3"/><circle cx="12" cy="14" r="8"/>',
+};
+
+function cardIconMarkup(icon: string | undefined): string {
+  const paths = icon ? cardIconSvgs[icon] : undefined;
+  if (!paths) return "";
+  return `<span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${paths}</svg></span>`;
+}
+
+function buildSectionMarkup(section: { heading: string; body?: string; items?: readonly string[]; cards?: readonly { title: string; body: string; url?: string; icon?: string }[] }, index: number, chrome: Record<string, string>): string {
   void index;
   const parts: string[] = [`<h2 class="section-heading">${escapeHtml(section.heading)}</h2>`];
   if (section.body) parts.push(`<p class="section-body">${escapeHtml(section.body)}</p>`);
@@ -420,7 +462,8 @@ function buildSectionMarkup(section: { heading: string; body?: string; items?: r
       const link = card.url
         ? `<a class="card-link" href="${escapeHtml(card.url)}">${escapeHtml(chrome.readStudy ?? "Read the study")} →</a>`
         : "";
-      return `<div class="card"><h3 class="card-title">${escapeHtml(card.title)}</h3><p class="card-body">${escapeHtml(card.body)}</p>${link}</div>`;
+      const head = `<div class="card-head">${cardIconMarkup(card.icon)}<h3 class="card-title">${escapeHtml(card.title)}</h3></div>`;
+      return `<div class="card">${head}<p class="card-body">${escapeHtml(card.body)}</p>${link}</div>`;
     }).join("");
     parts.push(`<div class="cards">${cards}</div>`);
   }

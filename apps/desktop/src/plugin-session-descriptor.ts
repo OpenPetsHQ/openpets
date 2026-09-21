@@ -29,10 +29,27 @@ export interface SessionBreathPattern {
   readonly cycles: number | null;
 }
 
+/** Named host icons a session Info card may show (rendered by the Info window). */
+export const sessionInfoIconNames = new Set([
+  "activity",
+  "wind",
+  "trending-down",
+  "heart-pulse",
+  "shield-check",
+  "brain",
+  "person-standing",
+  "armchair",
+  "calendar-check",
+  "leaf",
+  "sparkles",
+  "timer",
+]);
+
 export interface SessionInfoCard {
   readonly title: string;
   readonly body: string;
   readonly url?: string;
+  readonly icon?: string;
 }
 
 export interface SessionInfoSection {
@@ -278,12 +295,18 @@ function validateInfoSection(value: unknown): SessionInfoSection {
     check(value.cards.length >= 1 && value.cards.length <= 6, "Session info cards must contain 1–6 entries.");
     cards = value.cards.map((card): SessionInfoCard => {
       check(isRecord(card), "Invalid session info card.");
-      checkKnownKeys(card, ["title", "body", "url"], "session info card");
+      checkKnownKeys(card, ["title", "body", "url", "icon"], "session info card");
       const url = card.url === undefined ? undefined : validateHttpsUrl(card.url, "session info card url");
+      let icon: string | undefined;
+      if (card.icon !== undefined) {
+        check(typeof card.icon === "string" && sessionInfoIconNames.has(card.icon), "Unknown session info card icon.");
+        icon = card.icon;
+      }
       return {
         title: validateLine(card.title, 1, 80, "session info card title"),
         body: validateText(card.body, 1, 600, "session info card body"),
         ...(url === undefined ? {} : { url }),
+        ...(icon === undefined ? {} : { icon }),
       };
     });
   }

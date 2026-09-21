@@ -321,6 +321,11 @@ Newest first.
   - Pet menu: while a run is active/paused the plugin sets dynamic menu items
     Pause/Resume/Stop breathing (ui.menu + handle controls), cleared on
     stop/complete/close — task.txt §6 command list is now real.
+  - Info cards carry named host icons (SDK `icon` allowlist, Lucide via
+    better-icons): activity/wind/trending-down on How-it-works, heart-pulse/
+    shield-check/brain on Science, person-standing/armchair/calendar-check on
+    Tips. 12-name allowlist validated in plugin-session-descriptor.ts,
+    rendered stroke-only by the Info window.
   - Golden test plugins/official/openpets.anxiety-aid-tools/test.js (pattern
     contract, science links, citations, harness command → session → menu).
   - All green: desktop typecheck/build, SDK build, conformance, plugins:test

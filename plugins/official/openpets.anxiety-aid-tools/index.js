@@ -61,18 +61,18 @@ export function buildSessionInfo(t, logo) {
         heading: t("info.how.heading"),
         body: t("info.how.body"),
         cards: [
-          { title: t("info.how.card1.title"), body: t("info.how.card1.body") },
-          { title: t("info.how.card2.title"), body: t("info.how.card2.body") },
-          { title: t("info.how.card3.title"), body: t("info.how.card3.body") },
+          { title: t("info.how.card1.title"), body: t("info.how.card1.body"), icon: "activity" },
+          { title: t("info.how.card2.title"), body: t("info.how.card2.body"), icon: "wind" },
+          { title: t("info.how.card3.title"), body: t("info.how.card3.body"), icon: "trending-down" },
         ],
       },
       {
         heading: t("info.science.heading"),
         body: t("info.science.body"),
         cards: [
-          { title: t("info.science.card1.title"), body: t("info.science.card1.body"), url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC11535222/" },
-          { title: t("info.science.card2.title"), body: t("info.science.card2.body"), url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9954474/" },
-          { title: t("info.science.card3.title"), body: t("info.science.card3.body"), url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8989478/" },
+          { title: t("info.science.card1.title"), body: t("info.science.card1.body"), icon: "heart-pulse", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC11535222/" },
+          { title: t("info.science.card2.title"), body: t("info.science.card2.body"), icon: "shield-check", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9954474/" },
+          { title: t("info.science.card3.title"), body: t("info.science.card3.body"), icon: "brain", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8989478/" },
         ],
       },
       {
@@ -86,9 +86,9 @@ export function buildSessionInfo(t, logo) {
       {
         heading: t("info.tips.heading"),
         cards: [
-          { title: t("info.tips.card1.title"), body: t("info.tips.card1.body") },
-          { title: t("info.tips.card2.title"), body: t("info.tips.card2.body") },
-          { title: t("info.tips.card3.title"), body: t("info.tips.card3.body") },
+          { title: t("info.tips.card1.title"), body: t("info.tips.card1.body"), icon: "person-standing" },
+          { title: t("info.tips.card2.title"), body: t("info.tips.card2.body"), icon: "armchair" },
+          { title: t("info.tips.card3.title"), body: t("info.tips.card3.body"), icon: "calendar-check" },
         ],
       },
     ],
