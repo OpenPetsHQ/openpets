@@ -2,7 +2,7 @@ import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermissio
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
-import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -96,7 +96,7 @@ export function createPluginUiApi(options: {
     return { deliveryId };
   };
 
-  /** Swap the raw manifest logo ref for its resolved on-disk SVG path. */
+  /** Swap raw manifest asset refs for their resolved on-disk paths. */
   const resolveSessionInfoLogo = <T extends { info?: PluginSessionInfo }>(validated: T): T => {
     const info = validated.info;
     if (!info?.logo) return validated;
@@ -105,10 +105,24 @@ export function createPluginUiApi(options: {
     return { ...validated, info: { ...rest, logoSvgPath: resolved.path } };
   };
 
+  const resolveSessionAudio = <T extends { audio?: PluginSessionAudio }>(validated: T): T => {
+    const audio = validated.audio;
+    if (!audio?.inhale || !audio.exhale) return validated;
+    const { inhale, exhale, ...rest } = audio;
+    return {
+      ...validated,
+      audio: {
+        ...rest,
+        inhaleSoundPath: resolveAssetRef(inhale, ["sounds"]).path,
+        exhaleSoundPath: resolveAssetRef(exhale, ["sounds"]).path,
+      },
+    };
+  };
+
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
-    const descriptor = resolveSessionInfoLogo(validateSessionDescriptor(spec));
+    const descriptor = resolveSessionAudio(resolveSessionInfoLogo(validateSessionDescriptor(spec)));
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
     slot.host = await capabilities.session.open({

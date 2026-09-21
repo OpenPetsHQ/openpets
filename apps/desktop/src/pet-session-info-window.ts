@@ -298,8 +298,9 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       display: grid;
       place-items: center;
       border-radius: 9px;
-      background: linear-gradient(140deg, rgba(59, 130, 246, 0.14), rgba(99, 102, 241, 0.12));
-      color: #2563eb;
+      background: linear-gradient(to bottom right, #ffffff, #dbeafe);
+      border: 1px solid rgba(191, 219, 254, 0.6);
+      color: #176df2;
     }
     .card-icon svg {
       width: 14px;
@@ -388,15 +389,29 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       padding-top: 6px;
     }
     .site-link {
-      display: inline-block;
-      padding: 9px 22px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 7px 20px;
+      border-radius: 14px;
+      border: 1px solid rgba(37, 99, 235, 0.32);
+      background: linear-gradient(180deg, #3b96ff, #176df2);
       color: #ffffff;
-      font-size: 13px;
-      font-weight: 800;
+      font-family: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
       text-decoration: none;
-      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), 0 2px 4px rgba(61, 99, 160, 0.10);
+      transition: background-color 150ms ease, transform 150ms ease;
+    }
+    .site-link:hover {
+      background: linear-gradient(180deg, #55a6ff, #176df2);
+    }
+    .site-link:active {
+      transform: scale(0.96);
     }
     .site-url {
       font-size: 11px;

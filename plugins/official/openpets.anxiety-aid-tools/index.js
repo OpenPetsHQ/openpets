@@ -99,7 +99,9 @@ export function buildSessionInfo(t, logo) {
   };
 }
 
-export function buildDescriptor(ctx, autoStart) {
+export const STORAGE_KEY_AUDIO_CUES = "audioCues";
+
+export function buildDescriptor(ctx, autoStart, audioCuesEnabled) {
   const t = (key) => ctx.t(key);
   return {
     kind: "breathing",
@@ -109,6 +111,11 @@ export function buildDescriptor(ctx, autoStart) {
     patternId: "calm",
     autoStart,
     info: buildSessionInfo(t, ctx.assets.svg("logo")),
+    audio: {
+      inhale: ctx.assets.sound("breath-in"),
+      exhale: ctx.assets.sound("breath-out"),
+      enabled: audioCuesEnabled !== false,
+    },
   };
 }
 
@@ -132,7 +139,8 @@ async function setSessionMenu(ctx, mode) {
 }
 
 async function openSession(ctx, state, autoStart) {
-  const session = await ctx.ui.session(buildDescriptor(ctx, autoStart));
+  const audioCuesEnabled = (await ctx.storage.get(STORAGE_KEY_AUDIO_CUES)) !== false;
+  const session = await ctx.ui.session(buildDescriptor(ctx, autoStart, audioCuesEnabled));
   state.session = session;
   session.onEvent((event) => {
     if (!event || state.session !== session) return;
@@ -142,6 +150,8 @@ async function openSession(ctx, state, autoStart) {
       void setSessionMenu(ctx, "paused");
     } else if (event.type === "completed") {
       void setSessionMenu(ctx, "none");
+    } else if (event.type === "audioToggled") {
+      void ctx.storage.set(STORAGE_KEY_AUDIO_CUES, event.enabled).catch(() => undefined);
     } else if (event.type === "stopped") {
       state.session = null;
       void setSessionMenu(ctx, "none");

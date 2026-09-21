@@ -82,6 +82,16 @@ export interface SessionInfo {
   readonly logoSvgPath?: string;
 }
 
+/** Phase audio cues: raw manifest refs in, bridge-resolved paths out. */
+export interface SessionAudio {
+  readonly inhale?: SessionAssetRef;
+  readonly exhale?: SessionAssetRef;
+  readonly enabled: boolean;
+  /** Absolute paths of the resolved, manifest-declared cue sounds. */
+  readonly inhaleSoundPath?: string;
+  readonly exhaleSoundPath?: string;
+}
+
 export interface PluginSessionDescriptor {
   readonly kind: "breathing";
   readonly title: string;
@@ -89,7 +99,10 @@ export interface PluginSessionDescriptor {
   readonly patterns: readonly SessionBreathPattern[];
   readonly patternId: string;
   readonly autoStart: boolean;
+  /** Calm lead-in before the first inhale of every run (0–15 seconds). */
+  readonly countdownSeconds: number;
   readonly info?: SessionInfo;
+  readonly audio?: SessionAudio;
 }
 
 /** Patch accepted by `ui.sessionUpdate`. */
@@ -109,7 +122,8 @@ export type PluginSessionEvent =
   | { readonly type: "patternChanged"; readonly patternId: string }
   | { readonly type: "completed"; readonly patternId: string; readonly cycles: number }
   | { readonly type: "stopped"; readonly reason: SessionStopReason; readonly patternId: string; readonly cycle: number }
-  | { readonly type: "infoOpened" };
+  | { readonly type: "infoOpened" }
+  | { readonly type: "audioToggled"; readonly enabled: boolean };
 
 const idPattern = /^[A-Za-z0-9._:-]{1,48}$/;
 const controlCharacters = /[\u0000-\u001f\u007f]/;
@@ -122,7 +136,7 @@ const maxCitations = 8;
 export function validateSessionDescriptor(value: unknown): PluginSessionDescriptor {
   check(isRecord(value), "Invalid session descriptor.");
   check(value.kind === "breathing", "Session kind must be \"breathing\".");
-  checkKnownKeys(value, ["kind", "title", "subtitle", "patterns", "patternId", "autoStart", "info"], "session descriptor");
+  checkKnownKeys(value, ["kind", "title", "subtitle", "patterns", "patternId", "autoStart", "countdownSeconds", "info", "audio"], "session descriptor");
 
   const title = validateLine(value.title, 1, 60, "session title");
   const subtitle = value.subtitle === undefined ? undefined : validateLine(value.subtitle, 1, 80, "session subtitle");
@@ -131,7 +145,14 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
     ? patterns[0].id
     : validateSelectedPatternId(value.patternId, patterns);
   const autoStart = value.autoStart === undefined ? true : value.autoStart === true;
+  let countdownSeconds = 5;
+  if (value.countdownSeconds !== undefined) {
+    const seconds = Number(value.countdownSeconds);
+    check(Number.isFinite(seconds) && seconds >= 0 && seconds <= 15, "Session countdownSeconds must be 0–15.");
+    countdownSeconds = Math.round(seconds);
+  }
   const info = value.info === undefined ? undefined : validateSessionInfo(value.info);
+  const audio = value.audio === undefined ? undefined : validateSessionAudio(value.audio);
 
   return {
     kind: "breathing",
@@ -140,8 +161,28 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
     patterns,
     patternId,
     autoStart,
+    countdownSeconds,
     ...(info === undefined ? {} : { info }),
+    ...(audio === undefined ? {} : { audio }),
   };
+}
+
+function validateSessionAudio(value: unknown): SessionAudio {
+  check(isRecord(value), "Invalid session audio.");
+  checkKnownKeys(value, ["inhale", "exhale", "enabled"], "session audio");
+  return {
+    inhale: validateAssetRefShape(value.inhale, "session audio inhale"),
+    exhale: validateAssetRefShape(value.exhale, "session audio exhale"),
+    enabled: value.enabled === undefined ? true : value.enabled === true,
+  };
+}
+
+function validateAssetRefShape(value: unknown, label: string): SessionAssetRef {
+  check(isRecord(value), `Invalid ${label}.`);
+  checkKnownKeys(value, ["kind", "name"], label);
+  check(typeof value.kind === "string" && value.kind.length <= 16, `Invalid ${label} kind.`);
+  check(typeof value.name === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.name), `Invalid ${label} name.`);
+  return { kind: value.kind, name: value.name };
 }
 
 export function validateSessionUpdate(value: unknown): PluginSessionUpdate {
@@ -257,14 +298,7 @@ function validateSessionInfo(value: unknown): SessionInfo {
       url: validateHttpsUrl(value.site.url, "session info site url"),
     };
   }
-  let logo: SessionAssetRef | undefined;
-  if (value.logo !== undefined) {
-    check(isRecord(value.logo), "Invalid session info logo.");
-    checkKnownKeys(value.logo, ["kind", "name"], "session info logo");
-    check(typeof value.logo.kind === "string" && value.logo.kind.length <= 16, "Invalid session info logo kind.");
-    check(typeof value.logo.name === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.logo.name), "Invalid session info logo name.");
-    logo = { kind: value.logo.kind, name: value.logo.name };
-  }
+  const logo = value.logo === undefined ? undefined : validateAssetRefShape(value.logo, "session info logo");
 
   return {
     ...(intro === undefined ? {} : { intro }),

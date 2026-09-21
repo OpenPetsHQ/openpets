@@ -1650,9 +1650,9 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       border-radius: 9px;
       display: grid;
       place-items: center;
-      background: linear-gradient(140deg, #3b82f6, #6366f1);
-      color: #ffffff;
-      box-shadow: 0 3px 8px rgba(59, 130, 246, 0.45);
+      background: linear-gradient(to bottom right, #ffffff, #dbeafe);
+      border: 1px solid rgba(191, 219, 254, 0.6);
+      color: #176df2;
       flex-shrink: 0;
     }
     .session-topbar-icon svg {
@@ -1759,16 +1759,14 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       width: 9px;
       height: 9px;
       border-radius: 50%;
-      background: rgba(37, 99, 235, 0.16);
-      transition: background 250ms ease, box-shadow 250ms ease, transform 250ms ease;
+      background: rgba(37, 99, 235, 0.14);
+      transition: background 250ms ease, transform 250ms ease;
     }
     .session-dot.is-done {
-      background: #3b82f6;
-      box-shadow: 0 0 6px rgba(59, 130, 246, 0.45);
+      background: #176df2;
     }
     .session-dot.is-current {
-      background: var(--session-phase-color, #3b82f6);
-      box-shadow: 0 0 8px var(--session-phase-color, #3b82f6);
+      background: var(--session-phase-color, #176df2);
       animation: session-dot-pulse 2.4s ease-in-out infinite;
     }
     @keyframes session-dot-pulse {
@@ -1786,7 +1784,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       height: 100%;
       width: 0%;
       border-radius: 999px;
-      background: linear-gradient(90deg, #60a5fa, #3b82f6);
+      background: #176df2;
     }
     .session-dots-count {
       font-size: 12px;
@@ -1889,13 +1887,11 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       height: 100%;
       width: 0%;
       border-radius: 999px;
-      background: linear-gradient(90deg, #93c5fd, var(--session-phase-color, #3b82f6));
-      box-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
+      background: var(--session-phase-color, #176df2);
     }
     .session-step.is-done .session-step-fill {
       width: 100%;
-      background: rgba(59, 130, 246, 0.35);
-      box-shadow: none;
+      background: rgba(37, 99, 235, 0.32);
     }
     .session-step-label {
       margin-top: 6px;
@@ -1917,80 +1913,82 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       align-items: center;
       gap: 8px;
     }
+    /* Buttons match the Control Center .btn language: compact rounded-xl,
+       mono-display black uppercase labels, vertical two-stop gradients with
+       an inset top highlight, secondary = translucent white on brand blue. */
     .session-info-btn {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       flex-shrink: 0;
       display: grid;
       place-items: center;
       padding: 0;
-      border: 1px solid rgba(148, 163, 184, 0.5);
+      border: 1px solid rgba(37, 99, 235, 0.42);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.9);
-      color: #475569;
+      background: rgba(255, 255, 255, 0.76);
+      color: #176df2;
       cursor: pointer;
-      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 4px rgba(61, 99, 160, 0.08);
+      transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
     }
     .session-info-btn:hover {
-      background: #ffffff;
-      color: #1d4ed8;
-      border-color: rgba(59, 130, 246, 0.55);
-      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.95);
+      border-color: rgba(37, 99, 235, 0.55);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 2px 4px rgba(61, 99, 160, 0.10);
+    }
+    .session-info-btn:active {
+      transform: scale(0.96);
     }
     .session-controls-spacer {
       flex: 1 1 auto;
     }
-    .session-primary-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      min-width: 132px;
-      padding: 9px 22px;
-      border: none;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #3b82f6, #2563eb);
-      color: #ffffff;
-      font-size: 13px;
-      font-weight: 800;
-      font-family: inherit;
-      letter-spacing: 0.01em;
-      cursor: pointer;
-      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-      transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
-    }
-    .session-primary-btn:hover {
-      transform: translateY(-1px);
-      filter: brightness(1.06);
-      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    }
-    .session-primary-btn:active {
-      transform: translateY(0) scale(0.98);
-    }
-    .session-primary-btn svg {
-      width: 13px;
-      height: 13px;
-    }
+    .session-primary-btn,
     .session-ghost-btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 9px 16px;
-      border: 1px solid rgba(148, 163, 184, 0.5);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.9);
-      color: #475569;
-      font-size: 12.5px;
-      font-weight: 700;
-      font-family: inherit;
+      min-height: 32px;
+      border-radius: 12px;
+      font-family: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
       cursor: pointer;
-      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+      user-select: none;
+      transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .session-primary-btn:active,
+    .session-ghost-btn:active {
+      transform: scale(0.96);
+    }
+    .session-primary-btn {
+      min-width: 122px;
+      padding: 6px 16px;
+      border: 1px solid rgba(37, 99, 235, 0.32);
+      background: linear-gradient(180deg, #3b96ff, #176df2);
+      color: #ffffff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), 0 2px 4px rgba(61, 99, 160, 0.10);
+    }
+    .session-primary-btn:hover {
+      background: linear-gradient(180deg, #55a6ff, #176df2);
+    }
+    .session-primary-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+    .session-ghost-btn {
+      padding: 6px 13px;
+      border: 1px solid rgba(37, 99, 235, 0.42);
+      background: rgba(255, 255, 255, 0.76);
+      color: #176df2;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 4px rgba(61, 99, 160, 0.08);
     }
     .session-ghost-btn:hover {
-      background: #ffffff;
-      color: #1d4ed8;
-      border-color: rgba(59, 130, 246, 0.5);
-      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.95);
+      border-color: rgba(37, 99, 235, 0.55);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 2px 4px rgba(61, 99, 160, 0.10);
     }
     .session-ghost-btn svg {
       width: 12px;

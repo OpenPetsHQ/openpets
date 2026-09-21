@@ -11,7 +11,11 @@
   "assets": {
     "svgs": {
       "logo": "assets/logo.svg"
+    },
+    "sounds": {
+      "breath-in": "assets/breath-in.mp3",
+      "breath-out": "assets/breath-out.mp3"
     }
   },
-  "permissions": ["ui:session", "commands"]
+  "permissions": ["ui:session", "commands", "storage"]
 }

@@ -408,6 +408,21 @@ export interface OpenPetsSessionInfo {
  * phase clock; the plugin supplies patterns and knowledge content and
  * receives lifecycle events.
  */
+/**
+ * Phase audio cues played by the overlay at inhale/exhale transitions.
+ * Sounds are manifest-declared assets; the host gates playback behind the
+ * global plugin-audio setting and quiet hours, and the overlay shows a
+ * mute toggle that reports back as an `audioToggled` event.
+ */
+export interface OpenPetsSessionAudio {
+  /** Manifest-declared sound played when an inhale phase starts. */
+  inhale: OpenPetsAssetRef;
+  /** Manifest-declared sound played when an exhale phase starts. */
+  exhale: OpenPetsAssetRef;
+  /** Initial cue state (default true); the user can toggle it in the overlay. */
+  enabled?: boolean;
+}
+
 export interface OpenPetsBreathingSessionOptions {
   kind: "breathing";
   /** Overlay title (e.g. "Breathing"). */
@@ -420,8 +435,15 @@ export interface OpenPetsBreathingSessionOptions {
   patternId?: string;
   /** Start the phase clock immediately (default true). */
   autoStart?: boolean;
+  /**
+   * Calm lead-in before the first inhale of every run, in seconds (0–15,
+   * default 5). The overlay counts it down; 0 starts breathing immediately.
+   */
+  countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
+  /** Optional phase audio cues with an overlay mute toggle. */
+  audio?: OpenPetsSessionAudio;
 }
 
 /** Lifecycle and interaction events emitted by the session overlay. */
@@ -432,7 +454,8 @@ export type OpenPetsSessionEvent =
   | { type: "patternChanged"; patternId: string }
   | { type: "completed"; patternId: string; cycles: number }
   | { type: "stopped"; reason: OpenPetsSessionStopReason; patternId: string; cycle: number }
-  | { type: "infoOpened" };
+  | { type: "infoOpened" }
+  | { type: "audioToggled"; enabled: boolean };
 
 export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin-stopped";
 

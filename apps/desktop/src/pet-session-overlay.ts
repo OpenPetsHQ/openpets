@@ -1,6 +1,10 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { readFileSync, statSync } from "node:fs";
+import { extname } from "node:path";
 
 import { getDefaultPetWindowForPlugins } from "./default-pet-controller.js";
+import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
+import { maxUserSoundBytes, userSoundMimeByExtension } from "./plugin-user-sound-store.js";
 import {
   closeDefaultPetSession,
   isDefaultPetSessionOpen,
@@ -51,6 +55,11 @@ export function buildSessionChrome(): Record<string, string> {
     footerReady: t("session.footerReady"),
     close: t("session.close"),
     about: t("session.about"),
+    mute: t("session.mute"),
+    unmute: t("session.unmute"),
+    getReady: t("session.getReady"),
+    getReadyGuidance: t("session.getReadyGuidance"),
+    startNow: t("session.startNow"),
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
@@ -89,6 +98,8 @@ interface ActiveSessionOverlay {
   lastPatternId: string;
   lastCycle: number;
   runActive: boolean;
+  /** Live cue state; starts from the descriptor and follows overlay toggles. */
+  audioEnabled: boolean;
   closed: boolean;
 }
 
@@ -121,6 +132,7 @@ export function openPluginSessionOverlay(options: {
     lastPatternId: options.descriptor.patternId,
     lastCycle: 0,
     runActive: false,
+    audioEnabled: options.descriptor.audio?.enabled ?? true,
     closed: false,
   };
   activeSession = session;
@@ -230,9 +242,55 @@ function emitToPlugin(session: ActiveSessionOverlay, event: PluginSessionEvent):
   }
 }
 
-function currentRendererPayload(): { descriptor: PluginSessionDescriptor; chrome: Record<string, string> } | null {
+interface SessionAudioPayload {
+  readonly enabled: boolean;
+  readonly allowed: boolean;
+  readonly inhaleDataUrl?: string;
+  readonly exhaleDataUrl?: string;
+}
+
+const soundDataUrlCache = new Map<string, string | null>();
+
+/** Read a resolved cue sound into a data URL (the pet window CSP allows media-src data: only). */
+function soundDataUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  const cached = soundDataUrlCache.get(path);
+  if (cached !== undefined) return cached ?? undefined;
+  let result: string | null = null;
+  try {
+    const mime = userSoundMimeByExtension[extname(path).toLowerCase()];
+    const stat = statSync(path);
+    if (mime && stat.isFile() && stat.size > 0 && stat.size <= maxUserSoundBytes) {
+      result = `data:${mime};base64,${readFileSync(path).toString("base64")}`;
+    } else {
+      warn("pet.session", "session cue sound rejected", { sizeBytes: stat.size, hasMime: Boolean(mime) });
+    }
+  } catch (error) {
+    warn("pet.session", "session cue sound read failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+  soundDataUrlCache.set(path, result);
+  return result ?? undefined;
+}
+
+function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload | null {
+  const audio = session.descriptor.audio;
+  if (!audio) return null;
+  const settings = getPluginPlatformSettings();
+  return {
+    enabled: session.audioEnabled,
+    allowed: settings.allowPluginAudio && !isInQuietHours(),
+    inhaleDataUrl: soundDataUrl(audio.inhaleSoundPath),
+    exhaleDataUrl: soundDataUrl(audio.exhaleSoundPath),
+  };
+}
+
+function currentRendererPayload(): { descriptor: PluginSessionDescriptor; chrome: Record<string, string>; audio: SessionAudioPayload | null } | null {
   if (!activeSession || activeSession.closed) return null;
-  return { descriptor: activeSession.descriptor, chrome: buildSessionChrome() };
+  return {
+    descriptor: activeSession.descriptor,
+    chrome: buildSessionChrome(),
+    audio: currentAudioPayload(activeSession),
+  };
 }
 
 function sendDescriptorToRenderer(): void {
@@ -334,6 +392,11 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
       return { kind: "event", event: { type: "stopped", reason: "user", patternId, cycle } };
     case "infoOpened":
       return { kind: "event", event: { type: "infoOpened" } };
+    case "audioToggled": {
+      const enabled = record.enabled === true;
+      session.audioEnabled = enabled;
+      return { kind: "event", event: { type: "audioToggled", enabled } };
+    }
     case "dismissed":
       return { kind: "dismissed" };
     default:

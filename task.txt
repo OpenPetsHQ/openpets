@@ -331,8 +331,29 @@ Newest first.
   - All green: desktop typecheck/build, SDK build, conformance, plugins:test
     (16 tests), plugins:locales, plugins:check, plugins:package,
     plugins:validate-release (17 plugins).
-  Still deferred: audio cues, guided breathing + other techniques, custom
-  patterns, docs/*.md (until Alvin signs off breathing per this file's rule).
+  Still deferred: guided breathing + other techniques, custom patterns,
+  docs/*.md (until Alvin signs off breathing per this file's rule).
+
+2026-09-22 — calm lead-in countdown before every run.
+  Instant starts felt anxious. New descriptor field `countdownSeconds`
+  (0–15, default 5): every run (autoStart, Start, Restart) now opens with a
+  "Get ready — settle in" state in the top bar counting 5→1, the ring
+  filling as the countdown charges, orb in a gentle idle shimmer, and the
+  primary button offering "Start now" to skip. Breathing (first cue +
+  `started` event) begins when the countdown ends. Localized ×7.
+
+2026-09-22 — audio cues (AAT sounds) + mute toggle.
+  Copied AAT's simple-breathing cues (breath-in/breath-out.mp3, ~140/180KB)
+  into the plugin as declared sound assets. SDK: descriptor `audio` block
+  (inhale/exhale sound refs + enabled) and `audioToggled` event; bridge
+  resolves refs to paths; the coordinator ships them to the overlay as data
+  URLs (pet-window CSP allows media-src data: only), gated by the global
+  plugin-audio setting and quiet hours. The overlay plays the matching cue at
+  each in/out phase start, silences on pause/stop/complete/close, and shows a
+  volume mute/unmute toggle in the top bar (lucide volume-2/volume-x,
+  localized ×7). The toggle round-trips to the plugin, which persists it in
+  storage (`audioCues`) so the preference survives restarts. All validators
+  re-run green.
 
 2026-09-21 — session card redesigned with Alvin (round 3) + width cut.
   Carrier width 560 → 460. Simple breathing is single-pattern (Calm 4-6):

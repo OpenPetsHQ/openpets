@@ -2346,6 +2346,8 @@ const installDefaultPetSession = () => {
     cyclesCount: "{count} cycles", cycleN: "cycle {n}", untilStopped: "until stopped",
     footerBreathing: "breathing with {name}", footerComplete: "nicely done", footerReady: "ready when you are",
     close: "Close", about: "About this technique",
+    mute: "Mute breathing cues", unmute: "Unmute breathing cues",
+    getReady: "Get ready", getReadyGuidance: "Settle in — we begin in a moment", startNow: "Start now",
   };
   let chromeStrings = { ...chromeFallback };
 
@@ -2365,6 +2367,7 @@ const installDefaultPetSession = () => {
   let phaseIndex = 0;
   let cycleIndex = 0;
   let phaseElapsedMs = 0;
+  let countdownRemainingMs = 0;
   let lastFrameAt = 0;
   let rafHandle = null;
   let pulseStartedAt = -10;
@@ -2373,6 +2376,52 @@ const installDefaultPetSession = () => {
   let targetColor = IDLE_COLOR.slice();
   let currentPhaseCss = "#7ab3ff";
   let lastCountdownText = "";
+
+  // Phase audio cues (host-gated by the global plugin-audio setting and quiet
+  // hours; user-toggled via the top-bar mute button).
+  let audioCues = null; // { enabled, allowed, inhaleEl, exhaleEl }
+
+  const stopCuePlayback = () => {
+    if (!audioCues) return;
+    for (const element of [audioCues.inhaleEl, audioCues.exhaleEl]) {
+      if (element) {
+        element.pause();
+        element.currentTime = 0;
+      }
+    }
+  };
+
+  const playPhaseCue = (phaseKind) => {
+    if (!audioCues || !audioCues.enabled || !audioCues.allowed || runState !== "active") return;
+    const element = phaseKind === "in" ? audioCues.inhaleEl : phaseKind === "out" ? audioCues.exhaleEl : null;
+    if (!element) return;
+    stopCuePlayback();
+    element.volume = 0.9;
+    element.currentTime = 0;
+    void element.play().catch(() => undefined);
+  };
+
+  const applyAudioPayload = (raw) => {
+    if (!raw || typeof raw !== "object") {
+      stopCuePlayback();
+      audioCues = null;
+      return;
+    }
+    const makeCueElement = (dataUrl, existing) => {
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:audio/")) return null;
+      if (existing && existing.src === dataUrl) return existing;
+      const element = new Audio();
+      element.preload = "auto";
+      element.src = dataUrl;
+      return element;
+    };
+    audioCues = {
+      enabled: raw.enabled !== false,
+      allowed: raw.allowed === true,
+      inhaleEl: makeCueElement(raw.inhaleDataUrl, audioCues?.inhaleEl),
+      exhaleEl: makeCueElement(raw.exhaleDataUrl, audioCues?.exhaleEl),
+    };
+  };
 
   const sendSessionEvent = (payload) => {
     ipcRenderer.send("openpets:session-overlay-event", payload);
@@ -2469,6 +2518,14 @@ const installDefaultPetSession = () => {
   phaseCountUnit.textContent = "s";
   phaseCount.appendChild(phaseCountValue);
   phaseCount.appendChild(phaseCountUnit);
+  // lucide:volume-2 / lucide:volume-x (via better-icons/Iconify)
+  const volumeOnSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298zM16 9a5 5 0 0 1 0 6m3.364 3.364a9 9 0 0 0 0-12.728"/></svg>';
+  const volumeOffSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298zm5.5 9.798l5-5m-5 0l5 5"/></svg>';
+  const audioBtn = document.createElement("button");
+  audioBtn.type = "button";
+  audioBtn.className = "session-close-btn session-audio-btn";
+  audioBtn.style.display = "none";
+
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.className = "session-close-btn";
@@ -2479,6 +2536,7 @@ const installDefaultPetSession = () => {
   topbar.appendChild(topbarIcon);
   topbar.appendChild(topbarTitles);
   topbar.appendChild(phaseCount);
+  topbar.appendChild(audioBtn);
   topbar.appendChild(closeBtn);
   root.appendChild(topbar);
 
@@ -2899,12 +2957,14 @@ const installDefaultPetSession = () => {
         if (pattern.cycles !== null && cycleIndex >= pattern.cycles) {
           runState = "complete";
           phaseElapsedMs = 0;
+          stopCuePlayback();
           sendSessionEvent({ type: "completed", patternId: pattern.id, cycles: pattern.cycles });
           renderStatics();
           return;
         }
         renderProgressMeta();
       }
+      playPhaseCue(pattern.phases[phaseIndex].kind);
       renderPhaseText();
     }
   };
@@ -2918,6 +2978,13 @@ const installDefaultPetSession = () => {
       phaseName.textContent = chromeText("complete");
       phaseGuidance.textContent = chromeText("completeGuidance");
       phaseCount.style.display = "none";
+      updateStepStates();
+      return;
+    }
+    if (runState === "countdown") {
+      phaseName.textContent = chromeText("getReady");
+      phaseGuidance.textContent = chromeText("getReadyGuidance");
+      phaseCount.style.display = "";
       updateStepStates();
       return;
     }
@@ -2943,8 +3010,9 @@ const installDefaultPetSession = () => {
     const stepElements = steps.children;
     for (let index = 0; index < stepElements.length; index += 1) {
       const step = stepElements[index];
-      step.classList.toggle("is-active", runState !== "idle" && index === phaseIndex);
-      step.classList.toggle("is-done", runState !== "idle" && index < phaseIndex);
+      const running = runState === "active" || runState === "paused";
+      step.classList.toggle("is-active", running && index === phaseIndex);
+      step.classList.toggle("is-done", running && index < phaseIndex);
     }
   };
 
@@ -2959,6 +3027,7 @@ const installDefaultPetSession = () => {
   const escapeChromeText = (key, vars) => escapeHtml(chromeText(key, vars));
 
   const primaryButtonContent = () => {
+    if (runState === "countdown") return `${playSvg}<span>${escapeChromeText("startNow")}</span>`;
     if (runState === "active") return `${pauseSvg}<span>${escapeChromeText("pause")}</span>`;
     if (runState === "paused") return `${playSvg}<span>${escapeChromeText("resume")}</span>`;
     if (runState === "complete") return `${doneSvg}<span>${escapeChromeText("done")}</span>`;
@@ -3026,6 +3095,7 @@ const installDefaultPetSession = () => {
 
     paceValue.textContent = formatPace(pattern);
     paceLabel.textContent = chromeText("breathPace");
+    renderAudioButton();
     closeBtn.setAttribute("aria-label", chromeText("close"));
     closeBtn.setAttribute("title", `${chromeText("close")} (Esc)`);
     infoBtn.setAttribute("aria-label", chromeText("about"));
@@ -3033,7 +3103,7 @@ const installDefaultPetSession = () => {
     card.classList.toggle("is-complete", runState === "complete");
     primaryBtn.innerHTML = primaryButtonContent();
     restartBtn.innerHTML = `${restartSvg}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
-    restartBtn.style.display = runState === "idle" ? "none" : "";
+    restartBtn.style.display = runState === "idle" || runState === "countdown" ? "none" : "";
     infoBtn.style.display = descriptor.info ? "" : "none";
     renderProgressMeta();
     renderPhaseText();
@@ -3049,7 +3119,7 @@ const installDefaultPetSession = () => {
 
     if (pattern.cycles !== null) {
       dotsCount.innerHTML = "";
-      if (runState === "idle") {
+      if (runState === "idle" || runState === "countdown") {
         dotsCount.textContent = chromeText("cyclesCount", { count: pattern.cycles });
       } else {
         const displayCycle = runState === "complete" ? pattern.cycles : Math.min(cycleIndex + 1, pattern.cycles);
@@ -3060,19 +3130,19 @@ const installDefaultPetSession = () => {
         dotsCount.appendChild(document.createTextNode(` / ${pattern.cycles}`));
       }
     } else {
-      dotsCount.textContent = runState === "idle" ? chromeText("untilStopped") : chromeText("cycleN", { n: cycleIndex + 1 });
+      dotsCount.textContent = runState === "idle" || runState === "countdown" ? chromeText("untilStopped") : chromeText("cycleN", { n: cycleIndex + 1 });
     }
 
     const dots = dotsBox.children;
     for (let index = 0; index < dots.length; index += 1) {
-      const done = runState === "complete" || index < cycleIndex;
-      const isCurrent = runState !== "complete" && runState !== "idle" && index === cycleIndex;
+      const done = runState === "complete" || ((runState === "active" || runState === "paused") && index < cycleIndex);
+      const isCurrent = (runState === "active" || runState === "paused") && index === cycleIndex;
       dots[index].classList.toggle("is-done", done);
       dots[index].classList.toggle("is-current", isCurrent);
     }
 
     if (runState === "complete") footer.textContent = `🐾  ${chromeText("footerComplete")}  🐾`;
-    else if (runState === "idle") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
+    else if (runState === "idle" || runState === "countdown") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
     else footer.textContent = `🐾  ${chromeText("footerBreathing", { name: petCompanionName() })}  🐾`;
   };
 
@@ -3091,13 +3161,31 @@ const installDefaultPetSession = () => {
 
     advanceClock(runState === "active" ? deltaMs : 0, nowSeconds);
 
+    // Lead-in countdown before the first inhale.
+    if (runState === "countdown") {
+      countdownRemainingMs -= deltaMs;
+      if (countdownRemainingMs <= 0) {
+        beginActiveRun();
+      } else {
+        const text = String(Math.max(1, Math.ceil(countdownRemainingMs / 1000)));
+        if (text !== lastCountdownText) {
+          lastCountdownText = text;
+          phaseCountValue.textContent = text;
+        }
+      }
+    }
+
     const pattern = selectedPattern();
-    const phase = pattern && runState !== "idle" ? pattern.phases[phaseIndex] : null;
+    const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
     const phaseMs = phase ? phase.seconds * 1000 : 1;
     const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
 
     // Breath eases toward its target so pauses and pattern hops stay smooth.
-    const breathTarget = runState === "complete" ? 0.3 : runState === "idle" ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8) : breathTargetFor(phase, phaseProgress);
+    const breathTarget = runState === "complete"
+      ? 0.3
+      : runState === "idle" || runState === "countdown"
+        ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+        : breathTargetFor(phase, phaseProgress);
     const smoothing = runState === "active" ? 0.16 : 0.05;
     breathValue += (breathTarget - breathValue) * smoothing;
 
@@ -3115,7 +3203,11 @@ const installDefaultPetSession = () => {
         phaseCountValue.textContent = text;
       }
     }
-    const ringProgressValue = runState === "complete" ? 1 : phase ? phaseProgress : 0;
+    let ringProgressValue = runState === "complete" ? 1 : phase ? phaseProgress : 0;
+    if (runState === "countdown") {
+      const totalMs = Math.max(1, Number(descriptor?.countdownSeconds) * 1000);
+      ringProgressValue = Math.min(1, Math.max(0, 1 - countdownRemainingMs / totalMs));
+    }
     ringProgress.setAttribute("stroke-dashoffset", String(RING_CIRCUMFERENCE * (1 - ringProgressValue)));
     ringDotGroup.setAttribute("transform", `rotate(${ringProgressValue * 360} ${RING_SIZE / 2} ${RING_SIZE / 2})`);
 
@@ -3159,7 +3251,7 @@ const installDefaultPetSession = () => {
       gl.uniform1f(uniforms.radius, ORB_RADIUS * dpr);
       gl.uniform1f(uniforms.time, nowSeconds);
       gl.uniform1f(uniforms.breath, breathValue);
-      gl.uniform1f(uniforms.energy, runState === "paused" ? 0.55 : runState === "idle" ? 0.7 : 1.0);
+      gl.uniform1f(uniforms.energy, runState === "paused" ? 0.55 : runState === "idle" ? 0.7 : runState === "countdown" ? 0.8 : 1.0);
       gl.uniform1f(uniforms.pulse, pulseStartedAt);
       gl.uniform3f(uniforms.tint, currentColor[0], currentColor[1], currentColor[2]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -3201,14 +3293,30 @@ const installDefaultPetSession = () => {
     lastCountdownText = "";
   };
 
-  const startRun = () => {
+  const beginActiveRun = () => {
     const pattern = selectedPattern();
     if (!pattern) return;
     resetClock();
     runState = "active";
     triggerPulse(performance.now() / 1000);
     renderStatics();
+    playPhaseCue(pattern.phases[0].kind);
     sendSessionEvent({ type: "started", patternId: pattern.id });
+  };
+
+  const startRun = () => {
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    const countdownSeconds = Number(descriptor?.countdownSeconds);
+    if (Number.isFinite(countdownSeconds) && countdownSeconds > 0) {
+      resetClock();
+      runState = "countdown";
+      countdownRemainingMs = countdownSeconds * 1000;
+      lastCountdownText = "";
+      renderStatics();
+      return;
+    }
+    beginActiveRun();
   };
 
   const selectPattern = (patternId) => {
@@ -3226,6 +3334,7 @@ const installDefaultPetSession = () => {
     if (!pattern) return;
     if (runState === "active") {
       runState = "paused";
+      stopCuePlayback();
       sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
       renderStatics();
     } else if (runState === "paused") {
@@ -3234,6 +3343,8 @@ const installDefaultPetSession = () => {
       renderStatics();
     } else if (runState === "complete") {
       dismissOverlay();
+    } else if (runState === "countdown") {
+      beginActiveRun();
     } else {
       startRun();
     }
@@ -3242,6 +3353,25 @@ const installDefaultPetSession = () => {
   restartBtn.addEventListener("click", () => {
     if (!selectedPattern() || runState === "idle") return;
     startRun();
+  });
+
+  const renderAudioButton = () => {
+    const available = Boolean(audioCues && audioCues.allowed && (audioCues.inhaleEl || audioCues.exhaleEl));
+    audioBtn.style.display = available ? "" : "none";
+    if (!available) return;
+    const muted = !audioCues.enabled;
+    audioBtn.innerHTML = muted ? volumeOffSvg : volumeOnSvg;
+    audioBtn.setAttribute("aria-label", chromeText(muted ? "unmute" : "mute"));
+    audioBtn.setAttribute("title", chromeText(muted ? "unmute" : "mute"));
+    audioBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+  };
+
+  audioBtn.addEventListener("click", () => {
+    if (!audioCues) return;
+    audioCues.enabled = !audioCues.enabled;
+    if (!audioCues.enabled) stopCuePlayback();
+    renderAudioButton();
+    sendSessionEvent({ type: "audioToggled", enabled: audioCues.enabled });
   });
 
   infoBtn.addEventListener("click", () => {
@@ -3268,6 +3398,7 @@ const installDefaultPetSession = () => {
     if (payload && typeof payload === "object" && payload.chrome && typeof payload.chrome === "object") {
       chromeStrings = { ...chromeFallback, ...payload.chrome };
     }
+    applyAudioPayload(payload && typeof payload === "object" ? payload.audio : null);
     const previous = descriptor;
     descriptor = next && typeof next === "object" ? next : null;
     if (!descriptor) {
@@ -3301,6 +3432,7 @@ const installDefaultPetSession = () => {
     if (!descriptor || !pattern) return;
     if (action === "pause" && runState === "active") {
       runState = "paused";
+      stopCuePlayback();
       sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
       renderStatics();
     } else if (action === "resume" && runState === "paused") {
@@ -3308,6 +3440,7 @@ const installDefaultPetSession = () => {
       sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
       renderStatics();
     } else if (action === "stop" && (runState === "active" || runState === "paused")) {
+      stopCuePlayback();
       sendSessionEvent({ type: "stopped", patternId: pattern.id, cycle: currentCycleNumber() });
       runState = "idle";
       resetClock();

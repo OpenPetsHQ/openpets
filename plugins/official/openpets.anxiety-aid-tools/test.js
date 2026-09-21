@@ -44,14 +44,17 @@ assert.deepEqual(info.logo, { kind: "svg", name: "logo" });
 
 // Starting from the pet menu opens an auto-starting single-pattern session,
 // and once the run starts the pet menu gains the pause/stop controls.
-const harness = createTestHarness(register, { permissions: ["ui:session", "commands"], locales: { en } });
+const harness = createTestHarness(register, { permissions: ["ui:session", "commands", "storage"], locales: { en } });
 await harness.start();
 
-const descriptor = buildDescriptor(harness.ctx, true);
+const descriptor = buildDescriptor(harness.ctx, true, true);
 assert.equal(descriptor.kind, "breathing");
 assert.equal(descriptor.patterns.length, 1);
 assert.equal(descriptor.patternId, "calm");
 assert.equal(descriptor.autoStart, true);
+assert.deepEqual(descriptor.audio.inhale, { kind: "sound", name: "breath-in" });
+assert.deepEqual(descriptor.audio.exhale, { kind: "sound", name: "breath-out" });
+assert.equal(descriptor.audio.enabled, true);
 
 await harness.runCommand("start-breathing");
 await new Promise((resolve) => setTimeout(resolve, 0));
