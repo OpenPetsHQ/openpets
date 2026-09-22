@@ -21,7 +21,6 @@ import {
   register,
   SITE_URL,
   STORAGE_KEY_LAST_GUIDED_PATTERN,
-  STORAGE_KEY_LAST_PRACTICE,
 } from "./index.js";
 
 let createTestHarness;
@@ -206,6 +205,17 @@ assert.ok(practices.every((choice) => typeof choice.icon === "string"));
 const harness = createTestHarness(register, { permissions: ["ui:session", "commands", "storage"], locales: { en } });
 await harness.start();
 
+// The pet menu lists the practices themselves, in order, and nothing else.
+assert.deepEqual(
+  [...harness.calls.commands.values()].map(({ meta }) => [meta.id, meta.title]),
+  [
+    ["start-breathing", "$t:practice.breathing"],
+    ["start-guided-breathing", "$t:practice.guided"],
+    ["start-pmr", "$t:practice.pmr"],
+    ["start-grounding", "$t:practice.grounding"],
+  ],
+);
+
 let latestSession = null;
 let latestSpec = null;
 let latestEventHandler = null;
@@ -265,7 +275,6 @@ assert.equal(latestSpec.kind, "breathing");
 assert.equal(harness.calls.menuItems.length, 2, "running session must expose pause + stop menu items");
 assert.equal(harness.calls.menuItems[0].id, "breathing-pause");
 assert.equal(harness.calls.menuItems[1].id, "breathing-stop");
-assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "breathing");
 
 // Pause breathing
 await latestSession.pause();
@@ -286,7 +295,6 @@ assert.equal(latestSpec.steps.length, 19);
 assert.equal(harness.calls.menuItems.length, 2, "running PMR must expose PMR pause + stop menu items");
 assert.equal(harness.calls.menuItems[0].id, "pmr-pause");
 assert.equal(harness.calls.menuItems[1].id, "pmr-stop");
-assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "pmr");
 
 // Pause PMR
 await latestSession.pause();
@@ -305,7 +313,6 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "breathing");
 assert.equal(latestSpec.practiceId, "breathing");
 assert.equal(latestSpec.autoStart, false);
-assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "breathing");
 
 // Switch back to PMR via practiceSelected event
 latestEventHandler({ type: "practiceSelected", practiceId: "pmr" });
@@ -313,7 +320,6 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "pmr");
 assert.equal(latestSpec.practiceId, "pmr");
 assert.equal(latestSpec.autoStart, false);
-assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "pmr");
 
 // 4. Guided breathing: the command opens the pattern picker session; picking
 // a pattern swaps Info to that pattern and is remembered for next time.
@@ -346,31 +352,12 @@ assert.equal(latestSpec.kind, "grounding");
 assert.equal(latestSpec.practiceId, "grounding");
 assert.equal(latestSpec.countdownSeconds, 0);
 assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["grounding-stop"]);
-assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "grounding");
 assert.equal(buildGroundingDescriptor(harness.ctx, false).steps.length, 5);
 
 // 6. Stop session
 await latestSession.stop();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(harness.calls.menuItems, [], "stopping session must clear menu items");
-
-// 7. Open idle respects stored lastPractice
-await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "pmr");
-await harness.runCommand("open-anxiety-aid-tools");
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(latestSpec.kind, "pmr");
-assert.equal(latestSpec.autoStart, false);
-
-await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "guided-breathing");
-await harness.runCommand("open-anxiety-aid-tools");
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(latestSpec.practiceId, "guided-breathing");
-
-await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "breathing");
-await harness.runCommand("open-anxiety-aid-tools");
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(latestSpec.kind, "breathing");
-assert.equal(latestSpec.autoStart, false);
 
 await harness.stop();
 console.log("openpets.anxiety-aid-tools golden test passed");

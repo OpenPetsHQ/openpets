@@ -10,6 +10,7 @@ import {
   closeDefaultPetSession,
   isDefaultPetSessionOpen,
   openDefaultPetSession,
+  setDefaultPetSessionMeasuredHeight,
   subscribeDefaultPetPanelState,
 } from "./default-pet-chat.js";
 import {
@@ -127,6 +128,9 @@ let handlersInstalled = false;
 let unsubscribePanelState: (() => void) | null = null;
 
 const sessionOverlayChannel = "openpets:session-overlay";
+/** Bounds on a renderer-reported carrier height (card + orb); the work area clamps further. */
+const minSessionContentHeight = 240;
+const maxSessionContentHeight = 1400;
 
 export function openPluginSessionOverlay(options: {
   readonly pluginId: string;
@@ -443,6 +447,19 @@ export function installSessionOverlayIpcHandlers(): void {
       showSessionInfoWindow(session.descriptor, buildSessionChrome());
     }
     emitToPlugin(session, parsed.event);
+  });
+
+  // The overlay measures its real card + orb and reports the carrier height it
+  // needs; estimates only size the first frame.
+  ipcMain.on("openpets:session-overlay-content-height", (event: IpcMainEvent, rawHeight: unknown) => {
+    if (!isAuthorizedSessionSender(event.sender.id)) return;
+    const session = activeSession;
+    if (!session || session.closed) return;
+    const height = Number(rawHeight);
+    if (!Number.isFinite(height)) return;
+    const clamped = Math.max(minSessionContentHeight, Math.min(maxSessionContentHeight, Math.round(height)));
+    debug("pet.session", "session overlay content height", { pluginId: session.pluginId, height: clamped });
+    setDefaultPetSessionMeasuredHeight(clamped);
   });
 
   ipcMain.on("openpets:session-overlay-open-url", (event: IpcMainEvent, rawUrl: unknown) => {

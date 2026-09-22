@@ -301,6 +301,18 @@ a first slice.
 
 Newest first.
 
+2026-09-22 — carrier fits measured content; practice-only pet menu (Alvin).
+  In-app the top-card layout showed a big empty band: the carrier was
+  sized from per-practice card estimates (PMR 537 vs ~405 real) and
+  an orb larger than the pet got. Now the overlay measures its real
+  card + orb and reports the height it needs
+  (openpets:session-overlay-content-height); the carrier fits it with
+  the pet anchored. Estimates only size the first frame. PMR cue
+  boxes fit their content (fixed 124px removed). Pet menu lists just
+  the four practices (Breathing / Guided breathing / Muscle
+  relaxation / Grounding); "Open Anxiety Aid Tools" and the
+  lastPractice memory it relied on are gone.
+
 2026-09-22 — HUD card on top of the pet, all practices (Alvin).
   The session card now sits at the top of the carrier and the orb
   wraps the pet near its resting spot below it (was: orb stacked

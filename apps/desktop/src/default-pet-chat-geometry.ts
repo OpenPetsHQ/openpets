@@ -20,6 +20,10 @@ export const sessionOrbBottomGap = 16;
 export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
   return Math.max(110, Math.min(240, Math.round(scaledSpriteHeight)));
 }
+/**
+ * Card height estimates size only the first frame of a session; the overlay
+ * then measures its real card and orb and the carrier fits that exactly.
+ */
 /** Breathing card. The CSS fallback uses this so a breath session does not open tall. */
 export const sessionBreathingCardEstimatedHeight = 268;
 /** Guided breathing card: the breathing card plus the pattern chip row. */
@@ -27,7 +31,7 @@ export const sessionGuidedBreathingCardEstimatedHeight = 328;
 /** Grounding card: the shared rows plus the sense checklist (up to five items). */
 export const sessionGroundingCardEstimatedHeight = 534;
 /** PMR card, including the fixed pose-illustration well and cues row. */
-export const sessionPmrCardEstimatedHeight = 537;
+export const sessionPmrCardEstimatedHeight = 400;
 export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;
 export const sessionCardTopInset = 14;
 export const sessionOrbCardGap = 10;

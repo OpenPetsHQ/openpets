@@ -20,7 +20,6 @@ export const MENU_PMR_STOP = "pmr-stop";
 export const MENU_GROUNDING_STOP = "grounding-stop";
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
-export const STORAGE_KEY_LAST_PRACTICE = "lastPractice";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
 
 export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding"];
@@ -568,14 +567,7 @@ async function selectGuidedPattern(ctx, session, patternId) {
   }
 }
 
-async function openSession(ctx, state, autoStart, requestedPracticeId) {
-  let practiceId = requestedPracticeId;
-  if (!practiceId) {
-    const stored = await ctx.storage.get(STORAGE_KEY_LAST_PRACTICE);
-    practiceId = PRACTICE_IDS.includes(stored) ? stored : "breathing";
-  }
-  await ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, practiceId).catch(() => undefined);
-
+async function openSession(ctx, state, autoStart, practiceId) {
   const audioCuesEnabled = (await ctx.storage.get(STORAGE_KEY_AUDIO_CUES)) !== false;
   const guidedPatternId = practiceId === "guided-breathing"
     ? await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN)
@@ -615,16 +607,8 @@ export function register(OpenPetsPlugin) {
       const state = { session: null, practiceId: "breathing" };
       await ctx.commands.register(
         {
-          id: "open-anxiety-aid-tools",
-          title: "$t:command.open.title",
-          description: "$t:command.open.description",
-        },
-        () => openSession(ctx, state, false),
-      );
-      await ctx.commands.register(
-        {
           id: "start-breathing",
-          title: "$t:command.start.title",
+          title: "$t:practice.breathing",
           description: "$t:command.start.description",
         },
         () => openSession(ctx, state, true, "breathing"),
@@ -632,7 +616,7 @@ export function register(OpenPetsPlugin) {
       await ctx.commands.register(
         {
           id: "start-guided-breathing",
-          title: "$t:command.startGuided.title",
+          title: "$t:practice.guided",
           description: "$t:command.startGuided.description",
         },
         () => openSession(ctx, state, true, "guided-breathing"),
@@ -640,7 +624,7 @@ export function register(OpenPetsPlugin) {
       await ctx.commands.register(
         {
           id: "start-pmr",
-          title: "$t:command.startPmr.title",
+          title: "$t:practice.pmr",
           description: "$t:command.startPmr.description",
         },
         () => openSession(ctx, state, true, "pmr"),
@@ -648,7 +632,7 @@ export function register(OpenPetsPlugin) {
       await ctx.commands.register(
         {
           id: "start-grounding",
-          title: "$t:command.startGrounding.title",
+          title: "$t:practice.grounding",
           description: "$t:command.startGrounding.description",
         },
         () => openSession(ctx, state, true, "grounding"),

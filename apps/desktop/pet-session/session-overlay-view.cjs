@@ -361,10 +361,24 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     const orbCenterBottom = Math.round(Math.min(highestCenter, Math.max(lowestCenter, restCenterFromBottom)));
     const petLift = Math.max(0, Math.round(orbCenterBottom - restCenterFromBottom));
 
+    reportContentHeight(cardHeight, spriteRect.height);
+
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--session-orb-radius", String(orbRadius));
     rootStyle.setProperty("--session-orb-center-bottom", String(orbCenterBottom));
     rootStyle.setProperty("--session-pet-lift", `${petLift}px`);
+  };
+
+  // Report the carrier height this layout needs (card + gap + orb + rim) so
+  // the host fits the window to it; the orb size depends on the pet, not on
+  // the current window, so the report is stable once the window matches.
+  let lastReportedHeight = 0;
+  const reportContentHeight = (cardHeight, spriteHeight) => {
+    const neededRadius = Math.max(96, Math.min(240, Math.round(spriteHeight)));
+    const needed = Math.round(CARD_TOP_INSET + cardHeight + ORB_CARD_GAP + neededRadius * 2 + ORB_BOTTOM_RIM);
+    if (Math.abs(needed - lastReportedHeight) < 2) return;
+    lastReportedHeight = needed;
+    ipcRenderer.send("openpets:session-overlay-content-height", needed);
   };
 
   const scheduleSessionGeometry = () => {
@@ -827,6 +841,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     descriptor = nextPractice ? next : null;
 
     if (!descriptor) {
+      lastReportedHeight = 0;
       document.documentElement.dataset.sessionOpen = "false";
       runState = "idle";
       resetClock();
@@ -840,6 +855,8 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
       previous && (previous.kind !== descriptor.kind || previous.practiceId !== descriptor.practiceId)
     );
     if (!previous || practiceChanged) {
+      // A new practice opens at the host's estimate; always re-report.
+      lastReportedHeight = 0;
       setPracticeMenuOpen(false);
       mountPractice(nextPractice);
       practice.enter(descriptor);

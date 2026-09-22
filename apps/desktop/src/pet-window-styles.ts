@@ -2020,14 +2020,12 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     }
     .session-pmr-cues {
       display: none;
-      height: 124px;
       margin-bottom: 11px;
       box-sizing: border-box;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
     }
     .session-cues-col {
-      height: 100%;
       box-sizing: border-box;
       padding: 7px 9px 6px;
       border-radius: 13px;
