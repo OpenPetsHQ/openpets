@@ -3794,10 +3794,14 @@ const installDefaultPetSession = () => {
 
   const selectPattern = (patternId) => {
     selectedPatternId = patternId;
-    const wasRunning = runState === "active" || runState === "paused";
     resetClock();
-    if (wasRunning) runState = "active";
+    const pattern = selectedPattern();
+    if (runState === "active") {
+      stopCuePlayback();
+      if (pattern && pattern.phases[0]) playPhaseCue(pattern.phases[0].kind);
+    }
     renderStatics();
+    sendSessionEvent({ type: "patternChanged", patternId: pattern ? pattern.id : patternId });
   };
 
   const currentCycleNumber = () => cycleIndex + 1;

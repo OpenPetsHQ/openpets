@@ -137,6 +137,9 @@ export function createPluginUiApi(options: {
     };
   };
 
+  const maxEarlySessionEvents = 16;
+  const sessionEventBuffers = new WeakMap<SessionSlot, PluginSessionEvent[]>();
+
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
@@ -145,21 +148,45 @@ export function createPluginUiApi(options: {
     );
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
-    slot.host = await capabilities.session.open({
-      pluginId,
-      descriptor,
-      callbacks: {
-        onEvent: (event: PluginSessionEvent) => {
-          if (slot.closed) return;
-          try { slot.onEvent?.(event); } catch (error) { onError(safeError(error)); }
+    sessionEventBuffers.set(slot, []);
+
+    try {
+      slot.host = await capabilities.session.open({
+        pluginId,
+        descriptor,
+        callbacks: {
+          onEvent: (event: PluginSessionEvent) => {
+            if (slot.closed) return;
+            if (slot.onEvent) {
+              try {
+                slot.onEvent(event);
+              } catch (error) {
+                onError(safeError(error));
+              }
+              return;
+            }
+            const buffer = sessionEventBuffers.get(slot);
+            if (buffer && buffer.length < maxEarlySessionEvents) {
+              buffer.push(event);
+            }
+          },
+          onClosed: () => {
+            slot.closed = true;
+            sessionEventBuffers.delete(slot);
+            state.sessions.delete(sessionId);
+          },
         },
-        onClosed: () => {
-          slot.closed = true;
-          state.sessions.delete(sessionId);
-        },
-      },
-    });
-    if (!slot.closed) state.sessions.set(sessionId, slot);
+      });
+    } catch (error) {
+      sessionEventBuffers.delete(slot);
+      throw error;
+    }
+
+    if (!slot.closed) {
+      state.sessions.set(sessionId, slot);
+    } else {
+      sessionEventBuffers.delete(slot);
+    }
     return { sessionId };
   };
 
@@ -257,16 +284,39 @@ export function createPluginUiApi(options: {
       sessionStop: async (sessionId: unknown) => { await requireSession(sessionId).host.stop(); },
       sessionClose: async (sessionId: unknown) => {
         const slot = state.sessions.get(String(sessionId));
-        if (slot && !slot.closed) await slot.host.close().catch(() => undefined);
+        if (slot) {
+          sessionEventBuffers.delete(slot);
+          if (!slot.closed) {
+            await slot.host.close().catch(() => undefined);
+          }
+        }
         state.sessions.delete(String(sessionId));
       },
       sessionSubscribe: (sessionId: unknown, handler: (event: PluginSessionEvent) => void) => {
         const slot = state.sessions.get(String(sessionId));
         if (!slot || slot.closed) {
-          logger("debug", "plugin session subscribe skipped", { id: manifest.id, sessionId: String(sessionId), reason: "not-live" });
+          logger("debug", "plugin session subscribe skipped", {
+            id: manifest.id,
+            sessionId: String(sessionId),
+            reason: "not-live",
+          });
           return { ok: false };
         }
         slot.onEvent = handler;
+        const buffered = sessionEventBuffers.get(slot);
+        sessionEventBuffers.delete(slot);
+        if (buffered && buffered.length > 0) {
+          for (const event of buffered) {
+            if (slot.closed) {
+              break;
+            }
+            try {
+              handler(event);
+            } catch (error) {
+              onError(safeError(error));
+            }
+          }
+        }
         return { ok: true };
       },
       delivery,
