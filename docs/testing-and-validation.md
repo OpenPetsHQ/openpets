@@ -37,20 +37,49 @@ dist checks. Three buckets:
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
-  mapping, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for the
-  privacy indicator, capture cancellation/cleanup races, separate timeouts,
+  mapping, catalog remote transport/cache behavior and V2/fixture fallback behavior, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
+  microphone-track accounting, capture cancellation/cleanup races, separate timeouts,
   empty transcripts, and shutdown behavior. `remote-control.test.ts` covers
   secure opt-in configuration, verifier-only persistence, authentication,
   scopes, malformed/oversized requests, rate limiting, rotation, revocation,
   canonical IPv4/CGNAT boundaries, peer normalization, socket caps/deadlines,
   away-pet side-effect suppression, and listener shutdown. Compiled to
   `.test-dist/`.
-- Provider-profile behavior is covered by `provider-profiles.test.ts`,
-  `provider-service.test.ts`, `text-model-client.test.ts`, and
-  `plugin-ai-gateway.test.ts`: independent
-  persistence/selection, URL/header boundaries, fake-endpoint routing, native
-  versus compatible codecs, operation snapshots, redacted status, and no-fetch
-  unsupported realtime. Tests use fake fetches and no credentials.
+- Provider-foundation behavior is covered by `provider-profiles.test.ts`,
+   `provider-presets-and-roles.test.ts`, `provider-migration.test.ts`,
+   `provider-credential-deletion.test.ts`, `provider-service.test.ts`, and
+   `provider-configuration-test.test.ts`,
+  `voice-assistant-host-core.test.ts`,
+  `voice-realtime-assistant.test.ts`, `text-model-client.test.ts`, and
+  `plugin-ai-gateway.test.ts`: the canonical adapter/preset catalog, typed
+  profile validation, independent role selection, adapter credential policies,
+  separate text/realtime models, persisted TTS voices and request overrides,
+  versioned migration/defaults/quarantine, URL/header boundaries,
+   fake-endpoint routing, native ElevenLabs Scribe multipart transcription,
+   configured TTS voice previews, temporary draft
+   credentials, native versus compatible codecs, operation snapshots,
+   redacted status, no-fetch unsupported realtime, and provider transport
+   cancellation, bounded-body, malformed-JSON, SSE, and sanitized-error
+   behavior. Tests use fake fetches and
+   no credentials. The provider settings tests also cover atomic save rollback
+   after credential failure, redacted-header add/delete edits, and preservation
+    of secrets outside Control Center snapshots.
+- Voice Talk behavior tests cover the atomic recording-to-processing transition,
+  double/triple primary toggles without cancellation or parallel turns, capture
+  stop followed by STT/assistant/synthesis, immediate response bubbles before TTS
+  settles, no automatic re-listen after completed speech, explicit activation for
+  the next turn, and the non-destructive native Realtime primary toggle plus its
+  response-completed shutdown boundary. They assert outcomes rather than
+  diagnostic log wording.
+- Voice device tests cover preference normalization/persistence, preferred/default/
+  unavailable resolution, immutable operation snapshots, selected-input propagation
+  through generic capture and Realtime transport, the truthful unsupported-output
+  snapshot, and Control Center voice devices UI/preload contracts (`control-center-voice-devices.test.ts` and `control-center-preload.test.ts`). They use injected device lists and do not depend on OS hardware.
+- Talk/provider lifecycle diagnostics are validated through the existing focused
+  voice and provider behavior tests by preserving their observable cancellation,
+  timeout, output, and cleanup outcomes. Logging tests should not assert exact log
+  wording or raw content; when diagnostics change, validate the relevant focused
+  behavior and the desktop typecheck instead.
 - **Contract** (`apps/desktop/contracts/*.contract.ts`): the public boundaries - - `catalog-fixture.contract.ts` - catalog validation against fixture data.
   - `local-ipc-protocol.contract.ts` - IPC request/response parsing
     ([IPC and remote control](/ipc)).
@@ -59,12 +88,27 @@ dist checks. Three buckets:
   - `plugin-manifest.contract.ts` - manifest v1 schema, config refs, permissions,
     deferred features, action validation ([Plugin platform](/plugins)).
 - **Runtime checks** (`apps/desktop/src/check-*.ts`): notably
-  - `check-packaging-contract.ts` - asserts the packaged app includes bundled
-    official plugins as extra resources, every bundled plugin's manifest + entry
-    exist, the pet-window CSP allows the bundled emoji font, etc. This is the
-    guard that a _packaged_ build is actually shippable.
+  - `check-packaging-contract.ts` - asserts the packaged app includes every
+    canonical bundled official plugin as extra resources, each plugin's
+    manifest, entry, declared assets, and locales exist, every unpacked
+    `@open-pets/*` integration runtime entry (including OpenClaw) exists, and
+    the pet-window CSP allows the bundled emoji font, etc. This is the guard
+    that a _packaged_ build is actually shippable.
   - `check-opencode-desktop-setup.ts` - verifies the bundled OpenCode setup
     preview matches expectations.
+  - `check-zed-desktop.ts` - verifies desktop Zed path resolution, preview
+    shape, targeted writes, and removal preservation.
+
+## Teams desktop behavior tests
+
+Teams behavior tests cover exact enrollment-link decoding, strict Team Pack
+ payload validation, one-organization state, stable installation metadata,
+ delayed-preview acceptance gating, authoritative identity/expiry refresh,
+ personal/Team ownership isolation, staged reconciliation failure, and Team
+removal behavior. Enrollment contract tests cover authoritative preview,
+desktop completion without browser confirmation, same-proof idempotency,
+incorrect-proof rejection, active device conflicts, and bounded retry. Fake API
+tests use bounded responses and never persist or assert on bearer credentials.
 
 ## Package tests & contracts
 
@@ -84,8 +128,10 @@ Each package runs its own `check`/`test`. Notable contract/boundary coverage:
 - `@open-pets/dsh` - package artifact/load smoke: confirm the built or published
   artifact loads as the DSH Cordis bundle and its automatic dispatch wiring is
   available without model tools or MCP setup. See [Agent integrations](/agent-integrations).
-- `packages/cursor/src/check-cursor.ts`, `packages/opencode` checks, etc. - validate the safe config-write behavior (status classification, redaction,
-  symlink/oversize rejection, atomic writes, uninstall preserving user entries).
+- `packages/cursor/src/check-cursor.ts`, `packages/zed/src/check-zed.ts`,
+  `packages/opencode` checks, etc. - validate the safe config-write behavior
+  (status classification, redaction, symlink/oversize rejection, atomic writes,
+  interrupted-write recovery, uninstall preserving user entries).
   See [Agent integrations](/agent-integrations).
 
 ## Plugin testing
@@ -177,6 +223,50 @@ Before shipping, the relevant gate must be green:
   after; both validate the relevant v3 ZIP archive contracts.
 - **Linux-specific behavior** → validated on the Ubuntu VM
   ([Development](/development)).
+
+The local desktop release pipeline runs the packaged-output contract against a
+fresh unpacked build for every platform/architecture target and against the
+extracted payload of the actual distributable before it reaches copy, tag, or
+publication stages. Externally staged DEB/RPM payloads are extracted and checked
+before copy. Artifact name, size, and checksum checks do not replace this
+validation; target selection is explicit so Linux packages require the matching
+`sharp-linux-*` native runtime rather than the release host's runtime. The
+macOS release host uses `unsquashfs` (install with `brew install squashfs`) and
+the ELF section table to extract the actual Linux Type-2 AppImage payload without
+executing its Linux binary. RPM payloads are first spooled to a temporary CPIO
+file, avoiding a release-host memory limit on full desktop packages. The
+focused `packaging-contract.test.ts` fixture regression proves that staged DEB
+and RPM payloads missing `openpets.system-resources` or the target Sharp runtime
+are hard failures. Release checkpoints also persist SHA-256 digests for every
+artifact output; `release-checkpoint.test.mjs` proves that a same-size mutation
+stales the stage while an unchanged checkpoint remains reusable.
+
+## Release gates and ordering
+
+Release commands do not replace the quality gates:
+
+- **Package gate** → `pnpm check` and `pnpm test` pass for the workspace and the
+  current public package plan.
+- **Desktop gate** → `pnpm --filter @open-pets/desktop check` and
+  `pnpm --filter @open-pets/desktop test` pass, with the workspace build required
+  by the desktop release flow.
+
+For a full shared-version release, publish the complete dynamic package plan
+with `pnpm release:npm -- --yes`, verify every planned package/version on the
+public npm registry, and only then promote the desktop tag. The npm helper's
+printed plan is authoritative; this document must not become a stale package
+inventory. A partial npm publish is recoverable by rerunning the same command;
+already published versions are skipped.
+
+A desktop-only release uses the Desktop gate and does not publish npm packages,
+unless it introduces a new exact npm integration version. In that case, publish
+and verify that version before the desktop tag is promoted. Never use
+`--skip-checks` on a live npm or desktop release. For historical npm recovery,
+use the tagged source explicitly:
+
+```bash
+pnpm release:npm -- --yes --ref vX.Y.Z
+```
 
 If a gate is skipped, say so explicitly rather than implying coverage. Contract
 and validator failures are signal, not noise - they encode the ways this product

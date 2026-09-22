@@ -1,6 +1,6 @@
 {
   "name": "@open-pets/cli",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -42,6 +42,7 @@
     "@open-pets/cursor": "workspace:*",
     "@open-pets/mcp": "workspace:*",
     "@open-pets/openclaw": "workspace:*",
-    "@open-pets/opencode": "workspace:*"
+    "@open-pets/opencode": "workspace:*",
+    "@open-pets/zed": "workspace:*"
   }
 }

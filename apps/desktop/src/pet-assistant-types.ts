@@ -50,6 +50,8 @@ export type PetAssistantToolCall = {
   readonly id: string;
   readonly name: string;
   readonly arguments: unknown;
+  /** Host-only presentation metadata; provider codecs never send this field. */
+  readonly displayLabel?: string;
 };
 
 export type PetAssistantToolResult =

@@ -1,44 +1,46 @@
 const { contextBridge, ipcRenderer } = require("electron");
-let conversationSubscriptionNonce = 0;
 
 const api = {
   getPetsState: () => ipcRenderer.invoke("openpets:get-pets-state"),
   getDashboardSnapshot: () => ipcRenderer.invoke("openpets:get-dashboard-snapshot"),
+  getTeamsSnapshot: () => ipcRenderer.invoke("openpets:teams-snapshot"),
+  submitTeamsEnrollment: (displayName) =>
+    ipcRenderer.invoke("openpets:teams-enroll", displayName),
+  syncTeamsNow: () => ipcRenderer.invoke("openpets:teams-sync"),
+  approveTeamPluginPermissions: (id, approvalToken) =>
+    ipcRenderer.invoke(
+      "openpets:teams-approve-plugin-permissions",
+      id,
+      approvalToken,
+    ),
+  setTeamPluginEnabled: (id, enabled) =>
+    ipcRenderer.invoke(
+      "openpets:teams-set-plugin-enabled",
+      id,
+      enabled,
+    ),
+  leaveTeams: () => ipcRenderer.invoke("openpets:teams-leave"),
+  getManagerCheckInsSnapshot: () => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-snapshot");
+  },
+  syncManagerCheckIns: () => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-sync");
+  },
+  getManagerCheckInsHistory: (cursor) => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-history", cursor);
+  },
+  setManagerCheckInDevicePaused: (paused) => {
+    return ipcRenderer.invoke("openpets:manager-check-ins-set-device-paused", paused);
+  },
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
-  getLanStatus: () => ipcRenderer.invoke("openpets:get-lan-status"),
-  getI18n: () => ipcRenderer.invoke("openpets:get-i18n"),
-  getConversationSnapshot: () => ipcRenderer.invoke("openpets:get-conversation-snapshot"),
+  getVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-get"),
+  refreshVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-refresh"),
+  saveVoiceDevicePreferences: (preferences) => ipcRenderer.invoke("openpets:voice-devices-save-preferences", preferences),
   getConversationHistory: () => ipcRenderer.invoke("openpets:get-conversation-history"),
   deleteConversationHistoryMessage: (id) => ipcRenderer.invoke("openpets:delete-conversation-history-message", id),
   clearConversationHistory: () => ipcRenderer.invoke("openpets:clear-conversation-history"),
-  sendConversationMessage: (text) => ipcRenderer.invoke("openpets:conversation-send-message", text),
-  cancelConversationTurn: () => ipcRenderer.invoke("openpets:conversation-cancel-turn"),
-  getVoiceAssistantSnapshot: () => ipcRenderer.invoke("openpets:get-voice-assistant-snapshot"),
-  startVoiceAssistant: () => ipcRenderer.invoke("openpets:voice-assistant-start"),
-  muteVoiceAssistant: () => ipcRenderer.invoke("openpets:voice-assistant-mute"),
-  unmuteVoiceAssistant: () => ipcRenderer.invoke("openpets:voice-assistant-unmute"),
-  interruptVoiceAssistant: () => ipcRenderer.invoke("openpets:voice-assistant-interrupt"),
-  endVoiceAssistant: () => ipcRenderer.invoke("openpets:voice-assistant-end"),
-  onVoiceAssistantEvent: (callback) => {
-    const listener = (_event, voiceEvent) => callback(voiceEvent);
-    const subscriptionToken = `${Date.now()}-voice-${conversationSubscriptionNonce++}`;
-    ipcRenderer.on("openpets:voice-assistant-event", listener);
-    ipcRenderer.send("openpets:voice-assistant-subscribe", subscriptionToken);
-    return () => {
-      ipcRenderer.removeListener("openpets:voice-assistant-event", listener);
-      ipcRenderer.send("openpets:voice-assistant-unsubscribe", subscriptionToken);
-    };
-  },
-  onConversationEvent: (callback) => {
-    const listener = (_event, conversationEvent) => callback(conversationEvent);
-    const subscriptionToken = `${Date.now()}-${conversationSubscriptionNonce++}`;
-    ipcRenderer.on("openpets:conversation-event", listener);
-    ipcRenderer.send("openpets:conversation-subscribe", subscriptionToken);
-    return () => {
-      ipcRenderer.removeListener("openpets:conversation-event", listener);
-      ipcRenderer.send("openpets:conversation-unsubscribe", subscriptionToken);
-    };
-  },
+  getLanStatus: () => ipcRenderer.invoke("openpets:get-lan-status"),
+  getI18n: () => ipcRenderer.invoke("openpets:get-i18n"),
   updatePreferences: (patch) => ipcRenderer.invoke("openpets:update-preferences", patch),
   getReactionAnimationSettings: () => ipcRenderer.invoke("openpets:get-reaction-animation-settings"),
   getLaunchAtLogin: () => ipcRenderer.invoke("openpets:get-launch-at-login"),
@@ -61,6 +63,13 @@ const api = {
   uninstallPlugin: (id) => ipcRenderer.invoke("openpets:plugins-uninstall", id),
   getPluginInspector: (id) => ipcRenderer.invoke("openpets:plugins-inspector", id),
   getProviderProfiles: () => ipcRenderer.invoke("openpets:provider-profiles-get"),
+  saveProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-save", input),
+  testProviderConfiguration: (input) => ipcRenderer.invoke("openpets:provider-profile-test", input),
+  beginProviderTranscriptionTest: (input) => ipcRenderer.invoke("openpets:provider-profile-test-begin", input),
+  finishProviderTranscriptionTest: (sessionId) => ipcRenderer.invoke("openpets:provider-profile-test-finish", sessionId),
+  cancelProviderTranscriptionTest: (sessionId) => ipcRenderer.invoke("openpets:provider-profile-test-cancel", sessionId),
+  playProviderPreview: (bytes, mimeType) => ipcRenderer.invoke("openpets:provider-preview-play", bytes, mimeType),
+  stopProviderPreview: () => ipcRenderer.invoke("openpets:provider-preview-stop"),
   createProviderProfile: (profile) => ipcRenderer.invoke("openpets:provider-profile-create", profile),
   updateProviderProfile: (id, patch) => ipcRenderer.invoke("openpets:provider-profile-update", id, patch),
   deleteProviderProfile: (id) => ipcRenderer.invoke("openpets:provider-profile-delete", id),
@@ -79,6 +88,7 @@ const api = {
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),
   importCodexPet: (petId) => ipcRenderer.invoke("openpets:import-codex-pet", petId),
   openGallery: () => ipcRenderer.invoke("openpets:open-gallery"),
+  openOrganizationsPage: () => ipcRenderer.invoke("openpets:open-organizations-page"),
   removePet: (petId) => ipcRenderer.invoke("openpets:remove-pet", petId),
   onRouteChange: (callback) => {
     const listener = (_event, route) => callback(route);
@@ -89,6 +99,11 @@ const api = {
     const listener = () => callback();
     ipcRenderer.on("openpets:plugins-refresh", listener);
     return () => ipcRenderer.removeListener("openpets:plugins-refresh", listener);
+  },
+  onDashboardRefresh: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("openpets:dashboard-refresh", listener);
+    return () => ipcRenderer.removeListener("openpets:dashboard-refresh", listener);
   },
   getIntegrationsState: (selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-snapshot", selectedPetId, commandMode),
   runIntegrationAction: (action, selectedPetId, commandMode) => ipcRenderer.invoke("openpets:agent-setup-action", action, selectedPetId, commandMode),

@@ -4,19 +4,16 @@ import { PetAssistantConversationController, PET_ASSISTANT_CONVERSATION_ID } fro
 import { PetAssistantModalityCoordinator } from "../src/pet-assistant-modality.js";
 import { PetAssistantService } from "../src/pet-assistant-service.js";
 import { petAssistantToolName } from "../src/pet-assistant-tools.js";
-import type { PetAssistantCapabilityRuntime, PetAssistantGenerationHandle, PetAssistantTextModel } from "../src/pet-assistant-types.js";
+import type { PetAssistantCapabilityRuntime, PetAssistantGenerationHandle, PetAssistantTextModelRequest } from "../src/pet-assistant-types.js";
 import type { HostProviderOperations, ProviderOperationSnapshot } from "../src/provider-service.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
-import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
+import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 import { OpenAIRealtimeVoiceAssistantSession, buildOpenAIRealtimeSessionConfig } from "../src/voice-realtime-assistant.js";
 import { createOpenAIRealtimeToolResultEvents, parseStrictJsonObject } from "../src/voice-realtime-protocol.js";
 import type { VoiceConversationEvent, VoiceConversationTransport, VoiceConversationTransportContext } from "../src/voice-conversation.js";
-
-class Surface implements VoicePrivacyIndicatorSurface {
-  show(): void {}
-  hide(): void {}
-  destroy(): void {}
-}
+import { VoiceAssistantHostController } from "../src/voice-assistant-host-core.js";
+import { PET_ASSISTANT_CONVERSATION_ID as ARCHIVE_CONVERSATION_ID } from "../src/pet-assistant-archive.js";
+import type { PetAssistantArchivedMessage, PetAssistantConversationArchive } from "../src/pet-assistant-archive.js";
 
 class Transport implements VoiceConversationTransport {
   readonly context: VoiceConversationTransportContext;
@@ -42,24 +39,43 @@ const capability = { pluginId: "focus.buddy", capability: { id: "start", descrip
 const toolName = petAssistantToolName("focus.buddy", "start");
 
 function provider(): HostProviderOperations {
-  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
+  const snapshot: ProviderOperationSnapshot = { role: "realtime", profile: { id: "native", label: "Native", adapter: "openai-realtime", model: "gpt-4o-mini", realtimeModel: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1" } };
   return {
     snapshot: async () => snapshot,
     negotiateRealtime: async () => "v=0\r\no=answer",
   } as unknown as HostProviderOperations;
 }
 
-function model(): PetAssistantTextModel { return { generate: async () => ({ type: "text", text: "unused" }) }; }
+function testArchive(): PetAssistantConversationArchive & { readonly messages: PetAssistantArchivedMessage[] } {
+  const messages: PetAssistantArchivedMessage[] = [];
+  return {
+    messages,
+    list: () => messages,
+    append: (entries) => {
+      messages.push(...entries.map((entry, index) => ({ ...entry, id: `archive-${messages.length + index}`, conversationId: ARCHIVE_CONVERSATION_ID as "openpets-control-center-current", createdAt: 1 })));
+    },
+    deleteMessage: (id) => {
+      const index = messages.findIndex((message) => message.id === id);
+      if (index < 0) return false;
+      messages.splice(index, 1);
+      return true;
+    },
+    clear: () => { messages.length = 0; },
+  };
+}
 
 async function flush(): Promise<void> {
   for (let index = 0; index < 30; index += 1) await Promise.resolve();
 }
 
-function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime } = {}) {
+function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime; readonly archive?: PetAssistantConversationArchive } = {}) {
   const runtime = options.runtime ?? { snapshot: () => ({ capabilities: [capability] }), execute: async () => ({ ok: true, result: { started: true } }) };
-  const assistant = new PetAssistantService(model(), runtime);
-  const surface = new Surface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const requests: PetAssistantTextModelRequest[] = [];
+  const assistant = new PetAssistantService({ generate: (request) => {
+    requests.push(request);
+    return { type: "text", text: "unused" };
+  } }, runtime, { conversationArchive: options.archive });
+  const indicator = new VoicePrivacyIndicator();
   const transports: Transport[] = [];
   const session = new OpenAIRealtimeVoiceAssistantSession({
     provider: provider(),
@@ -73,7 +89,83 @@ function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime } =
       return transport;
     },
   });
-  return { assistant, session, transports, indicator };
+  return { assistant, session, transports, indicator, requests };
+}
+
+// Realtime archives one completed terminal user/assistant pair, while cancellation archives nothing.
+{
+  const completedArchive = testArchive();
+  const completed = fixture({ archive: completedArchive });
+  await completed.session.start();
+  const completedTransport = completed.transports[0]!;
+  completedTransport.emit({ type: "speech-started", itemId: "memory-input" });
+  completedTransport.emit({ type: "transcript", entryId: "memory-user", itemId: "memory-input", speaker: "user", status: "final", text: "Remember this" });
+  completedTransport.emit({ type: "response-started", responseId: "memory-response" });
+  completedTransport.emit({ type: "transcript", entryId: "memory-assistant", itemId: "memory-output", responseId: "memory-response", speaker: "assistant", status: "final", text: "I will remember this." });
+  completedTransport.emit({ type: "response-completed", responseId: "memory-response" });
+  await flush();
+  assert.deepEqual(completedArchive.messages.map((message) => [message.role, message.text]), [
+    ["user", "Remember this"],
+    ["assistant", "I will remember this."],
+  ]);
+  await completed.assistant.stop();
+
+  const cancelledArchive = testArchive();
+  const cancelled = fixture({ archive: cancelledArchive });
+  await cancelled.session.start();
+  const cancelledTransport = cancelled.transports[0]!;
+  cancelledTransport.emit({ type: "speech-started", itemId: "cancel-input" });
+  cancelledTransport.emit({ type: "transcript", entryId: "cancel-user", itemId: "cancel-input", speaker: "user", status: "final", text: "Do not archive this" });
+  await cancelled.session.interrupt();
+  assert.deepEqual(cancelledArchive.messages, []);
+  await cancelled.assistant.stop();
+}
+
+// Rejected Realtime outcomes replace optimistic provider prose before active memory and archive commit.
+{
+  const archive = testArchive();
+  const current = fixture({
+    archive,
+    runtime: {
+      snapshot: () => ({ capabilities: [capability] }),
+      execute: async () => ({ ok: false, error: { stage: "input", code: "invalid_input", message: "Duration is required." } }),
+    },
+  });
+  await current.session.start();
+  const transport = current.transports[0]!;
+  transport.emit({ type: "speech-started", itemId: "rejected-input" });
+  transport.emit({ type: "transcript", entryId: "rejected-user", itemId: "rejected-input", speaker: "user", status: "final", text: "Start focus" });
+  transport.emit({ type: "response-started", responseId: "rejected-response" });
+  transport.emit({ type: "tool-call", responseId: "rejected-response", itemId: "rejected-call-item", callId: "rejected-call", name: toolName, arguments: "{}" });
+  transport.emit({ type: "response-completed", responseId: "rejected-response" });
+  await flush();
+  transport.emit({ type: "response-started", responseId: "rejected-followup" });
+  transport.emit({ type: "transcript", entryId: "rejected-output", itemId: "rejected-output", responseId: "rejected-followup", speaker: "assistant", status: "final", text: "Focus started successfully." });
+  transport.emit({ type: "response-completed", responseId: "rejected-followup" });
+  await flush();
+
+  const summary = "Capability outcomes: completed=0, rejected=1, unavailable=0, indeterminate=0.";
+  assert.deepEqual(archive.messages.map((message) => [message.role, message.text]), [["user", "Start focus"], ["assistant", summary]]);
+  await current.assistant.startTurn(PET_ASSISTANT_CONVERSATION_ID, "What happened?");
+  assert.equal(current.requests[0]?.messages.some((message) => message.role === "assistant" && message.content === summary), true);
+  assert.equal(current.requests[0]?.messages.some((message) => message.role === "assistant" && message.content === "Focus started successfully."), false);
+  await current.assistant.stop();
+}
+
+// Cancelled Realtime transcripts do not enter active memory or archive context for a following turn.
+{
+  const archive = testArchive();
+  const current = fixture({ archive });
+  await current.session.start();
+  const transport = current.transports[0]!;
+  transport.emit({ type: "speech-started", itemId: "cancel-input" });
+  transport.emit({ type: "transcript", entryId: "cancel-user", itemId: "cancel-input", speaker: "user", status: "final", text: "Do not retain this" });
+  await current.session.interrupt();
+  await current.assistant.startTurn(PET_ASSISTANT_CONVERSATION_ID, "Next turn");
+  assert.equal(current.requests[0]?.messages.some((message) => message.role !== "tool" && message.content === "Do not retain this"), false);
+  assert.equal(archive.messages.some((message) => message.text === "Do not retain this"), false);
+  await current.session.end();
+  await current.assistant.stop();
 }
 
 // Canonical tools are translated to the current Realtime schema, including the deliberate empty-tool mode.
@@ -84,6 +176,39 @@ function fixture(options: { readonly runtime?: PetAssistantCapabilityRuntime } =
   const withTools = buildOpenAIRealtimeSessionConfig("gpt-realtime-2.1", { instructions: "rules", tools: [{ name: "op_tool", description: "Tool", inputSchema: { type: "object" } }] });
   assert.deepEqual(withTools.tools, [{ type: "function", name: "op_tool", description: "Tool", parameters: { type: "object" } }]);
   assert.equal(withTools.tool_choice, "auto");
+}
+
+// Native Realtime has no generic recording-submit operation.  Its primary Talk
+// toggle is therefore non-destructive while active; explicit end owns teardown.
+{
+  const current = fixture();
+  const controller = new VoiceAssistantHostController(() => ({ session: current.session, shutdown: () => current.session.shutdown() }));
+  await controller.activate();
+  assert.equal(current.session.snapshot().canSubmitRecording, undefined);
+  assert.equal(await controller.toggle(), current.session);
+  assert.equal(await controller.toggle(), current.session);
+  assert.equal(current.session.snapshot().status, "active");
+  assert.equal(current.transports[0]?.closeCount, 0);
+  await controller.end();
+  assert.equal(current.session.snapshot().status, "ended");
+  await current.assistant.stop();
+}
+
+// A completed Realtime response is the safe one-shot terminal boundary.  The
+// transport closes instead of letting server VAD create another turn.
+{
+  const current = fixture();
+  await current.session.start();
+  const transport = current.transports[0]!;
+  transport.emit({ type: "speech-started", itemId: "one-shot-input" });
+  transport.emit({ type: "response-started", responseId: "one-shot-response" });
+  transport.emit({ type: "transcript", entryId: "one-shot-output", itemId: "one-shot-output", responseId: "one-shot-response", speaker: "assistant", status: "final", text: "One-shot response." });
+  transport.emit({ type: "response-completed", responseId: "one-shot-response" });
+  await flush();
+  assert.equal(current.session.snapshot().status, "ended");
+  assert.equal(current.session.snapshot().activity, null);
+  assert.equal(transport.closeCount, 1);
+  await current.assistant.stop();
 }
 
 // Tool output uses function_call_output followed by response.create, preserving structured status.

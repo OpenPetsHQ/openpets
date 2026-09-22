@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { planLanWorkActivities, shouldPublishLanWorkSignal, shouldRetryLanWorkReturn } from "../src/lan-pet-activity.js";
-import type { LanState } from "../src/lan-state.js";
+import type { LanState } from "../src/lan-contract.js";
 
 const meetingState: LanState = {
   enabled: true,

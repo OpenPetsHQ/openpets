@@ -1,6 +1,10 @@
 appId: dev.openpets.app
 productName: OpenPets
 executableName: openpets
+protocols:
+  - name: OpenPets Teams enrollment
+    schemes:
+      - openpets
 copyright: Copyright © 2026 OpenPets
 
 directories:
@@ -11,7 +15,6 @@ artifactName: OpenPets-${version}-${os}-${arch}.${ext}
 files:
   - dist/**
   - control-center-preload.cjs
-  - pet-preload.cjs
   - pet-tts-helper.cjs
   - plugin-sdk-preload.cjs
   - plugin-command-form-preload.cjs

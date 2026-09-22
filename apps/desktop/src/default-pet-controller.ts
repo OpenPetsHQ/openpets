@@ -1,37 +1,46 @@
-import { BrowserWindow, powerMonitor, screen, shell, type Display } from "electron";
+import { BrowserWindow, shell, type Display } from "electron";
 
-import { getAppStateSnapshot, getDefaultPetPosition, getPerMonitorPetPosition, resetDefaultPetPosition, setDefaultPetPosition, setPerMonitorPetPosition, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, getDefaultPetPositionState, recordDefaultPetPosition, resetDefaultPetPosition, updatePreferences } from "./app-state.js";
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
-import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, invalidateDisplayCache, type Point } from "./display.js";
+import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
-import { registerRoamingPet } from "./pet-roaming-controller.js";
+import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
+import { bindDefaultPetChatWindow, collapseDefaultPetChat, openDefaultPetCheckIn, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
 import { debug, info } from "./logger.js";
 import { t } from "./i18n/index.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
 import { clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
 import { PetBubbleArbiter, type ActiveBubble, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
-import { reclampAgentPetWindows } from "./agent-pet-controller.js";
-import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
-import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
+import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
+import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
+import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
-let transientDisplay: PetTransientDisplay | null = null;
-let statusBadge: PetStatusBadgeReaction | null = null;
 let voiceActivityReaction: OpenPetsReaction | null = null;
 let voiceTerminalReaction: OpenPetsReaction | null = null;
-let transientDisplayTimeout: NodeJS.Timeout | null = null;
-let transientAnimationTimeout: NodeJS.Timeout | null = null;
-let statusBadgeTimeout: NodeJS.Timeout | null = null;
 let voiceTerminalReactionTimeout: NodeJS.Timeout | null = null;
-let displayGeneration = 0;
-const busyStatusBadgeMs = 120_000;
 const maxPluginMoveDistance = 160;
 const minPluginMoveDurationMs = 250;
 const maxPluginMoveDurationMs = 1_500;
 let movementInProgress = false;
+const busyStatusBadgeMs = 120_000;
+
+const transientPresentation: PetTransientPresentation = createPetTransientPresentation({
+  mergeDisplay: mergePetTransientDisplay,
+  getDisplayDurationMs: getDefaultTransientDisplayDurationMs,
+  getReactionAnimationMs: getDefaultTransientReactionAnimationMs,
+  clearReaction: clearTransientReaction,
+  badgeExpiryMs: { busy: busyStatusBadgeMs, normal: transientDisplayMs },
+  callbacks: {
+    onRenderNeeded: () => refreshDefaultPetContent(),
+    onReactionIdle: () => {
+      if (defaultPetWindow && !defaultPetWindow.isDestroyed()) setPetReactionState(defaultPetWindow, "idle");
+    },
+  },
+});
 
 export type PetMoveOptions = { readonly x: number; readonly y: number; readonly durationMs?: number };
 export type PetWanderOptions = { readonly distance?: number; readonly durationMs?: number };
@@ -41,11 +50,24 @@ export type PetReactionOptions = { readonly showMessage?: boolean };
 // sink merges its decisions into the default pet render.
 let pluginTransientBubble: ActiveBubble | null = null;
 let pluginPinnedBubble: ActiveBubble | null = null;
+const managerCheckInBubblePluginId = "openpets.manager-check-ins";
+const managerCheckInPresentationCallbacks = new Map<string, () => void>();
+let pendingManagerCheckInPresentation: (() => void) | null = null;
 
 const defaultPetBubbleSink: PetBubbleSink = {
   present(slot, content) {
     if (slot === "pinned") pluginPinnedBubble = content;
     else pluginTransientBubble = content;
+    if (slot === "transient" && content?.pluginId === managerCheckInBubblePluginId) {
+      const onPresented = managerCheckInPresentationCallbacks.get(content.token) ?? pendingManagerCheckInPresentation;
+      if (onPresented) {
+        managerCheckInPresentationCallbacks.delete(content.token);
+        if (pendingManagerCheckInPresentation === onPresented) {
+          pendingManagerCheckInPresentation = null;
+        }
+        onPresented();
+      }
+    }
     debug("pet.default", "plugin bubble slot", { slot, token: content?.token ?? null, pluginId: content?.pluginId });
     if (content) showDefaultPetForExternalEvent();
     refreshDefaultPetContent();
@@ -102,6 +124,7 @@ function hideDefaultPetWindow(): void {
   const hidePosition = readWindowPosition(defaultPetWindow);
   info("pet.default", "hide requested", { windowId: defaultPetWindow.id, position: hidePosition, petId: getAppStateSnapshot().preferences.defaultPetId });
   handlePositionChanged(hidePosition);
+  collapseDefaultPetChat();
   defaultPetWindow.hide();
 }
 
@@ -176,6 +199,66 @@ export function applyExternalPetSay(message: string, reaction?: OpenPetsReaction
   setTransientDisplay({ message, reaction });
   showDefaultPetForExternalEvent();
   return { shown: isDefaultPetVisible() };
+}
+
+export function presentManagerCheckInOffer(
+  offer: ManagerCheckInOffer,
+  onOpenCheckIn: () => void,
+  onPresented: () => void,
+): { readonly shown: boolean; readonly reason?: string } {
+  if (paused) {
+    return { shown: false, reason: "paused" };
+  }
+
+  pendingManagerCheckInPresentation = onPresented;
+  let handleId: string | null = null;
+  const handle = defaultPetBubbleArbiter.show(
+    managerCheckInBubblePluginId,
+    {
+      text: `${offer.title}\n${offer.introduction}\n${t("teams.checkIn.description")}`,
+      priority: "high",
+      durationMs: 12_000,
+      actions: [
+        {
+          id: "open-manager-check-in",
+          label: t("teams.checkIn.action.checkInNow"),
+          style: "primary",
+          dismissesBubble: true,
+        },
+      ],
+    },
+    {
+      onAction: (actionId) => {
+        if (actionId === "open-manager-check-in") {
+          onOpenCheckIn();
+        }
+      },
+      onSubmit: () => undefined,
+      onDismiss: () => {
+        if (handleId) {
+          managerCheckInPresentationCallbacks.delete(handleId);
+        }
+        if (pendingManagerCheckInPresentation === onPresented) {
+          pendingManagerCheckInPresentation = null;
+        }
+      },
+    },
+  );
+  handleId = handle.id;
+
+  if (pendingManagerCheckInPresentation === onPresented) {
+    pendingManagerCheckInPresentation = null;
+    managerCheckInPresentationCallbacks.set(handle.id, onPresented);
+  }
+
+  showDefaultPetForExternalEvent();
+  const shown = defaultPetBubbleArbiter.snapshot().current?.token === handle.id;
+  return { shown, ...(shown ? {} : { reason: "queued" }) };
+}
+
+/** Open the private check-in surface without routing through Control Center. */
+export function openDefaultPetManagerCheckIn(): void {
+  openDefaultPetCheckIn();
 }
 
 export function applyExternalPetShowMedia(options: PetShowMediaOptions): { readonly shown: boolean; readonly reason?: string } {
@@ -264,52 +347,33 @@ export function destroyDefaultPet(): void {
   info("pet.default", "destroy requested", { windowId: defaultPetWindow.id, position: destroyPosition, petId: getAppStateSnapshot().preferences.defaultPetId });
   handlePositionChanged(destroyPosition);
   const window = defaultPetWindow;
+  unregisterRoamingPet("default");
+  collapseDefaultPetChat();
+  unbindDefaultPetChatWindow();
   defaultPetWindow = null;
   window.setIgnoreMouseEvents(false);
   window.destroy();
 }
 
-export function installDefaultPetDisplayHandlers(): void {
-  screen.on("display-added", debounceDisplayChange("display-added"));
-  screen.on("display-removed", debounceDisplayChange("display-removed"));
-  screen.on("display-metrics-changed", debounceDisplayChange("display-metrics-changed"));
-  powerMonitor.on("resume", recoverDefaultPetWindowAfterResume);
-}
-
-type DisplayChangeReason = "display-added" | "display-removed" | "display-metrics-changed";
-
-function debounceDisplayChange(reason: DisplayChangeReason): (_event: unknown, display: Display) => void {
-  let timer: NodeJS.Timeout | null = null;
-  let latestDisplay: Display | undefined;
-  return (_event: unknown, display: Display) => {
-    latestDisplay = display;
-    invalidateDisplayCache();
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      reclampAllLivePetWindows(reason, latestDisplay);
-    }, 200);
-  };
-}
-
 function handleBubbleDismissed(dismissToken: string): void {
-  debug("pet.default", "bubble dismissed callback", { windowId: defaultPetWindow?.id, dismissToken, currentGeneration: displayGeneration });
+  debug("pet.default", "bubble dismissed callback", { windowId: defaultPetWindow?.id, dismissToken, currentGeneration: transientPresentation.getDismissToken() });
   if (PetBubbleArbiter.isArbiterToken(dismissToken)) {
     defaultPetBubbleArbiter.handleDismissed(dismissToken);
     return;
   }
-  if (dismissToken !== String(displayGeneration)) {
-    debug("pet.default", "bubble dismissed stale token", { dismissToken, currentGeneration: displayGeneration });
+  const result = transientPresentation.dismiss(dismissToken);
+  if (!result.matched) {
+    debug("pet.default", "bubble dismissed stale token", { dismissToken, currentGeneration: transientPresentation.getDismissToken() });
     return;
   }
-  const clickUrl = transientDisplay?.clickUrl;
+  const clickUrl = result.display?.clickUrl;
   if (clickUrl) {
     info("pet.default", "media bubble clicked", { windowId: defaultPetWindow?.id });
     void shell.openExternal(clickUrl).catch((error: unknown) => {
       debug("pet.default", "media bubble click open failed", { error: error instanceof Error ? error.message : String(error) });
     });
   }
-  clearDefaultPetDisplayTimers();
+  clearVoiceTerminalFeedback();
   if (defaultPetWindow && !defaultPetWindow.isDestroyed()) {
     void loadDefaultPetContent(defaultPetWindow, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
   }
@@ -324,7 +388,7 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
   // Do not scan every connected per-monitor entry here: display order is usually
   // primary-first, which can override the true last position with an older
   // primary-display entry.
-  const position = getSafeDefaultPetPosition(getDefaultPetPosition());
+  const position = getSafeDefaultPetPosition(getDefaultPetPositionState().position);
 
   defaultPetWindow = createDefaultPetWindow({
     position,
@@ -334,34 +398,35 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
     pluginBubbles: getDefaultPetPluginBubbles(),
     onPositionChanged: handlePositionChanged,
     onHideRequested: hideDefaultPet,
-    onTalkRequested: () => {
-      void import("./voice-assistant-host.js").then(({ toggleVoiceAssistant }) => toggleVoiceAssistant()).catch((error: unknown) => debug("pet.default", "talk toggle failed", { reason: error instanceof Error ? error.message : String(error) }));
-    },
-    onTalkLabelRequested: async () => {
-      const { getVoiceAssistantSnapshot } = await import("./voice-assistant-host.js");
-      return getVoiceAssistantSnapshot().status === "ended" ? t("pet.menu.talk") : t("tray.endTalk");
-    },
     onBubbleDismissed: handleBubbleDismissed,
     onBubbleAction: (token, actionId) => defaultPetBubbleArbiter.handleAction(token, actionId),
     onBubbleSubmit: (token, values) => defaultPetBubbleArbiter.handleSubmit(token, values),
     onPetEvent: (name, payload) => publishPluginPetEvent("default", name, payload),
     onWindowReplaced: (replacement) => {
       defaultPetWindow = replacement;
+      bindDefaultPetChatWindow(replacement);
       void loadDefaultPetContent(replacement, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
       const replacementId = replacement.id;
       replacement.on("closed", () => {
         if (defaultPetWindow !== replacement) return;
+        unregisterRoamingPet("default");
+        collapseDefaultPetChat();
+        unbindDefaultPetChatWindow();
         info("pet.default", "closed", { windowId: replacementId });
         defaultPetWindow = null;
       });
     },
   }, getCurrentDismissToken());
   const createdWindow = defaultPetWindow;
+  bindDefaultPetChatWindow(createdWindow);
   const windowId = createdWindow.id;
   info("pet.default", "created", { windowId, position, paused, petId: getAppStateSnapshot().preferences.defaultPetId });
 
   createdWindow.on("closed", () => {
     if (defaultPetWindow !== createdWindow) return;
+    unregisterRoamingPet("default");
+    collapseDefaultPetChat();
+    unbindDefaultPetChatWindow();
     info("pet.default", "closed", { windowId });
     defaultPetWindow = null;
   });
@@ -371,40 +436,15 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
 
 function setTransientDisplay(display: PetTransientDisplay): void {
   debug("pet.default", "transient display set", { reaction: display.reaction, hasMessage: Boolean(display.message), hasReactionMessage: Boolean(display.reactionMessage) });
-  displayGeneration++;
-  transientDisplay = mergePetTransientDisplay(transientDisplay, { ...display, dismissToken: String(displayGeneration) });
-  if (display.reaction) setStatusBadge(display.reaction);
+  transientPresentation.setDisplay(display);
+}
 
-  if (transientDisplayTimeout) {
-    clearTimeout(transientDisplayTimeout);
-  }
-  if (transientAnimationTimeout) {
-    clearTimeout(transientAnimationTimeout);
-    transientAnimationTimeout = null;
-  }
+function getDefaultTransientReactionAnimationMs(transientDisplay: PetTransientDisplay): number | null {
+  return getTransientReactionAnimationMs(transientDisplay);
+}
 
-  const animationMs = getTransientReactionAnimationMs(transientDisplay);
-  const displayDurationMs = getTransientDisplayDurationMs(transientDisplay);
-  if (animationMs !== null && animationMs < displayDurationMs) {
-    transientAnimationTimeout = setTimeout(() => {
-      if (!transientDisplay) return;
-      transientDisplay = clearTransientReaction(transientDisplay);
-      transientAnimationTimeout = null;
-      if (defaultPetWindow && !defaultPetWindow.isDestroyed()) setPetReactionState(defaultPetWindow, "idle");
-    }, animationMs);
-  }
-
-  transientDisplayTimeout = setTimeout(() => {
-    transientDisplay = null;
-    transientDisplayTimeout = null;
-    if (transientAnimationTimeout) {
-      clearTimeout(transientAnimationTimeout);
-      transientAnimationTimeout = null;
-    }
-    refreshDefaultPetContent();
-  }, displayDurationMs);
-
-  refreshDefaultPetContent();
+function getDefaultTransientDisplayDurationMs(transientDisplay: PetTransientDisplay): number {
+  return getTransientDisplayDurationMs(transientDisplay);
 }
 
 function showDefaultPetForExternalEvent(): void {
@@ -473,45 +513,24 @@ function delay(ms: number): Promise<void> {
 }
 
 function setStatusBadge(reaction: OpenPetsReaction): void {
-  if (reaction === "idle") {
-    clearStatusBadge();
-    return;
-  }
-
-  statusBadge = reaction;
-  debug("pet.default", "status badge set", { reaction, durationMs: isBusyStatusBadgeReaction(reaction) ? busyStatusBadgeMs : transientDisplayMs });
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
-  statusBadgeTimeout = setTimeout(() => {
-    clearStatusBadge();
-    refreshDefaultPetContent();
-  }, isBusyStatusBadgeReaction(reaction) ? busyStatusBadgeMs : transientDisplayMs);
+  transientPresentation.setStatusBadge(reaction);
 }
 
 function clearStatusBadge(): void {
-  if (statusBadge) debug("pet.default", "status badge cleared", { reaction: statusBadge });
-  statusBadge = null;
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
-  statusBadgeTimeout = null;
+  transientPresentation.clearStatusBadge();
 }
 
 function clearDefaultPetDisplayTimers(): void {
-  if (transientDisplayTimeout) clearTimeout(transientDisplayTimeout);
-  if (transientAnimationTimeout) clearTimeout(transientAnimationTimeout);
-  if (statusBadgeTimeout) clearTimeout(statusBadgeTimeout);
+  transientPresentation.reset();
   clearVoiceTerminalFeedback();
-  transientDisplayTimeout = null;
-  transientAnimationTimeout = null;
-  statusBadgeTimeout = null;
-  transientDisplay = null;
-  statusBadge = null;
 }
 
 function getRenderedDisplay(): PetTransientDisplay | null {
-  return composeVoiceActivityDisplay(transientDisplay, voiceActivityReaction, voiceTerminalReaction) as PetTransientDisplay | null;
+  return composeVoiceActivityDisplay(transientPresentation.getDisplay(), voiceActivityReaction, voiceTerminalReaction) as PetTransientDisplay | null;
 }
 
 function getRenderedBadge(): PetStatusBadgeReaction | null {
-  return composeVoiceActivityBadge(statusBadge, voiceActivityReaction, voiceTerminalReaction) as PetStatusBadgeReaction | null;
+  return composeVoiceActivityBadge(transientPresentation.getBadge(), voiceActivityReaction, voiceTerminalReaction) as PetStatusBadgeReaction | null;
 }
 
 function clearVoiceTerminalFeedback(): void {
@@ -521,21 +540,16 @@ function clearVoiceTerminalFeedback(): void {
 }
 
 function getCurrentDismissToken(): string | undefined {
-  return transientDisplay?.dismissToken ?? (statusBadge ? String(displayGeneration) : undefined);
+  return transientPresentation.getDismissToken();
 }
 
-function isBusyStatusBadgeReaction(reaction: OpenPetsReaction): boolean {
-  return reaction === "thinking" || reaction === "working" || reaction === "editing" || reaction === "running" || reaction === "testing" || reaction === "waiting";
-}
-
-/** Save position both in the flat key (backwards compat) and per-monitor map. */
+/** Save the flat fallback and the per-monitor position in one state operation. */
 function handlePositionChanged(position: Point): void {
-  setDefaultPetPosition(position);
   const displayKey = getDisplayKeyForPosition(position);
-  setPerMonitorPetPosition(displayKey, position);
+  recordDefaultPetPosition(position, displayKey);
 }
 
-function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: Display): void {
+export function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: Display): void {
   if (!defaultPetWindow || defaultPetWindow.isDestroyed()) {
     return;
   }
@@ -549,7 +563,7 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   // pick the primary display first and skip the secondary monitor that was just
   // reconnected.
   if (reason === "display-added" && changedDisplayKey && changedDisplayKey !== currentDisplayKey && getAllDisplayKeys().includes(changedDisplayKey)) {
-    restoredPosition = getPerMonitorPetPosition(changedDisplayKey);
+    restoredPosition = getDefaultPetPositionState().perMonitorPositions?.[changedDisplayKey];
   }
 
   const safePosition = restoredPosition
@@ -560,18 +574,14 @@ function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisplay?: D
   defaultPetWindow.setPosition(safePosition.x, safePosition.y, false);
   handlePositionChanged(safePosition);
   recoverDefaultPetMouseInterop("display-change");
-}
-
-function reclampAllLivePetWindows(reason: DisplayChangeReason, changedDisplay?: Display): void {
-  reclampDefaultPetWindow(reason, changedDisplay);
-  reclampAgentPetWindows();
-  reclampLanVisitingPetWindows();
-  reclampPluginPetWindows();
-}
-
-function recoverDefaultPetWindowAfterResume(): void {
-  recoverDefaultPetMouseInterop("power-resume");
-  setTimeout(() => recoverDefaultPetMouseInterop("power-resume+500ms"), 500).unref?.();
+  // A live display-scale change invalidates the Linux setShape() click-through mask
+  // (it's computed from the display's scaleFactor at render time — see
+  // applyLinuxPetWindowShape() in pet-window.ts) — repositioning alone isn't enough,
+  // the content/shape must be recomputed too, or the mask goes stale relative to the
+  // new scale and the pet becomes invisible/unclickable.
+  if (reason === "display-metrics-changed") {
+    refreshDefaultPetContent();
+  }
 }
 
 export function shouldOpenDefaultPetOnLaunch(): boolean {

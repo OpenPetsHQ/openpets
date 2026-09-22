@@ -1,7 +1,6 @@
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, ipcMain, session, type IpcMainEvent } from "electron";
+import { app, BrowserWindow, ipcMain, type IpcMainEvent } from "electron";
 
 import type {
   VoiceConversationEvent,
@@ -12,8 +11,9 @@ import type {
   VoiceRealtimeToolResultCommand,
 } from "./voice-conversation.js";
 import { createOpenAIRealtimeToolResultEvents, parseStrictJsonObject, VOICE_REALTIME_MAX_CALL_ID_BYTES, VOICE_REALTIME_MAX_EVENT_BYTES, VOICE_REALTIME_MAX_TOOL_NAME_BYTES } from "./voice-realtime-protocol.js";
+import { getVoiceMediaSession } from "./voice-device-electron.js";
+import { VOICE_MEDIA_PARTITION } from "./voice-device-service.js";
 
-const VOICE_REALTIME_PARTITION_PREFIX = "openpets-voice-realtime-";
 const VOICE_REALTIME_COMMAND_CHANNEL = "openpets:voice-realtime-command";
 const VOICE_REALTIME_EVENT_CHANNEL = "openpets:voice-realtime-event";
 const VOICE_REALTIME_MAX_SDP_BYTES = 256 * 1024;
@@ -36,8 +36,6 @@ class ElectronVoiceRealtimeTransport implements VoiceConversationTransport {
   readonly #context: VoiceConversationTransportContext;
   readonly #options: ElectronVoiceRealtimeTransportOptions;
   readonly #window: BrowserWindow;
-  readonly #voiceSession: Electron.Session;
-  readonly #documentUrl: string;
   readonly #rendererClosed: Promise<void>;
   readonly #resolveRendererClosed: () => void;
   readonly #startCompletion: Promise<void>;
@@ -59,14 +57,8 @@ class ElectronVoiceRealtimeTransport implements VoiceConversationTransport {
     this.#options = options;
     const htmlPath = join(app.getAppPath(), "assets", "voice-realtime.html");
     const preloadPath = join(app.getAppPath(), "voice-realtime-preload.cjs");
-    this.#documentUrl = pathToFileURL(htmlPath).toString();
-    const partition = `${VOICE_REALTIME_PARTITION_PREFIX}${context.sessionId}`;
-    this.#voiceSession = session.fromPartition(partition, { cache: false });
-    this.#voiceSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-      callback(permission === "media" && contents?.getURL() === this.#documentUrl && isAudioOnlyMediaRequest(details));
-    });
-    this.#voiceSession.setPermissionCheckHandler((contents, permission, _requestingOrigin, details) =>
-      permission === "media" && contents?.getURL() === this.#documentUrl && details?.mediaType === "audio");
+    const partition = VOICE_MEDIA_PARTITION;
+    getVoiceMediaSession();
     this.#window = new BrowserWindow({
       show: false,
       width: 1,
@@ -150,7 +142,6 @@ class ElectronVoiceRealtimeTransport implements VoiceConversationTransport {
       } finally {
         if (!this.#window.isDestroyed()) this.#window.destroy();
         ipcMain.removeListener(VOICE_REALTIME_EVENT_CHANNEL, this.#eventHandler);
-        await this.#voiceSession.clearStorageData().catch(() => undefined);
       }
     })();
     await this.#closePromise;
@@ -168,7 +159,7 @@ class ElectronVoiceRealtimeTransport implements VoiceConversationTransport {
       await this.#window.loadFile(join(app.getAppPath(), "assets", "voice-realtime.html"));
       if (this.#closing || this.#context.signal.aborted) throw new Error("Voice realtime transport was cancelled.");
       this.#loaded = true;
-       this.#window.webContents.send(VOICE_REALTIME_COMMAND_CHANNEL, { type: "start", sessionId: this.#context.sessionId, generation: this.#context.generation });
+        this.#window.webContents.send(VOICE_REALTIME_COMMAND_CHANNEL, { type: "start", sessionId: this.#context.sessionId, generation: this.#context.generation, inputDeviceId: this.#context.inputDeviceId, outputDeviceId: this.#context.outputDeviceId });
       await this.#startCompletion;
     } catch (error) {
       throw normalizeError(error);
@@ -226,6 +217,12 @@ class ElectronVoiceRealtimeTransport implements VoiceConversationTransport {
     }
     if (type === "microphone-released") {
       this.#context.emit({ type: "microphone-released" });
+      return;
+    }
+    if (type === "output-routing") {
+      if (payload.output !== "selected" && payload.output !== "system-default") return;
+      if (payload.reason !== undefined && payload.reason !== "unsupported" && payload.reason !== "rejected" && payload.reason !== "no-selection") return;
+      this.#context.emit({ type: "output-routing", output: payload.output, ...(payload.reason ? { reason: payload.reason } : {}) });
       return;
     }
     if (type === "speech-started" || type === "speech-stopped") {
@@ -331,11 +328,6 @@ function normalizeProviderId(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isAudioOnlyMediaRequest(value: unknown): boolean {
-  if (!isRecord(value) || !Array.isArray(value.mediaTypes)) return false;
-  return value.mediaTypes.length === 1 && value.mediaTypes[0] === "audio";
 }
 
 function isValidSdp(value: string): boolean {

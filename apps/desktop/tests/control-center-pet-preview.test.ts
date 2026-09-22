@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
-import { buildPetSpritePreviewModel, defaultPetSpriteLayout } from "../src/renderer/src/pet-preview-state.js";
+import { defaultPetSprite } from "../src/reaction-animation-mapping.js";
+import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout } from "../src/renderer/src/pet-preview-state.js";
 
 assert.deepEqual(
   buildPetSpritePreviewModel(defaultPetSpriteLayout, { row: 0, frames: 6 }, true),
@@ -22,6 +23,21 @@ const v2Layout = {
   rows: 11,
   neutralPose: { row: 0, column: 6 },
 } as const;
+
+assert.deepEqual(getCatalogPetSpriteLayout(2), v2Layout, "catalog V2 entries resolve to the shared 8x11 preview layout");
+assert.equal(getCatalogPetSpriteLayout(undefined), undefined, "legacy catalog entries retain implicit V1 layout behavior");
+
+assert.deepEqual(
+  buildPetSpritePreviewModel(defaultPetSprite, { row: 0, frames: 6 }, true),
+  {
+    atlasColumns: 8,
+    atlasRows: 11,
+    row: 0,
+    frameColumns: [6],
+    animated: false,
+  },
+  "the bundled Hoodie Cat preview uses the V2 neutral idle cell",
+);
 
 assert.deepEqual(
   buildPetSpritePreviewModel(v2Layout, { row: 0, frames: 6 }, true),

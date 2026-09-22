@@ -50,7 +50,7 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
 {
   const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES, config: { focusLength: "25", breakStyle: "normal" }, nowMs: 1_250_000 });
   await h.start();
-  assert.deepEqual([...h.calls.assistantCapabilities.keys()], ["focus.start", "focus.status", "focus.pause", "focus.resume", "focus.end"]);
+  assert.deepEqual([...h.calls.assistantCapabilities.keys()], ["focus.start", "focus.status", "focus.pause", "focus.resume", "focus.end", "focus.skipBreak"]);
   assert.deepEqual(h.calls.assistantCapabilities.get("focus.start")?.capability.inputSchema, {
     type: "object",
     properties: { minutes: { type: "integer", minimum: 1, maximum: 120 } },
@@ -69,6 +69,25 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   assert.equal(h.calls.bubbles.length, 0, "assistant actions must not emit command speech or bubbles");
   assert.equal(h.calls.speak.length, 0, "assistant actions must not emit command speech or bubbles");
   assert.equal(h.calls.schedules.size, 2, "assistant start should use the normal timer schedules");
+  h.expectNoErrors();
+}
+
+// 1aa) Assistant skip-to-break reuses the timer transition without direct feedback.
+{
+  const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES, config: { focusLength: "25", breakStyle: "normal" }, nowMs: 1_375_000 });
+  await h.start();
+  await h.runCapability("focus.start", { minutes: 10 });
+  assert.deepEqual(await h.runCapability("focus.skipBreak", {}), {
+    ok: true,
+    state: "active",
+    mode: "break",
+    minutes: 5,
+    paused: false,
+    completedFocusCount: 1,
+  });
+  h.expectStored("session", (v) => v.mode === "break" && v.completedFocusCount === 1);
+  assert.equal(h.calls.bubbles.length, 0, "assistant skip-to-break must not emit a bubble");
+  assert.equal(h.calls.speak.length, 0, "assistant skip-to-break must not speak");
   h.expectNoErrors();
 }
 
@@ -157,7 +176,7 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   const now = Date.now();
   await h.ctx.storage.set("session", { mode: "focus", startedAt: now, endsAt: now + 10 * 60_000, pausedRemainingMs: null, completedFocusCount: 2 });
   await h.start();
-  assert.equal(h.calls.assistantCapabilities.size, 5);
+  assert.equal(h.calls.assistantCapabilities.size, 6);
   assert.deepEqual(await h.runCapability("focus.status", {}), {
     ok: true,
     state: "active",
@@ -169,7 +188,7 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   await h.stop();
   assert.equal(h.calls.assistantCapabilities.size, 0, "host stop should revoke assistant capabilities");
   await h.start();
-  assert.equal(h.calls.assistantCapabilities.size, 5, "plugin restart should rediscover assistant capabilities");
+  assert.equal(h.calls.assistantCapabilities.size, 6, "plugin restart should rediscover assistant capabilities");
   assert.deepEqual(await h.runCapability("focus.status", {}), {
     ok: true,
     state: "active",

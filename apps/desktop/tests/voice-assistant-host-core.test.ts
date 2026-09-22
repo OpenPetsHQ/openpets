@@ -10,8 +10,7 @@ import { VoiceAssistantSession } from "../src/voice-assistant-session.js";
 import { VoiceConversationService } from "../src/voice-conversation.js";
 import { VoiceResourceOwner } from "../src/voice-resource-owner.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
-import { VoiceCaptureService } from "../src/voice-capture.js";
-import type { VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
+import { VoiceCaptureService, type VoiceCaptureResult, type VoiceCaptureRecording } from "../src/voice-capture.js";
 import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
@@ -21,11 +20,10 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 function snapshot(role: "text" | "stt" | "tts"): ProviderOperationSnapshot {
-  return { role, profile: { id: role, label: role, adapter: role === "stt" ? "openai-compatible-transcription" : role === "tts" ? "openai-compatible-speech" : "openai-compatible-text", model: role, baseUrl: "https://provider.example" } } as ProviderOperationSnapshot;
+  return { role, profile: { id: role, label: role, adapter: role === "stt" ? "openai-compatible-transcription" : role === "tts" ? "openai-compatible-speech" : "openai-compatible-text", model: role, ...(role === "tts" ? { voice: "persisted-host-voice" } : {}), baseUrl: "https://provider.example" } } as ProviderOperationSnapshot;
 }
 
 function captureService(arbiter: VoiceMicrophoneArbiter): VoiceCaptureService {
-  const surface: VoicePrivacyIndicatorSurface = { show() {}, hide() {}, destroy() {} };
   return new VoiceCaptureService((_duration, onAcquired) => ({
     acquire: async () => {
       onAcquired();
@@ -38,18 +36,19 @@ function captureService(arbiter: VoiceMicrophoneArbiter): VoiceCaptureService {
     },
     cancel: async () => undefined,
     dispose: async () => undefined,
-  }), new VoicePrivacyIndicator(() => surface), { microphoneArbiter: arbiter });
+  }), new VoicePrivacyIndicator(), { microphoneArbiter: arbiter });
 }
 
 async function main(): Promise<void> {
   const roles: string[] = [];
+  let synthesizedVoice: string | undefined;
   const provider: HostProviderOperations = {
     snapshot: async (role) => { roles.push(role); return snapshot(role === "realtime" ? "text" : role); },
     json: async () => ({}),
     binary: async () => new Uint8Array(),
     stream: async () => undefined,
     transcribe: async () => "hello from microphone",
-    synthesize: async () => ({ bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" }),
+    synthesize: async (_snapshot, _text, options) => { synthesizedVoice = options.voice; return { bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" }; },
     negotiateRealtime: async () => "",
   };
 
@@ -60,6 +59,7 @@ async function main(): Promise<void> {
   assert.deepEqual(inputResult, { status: "completed", final: "hello from microphone" });
   const speech = await new ProviderVoiceSynthesizer(provider).synthesize("hello", { requestId: "output-1", signal: new AbortController().signal });
   assert.deepEqual(speech, { kind: "audio", bytes: new Uint8Array([7, 8]), mimeType: "audio/mpeg" });
+  assert.equal(synthesizedVoice, "persisted-host-voice", "Host Talk uses the selected profile voice");
   assert.deepEqual(roles, ["stt", "tts"], "input and synthesis snapshot their own provider roles independently");
   arbiter.releaseReservation(reservation);
 
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     }),
     cancel: async () => undefined,
     dispose: async () => undefined,
-  }), new VoicePrivacyIndicator(() => ({ show() {}, hide() {}, destroy() {} })), { microphoneArbiter: arbiter });
+  }), new VoicePrivacyIndicator(), { microphoneArbiter: arbiter });
   let usedProfile = "";
   const pinnedProvider: HostProviderOperations = {
     ...provider,
@@ -138,6 +138,78 @@ async function main(): Promise<void> {
   await controller.shutdown();
   assert.equal(sessionArbiter.activeOwner, null);
 
+  // The second Talk toggle submits a generic recording and preserves the
+  // session while STT, the assistant, and synthesis continue normally;
+  // repeated toggles do not cancel or create a parallel turn.
+  const submitArbiter = new VoiceMicrophoneArbiter();
+  let stopCount = 0;
+  let recordingCancelCount = 0;
+  let releaseStop!: () => void;
+  const stopGate = new Promise<void>((resolve) => { releaseStop = resolve; });
+  const submitCapture = new VoiceCaptureService((_duration, onAcquired) => {
+    let resolveResult!: (capture: VoiceCaptureResult) => void;
+    let recording!: VoiceCaptureRecording;
+    const captureResult = new Promise<VoiceCaptureResult>((resolve) => { resolveResult = resolve; });
+    recording = {
+      result: captureResult,
+      stop: async () => {
+        stopCount += 1;
+        await stopGate;
+        const capture = { bytes: new Uint8Array([1, 2, 3]), mimeType: "audio/webm" };
+        resolveResult(capture);
+        return capture;
+      },
+      cancel: async () => { recordingCancelCount += 1; },
+      close: async () => undefined,
+    };
+    return {
+      acquire: async () => { onAcquired(); return recording; },
+      cancel: async () => undefined,
+      dispose: async () => undefined,
+    };
+  }, new VoicePrivacyIndicator(), { microphoneArbiter: submitArbiter });
+  const submitProvider: HostProviderOperations = {
+    ...provider,
+    transcribe: async () => "submitted input",
+  };
+  let assistantTurns = 0;
+  let synthesisCalls = 0;
+  const submitController = new VoiceAssistantHostController(() => {
+    const session = new VoiceAssistantSession({
+      microphoneArbiter: submitArbiter,
+      input: new HostVoiceInput(submitProvider, submitCapture),
+      assistant: {
+        startTurn: async () => { assistantTurns += 1; return { status: "completed" as const, response: "submitted response" }; },
+        subscribe: () => () => {},
+      },
+      synthesizer: { synthesize: async () => { synthesisCalls += 1; return { kind: "system" as const, text: "submitted response" }; } },
+      player: { play: async () => undefined, stop: async () => undefined },
+    });
+    return { session, shutdown: () => session.shutdown() };
+  });
+  const submitSession = await submitController.activate();
+  await waitFor(() => submitSession.snapshot().canSubmitRecording === true);
+  const secondToggle = submitController.toggle();
+  await waitFor(() => submitSession.snapshot().canSubmitRecording === false && submitSession.snapshot().activity === "thinking");
+  const thirdToggle = submitController.toggle();
+  await flush();
+  assert.equal(stopCount, 1, "double/triple Talk clicks submit only once");
+  assert.equal(recordingCancelCount, 0, "processing toggles never cancel the recording");
+  assert.equal(submitSession.snapshot().status, "active", "submission leaves the active session alive");
+  releaseStop();
+  const toggledSession = await secondToggle;
+  await thirdToggle;
+  assert.equal(toggledSession, submitSession);
+  assert.equal(stopCount, 1);
+  assert.equal(recordingCancelCount, 0, "submit does not cancel the active recording");
+  await waitFor(() => assistantTurns === 1 && synthesisCalls === 1);
+  await waitFor(() => submitSession.snapshot().status === "ended");
+  assert.equal(submitSession.snapshot().status, "ended", "completed Talk does not automatically re-listen");
+  const nextSession = await submitController.toggle();
+  assert.notEqual(nextSession, submitSession, "the next turn requires a fresh explicit Talk click");
+  assert.equal(nextSession?.snapshot().status, "active");
+  await submitController.shutdown();
+
   let raceCreated = 0;
   const raceController = new VoiceAssistantHostController(() => {
     raceCreated += 1;
@@ -156,10 +228,8 @@ async function main(): Promise<void> {
   await raceShutdown;
   assert.equal(raceCreated, 0, "shutdown rejects a queued activation before creating a session");
 
-  let indicatorDestroyed = 0;
   let indicatorTracks = 0;
-  const ownerSurface: VoicePrivacyIndicatorSurface = { show() {}, hide() {}, destroy() { indicatorDestroyed += 1; } };
-  const ownerIndicator = new VoicePrivacyIndicator(() => ownerSurface);
+  const ownerIndicator = new VoicePrivacyIndicator();
   const owner = new VoiceResourceOwner({
     microphoneArbiter: new VoiceMicrophoneArbiter(),
     privacyIndicator: ownerIndicator,
@@ -170,10 +240,9 @@ async function main(): Promise<void> {
   indicatorTracks = ownerIndicator.liveTracks;
   const lane = new VoiceConversationService({ microphoneArbiter: owner.microphoneArbiter, privacyIndicator: owner.privacyIndicator, transportFactory: () => ({ start: async () => undefined, setMuted: () => undefined, close: async () => undefined }) });
   await lane.shutdown();
-  assert.equal(indicatorDestroyed, 0, "individual lane shutdown cannot destroy shared privacy state");
   assert.equal(ownerIndicator.liveTracks, indicatorTracks);
   await owner.shutdown();
-  assert.equal(indicatorDestroyed, 1, "the shared owner destroys privacy state once all lanes stop");
+  assert.equal(ownerIndicator.liveTracks, 0, "the shared owner resets privacy state during teardown");
 
   const composedRoles: string[] = [];
   let utterance = 0;
@@ -220,15 +289,16 @@ async function main(): Promise<void> {
     if (event.speaker === "assistant" && event.kind === "final") assistantTranscripts.push(event.text);
   });
   await composedSession.start();
-  await waitFor(() => assistantTranscripts.length === 2);
-  await composedSession.end();
+  await waitFor(() => assistantTranscripts.length === 1);
+  await waitFor(() => composedSession.snapshot().status === "ended");
+  assert.equal(composedSession.snapshot().status, "ended", "one-shot Talk ends after playback instead of reopening capture");
   await composedAssistant.startTurn("voice-assistant", "after voice ended");
   const followupMessages = composedBodies.at(-1)?.messages as Array<{ role: string; content?: string }>;
   assert.equal(followupMessages.some((message) => message.role === "user" && message.content === "selected request 1"), true, "ending voice preserves the canonical assistant context for a later turn");
   await composedAssistant.stop();
   assert.deepEqual(capabilityInvocations, [{ minutes: 25 }]);
-  assert.deepEqual(assistantTranscripts, ["Focus capability completed.", "Second authoritative answer."]);
-  assert.deepEqual(transcriptEvents, ["user:final", "assistant:final", "user:final", "assistant:final"], "the composed host emits final-only transcripts");
+  assert.deepEqual(assistantTranscripts, ["Focus capability completed."]);
+  assert.deepEqual(transcriptEvents, ["user:final", "assistant:final"], "the composed host emits final-only transcripts");
   assert.equal(composedActivities.includes("listening"), true);
   assert.equal(composedActivities.includes("thinking"), true);
   assert.equal(composedActivities.includes("acting"), true);

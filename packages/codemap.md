@@ -13,6 +13,7 @@ Provides modular, reusable components for the OpenPets ecosystem:
 - **opencode**: OpenCode editor integration (plugin hooks, config management)
 - **claude**: Claude Code integration (hook execution, config management)
 - **cursor**: Cursor editor integration (MCP configuration, project rules)
+- **zed**: Zed editor integration (global MCP configuration)
 - **pi**: Pi coding-agent extension integration (event handling, slash commands)
 - **openclaw**: Native OpenClaw plugin integration, lifecycle management, and local-only reaction runtime
 - **install-pet**: Standalone pet installer from gallery catalog
@@ -39,6 +40,7 @@ CLI Entry (packages/cli/src/index.ts)
     ├── Configures Claude → @open-pets/claude
     ├── Configures OpenCode → @open-pets/opencode
     ├── Configures Cursor → @open-pets/cursor
+    ├── Configures Zed → @open-pets/zed
     ├── Configures OpenClaw → @open-pets/openclaw management
     ├── Spawns MCP server → @open-pets/mcp
     └── Uses IPC client → @open-pets/client
@@ -71,11 +73,12 @@ SDK Type definitions & Test Harness (packages/sdk/)
 ## Integration Points
 
 **Inter-Package Dependencies**:
-- `cli` depends on: `client`, `claude`, `mcp`, `opencode`, `cursor`
+- `cli` depends on: `client`, `claude`, `mcp`, `opencode`, `cursor`, `zed`
 - `mcp` depends on: `client`
 - `claude` depends on: `client`, `agent-events`
 - `opencode` depends on: `client`, `agent-events`
 - `cursor` depends on: `client`
+- `zed` depends on: `jsonc-parser`
 - `pi` depends on: `client`, `agent-events`
 - `openclaw` depends on: `client`, `agent-events`; it declares `openclaw` as an optional peer dependency for the native plugin SDK
 - `install-pet` depends on: `client`
@@ -84,12 +87,12 @@ SDK Type definitions & Test Harness (packages/sdk/)
 
 **External Integrations**:
 - `@modelcontextprotocol/sdk` - MCP protocol implementation
-- `jsonc-parser` - JSON with comments parsing for OpenCode configs
+- `jsonc-parser` - JSON with comments parsing for OpenCode and Zed configs
 - `yauzl` - ZIP extraction for pet downloads
 - `zod` - Schema validation in MCP tools
 
 **Desktop App Communication**:
-All packages ultimately communicate with the OpenPets desktop app via the IPC protocol defined in `@open-pets/client` (using Unix sockets, Windows named pipes, or TCP for cross-platform/WSL).
+Runtime packages ultimately communicate with the OpenPets desktop app via the IPC protocol defined in `@open-pets/client` (using Unix sockets, Windows named pipes, or TCP for cross-platform/WSL). Zed is configuration-only and does not use IPC; its MCP server makes the runtime connection after Zed launches it.
 
 ## Directory Map
 
@@ -100,6 +103,7 @@ All packages ultimately communicate with the OpenPets desktop app via the IPC pr
 | `client/` | Desktop IPC discovery and client API package. | [View Map](client/codemap.md) |
 | `cli/` | User CLI for setup, pet commands, MCP launch, plugin scaffolding, and plugin validation. | [View Map](cli/codemap.md) |
 | `cursor/` | Cursor MCP/rules integration package. | [View Map](cursor/codemap.md) |
+| `zed/` | Zed global MCP integration package. | [View Map](zed/codemap.md) |
 | `install-pet/` | Standalone gallery pet installer package. | [View Map](install-pet/codemap.md) |
 | `mcp/` | OpenPets MCP stdio server package. | [View Map](mcp/codemap.md) |
 | `opencode/` | OpenCode plugin/config integration package. | [View Map](opencode/codemap.md) |

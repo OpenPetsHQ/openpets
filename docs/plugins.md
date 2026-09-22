@@ -31,6 +31,13 @@ Plugin source is split by publishing intent:
 - `plugins/dev/` - local experiments only. The catalog generator ignores this
   lane; move a plugin to `community/` or `official/` before publishing.
 
+Plugin source folders under `plugins/official/` or `plugins/community/` may be
+pinned Git submodules. Clone this repository with `--recurse-submodules`, or run
+`git submodule update --init --recursive` before development, testing, or a
+release. An upstream change does not enter OpenPets automatically: review it,
+intentionally advance the pinned submodule commit, update community provenance
+when applicable, then run the normal release validation.
+
 ## Mental model
 
 A plugin is a **package** validated by a **manifest**, run inside a **sandbox**,
@@ -138,6 +145,17 @@ Handlers receive a validated clone and must return an object-shaped,
 JSON-compatible, size-bounded result. Unsupported or malformed schemas,
 circular/non-JSON data, and oversized values are rejected.
 
+The host derives each provider tool name from the plugin id and capability id:
+punctuation is normalized to lowercase underscores and ordinary names remain
+readable (for example, `system_resources_summary`). Names are bounded to the
+shared provider limit; normalization collisions and truncation receive a
+short deterministic suffix, while duplicate capability identities and any
+unresolvable name collision are rejected. The generation-pinned target map is
+keyed by that exact provider name, so no opaque-name aliases are retained.
+Conversation action rows show the capability description as a concise label;
+the actual provider name is retained separately for dispatch and transcript
+correlation rather than rendered as the label.
+
 When a capability cannot proceed because the validated input is missing a
 required field, its structured failure may include `missingInformation: true`.
 This explicit assistant-capability outcome asks for the missing value; it is
@@ -147,15 +165,19 @@ stale plugin generations, handler failures, timeouts, and unavailable or
 indeterminate execution remain ordinary structured rejected/unavailable
 outcomes without that discriminator.
 
-Focus Buddy and Quick Reminders are the first official examples. Focus Buddy
-registers `focus.start`, `focus.status`, `focus.pause`, `focus.resume`, and
-`focus.end`; its start capability accepts an explicit duration in minutes.
+Bundled official plugins are the primary examples. Focus Buddy registers
+`focus.start`, `focus.status`, `focus.pause`, `focus.resume`, `focus.end`, and
+`focus.skipBreak`; its start capability accepts an explicit duration in minutes.
 Quick Reminders registers `reminders.create`, `reminders.list`,
 `reminders.complete`, `reminders.snooze`, and `reminders.remove`.
 `reminders.create` accepts an absolute ISO due time with a `Z` suffix or numeric
-UTC offset, never a guessed local or natural-language date. Both plugins reuse
-their direct-control domain operations but keep assistant calls free of
-command-specific speech and bubble confirmations.
+UTC offset, never a guessed local or natural-language date. Launch Buddy exposes
+`launch.greet`; Virtual Pet exposes `virtual-pet.status`, `virtual-pet.feed`,
+`virtual-pet.play`, `virtual-pet.pet`, and `virtual-pet.nap`; System Resources
+exposes `resources.get`, `resources.show`, and `resources.hide`. These
+capabilities reuse direct-control domain operations but keep assistant calls free
+of command-specific speech and bubble confirmations, except Launch Buddy's
+explicit greeting, whose purpose is to present the configured greeting.
 
 The current v1 quotas are 32 registrations per plugin, 16 KiB per schema,
 schema depth six, 32 properties per object, 128 total schema properties, 32
@@ -193,73 +215,129 @@ capability the current manifest no longer declares.
   scheme default port (443 for HTTPS, 80 for HTTP) - never an explicit
   non-default port, and never a later `host:port` addition without fresh approval.
 - `network` covers HTTPS GET to approved **public** hosts (public-host / private-IP
-  checks still apply). Non-GET methods require `network:write` on `ctx.net` only.
-- `network:local` is **additive**: it also allows declared loopback/private HTTP
-  endpoints on `ctx.net` while public HTTPS hosts in the same manifest keep the
-  normal public-host path. Local targets require explicit local IPs/`localhost`
-  (DNS-rebinding defense); cloud-metadata addresses stay blocked.
+  checks still apply). Public destinations are filtered against IANA special-purpose
+  ranges, with explicit current more-specific exceptions resolved before broader
+  denials. Non-GET methods require `network:write` on `ctx.net` only.
+- `network:local` is **additive**: it also allows declared actual local/private,
+  link-local, or CGNAT HTTP endpoints on `ctx.net` while public HTTPS hosts in
+  the same manifest keep the normal public-host path. It does not allow arbitrary
+  non-public special-purpose addresses. Local targets require explicit local
+  IPs/`localhost` (DNS-rebinding defense); cloud-metadata addresses stay blocked.
 - Legacy `ctx.http.fetch` remains GET-only, public HTTPS only - it never gains
   local or mutating access.
 
 ### Host provider profiles (#145, backend/bridge status)
 
 The host no longer reads the legacy single `PluginPlatformSettings.ai` object.
-It persists provider profiles plus exactly three independent selections: one
-`text`, one `stt`, and one `tts` profile, while retaining audio, dynamic speech,
-microphone, voice, and quiet-hour gates. Profiles contain an adapter, model,
-validated base URL, an opaque secret reference, validated auth header
-placement/strategy, and bounded optional static headers. Static header names and
-values are persisted in the local provider-profile settings; secret credential
-values are stored only through `PluginSecretsStore`. Profile/status snapshots
-expose header names and credential presence, never header values or secret
-values.
+The pure `provider-contract.ts` module is the one canonical source for adapter
+definitions and presets: supported roles, credential policy, default auth, and
+adapter defaults are not duplicated between the main process and renderer.
+`plugin-platform-settings.ts` persists typed adapter-specific profiles plus
+exactly three independent selections: one `text`, one `stt`, and one `tts`
+profile, while retaining audio, dynamic speech, microphone, voice, and
+quiet-hour gates.
 
-Provider profile updates are sparse patches: omitted or `undefined` fields keep
-their existing values; `null` explicitly clears `baseUrl`, `secretRef`, or
-`auth`; and `headers` is preserved when omitted, replaced when provided, or
-cleared with an explicit empty array. Because snapshots expose header names but
-not values, header replacement is an intentional whole-list operation rather
-than a per-header edit.
+Profiles use an exhaustive adapter-specific shape. Text adapters carry their
+normal model; an `openai-realtime` profile carries both its normal text model
+and its separate realtime model; network TTS adapters carry a persisted voice;
+system TTS has no network configuration. Profiles may also carry a validated
+endpoint, auth placement/strategy, and bounded static headers. Secret values
+are stored only through `PluginSecretsStore`; the opaque secret reference is a
+host-owned implementation detail. Static header names and credential presence
+are safe to expose, but header values, credential values, and secret references
+never appear in Control Center snapshots.
+
+The Control Center uses one host-owned configuration transaction for profile
+fields, an optional credential value, and role activation. Credential changes
+also have dedicated set/delete actions. Existing static headers are never sent
+to the renderer: the host applies explicit `add`/`replace`/`delete` edits keyed
+by header name, preserving untouched values without making them editable through
+a redacted snapshot. The renderer is not a generic secret-reference or sparse
+settings editor.
+
+The configuration modal also has a non-persisting **Test setup** action. The
+main process first validates an ephemeral candidate profile using the same
+profile rules as save, then resolves either the inline draft credential or the
+already stored credential for that profile. It does not update settings,
+selections, or the secret store. Tests are adapter-specific: a minimal text
+completion; a configured-voice TTS preview; a recorded STT sample; or a
+minimal Realtime session configuration. System TTS plays through renderer-local
+speech synthesis with the selected installed voice. Text, Realtime, and
+  network TTS probes use the caller's cancellation signal; modal replacement,
+  renderer loss, and shutdown abort them before a stale request can overlap a
+  replacement test.
+
+The persisted provider document is explicitly versioned. Startup migrates the
+legacy unversioned shape, assigns defaults for newly required TTS voices, and
+preserves the old Realtime model as the realtime model rather than inventing a
+normal text model. Profiles that fail the current typed validation are retained
+in a quarantine record with their reason and original value; a damaged document
+is moved aside before defaults are used. Quarantined IDs cannot be silently
+reused by a new profile.
+
+Readiness is evaluated per selected role and separately for derived Realtime:
+disabled, invalid, unsupported, missing-secret, and ready are distinct states.
+Required adapters need a stored credential, optional adapters may operate
+without one (but a dangling configured credential is not ready), and adapters
+with no credential policy never require a secret. Realtime additionally needs
+the selected text profile to be native OpenAI Realtime with both model fields
+present.
+
+Before that transaction commits, the host validates every existing role selection
+against the complete candidate profile map. Editing a selected profile to an
+adapter that does not support its current role clears that selection atomically,
+even when the renderer supplies no role directive; an incompatible selection is
+never reported as a successful persisted configuration.
 
 The host voice lanes consume these profiles independently: text reasoning,
-final-only STT, and TTS each take their own operation snapshot. The generic voice
+final-only STT, and TTS each take their own operation snapshot. A system TTS
+profile may retain an installed operating-system voice name; no name means the
+system default voice. The generic voice
 session pins STT before capture starts and passes the same snapshot through
 transcription; changing provider settings affects a later activation, not an
 in-flight capture. TTS playback is host-owned and request-scoped, including
 bounded system-utterance chunking, duration-aware deadlines, renderer-loss and
 navigation handling, and completion/error/stop handling. Voice activity uses a
 separate host-owned pet slot and does not clear plugin-owned display or status
-state. Plugins do not own the microphone, privacy surface, renderer playback
-lifecycle, or generic assistant session.
+state. Plugins do not own the microphone, microphone lifecycle accounting,
+renderer playback lifecycle, or generic assistant session.
 
 `voice-resource-owner.ts` is the sole owner of the shared microphone arbiter,
-capture service, and privacy indicator. Plugin one-shot listening, the native
+capture service, and live-track accounting. Plugin one-shot listening, the native
 Realtime lane, and the generic assistant lane release only their own tracks and
-leases. The shared owner destroys the privacy surface once, after every lane has
-stopped during app teardown. The optional Realtime adapter remains host-private;
+leases. The shared owner resets the accounting once, after every lane has stopped
+during app teardown; the transient privacy surface is not created until a track is
+acquired and is destroyed during shutdown. The optional Realtime adapter remains host-private;
 it does not add a public voice conversation API or make Realtime part of the
 plugin contract.
 
 Generic `openai-compatible-text` is the codec for OpenAI, Ollama, LM Studio,
 vLLM, MiniMax chat, and cloud gateways. Anthropic remains native because its
-messages/tool wire format differs. STT is an explicit
+messages/tool wire format differs. Generic STT is an explicit
 `openai-compatible-transcription` profile; Ollama is never inferred to support
-audio. TTS is explicit system voice, MiniMax hex audio, ElevenLabs audio, or a
-bounded OpenAI-compatible speech profile. An external TTS error is surfaced and
-does not silently fall back to system speech.
+audio. ElevenLabs Scribe STT is a separate typed
+`elevenlabs-transcription` profile using bounded multipart upload to
+`/speech-to-text` with the required `model_id` field and `xi-api-key`
+credential. TTS is explicit system voice, MiniMax hex audio, ElevenLabs audio,
+or a bounded OpenAI-compatible speech profile. Each network TTS profile uses
+its persisted voice unless a request supplies an override; the request voice
+wins. An external TTS error is surfaced and does not silently fall back to
+system speech.
 
 Realtime is an optional host-private optimized adapter and derives only from
 the selected text profile. It requires an explicitly native
-`openai-realtime` profile, reuses that profile's model, base URL, credential,
-and allowed headers, and fails with `provider.realtime.unsupported` without
-fetching for other profiles. The selected profile is pinned for the active
-session; generic STT -> Pet Assistant -> TTS remains the path for other text
-profiles.
+`openai-realtime` profile with both a normal text model and a separate realtime
+model. It reuses that profile's endpoint, credential, and allowed headers, but
+the operation snapshot substitutes the realtime model for negotiation. It fails
+with `provider.realtime.unsupported` without fetching for other profiles, and
+reports incomplete readiness when either model is missing. The selected profile
+is pinned for the active session; generic STT -> Pet Assistant -> TTS remains
+the path for other text profiles.
 
 The public plugin-facing `voice.listen` capability remains one-shot push-to-talk,
-never ambient. The host captures in a hidden, isolated microphone window and displays
-**OpenPets is listening** only after
-microphone acquisition succeeds. It accepts only one active capture, clamps the
+never ambient. The host captures in a hidden, isolated microphone window and records
+live microphone ownership only after acquisition succeeds; it does not create a
+detached privacy indicator window. It accepts only one active capture, clamps the
 recording duration to 1-30 seconds, times microphone acquisition out after 15
 seconds, and bounds transcription separately at 30 seconds. The host can cancel
 during acquisition, recording, or transcription; cancellation stops media tracks,
@@ -279,7 +357,7 @@ validates those events again, while the host Pet Assistant service owns current
 capability discovery, canonical provider-safe tool names, generation-pinned
 execution, structured results, and Conversation projection. One-shot capture,
 generic voice, and Realtime share exclusive microphone/modality ownership and
-the host privacy indicator. Realtime cleanup participates in the shared
+the host live-track accounting. Realtime cleanup participates in the shared
 shutdown path; provider failures and stale generations cannot become successful
 capability outcomes. There is no public SDK Realtime API, unrestricted machine
 access, semantic memory, or wake-word behavior.
@@ -319,12 +397,25 @@ plugin's `index.js` runs here, isolated from the renderer and the main process.
 
 `plugin-sdk-bridge.ts` is the gate between the sandbox and the host. It
 validates routes, builds the per-plugin context, enforces permissions + quotas,
-and delegates to focused namespace modules (`plugin-sdk-audio`, `-bus`,
+and delegates to focused namespace modules (`plugin-sdk-audio`, `plugin-sdk-network`, `-bus`,
 `-config`, `-events`, `-quotas`, `-routes`, `-state`, `-storage`, `-ui`, plus
 `plugin-voice`, `plugin-oauth`, `plugin-secrets`, `plugin-ai-gateway`,
 `plugin-panels`, `plugin-pet-api`/`plugin-pet-registry`). The split keeps each
 capability's permission check and host effect localized. The author-facing
 mirror of all this is the SDK in [Plugin SDK v3](/sdk).
+
+The bridge tracks active network requests by API generation, aborts the retired
+generation during teardown, and drains those requests before host cleanup.
+
+`plugin-sdk-network.ts` owns guarded DNS, dispatch, response limits, and
+agent transport, and bounded cleanup. Plugin teardown awaits agent destruction
+with a bounded one-second cleanup deadline and never waits indefinitely;
+successful results from a retired generation are rejected rather than delivered
+to its replacement.
+
+Runtime host teardown uses the plugin-slot generation predicate before voice
+cancellation and again after its await, so stale teardown cannot remove a
+replacement generation's deliveries, pets, or motion.
 
 ### Supporting modules
 
@@ -345,7 +436,13 @@ mirror of all this is the SDK in [Plugin SDK v3](/sdk).
   provider service resolves opaque credentials from `PluginSecretsStore` only
   at operation start and exposes redacted role/realtime diagnostics.
 - `provider-service.ts` - narrow host-owned text, transcription, speech, and
-  private realtime operation codecs.
+  private realtime operation boundary. It owns role snapshots and credential
+  selection, adapter URLs/headers/payloads and response validation, provider
+  diagnostics, and reply-character accounting.
+- `provider-transport.ts` - provider-neutral fetch lifetime and bounded body
+  transport. It composes timeout/caller cancellation through body reads,
+  rejects redirects, decodes JSON and line-oriented SSE, extracts sanitized
+  bounded HTTP error detail, and performs idempotent response cleanup.
 - `plugin-voice.ts` + `voice-listening-service.ts` - the plugin-facing one-shot
   `voice.listen` facade and host-owned transcription/cancellation lifecycle,
   plus private realtime entry points and shared shutdown wiring; realtime is not
@@ -361,8 +458,11 @@ mirror of all this is the SDK in [Plugin SDK v3](/sdk).
 - `voice-capture-cancellation.ts` - idempotent renderer-cancel/window-destroy
   ordering.
 - `voice-operation-state.ts` - internal tray cancellation state and phase tracking.
-- `voice-privacy-indicator-electron.ts` - the shared host-owned microphone
-  privacy indicator used by one-shot capture and realtime conversation.
+- `voice-privacy-indicator.ts` and `voice-privacy-indicator-electron.ts` - shared
+  host-owned live microphone-track accounting and the transient Electron privacy
+  surface used by one-shot capture and realtime conversation. The surface is
+  reference-counted, appears only after microphone acquisition, hides after the
+  final track stops, and is destroyed during voice shutdown.
 - `plugin-user-sound-store.ts` - stores imported user sounds as opaque refs, not
   raw filesystem paths.
 - `plugin-i18n.ts` - resolves plugin locales, manifest `$t:`, and `ctx.t()`.
@@ -470,6 +570,25 @@ Plugin owners can publish updates to their plugins without needing a manual PR t
 4. **All Tests Pass**: The package must pass all validation gates (manifest, SDK compatibility, locales check, ZIP and SHA matches).
 
 If an update is determined to be **safe**, OpenPets CI/CD automation automatically updates the catalog entry version and re-packages the plugin. If any safety boundary is crossed, the update triggers a `manual-review` block and requires a maintainer to inspect and merge the change.
+
+## Teams-owned plugins
+
+The `team` source is a separate organization-owned lane installed under
+`userData/team-plugins/{id}`. Team plugins carry immutable organization/item/
+artifact/release references and generic personal actions cannot remove, toggle,
+or reconfigure them. A Team-owned first install requires explicit approval in
+the Teams route of Control Center, not in the Plugins tab. The approval displays
+the current manifest permissions and declared network hosts; organization
+configuration cannot bypass it, and the approval is bound to the current
+organization/item/artifact/release identity. A Team Pack remains pending and not
+current until that approval succeeds. Required plugins enable only when the
+approved permissions cover the manifest; permission escalation blocks and reports
+the item. Optional plugins install disabled and preserve the employee toggle
+across updates. Team operations are serialized, and leave invalidates queued or
+in-flight work. A rejected staged or activated Team install rolls back to the
+last approved artifact and its state. Organization configuration is read-only
+locally, removal clears only Team-scoped runtime, storage, and user-sound data,
+and personal plugin state remains isolated.
 
 ## Troubleshooting
 

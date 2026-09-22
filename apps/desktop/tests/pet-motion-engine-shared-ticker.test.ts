@@ -39,6 +39,7 @@ function makeAccessor() {
     isDestroyed: () => false,
     isVisible: () => true,
     setPosition: (_x: number, _y: number) => {},
+    setBounds: (_bounds: { x: number; y: number }) => {},
   } as any);
 }
 

@@ -1,112 +1,22 @@
 import type { VoiceMicrophoneArbiter, VoiceMicrophoneReservation } from "./voice-microphone-arbiter.js";
 import type { PetAssistantModalityCoordinator, PetAssistantModalityLease } from "./pet-assistant-modality.js";
-
-export type VoiceAssistantActivity = "listening" | "thinking" | "acting" | "speaking";
-export type VoiceAssistantSessionStatus = "idle" | "active" | "muted" | "paused" | "ending" | "ended";
-export type VoiceAssistantErrorScope = "input" | "assistant" | "synthesis" | "playback" | "session";
-
-export type VoiceAssistantSessionSnapshot = {
-  readonly status: VoiceAssistantSessionStatus;
-  readonly activity: VoiceAssistantActivity | null;
-  readonly muted: boolean;
-  readonly conversationId: string;
-  readonly generation: number;
-  readonly turnId: string | null;
-  readonly userTranscript: string | null;
-  readonly assistantTranscript: string | null;
-  readonly interruptionCount: number;
-  readonly error: { readonly scope: VoiceAssistantErrorScope; readonly message: string } | null;
-};
-
-export type VoiceAssistantTranscriptEvent = {
-  readonly type: "transcript";
-  readonly sequence: number;
-  readonly turnId: string;
-  readonly speaker: "user" | "assistant";
-  readonly kind: "partial" | "final";
-  readonly text: string;
-};
-
-export type VoiceAssistantSessionEvent =
-  | { readonly type: "snapshot"; readonly sequence: number; readonly snapshot: VoiceAssistantSessionSnapshot }
-  | VoiceAssistantTranscriptEvent
-  | { readonly type: "error"; readonly sequence: number; readonly scope: VoiceAssistantErrorScope; readonly message: string; readonly turnId?: string }
-  | { readonly type: "interrupted"; readonly sequence: number; readonly generation: number; readonly turnId: string | null }
-  | { readonly type: "turn-settled"; readonly sequence: number; readonly turnId: string; readonly outcome: "completed" | "cancelled" | "failed" }
-  | { readonly type: "ended"; readonly sequence: number; readonly reason: "ended" | "shutdown" };
-
-export type VoiceAssistantSessionEventInput =
-  | { readonly type: "snapshot"; readonly snapshot: VoiceAssistantSessionSnapshot }
-  | Omit<VoiceAssistantTranscriptEvent, "sequence">
-  | { readonly type: "error"; readonly scope: VoiceAssistantErrorScope; readonly message: string; readonly turnId?: string }
-  | { readonly type: "interrupted"; readonly generation: number; readonly turnId: string | null }
-  | { readonly type: "turn-settled"; readonly turnId: string; readonly outcome: "completed" | "cancelled" | "failed" }
-  | { readonly type: "ended"; readonly reason: "ended" | "shutdown" };
-
-export type VoiceAssistantSessionListener = (event: VoiceAssistantSessionEvent) => void;
-
-export interface VoiceAssistantSessionLike {
-  snapshot(): VoiceAssistantSessionSnapshot;
-  subscribe(listener: VoiceAssistantSessionListener): () => void;
-  start(): Promise<void>;
-  retry(): Promise<void>;
-  mute(): Promise<void>;
-  unmute(): Promise<void>;
-  interrupt(): Promise<void>;
-  end(): Promise<void>;
-  shutdown(): Promise<void>;
-}
-
-export type VoiceAssistantInputResult =
-  | { readonly status: "completed"; readonly final: string }
-  | { readonly status: "cancelled"; readonly reason?: string };
-
-export type VoiceAssistantInputOptions = {
-  readonly requestId: string;
-  readonly signal: AbortSignal;
-  readonly reservation: VoiceMicrophoneReservation;
-  readonly onPartial?: (text: string) => void;
-};
-
-/** One bounded capture/transcription attempt. cancel(requestId) settles that attempt. */
-export interface VoiceAssistantInput {
-  listen(options: VoiceAssistantInputOptions): Promise<VoiceAssistantInputResult>;
-  cancel(requestId: string): Promise<void>;
-}
-
-export type VoiceAssistantTurnResult = {
-  readonly status: "completed" | "cancelled" | "failed";
-  readonly turnId?: string;
-  /** The terminal response after all capability outcomes have been applied. */
-  readonly response?: string;
-  readonly error?: string;
-};
-
-export type VoiceAssistantActivityEvent = {
-  readonly conversationId: string;
-  readonly turnId: string;
-  readonly activity: "thinking" | "acting" | "responding";
-};
-
-export interface VoiceAssistantTurnAdapter {
-  startTurn(conversationId: string, text: string, signal: AbortSignal, turnId?: string): Promise<VoiceAssistantTurnResult>;
-  subscribe(listener: (event: VoiceAssistantActivityEvent) => void): () => void;
-}
-
-export type VoiceAssistantSpeech =
-  | { readonly kind: "audio"; readonly bytes: Uint8Array; readonly mimeType: string }
-  | { readonly kind: "system"; readonly text: string };
-export type VoiceAssistantSynthesisOptions = { readonly requestId: string; readonly signal: AbortSignal };
-
-export interface VoiceAssistantSynthesizer {
-  synthesize(text: string, options: VoiceAssistantSynthesisOptions): Promise<VoiceAssistantSpeech>;
-}
-
-/** The player owns both decoded audio and eventual system speech, per request. */
-export interface VoiceAssistantPlayer {
-  play(requestId: string, speech: VoiceAssistantSpeech, signal: AbortSignal, onStarted?: () => void): Promise<void>;
-  stop(requestId: string): Promise<void>;
-}
+import type {
+  VoiceAssistantErrorScope,
+  VoiceAssistantInput,
+  VoiceAssistantInputOptions,
+  VoiceAssistantInputResult,
+  VoiceAssistantSessionEvent,
+  VoiceAssistantSessionEventInput,
+  VoiceAssistantSessionLike,
+  VoiceAssistantSessionListener,
+  VoiceAssistantSessionSnapshot,
+  VoiceAssistantSpeech,
+  VoiceAssistantPlayer,
+  VoiceAssistantSynthesizer,
+  VoiceAssistantTurnAdapter,
+  VoiceAssistantTurnResult,
+} from "./voice-assistant-session-contract.js";
+import { info, warn } from "./logger.js";
 
 export type VoiceAssistantSessionOptions = {
   readonly conversationId?: string;
@@ -127,6 +37,7 @@ type InputStage = {
   promise: Promise<void>;
   cancelPromise: Promise<void> | null;
   lastPartial: string | null;
+  submitRequested: boolean;
 };
 
 type TurnStage = {
@@ -135,6 +46,9 @@ type TurnStage = {
   readonly controller: AbortController;
   promise: Promise<VoiceAssistantTurnResult>;
   unsubscribe: (() => void) | null;
+  readonly startedAt: number;
+  cancelReason: "user" | "session" | null;
+  cancelLogged: boolean;
 };
 
 type SpeechStage = {
@@ -142,6 +56,7 @@ type SpeechStage = {
   readonly requestId: string;
   readonly turnId: string;
   readonly controller: AbortController;
+  readonly synthesisOptions: { readonly requestId: string; readonly signal: AbortSignal; reason?: "user" | "session" };
   synthesis: Promise<VoiceAssistantSpeech>;
   playback: Promise<void> | null;
 };
@@ -185,6 +100,7 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
       assistantTranscript: null,
       interruptionCount: 0,
       error: null,
+      canSubmitRecording: false,
     });
   }
 
@@ -200,6 +116,7 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
   mute(): Promise<void> { return this.#serialize(() => this.#mute()); }
   unmute(): Promise<void> { return this.#serialize(() => this.#unmute()); }
   interrupt(): Promise<void> { return this.#serialize(() => this.#interrupt()); }
+  submitInput(): Promise<boolean> { return this.#serialize(() => this.#submitInput()); }
   end(): Promise<void> { return this.#serialize(() => this.#end("ended")); }
   shutdown(): Promise<void> { return this.#serialize(() => this.#end("shutdown")); }
 
@@ -225,11 +142,11 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     if (!this.#started) throw new Error("Voice assistant session has not started.");
     if (this.#ended || this.#muted) return;
     this.#muted = true;
-    this.#setSnapshot({ muted: true, status: "muted", activity: null });
+    this.#setSnapshot({ muted: true, status: "muted", activity: null, canSubmitRecording: false });
     const input = this.#input;
     if (input) {
       ++this.#generation;
-      await this.#cancelInput(input);
+      await this.#cancelInput(input, "user");
       this.#input = null;
     }
     if (!this.#turn && !this.#speech) {
@@ -248,6 +165,20 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     await Promise.resolve();
   }
 
+  async #submitInput(): Promise<boolean> {
+    if (!this.#started || this.#ended || this.#muted) return false;
+    const input = this.#input;
+    if (!input || !this.#options.input.submit) return false;
+    if (input.submitRequested) return true;
+    if (!this.#snapshot.canSubmitRecording) return false;
+    // Leave the listening state before asking the capture implementation to
+    // stop.  stop() may wait for renderer/capture cleanup, but the canonical
+    // snapshot must make the Talk control non-recording immediately.
+    input.submitRequested = true;
+    this.#setSnapshot({ status: "active", activity: "thinking", canSubmitRecording: false, error: null });
+    return this.#options.input.submit(input.requestId);
+  }
+
   async #interrupt(): Promise<void> {
     if (!this.#started || this.#ended) return;
     const input = this.#input;
@@ -255,9 +186,9 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     const speech = this.#speech;
     ++this.#generation;
     const turnId = input?.turnId ?? turn?.turnId ?? speech?.turnId ?? null;
-    this.#setSnapshot({ status: this.#muted ? "muted" : "active", activity: null, interruptionCount: this.#snapshot.interruptionCount + 1 });
+    this.#setSnapshot({ status: this.#muted ? "muted" : "active", activity: null, canSubmitRecording: false, interruptionCount: this.#snapshot.interruptionCount + 1 });
     this.#emit({ type: "interrupted", generation: this.#generation, turnId });
-    await this.#cancelStages(input, turn, speech);
+    await this.#cancelStages(input, turn, speech, "user");
     this.#input = null;
     this.#turn = null;
     this.#speech = null;
@@ -286,19 +217,22 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     const turnId = `${this.#turnIdPrefix}-${ordinal}`;
     const requestId = `voice-input-${this.#nextRequest++}`;
     const controller = new AbortController();
-    this.#setSnapshot({ status: "active", activity: "listening", turnId, userTranscript: null, assistantTranscript: null, error: null });
-    const stage: InputStage = { generation, requestId, turnId, controller, promise: Promise.resolve(), cancelPromise: null, lastPartial: null };
+    this.#setSnapshot({ status: "active", activity: "listening", turnId, userTranscript: null, assistantTranscript: null, error: null, canSubmitRecording: typeof this.#options.input.submit === "function" });
+    const stage: InputStage = { generation, requestId, turnId, controller, promise: Promise.resolve(), cancelPromise: null, lastPartial: null, submitRequested: false };
     const promise = Promise.resolve().then(() => this.#options.input.listen({
       requestId,
       signal: controller.signal,
       reservation: this.#microphoneReservation!,
       onPartial: (value) => {
-        if (!this.#isCurrentInput(stage)) return;
+        if (!this.#isCurrentInput(stage) || stage.submitRequested) return;
         const text = normalizeTranscript(value);
         if (!text || text === stage.lastPartial) return;
         stage.lastPartial = text;
         this.#setSnapshot({ activity: "listening", turnId, userTranscript: text, error: null });
         this.#emit({ type: "transcript", turnId, speaker: "user", kind: "partial", text });
+      },
+      onSubmitAvailabilityChange: (canSubmit) => {
+        if (this.#isCurrentInput(stage) && !stage.submitRequested) this.#setSnapshot({ canSubmitRecording: canSubmit });
       },
     })).then((result) => {
       if (!this.#isCurrentInput(stage)) return;
@@ -328,8 +262,9 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     if (this.#ended || this.#muted || this.#turn) return;
     const generation = ++this.#generation;
     const controller = new AbortController();
-    const stage: TurnStage = { generation, turnId, controller, promise: Promise.resolve(undefined as never), unsubscribe: null };
+    const stage: TurnStage = { generation, turnId, controller, promise: Promise.resolve(undefined as never), unsubscribe: null, startedAt: Date.now(), cancelReason: null, cancelLogged: false };
     this.#turn = stage;
+    info("voice", "brain turn requested", { turnId });
     try {
       stage.unsubscribe = this.#options.assistant.subscribe((event) => {
         if (!this.#isCurrentTurn(stage) || event.conversationId !== this.#conversationId || event.turnId !== stage.turnId) return;
@@ -339,7 +274,7 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
       this.#finishTurn(stage);
       this.#emitError("assistant", errorMessage(error), turnId);
       this.#settleTurn(turnId, "failed");
-      this.#resumeAfterTurn();
+      this.#endAfterTurn();
       return;
     }
     stage.promise = Promise.resolve().then(() => this.#options.assistant.startTurn(this.#conversationId, text, controller.signal, turnId));
@@ -347,32 +282,37 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
       if (!this.#isCurrentTurn(stage)) return;
       this.#finishTurn(stage);
       if (result.status === "cancelled") {
+        if (!stage.cancelLogged) info("voice", "brain turn cancelled", { turnId, elapsedMs: Date.now() - stage.startedAt, reason: stage.cancelReason ?? "session" });
         this.#settleTurn(turnId, "cancelled");
-        this.#resumeAfterTurn();
+        this.#endAfterTurn();
         return;
       }
       if (result.status === "failed") {
+        warn("voice", "brain turn failed", { turnId, elapsedMs: Date.now() - stage.startedAt, errorCode: "assistant.turn.failed" });
         this.#emitError("assistant", result.error ?? "Pet Assistant turn failed.", turnId);
         this.#settleTurn(turnId, "failed");
-        this.#resumeAfterTurn();
+        this.#endAfterTurn();
         return;
       }
       const response = normalizeTranscript(result.response ?? "");
       if (!response) {
+        warn("voice", "brain turn failed", { turnId, elapsedMs: Date.now() - stage.startedAt, errorCode: "assistant.reply.empty" });
         this.#emitError("assistant", "Pet Assistant returned no response.", turnId);
         this.#settleTurn(turnId, "failed");
-        this.#resumeAfterTurn();
+        this.#endAfterTurn();
         return;
       }
+      info("voice", "brain turn completed", { turnId, elapsedMs: Date.now() - stage.startedAt, replyChars: response.length });
       this.#setSnapshot({ assistantTranscript: response, activity: this.#muted ? null : "thinking", error: null });
       this.#emit({ type: "transcript", turnId, speaker: "assistant", kind: "final", text: response });
       this.#beginSpeech(turnId, response);
     }, (error: unknown) => {
       if (!this.#isCurrentTurn(stage)) return;
       this.#finishTurn(stage);
+      warn("voice", "brain turn failed", { turnId, elapsedMs: Date.now() - stage.startedAt, errorCode: errorCode(error) });
       this.#emitError("assistant", errorMessage(error), turnId);
       this.#settleTurn(turnId, "failed");
-      this.#resumeAfterTurn();
+      this.#endAfterTurn();
     });
   }
 
@@ -381,8 +321,9 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     const generation = ++this.#generation;
     const requestId = `voice-output-${this.#nextRequest++}`;
     const controller = new AbortController();
-    const stage: SpeechStage = { generation, requestId, turnId, controller, synthesis: Promise.resolve(undefined as never), playback: null };
-    stage.synthesis = Promise.resolve().then(() => this.#options.synthesizer.synthesize(text, { requestId, signal: controller.signal }));
+    const synthesisOptions = { requestId, signal: controller.signal } as { readonly requestId: string; readonly signal: AbortSignal; reason?: "user" | "session" };
+    const stage: SpeechStage = { generation, requestId, turnId, controller, synthesisOptions, synthesis: Promise.resolve(undefined as never), playback: null };
+    stage.synthesis = Promise.resolve().then(() => this.#options.synthesizer.synthesize(text, synthesisOptions));
     this.#speech = stage;
     void stage.synthesis.then((speech) => {
       if (!this.#isCurrentSpeech(stage)) return;
@@ -393,35 +334,33 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
         if (!this.#isCurrentSpeech(stage)) return;
         this.#finishSpeech(stage);
         this.#settleTurn(turnId, "completed");
-        this.#resumeAfterTurn();
+        this.#endAfterTurn();
       }, (error: unknown) => {
         if (!this.#isCurrentSpeech(stage)) return;
         this.#finishSpeech(stage);
         this.#emitError("playback", errorMessage(error), turnId);
         this.#settleTurn(turnId, "failed");
-        this.#resumeAfterTurn();
+        this.#endAfterTurn();
       });
     }, (error: unknown) => {
       if (!this.#isCurrentSpeech(stage)) return;
       this.#finishSpeech(stage);
       this.#emitError("synthesis", errorMessage(error), turnId);
       this.#settleTurn(turnId, "failed");
-      this.#resumeAfterTurn();
+      this.#endAfterTurn();
     });
   }
 
-  #resumeAfterTurn(): void {
-    if (this.#ended || this.#muted) {
-      if (!this.#ended) this.#setSnapshot({ status: "muted", activity: null });
-      return;
-    }
-    this.#setSnapshot({ status: "active", activity: "listening" });
-    this.#beginListen();
+  #endAfterTurn(): void {
+    if (this.#ended) return;
+    // Talk is a one-shot interaction.  The next capture must be created by a
+    // fresh explicit activation, never by the terminal output callback.
+    void this.#end("ended");
   }
 
   #pauseInput(message: string, emitError = true, scope: VoiceAssistantErrorScope = "input"): void {
     const normalized = message.trim() || "Voice input failed.";
-    this.#setSnapshot({ status: "paused", activity: null, error: { scope, message: normalized } });
+    this.#setSnapshot({ status: "paused", activity: null, canSubmitRecording: false, error: { scope, message: normalized } });
     if (emitError) this.#emit({ type: "error", scope, message: normalized });
     this.#modalityLease?.release();
     this.#modalityLease = null;
@@ -437,9 +376,9 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
   async #finishEnd(reason: "ended" | "shutdown"): Promise<void> {
     this.#ended = true;
     ++this.#generation;
-    this.#setSnapshot({ status: "ending", activity: null });
+    this.#setSnapshot({ status: "ending", activity: null, canSubmitRecording: false });
     const turn = this.#turn;
-    await this.#cancelStages(this.#input, turn, this.#speech);
+    await this.#cancelStages(this.#input, turn, this.#speech, "session");
     if (turn) {
       turn.unsubscribe?.();
       turn.unsubscribe = null;
@@ -459,29 +398,39 @@ export class VoiceAssistantSession implements VoiceAssistantSessionLike {
     this.#emit({ type: "ended", reason });
   }
 
-  async #cancelStages(input: InputStage | null, turn: TurnStage | null, speech: SpeechStage | null): Promise<void> {
+  async #cancelStages(input: InputStage | null, turn: TurnStage | null, speech: SpeechStage | null, reason: "user" | "session"): Promise<void> {
     const pending: Promise<unknown>[] = [];
-    if (input) pending.push(this.#cancelInput(input));
+    if (input) pending.push(this.#cancelInput(input, reason));
     if (turn) {
+      turn.cancelReason = reason;
+      if (!turn.cancelLogged) {
+        turn.cancelLogged = true;
+        info("voice", "brain turn cancelled", { turnId: turn.turnId, elapsedMs: Date.now() - turn.startedAt, reason });
+      }
       turn.controller.abort();
       pending.push(turn.promise.catch(() => undefined));
     }
     if (speech) {
+      speech.synthesisOptions.reason = reason;
       speech.controller.abort();
-      pending.push(Promise.resolve().then(() => this.#options.player.stop(speech.requestId)).catch(() => undefined));
+      pending.push(Promise.resolve().then(() => this.#options.player.stop(speech.requestId, reason)).catch(() => undefined));
       pending.push(speech.synthesis.catch(() => undefined));
       if (speech.playback) pending.push(speech.playback.catch(() => undefined));
     }
     await Promise.all(pending);
   }
 
-  async #cancelInput(stage: InputStage): Promise<void> {
+  async #cancelInput(stage: InputStage, reason: "user" | "session"): Promise<void> {
+    if (!stage.cancelPromise) stage.cancelPromise = this.#options.input.cancel(stage.requestId, reason).catch(() => undefined);
     stage.controller.abort();
-    if (!stage.cancelPromise) stage.cancelPromise = Promise.resolve().then(() => this.#options.input.cancel(stage.requestId)).catch(() => undefined);
     await Promise.all([stage.cancelPromise, stage.promise.catch(() => undefined)]);
   }
 
-  #finishInput(stage: InputStage): void { if (this.#input === stage) this.#input = null; }
+  #finishInput(stage: InputStage): void {
+    if (this.#input !== stage) return;
+    this.#input = null;
+    this.#setSnapshot({ canSubmitRecording: false });
+  }
   #finishTurn(stage: TurnStage): void { stage.unsubscribe?.(); stage.unsubscribe = null; if (this.#turn === stage) this.#turn = null; }
   #finishSpeech(stage: SpeechStage): void { if (this.#speech === stage) this.#speech = null; }
 
@@ -534,6 +483,11 @@ function normalizeTurnIdPrefix(value: string): string {
 
 function normalizeTranscript(value: string): string { return value.trim(); }
 function errorMessage(error: unknown): string { return error instanceof Error && error.message ? error.message : String(error); }
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
 
 function freeze<T>(value: T): T {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;

@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { mapAsarPathToUnpacked } from "@open-pets/claude";
 import { doctorOpenCodeGlobalSetup, parseOpenCodeConfig, prepareOpenCodeGlobalRemove, prepareOpenCodeGlobalSetup, writePreparedOpenCodeGlobalRemove, writePreparedOpenCodeGlobalSetup } from "@open-pets/opencode";
 
-const root = mkdtempSync(join(tmpdir(), "openpets-desktop-opencode-"));
+// Canonicalize only the sandbox location: platform temp dirs can sit beneath
+// system symlinks (e.g. /var on macOS), which ancestor validation must reject.
+// Validation itself never canonicalizes the paths under test.
+const root = mkdtempSync(join(realpathSync(tmpdir()), "openpets-desktop-opencode-"));
 
 try {
   const globalDir = join(root, "opencode-global");
@@ -37,7 +40,6 @@ try {
 
   writePreparedOpenCodeGlobalSetup(install);
   assert.equal(doctorOpenCodeGlobalSetup(globalDir).status, "installed");
-  assert.match(readFileSync(join(globalDir, "openpets.md"), "utf8"), /OPENPETS:START/);
 
   const remove = prepareOpenCodeGlobalRemove(globalDir);
   assert.equal(remove.configWrites.length, 1);

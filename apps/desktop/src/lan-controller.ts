@@ -12,7 +12,8 @@ import { createLanRequestHandler } from "./lan-http-controller.js";
 import { readPersistedLanState, writePersistedLanState } from "./lan-persistence.js";
 import { planLanWorkActivities, shouldPublishLanWorkSignal, shouldRetryLanWorkReturn } from "./lan-pet-activity.js";
 import { applyLanVisitingPetSay, getLanVisitingPetPosition, syncLanVisitingPets } from "./lan-pet-controller.js";
-import { isLanPetAwayForLocalHost, LanCoordinator, countLanTopologyLinks, normalizeLanHost, normalizeLanTopology, validateLanTopology, type LanEdge, type LanMode, type LanPoint, type LanState, type LanTopology, type LanTopologyIssue } from "./lan-state.js";
+import { isLanPetAwayForLocalHost, LanCoordinator } from "./lan-state.js";
+import { countLanTopologyLinks, normalizeLanHost, normalizeLanTopology, validateLanTopology, type LanEdge, type LanMode, type LanPoint, type LanState, type LanTopology, type LanTopologyIssue } from "./lan-contract.js";
 import { info, warn, error as logError } from "./logger.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 

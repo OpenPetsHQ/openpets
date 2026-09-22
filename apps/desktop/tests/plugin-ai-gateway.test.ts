@@ -16,11 +16,11 @@ const secrets = { get: async (_owner: string, key: string) => key.includes("loca
 try {
   initializePluginPlatformSettings(userDataPath);
   createProviderProfile({ id: "minimax-text", label: "MiniMax", adapter: "openai-compatible-text", model: "MiniMax-M3", baseUrl: "https://api.minimax.io/v1", secretRef: "minimax" });
-  createProviderProfile({ id: "minimax-voice", label: "MiniMax voice", adapter: "minimax-tts", model: "speech-2.8-turbo", baseUrl: "https://api.minimax.io/v1", secretRef: "minimax" });
+  createProviderProfile({ id: "minimax-voice", label: "MiniMax voice", adapter: "minimax-tts", model: "speech-2.8-turbo", voice: "custom-minimax", baseUrl: "https://api.minimax.io/v1", secretRef: "minimax" });
   createProviderProfile({ id: "whisper-stt", label: "Whisper", adapter: "openai-compatible-transcription", model: "whisper-1", baseUrl: "https://stt.test/v1", secretRef: "whisper" });
-  createProviderProfile({ id: "elevenlabs-voice", label: "ElevenLabs", adapter: "elevenlabs-tts", model: "eleven_multilingual_v2", baseUrl: "https://api.elevenlabs.io/v1", secretRef: "elevenlabs" });
-  createProviderProfile({ id: "realtime", label: "Realtime", adapter: "openai-realtime", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1", secretRef: "openai" });
-  createProviderProfile({ id: "realtime-alt", label: "Realtime alternate", adapter: "openai-realtime", model: "gpt-4o-mini", baseUrl: "https://alternate.example/v1", secretRef: "alternate" });
+  createProviderProfile({ id: "elevenlabs-voice", label: "ElevenLabs", adapter: "elevenlabs-tts", model: "eleven_multilingual_v2", voice: "custom-eleven", baseUrl: "https://api.elevenlabs.io/v1", secretRef: "elevenlabs" });
+  createProviderProfile({ id: "realtime", label: "Realtime", adapter: "openai-realtime", model: "gpt-4o-mini", realtimeModel: "gpt-realtime-2.1", baseUrl: "https://api.openai.com/v1", secretRef: "openai" });
+  createProviderProfile({ id: "realtime-alt", label: "Realtime alternate", adapter: "openai-realtime", model: "gpt-4o-mini", realtimeModel: "gpt-realtime-2.1", baseUrl: "https://alternate.example/v1", secretRef: "alternate" });
   selectProviderProfile("text", "minimax-text"); selectProviderProfile("tts", "minimax-voice"); selectProviderProfile("stt", "whisper-stt");
   globalThis.fetch = async (input, init) => {
     calls.push({ input: String(input), init });

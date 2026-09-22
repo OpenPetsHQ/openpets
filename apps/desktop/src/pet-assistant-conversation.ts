@@ -28,7 +28,10 @@ export type ConversationActionItem = {
   readonly kind: "action";
   readonly id: string;
   readonly turnId: string;
+  /** Actual provider-facing name retained for event correlation and history. */
   readonly toolName: string;
+  /** Human-readable capability description shown in the action row. */
+  readonly label: string;
   readonly status: ConversationActionStatus;
   readonly reason?: string;
 };
@@ -305,7 +308,7 @@ function projectTranscript(
     }
     for (const call of message.role === "assistant" ? message.toolCalls ?? [] : []) {
       if (!isSafeToolCall(call.id, call.name) || items.some((item) => item.kind === "action" && item.id === call.id)) continue;
-      items.push({ kind: "action", id: call.id, turnId, toolName: safeDisplayText(call.name), status: "pending" });
+      items.push({ kind: "action", id: call.id, turnId, toolName: call.name, label: safeActionLabel(call.displayLabel), status: "pending" });
     }
   } else if (message.role === "tool" && isToolResultStatus(message.result.status)) {
     const actionIndex = items.findIndex((item) => item.kind === "action" && item.id === message.toolCallId);
@@ -360,6 +363,12 @@ function isToolResultStatus(value: unknown): value is ConversationActionStatus {
 
 function safeDisplayText(value: string): string {
   return value.length > MAX_CONVERSATION_MESSAGE_BYTES ? value.slice(0, MAX_CONVERSATION_MESSAGE_BYTES) : value;
+}
+
+function safeActionLabel(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") return "Capability action";
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length <= 96 ? normalized : `${normalized.slice(0, 93)}...`;
 }
 
 function displaySafeToolResultReason(status: ConversationActionStatus): string | undefined {

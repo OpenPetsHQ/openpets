@@ -25,19 +25,20 @@ assert.equal(typeof apply, "function");
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
   });
-  assert.deepEqual(manifest.dsh, { bundle: { patch: "./cordis.patch.yml" } });
   assert.equal((manifest.peerDependencies as Record<string, string>)["@deepseek-ai/cordis"], "^4.0.1");
   for (const output of ["dist/index.js", "dist/index.d.ts", "dist/runtime.js", "dist/runtime.d.ts"]) {
     assert.equal(existsSync(join(packageDirectory, output)), true);
   }
-  const patchLines = readFileSync(join(packageDirectory, "cordis.patch.yml"), "utf8").trim().split(/\r?\n/);
-  assert.deepEqual(patchLines.map((line) => line.trim()), [
-    "- insert:",
-    "- id: openpets-dsh",
-    "name: '@open-pets/dsh'",
-  ]);
-  assert.equal(patchLines[0]?.trimStart().startsWith("- "), true, "patch must be a top-level YAML array");
-  assert.equal(patchLines[1]?.trimStart().startsWith("- "), true, "insert value must be a YAML array");
+  const exports = manifest.exports as Record<string, unknown>;
+  const bundle = (manifest.dsh as Record<string, unknown>).bundle as Record<string, unknown>;
+  const patchSubpath = bundle.patch;
+  assert.equal(typeof patchSubpath, "string", "dsh bundle patch must be an exported package subpath");
+  assert.equal(Object.hasOwn(exports, patchSubpath as string), true, "dsh bundle patch must be exported");
+
+  const patchTarget = exports[patchSubpath as string];
+  assert.equal(typeof patchTarget, "string", "exported Cordis patch must resolve to a package file");
+  assert.equal((patchTarget as string).startsWith("./"), true, "exported Cordis patch must be a relative path");
+  assert.equal(existsSync(join(packageDirectory, patchTarget as string)), true, "resolved Cordis patch artifact must exist");
   assert.equal(createRequire(import.meta.url)("@open-pets/dsh/package.json").name, "@open-pets/dsh");
 }
 

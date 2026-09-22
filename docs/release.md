@@ -135,17 +135,72 @@ publishing, verify the GitHub Release body matches the actual commit range and
 artifact set. If it does not, edit the release body immediately with
 `gh release edit v<version> --notes-file <file>`.
 
-## NPM release decision
+## Release mode and npm ordering
 
-NPM publishing is required if any of these are true:
+Choose the release mode before changing versions:
 
-- `@open-pets/plugin-sdk` should be available to plugin authors.
-- CLI/MCP/client packages changed and users need the published package update.
-- Existing published packages are incompatible with the desktop release in a way that affects normal use.
+- **Desktop-only release** - only the Electron app and GitHub desktop artifacts
+  change. Bump `apps/desktop/package.json`, do not publish npm packages, and run
+  the Desktop gate. If the packaged app emits a new exact npm integration version,
+  publish and verify that version before starting the desktop release.
+- **Full shared-version release** - public package contents and Desktop ship at
+  one shared version. Pass the package and Desktop gates, publish the complete
+  public npm package set, verify it on the registry, and only then promote the
+  desktop release tag and run the desktop release.
 
-Before running `pnpm release:npm`, align every publishable package in
-`scripts/release-npm.mjs` to one shared version. The release script rejects mixed
-publishable package versions.
+The public npm package set is owned by the release tooling, not this document.
+Use the `pnpm release:npm` plan to inspect the current set and publish order; do
+not copy a package list into a release issue or treat a hardcoded list as
+authoritative. The helper requires all packages in its current publish plan to
+use one shared stable version.
+
+NPM publishing is required when a public package changes, when the SDK should be
+available to plugin authors, or when a desktop release depends on a new exact npm
+integration version.
+
+For a full shared-version release, the ordering is mandatory:
+
+1. Run the package and Desktop gates.
+2. Run `pnpm release:npm -- --yes` and allow it to publish every missing package
+   in its plan.
+3. Verify every package/version in that plan resolves from
+   `https://registry.npmjs.org`.
+4. Start `pnpm release:desktop -- --yes` only after npm publication and
+   verification succeed.
+
+Do not promote the desktop tag or publish its GitHub release while the npm gate
+is incomplete. The Desktop exact-integration checks remain a final safety check;
+they do not replace publishing and verifying the complete npm set for a full
+release.
+
+## Exact npm integration versions gate desktop releases
+
+Packaged Desktop emits exact npm specs for its npm-backed integrations:
+OpenCode plugin entries pin `@open-pets/opencode@<version>` and OpenClaw
+install/update commands pin `@open-pets/openclaw@<version>`, where each version
+is the current workspace package version. The invariant is: if Desktop emits an
+exact npm version, release tooling guarantees that version exists.
+
+Consequences:
+
+- A desktop-only release is allowed only while those npm-backed integrations
+  remain compatible with what is already published. If packaged Desktop would
+  emit a new exact npm package version, that version must already be published
+  before the desktop release is published.
+- When the `@open-pets/opencode` or `@open-pets/openclaw` versions changed, run
+  `pnpm release:npm -- --yes` first, then the desktop release.
+- The desktop release enforces this with `--yes` verification stages that probe
+  `https://registry.npmjs.org` for both exact specs. The early
+  `verify:npm-integrations` stage runs before any artifact is built and re-runs
+  on every `--yes` invocation instead of trusting an old checkpoint, because a
+  published version can later be unpublished. The same specs are revalidated
+  immediately before the irreversible boundaries: `verify:npm-pre-tag` runs
+  before the tag is created, and `verify:npm-pre-publish` runs before the draft
+  becomes published. A confirmed E404 aborts naming the missing spec; a
+  registry/network/timeout failure also aborts, reported as a registry-check
+  failure rather than as unpublished. A failed revalidation leaves staged
+  artifacts and checkpoints in place so the release can be retried once npm is
+  available.
 
 ## Staged desktop releases
 
@@ -159,10 +214,30 @@ apps/desktop/.release-state/v<version>.json
 
 The checkpoint is gitignored and belongs to one version at one `HEAD` commit.
 
+### Tag promotion and partial releases
+
+Tagging is a staged promotion boundary, not proof that the release is complete.
+For a full shared-version release, the npm publication and registry verification
+must finish before the desktop tag is promoted. Desktop packaging, signing,
+asset upload, and GitHub publication then proceed through their own checkpoints.
+Never publish a partial npm package set or a partial desktop artifact set.
+
+If an npm package publish fails, already published versions remain valid; fix the
+cause, re-run the same npm command, and let the helper skip versions that are
+already present. Verify the whole plan after the retry. If a desktop stage fails,
+earlier checkpointed work remains valid; re-run the identical desktop command and
+use `--from <stage>` only when an earlier completed stage must be redone.
+
+Do not delete or repoint a tag during recovery. Once a tag has been promoted,
+continue the release from its checkpoint. A published GitHub release is final;
+repair only its documented draft/retry path, never by replacing it with an
+unsigned or incomplete artifact set.
+
 ### Stage plan
 
 | Stage | What it does |
 | --- | --- |
+| `verify:npm-integrations` | confirms exact `@open-pets/opencode` + `@open-pets/openclaw` versions exist on npm (`--yes` only, before any build; re-runs on every invocation, never checkpoint-skipped) |
 | `checks` | `pnpm build` and `pnpm --filter @open-pets/desktop check` |
 | `clean` | cleans `apps/desktop/dist-electron` (runs only once per checkpoint) |
 | `build:mac-dmg` | macOS DMG x64 + arm64 |
@@ -173,19 +248,23 @@ The checkpoint is gitignored and belongs to one version at one `HEAD` commit.
 | `build:linux-targz` | Linux tar.gz x64 |
 | `stage:linux-packages` | only with `--linux-package-dir`; copies validated Ubuntu DEB/RPM |
 | `verify:local` | working-tree check plus the complete pre-signing artifact set |
-| `tag` | creates and pushes the annotated `v<version>` tag at `HEAD` |
+| `verify:npm-pre-tag` | re-verifies the exact npm specs immediately before tagging (`--yes` only, never checkpoint-skipped) |
+| `tag` | promotes the validated release by creating and pushing the annotated `v<version>` tag at `HEAD` |
 | `sign:dispatch` | dispatches the SignPath workflow and records its run id |
 | `sign:collect` | waits for that recorded run, downloads and verifies the signed installer |
 | `verify:final` | validates the signed artifact set and writes `SHA256SUMS` |
 | `release:draft` | creates or refreshes the **draft** GitHub Release |
 | `release:upload` | uploads only the assets GitHub is missing, then verifies the exact asset set |
+| `verify:npm-pre-publish` | re-verifies the exact npm specs immediately before publication (`--yes` only, never checkpoint-skipped) |
 | `release:publish` | publishes the verified draft |
 
 Preflight still enforces macOS, `pnpm`/`gh` availability, GitHub CLI auth, an
 `origin` pointing at `alvinunreal/openpets`, a clean working tree, an upstream
 branch, `HEAD` matching upstream, and stable non-zero semver. It refuses an
 existing tag or release unless the checkpoint says this release already reached
-the `tag` stage at this `HEAD`.
+the `tag` stage at this `HEAD`, or both the local and origin tags already point
+to this unpublished/draft release `HEAD`. The latter recovery path makes the
+tag stage a no-op if a checkpoint was lost after tagging.
 
 ### Resuming after a failure
 
@@ -264,6 +343,14 @@ and SignPath-signs the Windows x64 installer:
 - Linux RPM: x64
 - Linux tar.gz: x64
 
+The macOS release host validates the payload inside the actual Linux AppImage
+without executing it. Install its required SquashFS extractor before starting a
+desktop release:
+
+```bash
+brew install squashfs
+```
+
 Expected main artifacts look like:
 
 ```txt
@@ -324,7 +411,7 @@ Current repository support:
 
 Note: Windows SmartScreen can still show a "not commonly downloaded" prompt for a newly signed OpenPets installer. That does **not** mean the signature is invalid; it usually means the file hash has little distribution history.
 
-The workflow builds the Windows x64 unpacked app on `windows-latest`, uploads `openpets.exe` for SignPath signing, replaces the unpacked app executable with the signed file, builds the NSIS installer from that signed app, uploads the installer for SignPath signing, then publishes the signed installer as a GitHub Actions artifact. The project is linked to the GitHub.com trusted-build system; its repository variables `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PROJECT_SLUG`, plus the `SIGNPATH_API_TOKEN` secret, must remain configured.
+The workflow checks out submodules, then builds the Windows x64 unpacked app and its generated preloads on `windows-latest`, uploads `openpets.exe` for SignPath signing, replaces the unpacked app executable with the signed file, builds the NSIS installer from that signed app, uploads the installer for SignPath signing, then publishes the signed installer as a GitHub Actions artifact. The project is linked to the GitHub.com trusted-build system; its repository variables `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PROJECT_SLUG`, plus the `SIGNPATH_API_TOKEN` secret, must remain configured.
 
 Verification steps after download (before first run):
 
@@ -431,29 +518,12 @@ For a **desktop-only release** that changes only the Electron app and GitHub des
 
 Desktop-only releases may intentionally use a different version than the root workspace and public npm packages. The GitHub desktop release tag follows `apps/desktop/package.json`, and the app update checker reads GitHub Releases, not npm.
 
-For a full workspace/npm release, update all workspace package versions together so bundled packages and npm packages report the same release version.
+For a full workspace/npm release, update the root, Desktop, and every package in
+the current `pnpm release:npm` publish plan together so bundled packages and npm
+packages report the same release version. The release plan is authoritative for
+the public package set; do not maintain a second hardcoded file list here.
 
 Use a new version for every release artifact you publish. npm package versions are immutable, so any change to a published package requires a new version across all public OpenPets npm packages.
-
-Files to update for a full workspace/npm release:
-
-```txt
-package.json
-apps/desktop/package.json
-packages/agent-events/package.json
-packages/claude/package.json
-packages/cli/package.json
-packages/client/package.json
-packages/cursor/package.json
-packages/dsh/package.json
-packages/install-pet/package.json
-packages/mcp/package.json
-packages/openclaw/package.json
-packages/opencode/package.json
-packages/pet-format/package.json
-packages/pi/package.json
-packages/sdk/package.json
-```
 
 Set each top-level `version` field to the chosen version, for example:
 
@@ -471,16 +541,19 @@ pnpm install
 
 If `pnpm-lock.yaml` changes, include it in the version bump commit.
 
-### 4. Run checks before committing
+### 4. Run package and Desktop gates before committing
 
 Run:
 
 ```bash
-pnpm build
+pnpm check
+pnpm test
 pnpm --filter @open-pets/desktop check
+pnpm --filter @open-pets/desktop test
 ```
 
-Fix any failures before continuing.
+The package gate is `pnpm check` plus `pnpm test`; the Desktop gate is the
+Desktop check and test commands above. Fix any failures before continuing.
 
 ### 5. Commit and push the version bump
 
@@ -514,7 +587,35 @@ If not authenticated:
 gh auth login
 ```
 
-### 7. Do not dry run
+### 7. Publish and verify npm for a full release
+
+This step applies only to a full shared-version release. A desktop-only release
+skips it unless the exact npm integration gate requires a newly published
+version.
+
+Inspect the current dynamic package plan, then publish all missing packages:
+
+```bash
+pnpm release:npm
+pnpm release:npm -- --yes
+```
+
+Verify every package/version reported by the plan through the public npm
+registry. If publishing stops part-way through, fix the cause and re-run the
+same `--yes` command; existing versions are skipped. Do not proceed to desktop
+tag promotion until the complete plan verifies.
+
+For historical recovery, when the package versions come from an existing tag
+instead of the current `HEAD`, use:
+
+```bash
+pnpm release:npm -- --yes --ref vX.Y.Z
+```
+
+This is a recovery path for that tagged release, not a way to bypass the package
+gate or publish a mixed-version set.
+
+### 8. Do not dry run the desktop release
 
 **Do not run `pnpm release:desktop -- --dry-run` as a warm-up.** A dry run builds
 the full macOS and Linux artifact set, which is the slowest part of a release,
@@ -540,7 +641,7 @@ git status --short
 
 The release script requires a clean tree before release creation.
 
-### 8. Build, sign, verify, and publish the GitHub Release
+### 9. Build, sign, verify, and publish the GitHub Release
 
 For the standard full-artifact desktop release:
 
@@ -578,7 +679,7 @@ The checkpoint skips the finished stages and resumes at the failed one. Inspect
 what will run first with `--status`, and use `--from <stage>` when a completed
 stage must be redone.
 
-### 9. Smoke test after publishing
+### 10. Smoke test after publishing
 
 After publishing the release, manually test at least:
 
@@ -737,14 +838,14 @@ Start and prepare the VM from macOS:
 ```bash
 cd /Volumes/external/vmware/ubuntu24
 vagrant up
-vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; git fetch origin --tags; git checkout main; git pull --ff-only'
+vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; git fetch origin --tags; git checkout main; git pull --ff-only; git submodule update --init --recursive'
 vagrant ssh -c 'set -e; sudo apt-get update; sudo apt-get install -y rpm fakeroot'
 ```
 
 Build only the Linux package targets in the guest:
 
 ```bash
-vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; pnpm install --frozen-lockfile; pnpm --filter @open-pets/desktop build; cd apps/desktop; node scripts/clean-package-output.cjs; pnpm exec electron-builder --linux deb --x64 --publish never; pnpm exec electron-builder --linux rpm --x64 --publish never; ls -lh dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm; file dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm'
+vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; git submodule update --init --recursive; pnpm install --frozen-lockfile; pnpm --filter @open-pets/desktop build; cd apps/desktop; node scripts/clean-package-output.cjs; pnpm exec electron-builder --linux deb --x64 --publish never; pnpm exec electron-builder --linux rpm --x64 --publish never; ls -lh dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm; file dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm'
 ```
 
 Copy the valid artifacts back through the VM's `/vagrant` share, then place
@@ -911,28 +1012,14 @@ R2 upload is optional for Partner Center MSIX/AppX submissions because the Store
 
 ## NPM package release
 
-OpenPets publishes these public npm packages, in dependency order:
+The npm release helper determines the current public package set and dependency
+order. Its plan is the source of truth; do not hardcode a package list in release
+documentation or publish a hand-selected subset.
 
-```txt
-@open-pets/plugin-sdk
-@open-pets/client
-@open-pets/agent-events
-@open-pets/dsh
-@open-pets/mcp
-@open-pets/claude
-@open-pets/opencode
-@open-pets/openclaw
-@open-pets/cursor
-@open-pets/pi
-@open-pets/cli
-install-pet
-```
-
-Do not publish the private workspace root, `@open-pets/desktop`, or `@open-pets/pet-format`.
-
-Publish all public packages together at the same version whenever any public package changes. The CLI depends on the other `@open-pets/*` packages by exact published version, so partial/mixed-version npm releases can break `npx -y @open-pets/cli ...`.
-
-The npm release helper enforces one shared version across every package in its publish order, including `@open-pets/plugin-sdk`. If this release publishes SDK v3, bump the existing public packages to the same version before running the helper.
+Publish all packages in that plan together at one shared stable version whenever
+any public package changes. This prevents exact-version dependencies from
+resolving to a mixed or incomplete release. The helper rejects mixed versions
+before publishing.
 
 Dry-run npm publishing first:
 
@@ -940,7 +1027,16 @@ Dry-run npm publishing first:
 pnpm release:npm
 ```
 
-Publish all missing packages to npm. Package versions that already exist on npm are skipped automatically. The helper pins its npm authentication check, registry probes, and `pnpm publish` commands to `https://registry.npmjs.org`. Before the publish plan, it logs each registry probe. Its 30-second watchdog stops the release and terminates the probe process tree; only npm's structured `E404` missing-version response for that exact package version is treated as unpublished. Registry, process, network, and authentication failures stop the release:
+Publish all missing packages to npm. Package versions that already exist on npm
+are skipped automatically, so a failed partial publish can be retried safely.
+The helper pins its npm authentication check, registry probes, and `pnpm publish`
+commands to `https://registry.npmjs.org`. Registry, process, network, and
+authentication failures stop the release rather than being treated as missing
+packages. npm can take time to expose a newly written package version or
+dist-tag; after each staging and final-tag write, the helper reports the missing
+entries and retries registry verification every 10 seconds for up to five
+minutes. It still aborts on an actual registry, process, or authentication
+failure:
 
 ```bash
 pnpm release:npm -- --yes
@@ -954,30 +1050,32 @@ pnpm release:npm -- --yes --otp <code>
 
 Publishing with the npm helper requires `npm whoami --registry https://registry.npmjs.org` to succeed, a clean working tree, and local `HEAD` to match the upstream branch.
 
-After publishing, verify the npm dependency set resolves:
+After publishing, verify every package/version in the printed publish plan with
+the public npm registry. Do not consider a release complete while any plan
+entry is missing. For the CLI package, also run its versioned help smoke command
+when it is included in the plan:
 
 ```bash
-npm view @open-pets/plugin-sdk@<version> version
-npm view @open-pets/client@<version> version
-npm view @open-pets/agent-events@<version> version
-npm view @open-pets/dsh@<version> version
-npm view @open-pets/mcp@<version> version
-npm view @open-pets/claude@<version> version
-npm view @open-pets/opencode@<version> version
-npm view @open-pets/openclaw@<version> version
-npm view @open-pets/cursor@<version> version
-npm view @open-pets/pi@<version> version
-npm view @open-pets/cli@<version> version
-npm view install-pet@<version> version
-npx -y @open-pets/cli@<version> --help
+npx -y <cli-package>@<version> --help
 ```
 
 ## Important notes for future maintainers
 
 - Do not publish from an uncommitted local state.
-- Do not use `--skip-checks` with `--yes`; the script rejects this.
-- Do not dry run before a release. It doubles the build time and the staged checkpoint already makes retries cheap.
-- Recover from any failed release by re-running the same `--yes` command; reach for `--from <stage>` only when a completed stage must be redone.
+- Never use `--skip-checks` on a live release. In particular, do not combine it
+  with `--yes` for either `release:npm` or `release:desktop`; live releases must
+  pass their package/Desktop gates.
+- For a full shared-version release, publish and verify the complete dynamic npm
+  plan before promoting the desktop tag.
+- Do not use the desktop `--dry-run` as a release warm-up. It doubles the build
+  time; the staged checkpoint already makes desktop retries cheap. The npm
+  command without `--yes` is still useful for inspecting its dynamic publish
+  plan.
+- Recover from a partial npm release by re-running the same `release:npm -- --yes`
+  command; already published versions are skipped. Recover from a desktop
+  failure by re-running the same `release:desktop -- --yes` command, and reach
+  for `--from <stage>` only when a completed stage must be redone.
+- Do not delete or repoint a promoted tag during recovery.
 - `--dry-run` is local only; it does not create tags, dispatch SignPath, or change GitHub.
 - `--resume` is a legacy fallback for a tagged `HEAD` with no checkpoint; it refuses published releases.
 - The checkpoint under `apps/desktop/.release-state/` is disposable local state. Delete it with `--reset` if a release is abandoned.

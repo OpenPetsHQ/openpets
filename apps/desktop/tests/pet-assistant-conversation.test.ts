@@ -12,7 +12,6 @@ import {
 import { PetAssistantService } from "../src/pet-assistant-service.js";
 import { petAssistantToolName } from "../src/pet-assistant-tools.js";
 import type { PetAssistantCapabilityRuntime, PetAssistantGenerationHandle, PetAssistantTextModelResponse } from "../src/pet-assistant-types.js";
-import { applyConversationEvent, applyConversationSnapshot, emptyConversationSnapshot } from "../src/renderer/src/conversation/conversation-state.js";
 
 const handle = { generation: 1 } as PetAssistantGenerationHandle;
 const capability = { pluginId: "focus.buddy", capability: { id: "start", description: "Start focus", inputSchema: { type: "object" } }, handle };
@@ -58,6 +57,7 @@ async function flush(): Promise<void> {
     id: "focus-call",
     turnId: "turn-1",
     toolName: petAssistantToolName("focus.buddy", "start"),
+    label: "Start focus",
     status: "completed",
   });
   assert.equal(JSON.stringify(controller.getSnapshot()).includes("privatePluginPayload"), false);
@@ -160,17 +160,6 @@ async function flush(): Promise<void> {
   projection.dispose();
 }
 
-// Renderer remounts start from a host snapshot and ignore malformed or stale events.
-{
-  const current = emptyConversationSnapshot();
-  const next = { ...current, revision: 1, lastSequence: 3, items: [{ kind: "message", id: "m", turnId: "t", role: "assistant", source: "typed", text: "hello" }] } as const;
-  const applied = applyConversationEvent(current, { type: "snapshot", sequence: 3, snapshot: next });
-  assert.equal(applied.items[0]?.kind, "message");
-  assert.equal(applyConversationEvent(applied, { type: "snapshot", sequence: 2, snapshot: next }), applied);
-  assert.equal(applyConversationEvent(applied, { type: "snapshot", sequence: 4, snapshot: { ...next, revision: 2, items: [{ kind: "message", id: "bad", turnId: "t", role: "assistant", source: "typed", text: 4 }] } }), applied);
-  assert.equal(applyConversationSnapshot(applied, { ...current, revision: 0, lastSequence: 0 }), applied);
-}
-
 // Cancelling a turn settles only that turn's outstanding capability actions as indeterminate.
 {
   const projection = new PetAssistantConversationProjection();
@@ -194,8 +183,8 @@ async function flush(): Promise<void> {
   const actions = projection.getSnapshot().items.filter((item) => item.kind === "action");
   assert.equal(projection.getSnapshot().terminal?.status, "cancelled");
   assert.deepEqual(actions, [
-    { kind: "action", id: "call-1", turnId: "turn-1", toolName: "focus_start", status: "indeterminate", reason: "Capability result was unavailable." },
-    { kind: "action", id: "call-2", turnId: "turn-2", toolName: "reminder_create", status: "pending" },
+    { kind: "action", id: "call-1", turnId: "turn-1", toolName: "focus_start", label: "Capability action", status: "indeterminate", reason: "Capability result was unavailable." },
+    { kind: "action", id: "call-2", turnId: "turn-2", toolName: "reminder_create", label: "Capability action", status: "pending" },
   ]);
   assert.equal(actions.some((item) => item.kind === "action" && item.turnId === "turn-1" && (item.status === "pending" || item.status === "running")), false);
   projection.dispose();

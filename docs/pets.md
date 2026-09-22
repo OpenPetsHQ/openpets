@@ -26,13 +26,29 @@ A pet package is small and asset-driven:
 
 There are three sources a pet can come from at runtime:
 
-1. **Built-in pet** (`built-in-pet.ts`) - a bundled spritesheet that always
-   works as a fallback, even offline with nothing installed.
+1. **Built-in pet** (`built-in-pet.ts`) - the bundled V2 Hoodie Cat spritesheet
+   that always works as a fallback, even offline with nothing installed. It uses
+   the exact 8×11 atlas and row 0, column 6 neutral pose, including V2 idle gaze.
 2. **Catalog pets** - downloaded from the public catalog and extracted into
    `userData/pets/{id}/`.
 3. **Codex pets** - locally-developed pets imported from `~/.codex/pets/`
    (`codex-pets.ts`), the dev workflow for authoring a new pet before
    publishing it.
+
+## Teams-owned pets
+
+Teams adds a fourth explicit source kind, `team`. Persisted source ownership
+selects the dedicated Team pet root versus the personal catalog/Codex roots; the
+app never infers ownership from a directory. Team pets appear separately in
+snapshots while remaining selectable. Team Packs remain pending and not current
+until the current artifact's explicit first-install approval in the Teams route
+succeeds; the approval displays requested permissions and network hosts and
+cannot be bypassed by organization configuration. Immutable
+organization/item/artifact/release references ensure reconciliation removes only
+matching Team records. Rejected staged or activated Team installs roll back to
+the last approved Team state, while personal catalog and Codex pets remain
+isolated and are never overwritten or removed on ID collision. Removing the Team
+default falls back to the built-in pet.
 
 ## Default pet vs agent pets
 
@@ -41,7 +57,21 @@ Two distinct window roles, two controllers:
 - **Default pet** (`default-pet-controller.ts`) - the always-on companion shown
   when enabled. Persistent. Remembers its position per connected monitor and
   clamps it back into the visible work area after display changes. Shows
-  transient reactions and status badges. Not lease-bound.
+  transient reactions and status badges, and hosts the expandable in-pet attached
+  Pet Assistant chat panel (`default-pet-chat.ts`).
+  Not lease-bound.
+
+The default carrier's compact composer and expanded chat are main-process-owned
+states. In expanded chat, the panel anchors 10px directly above the pet sprite and
+grows upward as content changes while the pet remains stationary at the bottom.
+Unpinned floating bubbles are suppressed during full chat, while assistant activity
+and reaction animations continue on the pet sprite without duplicating speech text.
+On Linux, opening the compact composer makes the carrier focusable and
+adds its composer rectangle to the input shape; closing it restores the passive
+pet-only focus and shape. Its shared maximum geometry contract bounds multiline
+input and error feedback so the Linux mask covers every compact control. The
+expanded panel uses the same transition seam, with dynamic height tracking for
+precise Linux hit-mask shapes.
 - **Agent pets** (`agent-pet-controller.ts`) - shown on explicit agent request,
   routed by a **lease**. The first lease opens the window; the last lease
   released closes it. This lets several agents each get their own pet without
@@ -51,8 +81,10 @@ Two distinct window roles, two controllers:
   terminates, the lease is released within ~5 s and the pet window closes.
   See the lease model in [IPC and remote control](/ipc).
 
-Both are created by `pet-window.ts` as transparent, frameless, always-on-top
-windows, driven through `pet-preload.cjs` for drag and click-through behavior.
+Both are created by the `pet-window.ts` lifecycle facade as transparent, frameless,
+always-on-top windows. `pet-window-interaction.ts` owns the per-window mouse
+passthrough, drag, renderer lifecycle, recovery/watchdog, and IPC bridge driven
+through `pet-preload.cjs`.
 
 Experimental multi-pet LAN mode adds a third, isolated controller for visiting
 pets. Windows are keyed by LAN owner host rather than pet ID, so they do not
@@ -68,18 +100,23 @@ Electron delivers on macOS and Windows but not on Linux (Linux pet windows are
 kept interactive instead). Both compositors can silently stop forwarding - macOS
 across Space switches, display sleep, and fullscreen transitions; Windows after
 rapid pet reloads and fullscreen sweeps - which would leave the pet stuck
-click-through and impossible to grab. A cursor-probe watchdog in `pet-window.ts`
-re-arms forwarding from the main process (`screen.getCursorScreenPoint()`), which
-keeps working even when forwarding is dead. The platform predicates live in
-`mouse-forwarding.ts`.
+click-through and impossible to grab. A cursor-probe watchdog in
+`pet-window-interaction.ts` re-arms forwarding from the main process
+(`screen.getCursorScreenPoint()`), which keeps working even when forwarding is
+dead. The platform predicates live in `mouse-forwarding.ts`.
 
-Right-clicking any pet offers **Flip horizontally**, a checked menu item that
-mirrors that pet's sprite left/right. Speech bubbles, status badges, controls,
-and the hit area stay unmirrored and readable. The orientation is stored per
-underlying pet ID in app state (`preferences.petHorizontalFlip`) and survives
-restart; toggling one pet updates every live window of that pet (default, agent,
-plugin-spawned, and LAN visitor) and leaves other pets unchanged. There is no
-vertical or upside-down flip.
+Right-clicking any pet offers a **Size** submenu with the same global scale
+choices as Settings. The current size is checked; selecting another size saves
+the global pet and HUD scale preferences and refreshes the default and agent pet
+windows. The HUD starts at its smallest readable size for XS, then grows more
+quickly than the pet at each larger choice. The same
+menu also offers **Flip horizontally**, a checked menu item that mirrors that
+pet's sprite left/right. Speech bubbles, status badges, controls, and the hit
+area stay unmirrored and readable. The orientation is stored per underlying pet
+ID in app state (`preferences.petHorizontalFlip`) and survives restart; toggling
+one pet updates every live window of that pet (default, agent, plugin-spawned,
+and LAN visitor) and leaves other pets unchanged. There is no vertical or
+upside-down flip.
 
 ## Reactions → animations → speech
 
@@ -97,7 +134,16 @@ reaction into something visible:
    active locale (see [Internationalization](/i18n)).
 3. `pet-window.ts` renders the chosen animation via CSS sprite animation, and
    shows speech bubbles, alert indicators, pinned HUDs, and status badges as
-   requested.
+   requested. The sprite is sized by the pet scale preference; the pinned
+   plugin HUD is sized by the separate HUD scale preference (`hudScale`, in
+   Settings → General next to pet scale), so HUD readability is independent of
+   pet size. The transient display (bubble) expires after a few seconds while
+   a busy status badge (`thinking`/`working`/`editing`/`running`/`testing`/
+   `waiting`) survives much longer; when the display reaction is gone, a badge
+   that resolves to a looping animation (`resolveEffectiveSpriteState`) keeps
+   the pet visibly animated, while a badge that resolves to a finite one-shot
+   (`waving`/`success`/`error`/`celebrating`) falls back to idle so terminal
+   reactions stay bounded.
 
 The waiting animation cycle is a global preference in Control Center → Settings
 → Reactions. **Normal** keeps the default `1010` ms cycle and **Relaxed** uses
@@ -159,12 +205,13 @@ See [Plugin platform](/plugins) and [Plugin SDK v3](/sdk) for the plugin side.
 region will stick at the edge of its current display and cannot teleport across
 a gap wider than the pet. This is expected behavior and is by design.
 
-**Topology changes** (monitor plugged/unplugged, resolution changed): the
-display-event handlers in `default-pet-controller.ts` call
-`reclampAllLivePetWindows()`, which re-runs the permissive clamp for the
-default pet, all agent pets, and all plugin-spawned pets. Pets on a removed
-display are snapped to the nearest remaining display; pets on surviving displays
-are left untouched.
+**Topology changes** (monitor plugged/unplugged, resolution changed) are
+coordinated by `pet-display-coordinator.ts`. It invalidates the display cache
+immediately, debounces each native display-event reason independently, and fans
+out reclamping to the default pet, agent pets, LAN visitors, and plugin pets.
+Pets on a removed display are snapped to the nearest remaining display; pets on
+surviving displays are left untouched. The coordinator also owns immediate and
+delayed recovery of default-pet mouse interop after power resume.
 
 The `petCrossDisplayEnabled` toggle lives in Control Center → Settings, under
 the **Movement** section, and is a global flag (not per-pet). It is shown
@@ -213,6 +260,36 @@ Two install paths exist; they share the same safety rules.
 4. Extraction is atomic (temp dir → rename) into `userData/pets/{id}/`, and
    `installPetState()` records it in app state.
 
+The stable journal/schema, naming, and recovery-classification protocol lives in
+`pet-install-transaction-protocol.ts`; `pet-install-transaction.ts` remains the
+filesystem and side-effect orchestrator. The final promotion has a private per-pet journal under
+`userData/pets/.openpets-pet-transactions/`. Journal records are written to a
+private temporary marker and renamed into place. On process interruption,
+startup recovery verifies the actual canonical final/candidate/backup
+topology before either restoring the pre-install assets or cleaning a proven
+committed install; it does not trust a stale phase by itself. A state-mutating
+record whose relationship to app state cannot be proven is retained, warned
+about, and fences operations for that same pet while other pet IDs continue to
+work. Explicitly uncertain state callbacks likewise preserve the assets for
+manual/retry recovery. Transaction directory names carry a trusted pet ID, so
+malformed, contradictory, or duplicate same-pet transaction artifacts are
+preserved and fence only that pet; another ID can still recover. Pre-metadata
+staging candidates have a private ownership marker established before their
+directory is created. Recovery removes only candidates validated by that
+marker, leaving legacy or unmarked dot directories untouched. The marker is
+handed off to the per-ID journal before it is deleted, so an interruption
+cannot leave a staged candidate without an owner. A trusted empty transaction
+directory is treated as completed cleanup, while directories with unknown
+entries are preserved. This journal protocol does not fsync files or directory
+metadata, so it does not claim power-loss durability; it only provides
+process-interruption recovery and protection when cross-resource state proof is
+missing.
+The state mutation callback must return synchronously. A returned thenable is
+recorded as an explicit uncertain outcome, and recovery never assumes it can
+undo asynchronous state side effects. ZIP imports use a separate private
+pre-metadata staging name, so the valid pet ID `local` remains independently
+fenced when it is the actual imported pet.
+
 Local pet packages can also be installed through the running app via the CLI:
 - `openpets install --from-zip <path-to-zip>`
 - `openpets install --from-folder <path-to-folder>`
@@ -251,6 +328,10 @@ scripts produce is in [Catalogs](/catalog), with release checks in
 
 ### Codex sprite versions
 
+The bundled default Hoodie Cat uses the same V2 atlas contract as imported
+Codex V2 pets. Its public `builtin` identity and `Hoodie Cat` display name stay
+unchanged; only the desktop asset and runtime layout have been upgraded.
+
 OpenPets preserves the original Codex V1 package shape: an unmarked
 `spritesheet.webp` with the nine standard `192×208` animation rows. It also
 imports V2 only when `pet.json` has `"spriteVersionNumber": 2` and its source
@@ -280,10 +361,24 @@ repaired/skipped counts, and skip reasons are logged, and a migration problem
 never prevents the desktop app from starting.
 
 V2's sixteen look-direction cells (rows 9–10) are retained in the imported
-atlas but are not individually selected: OpenPets currently emits only idle,
-left-run, and right-run motion, not a two-dimensional gaze target. It therefore
-does not invent directional behavior or claim full gaze support. A future gaze
-API can map those cells directly without changing the import contract.
+atlas and selected while an installed V2 pet is visually idle. OpenPets samples
+the global cursor around the pet carrier's bottom-center anchor, quantizes the
+direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
+inside a small dead zone. Reactions, movement, dragging, plugin sprite
+overrides, and paused pets suspend gaze; V1 pets retain their existing idle
+behavior. Horizontal flips compensate the selected atlas cell so the pet still
+looks toward the cursor. Control Center → Settings → General exposes the
+persisted **Idle cursor gaze** setting, enabled by default; disabling it keeps
+all V2 pets on the neutral idle pose and stops the shared ticker, without
+changing reactions, movement, or V1 behavior. When enabled, cursor movement
+drives a short glance: the current direction is held while the cursor is moving
+and for about 1.2 seconds afterward, then eligible idle V2 pets return to
+neutral. No additional blink frames are used.
+
+Catalog V2 entries may declare the same version with an exact numeric
+`spriteVersionNumber: 2`; the desktop carries that marker into Pets previews so
+their 8×11 layout is resolved consistently with imported/local V2 pets. Older
+catalog entries omit the marker and retain V1 compatibility.
 
 Codex integration remains import-only: OpenPets does not write installed or
 catalog pets back into `~/.codex/pets/`.
@@ -303,11 +398,11 @@ images silently fall back to the default pet. This is the single most common
 |---------------------|----------|
 | How a reaction looks | `reaction-animation-mapping.ts` |
 | What a pet says | `reaction-messages.ts` + `i18n/reactions/` |
-| Window behavior (drag, click-through, horizontal flip) | `pet-window.ts`, `pet-preload.cjs` |
+| Window behavior (drag, click-through, horizontal flip) | `pet-window.ts`, `pet-window-interaction.ts`, `pet-preload.cjs` |
 | Default vs agent visibility | `default-pet-controller.ts`, `agent-pet-controller.ts` |
 | Installing / extracting | `pet-installation.ts`, `zip-safety.ts` |
 | Standalone install | `packages/install-pet/` |
 | Local pet authoring | `codex-pets.ts` |
 | Movement | `pet-motion-engine.ts` |
 | Display containment / cross-screen | `display.ts`, `confinement-manager.ts` |
-| Topology-change reclamp | `default-pet-controller.ts` → `reclampAllLivePetWindows` |
+| Topology-change reclamp | `pet-display-coordinator.ts` → default and pet-controller reclamp leaves |

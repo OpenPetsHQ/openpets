@@ -1,15 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { app } from "electron";
+import { isValidZedNodeCommand } from "@open-pets/zed";
 
-import { defaultAppearanceTheme, defaultPetScale, defaultWaitingAnimationDurationMs, markOnboardingCompleted, normalizeAppearanceTheme, normalizeOnboardingCompleted, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import type { Point } from "./display.js";
+import { normalizeDefaultPetPositionState, normalizePosition, recordDefaultPetPositionState, resetDefaultPetPositionState, type DefaultPetPositionState } from "./default-pet-position-state.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { assertSafePetId, getInstalledPetDir } from "./pet-paths.js";
+import {
+  assertSafePetId,
+  getInstalledPetDir,
+  getTeamPetDir,
+} from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
+import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { defaultPetAssistantPersonality, mergePetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -32,6 +38,12 @@ export interface InstalledPetState {
   } | {
     readonly kind: "codex";
     readonly path: string;
+  } | {
+    readonly kind: "team";
+    readonly organizationId: string;
+    readonly itemId: string;
+    readonly artifactVersionId: string;
+    readonly releaseId: string;
   };
   readonly broken?: boolean;
   readonly brokenReason?: string;
@@ -46,7 +58,10 @@ export interface OpenPetsStateV1 {
     readonly appearanceTheme: AppearanceTheme;
     readonly speechBubblesEnabled: boolean;
     readonly petScale: number;
+    readonly hudScale: number;
     readonly waitingAnimationDurationMs: WaitingAnimationDurationMs;
+    /** Whether idle V2 pets follow the global cursor. Defaults to true. */
+    readonly idleCursorGazeEnabled: boolean;
     readonly reactionAnimationOverrides?: ReactionAnimationOverrides;
     readonly onboardingCompleted: boolean;
     readonly claudeCommandPath?: string;
@@ -77,23 +92,31 @@ export interface OpenPetsStateV1 {
     readonly petGravityEnabled: boolean;
     /** Owner-authored communication preferences for the host Pet Assistant. */
     readonly personality: PetAssistantPersonality;
-    /** Canonical Electron accelerator used to start the bounded Talk session. */
-    readonly voiceAssistantShortcut: string;
+     /** Canonical Electron accelerator used to start the bounded Talk session. */
+     readonly voiceAssistantShortcut: string;
+     /** Opaque browser-scoped microphone device id used by future voice operations. */
+     readonly preferredVoiceInputDeviceId: string | null;
+     /** Opaque browser-scoped output device id reserved for future controllable audio paths. */
+     readonly preferredVoiceOutputDeviceId: string | null;
+    /** Canonical Electron accelerator that toggles the compact pet chat composer; empty disables it. */
+    readonly chatShortcut: string;
+    /** Canonical Electron accelerator that hides/shows the default pet; empty disables it. */
+    readonly petToggleShortcut: string;
+    /** Show the chat launcher button on the default pet. */
+    readonly showChatButton: boolean;
+    /** Show the talk (voice) button on the default pet. */
+    readonly showTalkButton: boolean;
+    /** Which top corner of the pet the assistant buttons sit in. */
+    readonly petButtonsPosition: PetButtonsPosition;
+    /** Render size of the assistant buttons. */
+    readonly petButtonsSize: PetButtonsSize;
     /** Per-pet horizontal flip (mirroring) state. Persisted per pet ID. */
     readonly petHorizontalFlip?: Readonly<Record<string, boolean>>;
   };
   readonly pets: {
     readonly installed: readonly InstalledPetState[];
   };
-  readonly defaultPet: {
-    readonly position?: Point;
-    /**
-     * Per-monitor position map. Keys are stable display identifiers derived from
-     * bounds: `"${bounds.x},${bounds.y},${bounds.width}x${bounds.height}"`.
-     * Capped at 8 entries (LRU eviction) so the state file does not grow unboundedly.
-     */
-    readonly perMonitorPositions?: Readonly<Record<string, Point>>;
-  };
+  readonly defaultPet: DefaultPetPositionState;
   readonly activity: OpenPetsActivityState;
 }
 
@@ -110,8 +133,8 @@ export type OpenPetsActivityRecord =
   | { readonly kind: "say"; readonly reaction?: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" }
   | { readonly kind: "react"; readonly reaction: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" };
 
-export { defaultAppearanceTheme, defaultPetScale, defaultWaitingAnimationDurationMs, normalizeAppearanceTheme, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type PetScaleValue, type WaitingAnimationDurationMs };
-export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
+export { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
+export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, resolveCompanionDisplayName, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 
 export type OpenPetsPreferencePatch = Omit<Partial<OpenPetsStateV1["preferences"]>, "personality"> & {
   readonly personality?: PetAssistantPersonalityPatch;
@@ -233,78 +256,48 @@ export function setPetPoolOrder(ids: readonly string[]): OpenPetsStateV1 {
   return getAppStateSnapshot();
 }
 
-export function setDefaultPetPosition(position: Point): OpenPetsStateV1 {
+export function getDefaultPetPositionState(): DefaultPetPositionState {
+  const defaultPet = getInitializedState().defaultPet;
+  const perMonitorPositions = defaultPet.perMonitorPositions
+    ? Object.fromEntries(
+      Object.entries(defaultPet.perMonitorPositions).map(([key, position]) => [key, { ...position }]),
+    )
+    : undefined;
+
+  return {
+    ...(defaultPet.position ? { position: { ...defaultPet.position } } : {}),
+    ...(perMonitorPositions ? { perMonitorPositions } : {}),
+  };
+}
+
+/** Persist the flat fallback and monitor-specific position as one state update. */
+export function recordDefaultPetPosition(position: unknown, displayKey: unknown): OpenPetsStateV1 {
   const state = getInitializedState();
+  const normalizedPosition = normalizePosition(position);
+  if (!normalizedPosition) return getAppStateSnapshot();
 
   const nextState = normalizeState({
     ...state,
-    defaultPet: {
-      ...state.defaultPet,
-      position: normalizePosition(position),
-    },
+    defaultPet: recordDefaultPetPositionState(state.defaultPet, normalizedPosition, displayKey),
   });
 
   commitState(nextState);
   return getAppStateSnapshot();
 }
 
-export function resetDefaultPetPosition(position: Point): OpenPetsStateV1 {
+/** Persist a replacement flat position while clearing monitor-specific history. */
+export function resetDefaultPetPosition(position: unknown): OpenPetsStateV1 {
   const state = getInitializedState();
+  const normalizedPosition = normalizePosition(position);
+  if (!normalizedPosition) return getAppStateSnapshot();
 
   const nextState = normalizeState({
     ...state,
-    defaultPet: {
-      ...state.defaultPet,
-      position: normalizePosition(position),
-      perMonitorPositions: undefined,
-    },
+    defaultPet: resetDefaultPetPositionState(normalizedPosition),
   });
 
   commitState(nextState);
   return getAppStateSnapshot();
-}
-
-export function getDefaultPetPosition(): Point | undefined {
-  return getInitializedState().defaultPet.position;
-}
-
-/**
- * Record the pet's current position for a specific display key.
- * Keys are derived from display bounds: `"${bounds.x},${bounds.y},${bounds.width}x${bounds.height}"`.
- * Also updates the flat `defaultPet.position` for backwards compatibility.
- * The map is capped at maxPerMonitorPositions entries (oldest evicted).
- */
-export function setPerMonitorPetPosition(displayKey: string, position: Point): OpenPetsStateV1 {
-  const state = getInitializedState();
-  const pos = normalizePosition(position);
-  if (!pos) return getAppStateSnapshot();
-
-  const existing = state.defaultPet.perMonitorPositions ?? {};
-  const entries = Object.entries(existing).filter(([k]) => k !== displayKey);
-  entries.push([displayKey, pos]);
-  // Keep only the most recent maxPerMonitorPositions entries.
-  const trimmed = entries.slice(-maxPerMonitorPositions);
-  const perMonitorPositions: Record<string, Point> = Object.fromEntries(trimmed);
-
-  const nextState = normalizeState({
-    ...state,
-    defaultPet: {
-      ...state.defaultPet,
-      position: normalizePosition(position),
-      perMonitorPositions,
-    },
-  });
-
-  commitState(nextState);
-  return getAppStateSnapshot();
-}
-
-/**
- * Look up the stored position for a display key.
- * Returns undefined if no position has been recorded for this display.
- */
-export function getPerMonitorPetPosition(displayKey: string): Point | undefined {
-  return getInitializedState().defaultPet.perMonitorPositions?.[displayKey];
 }
 
 export function getPetGravityEnabled(): boolean {
@@ -388,7 +381,38 @@ export function upsertPetState(pet: Omit<InstalledPetState, "builtIn" | "protect
   return getAppStateSnapshot();
 }
 
-export function removePetState(petId: string): OpenPetsStateV1 {
+export type TeamPetOwnership = Extract<
+  NonNullable<InstalledPetState["source"]>,
+  { readonly kind: "team" }
+>;
+
+export function installTeamPetState(
+  pet: Omit<InstalledPetState, "builtIn" | "protected" | "installed"> & {
+    readonly source: TeamPetOwnership;
+  },
+): OpenPetsStateV1 {
+  const state = getInitializedState();
+  const existing = state.pets.installed.find((installedPet) => installedPet.id === pet.id);
+  if (existing && existing.source?.kind !== "team") {
+    throw new Error(`A personal pet already uses this id: ${pet.id}`);
+  }
+  return upsertPetState(pet);
+}
+
+export function removeTeamPetState(ownership: TeamPetOwnership): OpenPetsStateV1 {
+  const state = getInitializedState();
+  const existing = state.pets.installed.find(
+    (pet) =>
+      pet.source?.kind === "team"
+      && pet.source.organizationId === ownership.organizationId
+      && pet.source.itemId === ownership.itemId
+      && pet.source.artifactVersionId === ownership.artifactVersionId,
+  );
+  if (!existing) return getAppStateSnapshot();
+  return removePetState(existing.id, true);
+}
+
+export function removePetState(petId: string, allowTeam = false): OpenPetsStateV1 {
   if (petId === builtInPet.id) {
     throw new Error("Built-in pet cannot be removed.");
   }
@@ -398,6 +422,11 @@ export function removePetState(petId: string): OpenPetsStateV1 {
 
   if (!existing) {
     throw new Error(`Pet is not installed: ${petId}`);
+  }
+  if (!allowTeam && existing.source?.kind === "team") {
+    throw new Error(
+      "Team pets can only be removed by leaving the organization or by organization policy.",
+    );
   }
 
   const nextDefaultPetId = state.preferences.defaultPetId === petId ? builtInPet.id : state.preferences.defaultPetId;
@@ -473,19 +502,12 @@ function normalizeState(value: unknown): OpenPetsStateV1 {
   const defaultPetRecord = isRecord(record.defaultPet) ? record.defaultPet : {};
   const preferencesRecord = isRecord(record.preferences) ? record.preferences : {};
   const defaultState = createDefaultState();
-  const position = normalizeMaybePosition(defaultPetRecord.position);
-  const perMonitorPositions = normalizePerMonitorPositions(defaultPetRecord.perMonitorPositions);
+  const defaultPet = normalizeDefaultPetPositionState(defaultPetRecord);
   const installedPets = normalizeInstalledPets(record);
   const defaultPetId = typeof preferencesRecord.defaultPetId === "string"
     && installedPets.some((pet) => pet.id === preferencesRecord.defaultPetId && !pet.broken)
     ? preferencesRecord.defaultPetId
     : builtInPet.id;
-
-  const defaultPet: OpenPetsStateV1["defaultPet"] = {};
-  if (position) (defaultPet as Record<string, unknown>).position = position;
-  if (perMonitorPositions && Object.keys(perMonitorPositions).length > 0) {
-    (defaultPet as Record<string, unknown>).perMonitorPositions = perMonitorPositions;
-  }
 
   return {
     version: 1,
@@ -559,11 +581,13 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     appearanceTheme: normalizeAppearanceTheme(value.appearanceTheme),
     speechBubblesEnabled: true,
     petScale: normalizePetScale(value.petScale),
+    hudScale: normalizeHudScale(value.hudScale),
     waitingAnimationDurationMs: normalizeWaitingAnimationDurationMs(value.waitingAnimationDurationMs),
+    idleCursorGazeEnabled: normalizeIdleCursorGazeEnabled(value.idleCursorGazeEnabled, defaultState.preferences.idleCursorGazeEnabled),
     reactionAnimationOverrides: normalizeReactionAnimationOverrides(value.reactionAnimationOverrides),
     onboardingCompleted: normalizeOnboardingCompleted(value),
     claudeCommandPath: normalizeCommandPath(value.claudeCommandPath),
-    nodeCommandPath: normalizeCommandPath(value.nodeCommandPath),
+    nodeCommandPath: normalizeCommandPath(value.nodeCommandPath, true),
     opencodeCommandPath: normalizeCommandPath(value.opencodeCommandPath),
     openclawCommandPath: normalizeCommandPath(value.openclawCommandPath),
     petPoolOrder: normalizePetPoolOrder(value.petPoolOrder),
@@ -574,7 +598,15 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petCrossDisplayEnabled: normalizePetCrossDisplayEnabled(value.petCrossDisplayEnabled, defaultState.preferences.petCrossDisplayEnabled),
     petGravityEnabled: normalizePetGravityEnabled(value.petGravityEnabled, defaultState.preferences.petGravityEnabled),
     personality: normalizePetAssistantPersonality(value.personality),
-    voiceAssistantShortcut: isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+     voiceAssistantShortcut: value.voiceAssistantShortcut === "" ? "" : isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
+     preferredVoiceInputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceInputDeviceId),
+     preferredVoiceOutputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceOutputDeviceId),
+    chatShortcut: isCanonicalVoiceAssistantShortcut(value.chatShortcut) ? value.chatShortcut : "",
+    petToggleShortcut: isCanonicalVoiceAssistantShortcut(value.petToggleShortcut) ? value.petToggleShortcut : "",
+    showChatButton: typeof value.showChatButton === "boolean" ? value.showChatButton : defaultState.preferences.showChatButton,
+    showTalkButton: typeof value.showTalkButton === "boolean" ? value.showTalkButton : defaultState.preferences.showTalkButton,
+    petButtonsPosition: normalizePetButtonsPosition(value.petButtonsPosition),
+    petButtonsSize: normalizePetButtonsSize(value.petButtonsSize),
     petHorizontalFlip: normalizePetHorizontalFlip(value.petHorizontalFlip),
   };
 }
@@ -584,17 +616,27 @@ function normalizeLocalePreference(value: unknown): LocalePreference {
   return isSupportedLocale(value) ? value : "system";
 }
 
-function normalizeCommandPath(value: unknown): string | undefined {
+function normalizeCommandPath(value: unknown, requireSafeNodeCommand = false): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 4096 || /[\r\n\0]/.test(trimmed) || !isAbsolute(trimmed)) return undefined;
   if (process.platform === "win32" && /[&|<>^%!]/.test(trimmed)) return undefined;
+  let normalized = normalize(trimmed);
+  if (requireSafeNodeCommand) {
+    try {
+      normalized = realpathSync(trimmed);
+    } catch {
+      return undefined;
+    }
+    if (!isValidZedNodeCommand(normalized)) return undefined;
+  }
+  if (process.platform === "win32" && /[&|<>^%!]/.test(normalized)) return undefined;
   try {
-    if (!statSync(trimmed).isFile()) return undefined;
+    if (!statSync(normalized).isFile()) return undefined;
   } catch {
     return undefined;
   }
-  return trimmed;
+  return requireSafeNodeCommand ? trimmed : normalized;
 }
 
 function normalizeInstalledPets(value: Record<string, unknown>): InstalledPetState[] {
@@ -620,7 +662,8 @@ function normalizeInstalledPet(value: unknown): InstalledPetState | null {
     return null;
   }
 
-  const brokenReason = validateInstalledPetFiles(value.id);
+  const source = normalizeSource(value.source);
+  const brokenReason = validateInstalledPetFiles(value.id, source);
 
   return {
     id: value.id,
@@ -629,7 +672,7 @@ function normalizeInstalledPet(value: unknown): InstalledPetState | null {
     builtIn: value.id === builtInPet.id ? true : value.builtIn === true,
     protected: value.id === builtInPet.id ? true : value.protected === true,
     installed: true,
-    source: normalizeSource(value.source),
+    source,
     broken: brokenReason ? true : typeof value.broken === "boolean" ? value.broken : undefined,
     brokenReason: brokenReason ?? (typeof value.brokenReason === "string" ? value.brokenReason : undefined),
   };
@@ -645,7 +688,9 @@ function createDefaultState(): OpenPetsStateV1 {
       appearanceTheme: defaultAppearanceTheme,
       speechBubblesEnabled: true,
       petScale: defaultPetScale,
+      hudScale: defaultHudScale,
       waitingAnimationDurationMs: defaultWaitingAnimationDurationMs,
+      idleCursorGazeEnabled: defaultIdleCursorGazeEnabled,
       reactionAnimationOverrides: undefined,
       onboardingCompleted: false,
       claudeCommandPath: undefined,
@@ -659,6 +704,14 @@ function createDefaultState(): OpenPetsStateV1 {
       petGravityEnabled: false,
       personality: defaultPetAssistantPersonality,
       voiceAssistantShortcut: DEFAULT_VOICE_ASSISTANT_SHORTCUT,
+      preferredVoiceInputDeviceId: null,
+      preferredVoiceOutputDeviceId: null,
+      chatShortcut: "",
+      petToggleShortcut: "",
+      showChatButton: false,
+      showTalkButton: false,
+      petButtonsPosition: defaultPetButtonsPosition,
+      petButtonsSize: defaultPetButtonsSize,
       petHorizontalFlip: undefined,
     },
     pets: {
@@ -689,9 +742,11 @@ function writeStateToDisk(state: OpenPetsStateV1): void {
   renameSync(tempPath, path);
 }
 
-function validateInstalledPetFiles(petId: string): string | undefined {
+function validateInstalledPetFiles(petId: string, source: InstalledPetState["source"]): string | undefined {
   try {
-    const dir = getInstalledPetDir(petId);
+    const dir = source?.kind === "team"
+      ? getTeamPetDir(petId)
+      : getInstalledPetDir(petId);
     const petJsonPath = join(dir, "pet.json");
     const spritesheetPath = join(dir, "spritesheet.webp");
     JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;
@@ -714,6 +769,28 @@ function normalizeSource(value: unknown): InstalledPetState["source"] | undefine
     return { kind: "codex", path: value.path };
   }
 
+  if (
+    value.kind === "team"
+    && typeof value.organizationId === "string"
+    && typeof value.itemId === "string"
+    && typeof value.artifactVersionId === "string"
+    && typeof value.releaseId === "string"
+    && [
+      value.organizationId,
+      value.itemId,
+      value.artifactVersionId,
+      value.releaseId,
+    ].every((part) => /^[A-Za-z0-9._:-]{1,160}$/.test(part))
+  ) {
+    return {
+      kind: "team",
+      organizationId: value.organizationId,
+      itemId: value.itemId,
+      artifactVersionId: value.artifactVersionId,
+      releaseId: value.releaseId,
+    };
+  }
+
   if (value.catalogVersion !== 2 || typeof value.zip !== "string" || typeof value.preview !== "string") return undefined;
 
   return {
@@ -721,50 +798,6 @@ function normalizeSource(value: unknown): InstalledPetState["source"] | undefine
     catalogVersion: 2,
     zip: value.zip,
     preview: value.preview,
-  };
-}
-
-const maxPerMonitorPositions = 8;
-
-function normalizePerMonitorPositions(value: unknown): Readonly<Record<string, Point>> | undefined {
-  if (!isRecord(value)) return undefined;
-  const entries = Object.entries(value);
-  if (entries.length === 0) return undefined;
-  const normalized: Record<string, Point> = {};
-  // Accept up to maxPerMonitorPositions entries; extras are silently dropped on normalise.
-  for (const [key, rawPos] of entries.slice(-maxPerMonitorPositions)) {
-    if (typeof key !== "string" || !isDisplayKey(key)) continue;
-    const pos = normalizeMaybePosition(rawPos);
-    if (pos) normalized[key] = pos;
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
-function isDisplayKey(key: string): boolean {
-  // Expected format: "<x>,<y>,<width>x<height>" where all values are integers (may be negative).
-  return /^-?\d+,-?\d+,\d+x\d+$/.test(key);
-}
-
-function normalizeMaybePosition(value: unknown): Point | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  return normalizePosition(value);
-}
-
-function normalizePosition(value: Partial<Point>): Point | undefined {
-  if (typeof value.x !== "number" || typeof value.y !== "number") {
-    return undefined;
-  }
-
-  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) {
-    return undefined;
-  }
-
-  return {
-    x: Math.round(value.x),
-    y: Math.round(value.y),
   };
 }
 

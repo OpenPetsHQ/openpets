@@ -3,14 +3,12 @@ import { join } from "node:path";
 
 import { app } from "electron";
 
-import { validateCatalogV2, validateCatalogV3Index, validateCatalogV3Page, validateCatalogV3SearchIndex, validateCatalogV3SearchPage, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
+import { createCatalogRemoteClient } from "./catalog-remote.js";
+import { validateCatalogV2, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
 
 export const catalogUrl = "https://openpets.dev/pets/catalog.v2.json";
 export const catalogV3Url = "https://openpets.dev/pets/catalog.v3.json";
 const fixtureRelativePath = "catalog.v2.fixture.json";
-const maxCatalogBytes = 1_000_000;
-const maxCatalogV3PageBytes = 256_000;
-const fetchTimeoutMs = 5_000;
 
 export interface CatalogUiState {
   readonly source: "remote" | "fixture" | "error";
@@ -35,10 +33,7 @@ export interface CatalogSearchUiState {
   readonly error?: string;
 }
 
-const v3PageCache = new Map<number, readonly CatalogPetV2[]>();
-let v3IndexPromise: Promise<CatalogV3Index> | null = null;
-let v3SearchPromise: Promise<readonly CatalogV3SearchPet[]> | null = null;
-let v2CatalogPromise: Promise<CatalogV2> | null = null;
+const catalogRemote = createCatalogRemoteClient({ v2Url: catalogUrl, v3Url: catalogV3Url });
 
 export async function getCatalogUiState(): Promise<CatalogUiState> {
   const remoteV3 = await tryLoadRemoteCatalogV3Index();
@@ -92,7 +87,7 @@ export async function getCatalogSearchUiState(): Promise<CatalogSearchUiState> {
   if (!remoteV3.ok) return { source: "error", pets: [], error: remoteV3.error };
 
   try {
-    const surfacedPets = getSurfaceableSearchPets(await getRemoteCatalogV3Search(remoteV3.index), remoteV3.index);
+    const surfacedPets = getSurfaceableSearchPets(await catalogRemote.getV3Search(remoteV3.index), remoteV3.index);
     return { source: "remote", pets: surfacedPets, total: surfacedPets.length };
   } catch (error) {
     return { source: "error", pets: [], error: error instanceof Error ? error.message : "unknown error" };
@@ -103,10 +98,10 @@ export async function getCatalogPet(petId: string): Promise<CatalogPetV2> {
   const remoteV3 = await tryLoadRemoteCatalogV3Index();
   if (remoteV3.ok) {
     try {
-      const searchPets = await getRemoteCatalogV3Search(remoteV3.index);
+      const searchPets = await catalogRemote.getV3Search(remoteV3.index);
       const searchPet = searchPets.find((pet) => pet.id === petId);
       if (searchPet) {
-        const page = await getRemoteCatalogV3Page(searchPet.catalogPage, remoteV3.index);
+        const page = await catalogRemote.getV3Page(searchPet.catalogPage, remoteV3.index);
         const pet = page.find((candidate) => candidate.id === petId);
         if (pet) return pet;
       }
@@ -116,7 +111,7 @@ export async function getCatalogPet(petId: string): Promise<CatalogPetV2> {
   }
 
   const catalog = await getV2CatalogOrFixture();
-  const pet = filterSurfaceablePets(catalog.pets).find((candidate) => candidate.id === petId);
+  const pet = catalog.pets.find((candidate) => candidate.id === petId);
   if (!pet) throw new Error(`Pet is not available in the validated catalog: ${petId}`);
   return pet;
 }
@@ -128,12 +123,12 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (remote.ok) {
     return {
       source: "remote",
-      pets: filterSurfaceablePets(remote.catalog.pets),
+      pets: remote.catalog.pets,
       generatedAt: remote.catalog.generatedAt,
       error: `v3 unavailable: ${remoteV3Error}`,
       fallbackReason: "v3_to_v2_remote",
       version: 2,
-      total: filterSurfaceablePets(remote.catalog.pets).length,
+      total: remote.catalog.pets.length,
       supportsCategories: false,
     };
   }
@@ -143,11 +138,11 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (fixture.ok) {
     return {
       source: "fixture",
-      pets: filterSurfaceablePets(fixture.catalog.pets),
+      pets: fixture.catalog.pets,
       generatedAt: fixture.catalog.generatedAt,
       error: `Catalog unavailable: ${remoteV3Error}; v2 unavailable: ${remote.error}`,
       version: 2,
-      total: filterSurfaceablePets(fixture.catalog.pets).length,
+      total: fixture.catalog.pets.length,
       supportsCategories: false,
     };
   }
@@ -184,16 +179,8 @@ function surfaceablePageCount(index: CatalogV3Index): number {
 
 async function tryLoadRemoteCatalogV3Index(): Promise<{ readonly ok: true; readonly index: CatalogV3Index } | { readonly ok: false; readonly error: string }> {
   try {
-    const index = await getRemoteCatalogV3Index();
+    const index = await catalogRemote.getV3Index();
     return { ok: true, index };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "unknown error" };
-  }
-}
-
-async function tryLoadRemoteCatalogV3Page(page: number, index: CatalogV3Index): Promise<{ readonly ok: true; readonly pets: readonly CatalogPetV2[] } | { readonly ok: false; readonly error: string }> {
-  try {
-    return { ok: true, pets: await getRemoteCatalogV3Page(page, index) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "unknown error" };
   }
@@ -201,11 +188,11 @@ async function tryLoadRemoteCatalogV3Page(page: number, index: CatalogV3Index): 
 
 async function tryLoadSurfaceableCatalogV3Page(page: number, index: CatalogV3Index): Promise<{ readonly ok: true; readonly pets: readonly CatalogPetV2[] } | { readonly ok: false; readonly error: string }> {
   try {
-    const searchPets = filterSurfaceablePets(await getRemoteCatalogV3Search(index));
+    const searchPets = filterSurfaceablePets(await catalogRemote.getV3Search(index));
     const pageSearchPets = searchPets.slice(page * index.pageSize, (page + 1) * index.pageSize);
     const ids = new Set(pageSearchPets.map((pet) => pet.id));
     const catalogPageNumbers = [...new Set(pageSearchPets.map((pet) => pet.catalogPage))];
-    const catalogPages = await Promise.all(catalogPageNumbers.map((catalogPage) => getRemoteCatalogV3Page(catalogPage, index)));
+    const catalogPages = await Promise.all(catalogPageNumbers.map((catalogPage) => catalogRemote.getV3Page(catalogPage, index)));
     const petsById = new Map(catalogPages.flat().filter((pet) => ids.has(pet.id) && isSurfaceablePet(pet)).map((pet) => [pet.id, pet]));
     return { ok: true, pets: pageSearchPets.map((pet) => petsById.get(pet.id)).filter((pet): pet is CatalogPetV2 => Boolean(pet)) };
   } catch (error) {
@@ -213,63 +200,12 @@ async function tryLoadSurfaceableCatalogV3Page(page: number, index: CatalogV3Ind
   }
 }
 
-async function getRemoteCatalogV3Index(): Promise<CatalogV3Index> {
-  v3IndexPromise ||= Promise.resolve().then(async () => validateCatalogV3Index(JSON.parse(await fetchLimitedText(catalogV3Url, maxCatalogV3PageBytes)) as unknown));
-  return await v3IndexPromise;
-}
-
-async function getRemoteCatalogV3Page(page: number, index: CatalogV3Index): Promise<readonly CatalogPetV2[]> {
-  const cached = v3PageCache.get(page);
-  if (cached) return cached;
-  const pageUrl = index.pages[page];
-  if (!pageUrl) throw new Error("Catalog page is out of range.");
-  const payload = validateCatalogV3Page(JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown, page);
-  const pets = payload.pets.map(toCatalogPetV2Compat);
-  assertUniquePetIds(pets);
-  v3PageCache.set(page, pets);
-  return pets;
-}
-
-async function getRemoteCatalogV3Search(index: CatalogV3Index): Promise<readonly CatalogV3SearchPet[]> {
-  v3SearchPromise ||= Promise.resolve().then(async () => {
-    const searchIndex = validateCatalogV3SearchIndex(JSON.parse(await fetchLimitedText(index.search, maxCatalogV3PageBytes)) as unknown);
-    const pages = await Promise.all(searchIndex.pages.map(async (pageUrl, page) => validateCatalogV3SearchPage(JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown, page, index.pages.length)));
-    const pets = pages.flatMap((page) => page.pets);
-    if (pets.length !== index.total) throw new Error("Catalog v3 search total does not match index total.");
-    return pets;
-  });
-  return await v3SearchPromise;
-}
-
-function toCatalogPetV2Compat(pet: { readonly id: string; readonly displayName: string; readonly description: string; readonly thumbnail: string; readonly spritesheet: string; readonly zip: string; readonly category: "western" | "asian"; readonly subcategory?: string; readonly original?: boolean; readonly featured?: boolean }): CatalogPetV2 {
-  const entry: CatalogPetV2 = {
-    id: pet.id,
-    displayName: pet.displayName,
-    description: pet.description,
-    preview: pet.thumbnail,
-    spritesheet: pet.spritesheet,
-    zip: pet.zip,
-    category: pet.category,
-  };
-  return {
-    ...entry,
-    ...(pet.subcategory ? { subcategory: pet.subcategory } : {}),
-    ...(pet.original === undefined ? {} : { original: pet.original }),
-    ...(pet.featured === undefined ? {} : { featured: pet.featured }),
-  };
-}
-
 async function tryLoadRemoteCatalog(): Promise<{ readonly ok: true; readonly catalog: CatalogV2 } | { readonly ok: false; readonly error: string }> {
   try {
-    return { ok: true, catalog: await getRemoteCatalogV2() };
+    return { ok: true, catalog: await catalogRemote.getV2Catalog() };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "unknown error" };
   }
-}
-
-async function getRemoteCatalogV2(): Promise<CatalogV2> {
-  v2CatalogPromise ||= Promise.resolve().then(async () => validateCatalogV2(JSON.parse(await fetchLimitedText(catalogUrl, maxCatalogBytes)) as unknown));
-  return await v2CatalogPromise;
 }
 
 async function getV2CatalogOrFixture(): Promise<CatalogV2> {
@@ -278,26 +214,6 @@ async function getV2CatalogOrFixture(): Promise<CatalogV2> {
   const fixture = await tryLoadFixtureCatalog();
   if (fixture.ok) return fixture.catalog;
   throw new Error(`Catalog unavailable: ${remote.error}. Fixture unavailable: ${fixture.error}`);
-}
-
-async function fetchLimitedText(url: string, maxBytes: number): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "error",
-      credentials: "omit",
-    });
-
-    validateCatalogEndpoint(response.url, url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    return await readLimitedResponse(response, maxBytes);
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function tryLoadFixtureCatalog(): Promise<{ readonly ok: true; readonly catalog: CatalogV2 } | { readonly ok: false; readonly error: string }> {
@@ -311,45 +227,4 @@ async function tryLoadFixtureCatalog(): Promise<{ readonly ok: true; readonly ca
 async function loadFixtureCatalog(): Promise<unknown> {
   const fixturePath = join(app.getAppPath(), fixtureRelativePath);
   return JSON.parse(await readFile(fixturePath, "utf8")) as unknown;
-}
-
-async function readLimitedResponse(response: Response, maxBytes: number): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Catalog response body is unavailable for bounded reading.");
-
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) throw new Error("Catalog response is too large.");
-    chunks.push(value);
-  }
-
-  return new TextDecoder().decode(concatChunks(chunks, total));
-}
-
-function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array {
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
-}
-
-function validateCatalogEndpoint(value: string, expected: string): void {
-  const url = new URL(value);
-  if (url.href !== expected) throw new Error("Catalog final URL is not allowed.");
-}
-
-function assertUniquePetIds(pets: readonly CatalogPetV2[]): void {
-  const ids = new Set<string>();
-  for (const pet of pets) {
-    if (ids.has(pet.id)) throw new Error(`Duplicate catalog v3 pet id: ${pet.id}`);
-    ids.add(pet.id);
-  }
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
-import { isLanPetAwayForLocalHost, LanCoordinator, countLanTopologyLinks, normalizeLanEdge, normalizeLanHost, normalizeLanPetId, normalizeLanPoint, normalizeLanTopology, validateLanTopology } from "../src/lan-state.js";
+import { isLanPetAwayForLocalHost, LanCoordinator } from "../src/lan-state.js";
+import { countLanTopologyLinks, normalizeLanEdge, normalizeLanHost, normalizeLanPetId, normalizeLanPoint, normalizeLanTopology, validateLanTopology } from "../src/lan-contract.js";
 
 const coordinator = new LanCoordinator({ staleClientMs: 1_000 });
 

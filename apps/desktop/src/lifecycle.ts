@@ -1,5 +1,4 @@
 import { app } from "electron";
-
 import { closeAllAgentPets } from "./agent-pet-controller.js";
 import { destroyDefaultPet } from "./default-pet-controller.js";
 import { info } from "./logger.js";
@@ -10,6 +9,7 @@ import { stopPluginService } from "./plugin-service.js";
 import { stopPetAssistantHost } from "./pet-assistant-host.js";
 import { stopVoiceAssistantHost } from "./voice-assistant-host.js";
 import { shutdownPluginVoice } from "./plugin-voice.js";
+import { parseTeamEnrollmentLink, type TeamEnrollmentLink } from "./team-protocol.js";
 import { focusOpenTaskWindows } from "./windows.js";
 import { shutdownVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 
@@ -18,11 +18,31 @@ let cleanupStarted = false;
 let cleanupFinished = false;
 let hardExitTimer: NodeJS.Timeout | null = null;
 
-export function installAppLifecycle(): void {
-  app.on("second-instance", () => {
+export type AppLifecycleOptions = {
+  readonly onTeamEnrollmentLink?: (link: TeamEnrollmentLink) => void;
+  readonly stopManagerCheckIns?: () => Promise<void>;
+  readonly stopTeams?: () => Promise<void>;
+  readonly stopPetDisplayCoordinator?: () => void;
+};
+
+export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    const link = parseTeamEnrollmentLink(url);
+    if (link) {
+      options.onTeamEnrollmentLink?.(link);
+    }
+  });
+  app.on("second-instance", (_event, commandLine) => {
     info("app", "second instance requested");
     console.log("Second OpenPets launch requested; keeping existing instance.");
     focusOpenTaskWindows();
+    const value = commandLine
+      .map((item) => parseTeamEnrollmentLink(item))
+      .find((item): item is TeamEnrollmentLink => Boolean(item));
+    if (value) {
+      options.onTeamEnrollmentLink?.(value);
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -46,10 +66,13 @@ export function installAppLifecycle(): void {
     info("app", "before quit cleanup begin");
     scheduleHardExitFallback("before-quit");
     void (async () => {
+      options.stopPetDisplayCoordinator?.();
       shutdownVoiceAssistantShortcut();
       await stopVoiceAssistantHost().catch(() => undefined);
       await stopPetAssistantHost().catch(() => undefined);
       await shutdownPluginVoice().catch(() => undefined);
+      await options.stopManagerCheckIns?.().catch(() => undefined);
+      await options.stopTeams?.().catch(() => undefined);
       await stopPluginService().catch(() => undefined);
       await stopRemoteControlService().catch(() => undefined);
       stopLocalIpcServer();

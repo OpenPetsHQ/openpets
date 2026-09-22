@@ -1,6 +1,6 @@
 {
   "name": "@open-pets/desktop",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "private": true,
   "description": "OpenPets tray-first desktop companion app.",
   "license": "MIT",
@@ -25,7 +25,8 @@
     "test:build": "pnpm build:deps && tsc -p tsconfig.tests.json",
     "check": "pnpm typecheck && pnpm build && pnpm test",
     "typecheck": "pnpm build:deps && tsc --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "build:main": "pnpm build:deps && tsc",
+    "build:main": "pnpm build:deps && tsc && pnpm build:preload",
+    "build:preload": "vite build --config vite.pet-preload.config.ts",
     "build:renderer": "vite build",
     "build:wayland-helper": "cargo build --release --manifest-path native/openpets-wayland-helper/Cargo.toml",
     "dev:renderer": "vite --host 127.0.0.1",
@@ -33,6 +34,7 @@
     "package:preflight": "node scripts/check-windows-symlink-privilege.cjs"
   },
   "devDependencies": {
+    "7zip-bin": "5.2.0",
     "@open-pets/plugin-sdk": "workspace:*",
     "@types/node": "^25.6.2",
     "@types/react": "^19.2.15",
@@ -58,10 +60,12 @@
     "@open-pets/mcp": "workspace:*",
     "@open-pets/openclaw": "workspace:*",
     "@open-pets/opencode": "workspace:*",
+    "@open-pets/zed": "workspace:*",
     "get-windows": "^9.3.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "sharp": "^0.34.5",
+    "undici": "^7.29.0",
     "yauzl": "3.3.0"
   }
 }

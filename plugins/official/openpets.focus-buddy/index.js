@@ -252,8 +252,8 @@ export async function startFocus(ctx) {
   return lifecycle(ctx, (token) => startFocusImpl(ctx, token));
 }
 
-async function startBreakImpl(ctx, completedFocusCount, token) {
-  return startMode(ctx, "break", breakMs(completedFocusCount), completedFocusCount, token);
+async function startBreakImpl(ctx, completedFocusCount, token, options) {
+  return startMode(ctx, "break", breakMs(completedFocusCount), completedFocusCount, token, options);
 }
 
 export async function startBreak(ctx, completedFocusCount) {
@@ -313,11 +313,11 @@ export async function endSession(ctx) {
   return lifecycle(ctx, (token) => endSessionImpl(ctx, token));
 }
 
-async function skipToBreakImpl(ctx, token) {
+async function skipToBreakImpl(ctx, token, options) {
   const session = await getSession(ctx);
   const count = (session?.completedFocusCount ?? 0) + (session?.mode === "focus" ? 1 : 0);
   if (!isCurrent(ctx, token)) return;
-  return startBreakImpl(ctx, count, token);
+  return startBreakImpl(ctx, count, token, options);
 }
 
 export async function skipToBreak(ctx) {
@@ -457,6 +457,13 @@ async function assistantEnd(ctx) {
   });
 }
 
+async function assistantSkipToBreak(ctx) {
+  return lifecycle(ctx, async (token) => {
+    const session = await skipToBreakImpl(ctx, token, { showPinned: false, syncExistingPinned: true });
+    return session ? assistantSuccess(session) : assistantInvalid("session_unavailable", session);
+  });
+}
+
 async function registerAssistantCapabilities(ctx) {
   await ctx.assistant.registerCapability({
     id: "focus.start",
@@ -488,6 +495,11 @@ async function registerAssistantCapabilities(ctx) {
     description: "End the active focus session.",
     inputSchema: { type: "object", additionalProperties: false },
   }, () => assistantEnd(ctx));
+  await ctx.assistant.registerCapability({
+    id: "focus.skipBreak",
+    description: "Skip to the break for the current focus session.",
+    inputSchema: { type: "object", additionalProperties: false },
+  }, () => assistantSkipToBreak(ctx));
 }
 
 async function handleAction(ctx, id) {

@@ -76,6 +76,13 @@ catch.
   that contains `openpets.plugin.json` through `OPENPETS_DEV_PLUGIN_ROOTS`, with
   the plugin catalog disabled. Non-plugin folders are ignored, and changes to a
   discovered plugin's manifest or entry file hot-reload it.
+- To open the Control Center on a route during development, set
+   `OPENPETS_DEV_ROUTE` before starting the Control Center-focused dev command,
+   for example `OPENPETS_DEV_ROUTE=teams pnpm dev:desktop:control-center`.
+   Use one of the canonical `ControlCenterRoute` values (`dashboard`, `pets`,
+   `settings`, `plugins`, `integrations`, or `teams`). To open Settings directly
+   on its Providers subtab, use `OPENPETS_DEV_ROUTE=providers pnpm dev:desktop:control-center`.
+   The variable is ignored by packaged builds.
 - Logs land in `userData/logs/openpets.log` (path varies by OS). Route renderer
   diagnostics into the app log, not just DevTools (per `AGENTS.md`).
 
@@ -96,35 +103,102 @@ dumps, or logging inside animation/render loops. The logger
 (`apps/desktop/src/logger.ts`) provides scopes and redaction. This is an explicit
 repo convention (`AGENTS.md`), not optional polish.
 
+### Talk/provider diagnostics
+
+Voice device preferences are host-owned and persist only opaque browser-scoped
+input/output IDs. Enumeration reports unavailable or permission-required states
+without acquiring a microphone at startup; labels and IDs are not written to Talk
+logs. Each generic, plugin, and native Realtime operation resolves its input once
+before acquisition or negotiation, so a preference change applies only to future
+operations. Output selection remains unsupported and never claims to control
+System TTS in this phase.
+
+Generic one-shot Talk lifecycle diagnostics use the `voice` scope and follow the bounded sequence
+`talk session started` → capture requested/acquired/finished (or cancelled/failed)
+→ STT requested/succeeded (or cancelled/failed) → brain turn requested/completed
+(or cancelled/failed) → speech synthesis requested/returned (or failed) → playback
+started/completed (or cancelled/failed) → `talk session ended`. Provider network
+operations use the `provider` scope and log an outbound event plus a terminal event
+for text, STT, TTS, and realtime negotiation. Terminal records include elapsed time,
+HTTP status when available, and only output byte counts or transcript/reply character
+counts.
+
+When the active generic Talk recording is submitted by a second toggle, the host
+atomically leaves the listening snapshot and clears its submit capability before
+using the capture handle's `stop()` path. It continues through STT, Pet Assistant,
+and synthesis; further primary toggles are idempotent while that turn is active.
+After playback or terminal synthesis/playback failure, the one-shot session ends
+and the next recording requires a fresh explicit Talk activation.
+It records bounded capture-submit requested/succeeded/failed diagnostics; this is
+distinct from capture cancellation. Native Realtime keeps its transport-owned
+explicit end behavior because it has no generic recording to commit, while its
+primary toggle is non-destructive.
+
+These logs intentionally omit credentials, authorization headers, base URLs, raw
+prompts, transcripts, assistant replies, request payloads, audio data, and full
+provider responses. Cancellation records use the available reason (`user`,
+`session`, or `capture`) so a stopped Talk attempt is distinguishable from a
+provider or capture failure without exposing content.
+
 ## Release flows
 
 ### npm packages
 
-`pnpm release:npm` (`scripts/release-npm.mjs`) orchestrates publishing the
-workspace packages. Packages must build and pass `check`/`test` first.
+`pnpm release:npm` (`scripts/release-npm.mjs`) determines the current public
+package set and publishes it in dependency order. Treat its printed dry-run plan
+as authoritative; do not maintain a hardcoded package list in documentation.
+For a live package release, the package gate (`pnpm check` and `pnpm test`) must
+pass first. A partial publish is retryable: re-run the same `--yes` command and
+already published versions are skipped. Never use `--skip-checks` for a live
+release.
+
+For historical recovery from an existing release tag, use the tagged source
+explicitly:
+
+```bash
+pnpm release:npm -- --yes --ref vX.Y.Z
+```
 
 ### Desktop app
 
 `pnpm release:desktop -- --yes` (`apps/desktop/scripts/release-local.mjs`) does a
-macOS-local build + packaging, creates and pushes the release tag, dispatches
-the production SignPath Windows workflow, waits for its signed artifact, and
-only then creates a draft GitHub release, verifies its complete asset set, and
-publishes it. The local Windows installer is disposable; macOS and Linux
-artifacts remain unsigned.
+macOS-local build + packaging, reaches the staged tag-promotion boundary,
+dispatches the production SignPath Windows workflow, waits for its signed
+artifact, and only then creates a draft GitHub release, verifies its complete
+asset set, and publishes it. The local Windows installer is disposable; macOS
+and Linux artifacts remain unsigned.
+
+Desktop-only releases do not publish npm packages unless Desktop emits a new
+exact npm integration version; that version must be published and verified first.
+For a full shared-version release, publish and verify the complete npm plan
+before promoting the desktop tag. The Desktop gate is the desktop `check` and
+`test` pair (with the workspace build required by the release flow). Never use
+`--skip-checks` on a live desktop release.
 
 The release runs as checkpointed stages recorded in
 `apps/desktop/.release-state/v<version>.json`. If an attempt is interrupted,
 re-run the identical command: finished stages are skipped and the release
 resumes where it failed, including re-attaching to the SignPath run that was
-already dispatched. Inspect the plan with `--status`, force a redo with
+already dispatched. Checkpointed artifact outputs include SHA-256 content
+digests, so a same-size replacement becomes stale and is revalidated instead
+of being skipped. Inspect the plan with `--status`, force a redo with
 `--from <stage>`, and discard the checkpoint with `--reset`. Do not warm up with
 `pnpm release:desktop -- --dry-run`; it rebuilds the whole artifact set and
 throws it away, and the checkpoint already makes retries cheap. SignPath may
 pause for manual approval in its dashboard while the release script visibly
 waits.
 `electron-builder` handles cross-platform packaging; bundled mode unpacks the
-integration CLIs and bundles `plugins/official` as extra resources (verified by
-the packaging contract - see [Testing and validation](/testing-and-validation)).
+integration runtimes and bundles `plugins/official` as extra resources. The
+local release script first builds and validates an isolated unpacked package for
+each platform/architecture artifact, then extracts the actual distributable and
+checks its payload. This includes every canonical bundled plugin's manifest,
+entry, assets, locales, every `@open-pets/*` runtime entry (including OpenClaw),
+and the target-specific native Sharp runtime (verified by the packaging contract
+- see [Testing and validation](/testing-and-validation)). Externally staged
+Linux DEB/RPM payloads are inspected before they are copied into release output.
+The SignPath Windows workflow runs the same target-aware contract against its x64
+unpacked app before signing and against the extracted signed installer payload
+before uploading it.
 
 ### Web catalog
 

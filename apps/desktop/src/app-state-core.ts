@@ -12,12 +12,64 @@ export const petScaleOptions = [
 export type PetScaleValue = typeof petScaleOptions[number]["value"];
 export const defaultPetScale: PetScaleValue = 1;
 
+// Scale for the pinned plugin bubble (the HUD under the pet). Deliberately a
+// separate preference from petScale: pet size is aesthetic, HUD size is about
+// readability.
+export const hudScaleOptions = [
+  { label: "XS", value: 0.85 },
+  { label: "Small", value: 1.1 },
+  { label: "Medium", value: 1.4 },
+  { label: "Large", value: 1.7 },
+  { label: "Huge", value: 2 },
+] as const;
+export type HudScaleValue = typeof hudScaleOptions[number]["value"];
+export const defaultHudScale: HudScaleValue = 1.4;
+
+export function getHudScaleForPetScale(petScale: PetScaleValue): HudScaleValue {
+  switch (petScale) {
+    case 0.5:
+      return 0.85;
+    case 0.75:
+      return 1.1;
+    case 1:
+      return 1.4;
+    case 1.25:
+      return 1.7;
+    case 1.5:
+      return 2;
+    default:
+      return normalizeHudScale(petScale);
+  }
+}
+
+// On-pet assistant buttons (chat launcher + talk button): which corner of the
+// pet they sit in and how large they render. Labels live in the locale catalog
+// (`settings.assistant.buttons.*`).
+export type PetButtonsPosition = "right" | "left";
+export const defaultPetButtonsPosition: PetButtonsPosition = "right";
+export function normalizePetButtonsPosition(value: unknown): PetButtonsPosition {
+  return value === "left" || value === "right" ? value : defaultPetButtonsPosition;
+}
+
+export type PetButtonsSize = "small" | "medium" | "large";
+export const defaultPetButtonsSize: PetButtonsSize = "medium";
+export function normalizePetButtonsSize(value: unknown): PetButtonsSize {
+  return value === "small" || value === "medium" || value === "large" ? value : defaultPetButtonsSize;
+}
+
 export const waitingAnimationDurationOptions = [
   { value: 1010, label: "Normal" },
   { value: 2200, label: "Relaxed" },
 ] as const;
 export type WaitingAnimationDurationMs = typeof waitingAnimationDurationOptions[number]["value"];
 export const defaultWaitingAnimationDurationMs: WaitingAnimationDurationMs = waitingAnimationDurationOptions[0].value;
+
+/** Whether idle V2 pets follow the global cursor by default. */
+export const defaultIdleCursorGazeEnabled = true;
+
+export function normalizeIdleCursorGazeEnabled(value: unknown, defaultValue = defaultIdleCursorGazeEnabled): boolean {
+  return typeof value === "boolean" ? value : defaultValue;
+}
 
 export const appearanceThemeOptions = ["system", "light", "dark"] as const;
 export type AppearanceTheme = typeof appearanceThemeOptions[number];
@@ -33,6 +85,10 @@ export function normalizeWaitingAnimationDurationMs(value: unknown): WaitingAnim
 
 export function normalizePetScale(value: unknown): PetScaleValue {
   return petScaleOptions.find((option) => option.value === value)?.value ?? defaultPetScale;
+}
+
+export function normalizeHudScale(value: unknown): HudScaleValue {
+  return hudScaleOptions.find((option) => option.value === value)?.value ?? defaultHudScale;
 }
 
 export function normalizeOnboardingCompleted(value: OnboardingPreferenceLike): boolean {

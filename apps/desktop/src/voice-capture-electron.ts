@@ -1,10 +1,11 @@
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow } from "electron";
 
 import { debug } from "./logger.js";
 import { createVoiceCaptureCancellation } from "./voice-capture-cancellation.js";
+import { getVoiceMediaSession } from "./voice-device-electron.js";
+import { VOICE_MEDIA_PARTITION } from "./voice-device-service.js";
 import {
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MIN_AUDIO_BYTES,
@@ -14,10 +15,10 @@ import {
   type VoiceCaptureResult,
 } from "./voice-capture.js";
 
-const VOICE_CAPTURE_PARTITION = "openpets-voice-capture";
-
-const acquireScript = `(async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+function acquireScript(inputDeviceId: string | null): string {
+  const audio = inputDeviceId === null ? "true" : `{ deviceId: { exact: ${JSON.stringify(inputDeviceId)} } }`;
+  return `(async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: ${audio} });
   if (globalThis.__openPetsVoiceCaptureCancelled === true) {
     for (const track of stream.getTracks()) track.stop();
     return false;
@@ -26,6 +27,7 @@ const acquireScript = `(async () => {
   globalThis.__openPetsVoiceCapture = state;
   return true;
 })()`;
+}
 
 const cancelScript = `(() => {
   globalThis.__openPetsVoiceCaptureCancelled = true;
@@ -77,17 +79,14 @@ function recordScript(durationMs: number): string {
 }
 
 export function createElectronVoiceCaptureFactory(): VoiceCaptureFactory {
-  return (durationMs, onLive) => {
+  return (durationMs, onLive, inputDeviceId) => {
     const captureHtmlPath = join(app.getAppPath(), "assets", "voice-capture.html");
-    const captureUrl = pathToFileURL(captureHtmlPath).toString();
-    const captureSession = session.fromPartition(VOICE_CAPTURE_PARTITION, { cache: false });
-    captureSession.setPermissionRequestHandler((contents, permission, callback) => callback(permission === "media" && contents?.getURL() === captureUrl));
-    captureSession.setPermissionCheckHandler((contents, permission) => permission === "media" && contents?.getURL() === captureUrl);
+    getVoiceMediaSession();
     const window = new BrowserWindow({
       show: false,
       width: 1,
       height: 1,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, partition: VOICE_CAPTURE_PARTITION },
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, partition: VOICE_MEDIA_PARTITION },
     });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -110,7 +109,7 @@ export function createElectronVoiceCaptureFactory(): VoiceCaptureFactory {
     const attempt: VoiceCaptureAttempt = {
       async acquire() {
         await window.loadFile(captureHtmlPath);
-        const acquired = await execute<boolean>(acquireScript);
+        const acquired = await execute<boolean>(acquireScript(inputDeviceId));
         if (!acquired || cancelled || !onLive()) {
           await attempt.cancel();
           throw new Error("Voice capture was cancelled before microphone acquisition.");
@@ -145,7 +144,6 @@ export function createElectronVoiceCaptureFactory(): VoiceCaptureFactory {
         if (disposed) return;
         disposed = true;
         await cancelCapture();
-        await captureSession.clearStorageData().catch(() => undefined);
       },
     };
     return attempt;

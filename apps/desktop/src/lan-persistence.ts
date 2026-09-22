@@ -1,7 +1,7 @@
 ﻿import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { normalizeLanHost, type LanState } from "./lan-state.js";
+import { normalizeLanHost, type LanState } from "./lan-contract.js";
 
 const persistedLanStateVersion = 1;
 

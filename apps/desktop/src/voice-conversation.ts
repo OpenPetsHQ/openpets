@@ -41,6 +41,7 @@ export type VoiceConversationEvent =
   | { readonly type: "microphone-released" }
   | { readonly type: "negotiating" }
   | { readonly type: "connected" }
+  | { readonly type: "output-routing"; readonly output: "selected" | "system-default"; readonly reason?: "unsupported" | "rejected" | "no-selection" }
   | { readonly type: "speech-started"; readonly itemId: string }
   | { readonly type: "speech-stopped"; readonly itemId: string }
   | { readonly type: "response-started"; readonly responseId: string }
@@ -68,6 +69,8 @@ export type VoiceConversationTransportContext = {
   readonly generation: number;
   readonly session: VoiceRealtimeSessionConfig;
   readonly signal: AbortSignal;
+  readonly inputDeviceId: string | null;
+  readonly outputDeviceId: string | null;
   readonly emit: (event: VoiceConversationEvent) => void;
 };
 
@@ -84,6 +87,8 @@ export type VoiceConversationServiceOptions = {
   readonly microphoneArbiter: VoiceMicrophoneArbiter;
   readonly privacyIndicator: VoicePrivacyIndicator;
   readonly transportFactory: VoiceConversationTransportFactory;
+  readonly inputDeviceId?: string | null;
+  readonly outputDeviceId?: string | null;
   readonly sessionFactory?: () => VoiceRealtimeSessionConfig;
   readonly onEvent?: (event: VoiceConversationEvent) => void;
 };
@@ -123,6 +128,8 @@ export class VoiceConversationService {
   readonly #microphoneArbiter: VoiceMicrophoneArbiter;
   readonly #privacyIndicator: VoicePrivacyIndicator;
   readonly #transportFactory: VoiceConversationTransportFactory;
+  readonly #inputDeviceId: string | null;
+  readonly #outputDeviceId: string | null;
   readonly #sessionFactory: () => VoiceRealtimeSessionConfig;
   readonly #onEvent?: (event: VoiceConversationEvent) => void;
   #active: ActiveConversation | null = null;
@@ -135,6 +142,8 @@ export class VoiceConversationService {
     this.#microphoneArbiter = options.microphoneArbiter;
     this.#privacyIndicator = options.privacyIndicator;
     this.#transportFactory = options.transportFactory;
+    this.#inputDeviceId = options.inputDeviceId === "default" ? null : options.inputDeviceId ?? null;
+    this.#outputDeviceId = options.outputDeviceId === "default" ? null : options.outputDeviceId ?? null;
     this.#sessionFactory = options.sessionFactory ?? createDefaultVoiceRealtimeSessionConfig;
     this.#onEvent = options.onEvent;
   }
@@ -179,6 +188,8 @@ export class VoiceConversationService {
         generation: active.generation,
         session: this.#sessionFactory(),
         signal: active.controller.signal,
+        inputDeviceId: this.#inputDeviceId,
+        outputDeviceId: this.#outputDeviceId,
         emit: (event) => this.#handleEvent(active, event),
       });
       const startPromise = Promise.resolve().then(() => active.transport!.start());

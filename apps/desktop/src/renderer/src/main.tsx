@@ -2,25 +2,47 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider, useI18n, type I18nSnapshot } from "./i18n";
 import "./styles.css";
-import openPetsLogoUrl from "../../../assets/openpets.webp";
+import openPetsLogoUrl from "../../../assets/openpets-logo.webp";
 import defaultThumbUrl from "../../../assets/default-pet-thumbnail.png";
-import { ConversationView } from "./conversation/ConversationView.js";
-import type { ConversationEvent, ConversationSnapshot, LocalConversationHistoryMessage, VoiceAssistantTalkEvent, VoiceAssistantSessionSnapshot } from "./conversation/conversation-types.js";
-import { buildPetSpritePreviewModel, type PetSpriteLayout } from "./pet-preview-state.js";
-import { resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
+import { TeamsView } from "./teams/TeamsView.js";
+import {
+  ProvidersSection,
+  type ProviderRole,
+  type ProviderAdapter,
+  type ProviderHeader,
+  type ProviderAuth,
+  type ProviderProfileSummary,
+  type ProviderSelections,
+  type ProviderStatusState,
+  type ProviderStatus,
+  type ProviderPreset,
+  type ProviderGates,
+  type ProviderGatesPatch,
+  type ProviderControlCenterSnapshot,
+  type ProviderProfileInput,
+  type ProviderProfilePatch,
+  type ProviderConfigurationSaveInput,
+  type ProviderConfigurationTestResult,
+} from "./settings/providers/index.js";
+import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
+import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
+import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
+import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 
-import claudeLogoUrl from "../../../assets/integrations/claude.svg";
-import opencodeLogoUrl from "../../../assets/integrations/opencode.svg";
-import cursorLogoUrl from "../../../assets/integrations/cursor.svg";
-import piLogoUrl from "../../../assets/integrations/pi.svg";
-import vscodeLogoUrl from "../../../assets/integrations/vscode.svg";
-import windsurfLogoUrl from "../../../assets/integrations/windsurf.svg";
-import zedLogoUrl from "../../../assets/integrations/zed.svg";
+import {
+  IntegrationsView,
+  type AgentSetupAction,
+  type AgentSetupCommandPaths,
+  type AgentSetupSnapshot,
+} from "./integrations/index.js";
+import { Button } from "./components/ui/Button.js";
+import { GlassCard } from "./components/ui/GlassCard.js";
+import { StatusPill, statusPillToneClass, type StatusTone } from "./components/ui/StatusPill.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
-type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
-type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured"> & { searchText?: string; catalogPage?: number };
+type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
+type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured" | "spriteVersionNumber"> & { searchText?: string; catalogPage?: number };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -37,14 +59,14 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; waitingAnimationDurationMs: number; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string }; petScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
 type LanStatusSnapshot = { mode: "off" | "server" | "client"; localHost: string; serverUrl: string; port: number; auth: "token" | "none"; authSource: "env" | "stored" | "generated" | "none"; authInsecure: boolean; tokenHint: string | null; topologyHosts: number; topologyLinks: number; topologyIssues: LanTopologyIssue[]; currentHost: string | null; clients: Array<{ host: string; lastSeen: number; position?: { x: number; y: number } }>; updatedAt: number; persistedCurrentHost: string | null; persistedUpdatedAt: number | null };
 type UpdateStatus = { state: "idle" | "checking" | "available" | "current" | "error"; currentVersion: string; latestVersion?: string; releaseUrl?: string; checkedAt?: number; error?: string };
 type DashboardActivity = { messagesSent: number; reactionsSent: number; reactionCounts: Record<string, number>; perPetActivityCounts: Record<string, number>; lastActivityAt?: number };
-type DashboardSnapshot = { defaultPet: { id: string; displayName: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
+type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
 type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
 type PluginFilter = "all" | "installed" | "catalog" | "local" | "broken";
 type PluginPermission =
@@ -52,106 +74,6 @@ type PluginPermission =
   | "pet:interact" | "pet:pin" | "pet:animate" | "pet:speak:dynamic" | "pet:drop" | "pets:read" | "pets:manage"
   | "audio" | "events" | "ui:toast" | "ui:panel" | "ui:delivery" | "notify" | "bus" | "ai" | "secrets" | "voice:speak" | "voice:listen"
   | "auth" | "files" | "system:openExternal" | "system:metrics" | "clipboard" | "network:write" | "network:local";
-type ProviderRole = "text" | "stt" | "tts";
-type ProviderAdapter =
-  | "openai-compatible-text"
-  | "openai-realtime"
-  | "anthropic-text"
-  | "openai-compatible-transcription"
-  | "system-tts"
-  | "minimax-tts"
-  | "elevenlabs-tts"
-  | "openai-compatible-speech";
-
-type ProviderHeader = { readonly name: string; readonly value: string };
-type ProviderAuth = { readonly headerName: string; readonly strategy: "bearer" | "raw" };
-
-type ProviderProfileSummary = {
-  readonly id: string;
-  readonly label: string;
-  readonly adapter: ProviderAdapter;
-  readonly model: string;
-  readonly baseUrl?: string;
-  readonly secretRef?: string;
-  readonly auth?: ProviderAuth;
-  readonly headerNames: readonly string[];
-  readonly hasCredential: boolean;
-};
-
-type ProviderSelections = {
-  readonly text: string | null;
-  readonly stt: string | null;
-  readonly tts: string | null;
-};
-
-type ProviderStatusState = "ready" | "disabled" | "invalid" | "missing-secret" | "unsupported";
-
-type ProviderStatus = {
-  readonly role: ProviderRole | "realtime";
-  readonly state: ProviderStatusState;
-  readonly code: string;
-  readonly message: string;
-  readonly profileId?: string;
-};
-
-type ProviderPreset = {
-  readonly id: string;
-  readonly label: string;
-  readonly adapter: ProviderAdapter;
-  readonly model: string;
-  readonly baseUrl?: string;
-  readonly credentialMode: "required" | "none";
-};
-
-type ProviderGates = {
-  readonly allowPluginAudio: boolean;
-  readonly allowDynamicSpeech: boolean;
-  readonly allowPluginVoice: boolean;
-  readonly allowMicrophone: boolean;
-  readonly quietHours: { readonly enabled: boolean; readonly start: string; readonly end: string };
-};
-
-type ProviderControlCenterSnapshot = {
-  readonly gates: ProviderGates;
-  readonly profiles: readonly ProviderProfileSummary[];
-  readonly selections: ProviderSelections;
-  readonly statuses: Readonly<Record<ProviderRole | "realtime", ProviderStatus>>;
-  readonly presets: readonly ProviderPreset[];
-};
-
-type ProviderProfileInput = {
-  id: string;
-  label: string;
-  adapter: ProviderAdapter;
-  model: string;
-  baseUrl?: string;
-  secretRef?: string;
-  auth?: ProviderAuth;
-  headers?: ProviderHeader[];
-};
-
-type ProviderProfilePatch = {
-  id?: string;
-  label?: string;
-  adapter?: ProviderAdapter;
-  model?: string;
-  baseUrl?: string | null;
-  secretRef?: string | null;
-  auth?: ProviderAuth | null;
-  headers?: ProviderHeader[];
-};
-
-type FormDraftState = {
-  id: string;
-  label: string;
-  adapter: ProviderAdapter;
-  model: string;
-  baseUrl?: string | null;
-  secretRef?: string | null;
-  auth?: ProviderAuth | null;
-  headers?: ProviderHeader[];
-};
-type ProviderGatesPatch = Partial<Omit<ProviderGates, "quietHours">> & { quietHours?: Partial<ProviderGates["quietHours"]> };
 type PluginInspectorState = { schedules: Array<{ id: string; type: string; nextRunMs: number }>; commands: PluginCommand[]; menuItems: Array<{ id: string; title: string }>; status?: PluginStatus; activeBubbles: number; activePanels: number; eventSubscriptions: number; lastError?: string; quotaCounters: Record<string, number> };
 type PluginIconName = "plugin" | "bell" | "timer" | "github" | "heart" | "sparkles" | "coffee" | "focus" | "droplet";
 type PluginConfigField = { type: "text" | "textarea" | "number" | "boolean" | "select" | "time" | "date" | "multiSelect" | "list" | "secret" | "sound"; label?: string; description?: string; default?: string | number | boolean | string[] | Array<Record<string, unknown>>; options?: Array<{ label: string; value: string; previewSprite?: string }>; presentation?: "sprite-grid" | string; min?: number; max?: number; step?: number; maxLength?: number; maxItems?: number; itemSchema?: Record<string, PluginConfigField> };
@@ -175,7 +97,62 @@ type RemoteControlConfigSnapshot = { enabled: boolean; address?: string; port?: 
 type RemoteControlClientSummary = { id: string; name: string; scopes: RemoteControlScope[]; createdAt: number; updatedAt: number; lastActivityAt?: number; revoked: boolean; revokedAt?: number };
 type RemoteControlSnapshot = { config: RemoteControlConfigSnapshot; clients: RemoteControlClientSummary[] };
 type RemotePairingResult = { clientId: string; token: string };
-
+type ManagerCheckInFeelingCode = "good" | "steady" | "stretched" | "struggling" | "need_support";
+type ManagerCheckInRecurrence =
+  | { readonly kind: "daily"; readonly intervalDays: number; readonly startsOn: string }
+  | { readonly kind: "weekly"; readonly intervalWeeks: number; readonly startsOn: string; readonly weekdays: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly dates: readonly number[] }
+  | { readonly kind: "monthly"; readonly intervalMonths: number; readonly startsOn: string; readonly lastDay: true }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly dates: readonly number[] }
+  | { readonly kind: "quarterly"; readonly startsOn: string; readonly quarterMonths: readonly number[]; readonly lastDay: true };
+type ManagerCheckInSchedule = {
+  readonly id: string;
+  readonly revision: number;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly recurrence: ManagerCheckInRecurrence;
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Record<ManagerCheckInFeelingCode, string>;
+};
+type ManagerCheckInScheduleSnapshot = {
+  readonly scheduleId: string;
+  readonly scheduleName: string;
+  readonly scheduleRevision: number;
+  readonly recurrence: ManagerCheckInRecurrence;
+  readonly title: string;
+  readonly introduction: string;
+  readonly acknowledgement: string;
+  readonly notePlaceholder: string;
+  readonly labels: Record<ManagerCheckInFeelingCode, string>;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string };
+};
+type ManagerCheckInSubmission = {
+  readonly id: string;
+  readonly clientGeneratedId: string;
+  readonly scheduleId: string;
+  readonly scheduleRevision: number;
+  readonly cycleId: string;
+  readonly cycleLocalDate: string;
+  readonly feelingCode: ManagerCheckInFeelingCode;
+  readonly note: string | null;
+  readonly submittedAt: string;
+  readonly scheduleSnapshot: ManagerCheckInScheduleSnapshot;
+};
+type ManagerCheckInSnapshot = {
+  readonly availability: "unavailable" | "unenrolled" | "available";
+  readonly unavailableReason?: "secure_storage_unavailable" | "employee_identity_required";
+  readonly organization: { readonly id: string; readonly name: string } | null;
+  readonly visibilityNotice: { readonly version: 1; readonly text: string } | null;
+  readonly schedules: readonly ManagerCheckInSchedule[];
+  readonly submissions: readonly ManagerCheckInSubmission[];
+  readonly devicePaused: boolean;
+  readonly lastSyncAt?: string;
+  readonly lastError?: string;
+};
+type ManagerCheckInHistoryPage = { submissions: readonly ManagerCheckInSubmission[]; nextCursor: string | null };
 const utf8Encoder = new TextEncoder();
 
 function limitUtf8Bytes(value: string, maxBytes: number): string {
@@ -193,23 +170,23 @@ function limitUtf8Bytes(value: string, maxBytes: number): string {
 type ControlCenterApi = {
   getPetsState(): Promise<StateSnapshot>;
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
+  getTeamsSnapshot(): Promise<TeamsSnapshot>;
+  submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
+  syncTeamsNow(): Promise<TeamsSnapshot>;
+  leaveTeams(): Promise<TeamsSnapshot>;
+  getManagerCheckInsSnapshot(): Promise<ManagerCheckInSnapshot>;
+  syncManagerCheckIns(): Promise<ManagerCheckInSnapshot>;
+  getManagerCheckInsHistory(cursor?: string): Promise<ManagerCheckInHistoryPage>;
+  setManagerCheckInDevicePaused(paused: boolean): Promise<ManagerCheckInSnapshot>;
   getSettingsState(): Promise<SettingsState>;
+  getVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  refreshVoiceDevices(): Promise<VoiceDevicesSnapshot>;
+  saveVoiceDevicePreferences(preferences: { preferredInputDeviceId?: string | null; preferredOutputDeviceId?: string | null }): Promise<VoiceDevicesSnapshot>;
+  getConversationHistory(): Promise<readonly PetAssistantArchivedMessage[]>;
+  deleteConversationHistoryMessage(id: string): Promise<{ deleted: boolean }>;
+  clearConversationHistory(): Promise<{ cleared: true }>;
   getLanStatus(): Promise<LanStatusSnapshot>;
   getI18n(): Promise<I18nSnapshot>;
-  getConversationSnapshot(): Promise<ConversationSnapshot>;
-  getConversationHistory(): Promise<readonly LocalConversationHistoryMessage[]>;
-  deleteConversationHistoryMessage(id: string): Promise<{ deleted: boolean }>;
-  clearConversationHistory(): Promise<{ cleared: boolean }>;
-  sendConversationMessage(text: string): Promise<unknown>;
-  cancelConversationTurn(): Promise<{ cancelled: boolean }>;
-  onConversationEvent(callback: (event: ConversationEvent) => void): () => void;
-  getVoiceAssistantSnapshot(): Promise<VoiceAssistantSessionSnapshot>;
-  startVoiceAssistant(): Promise<VoiceAssistantSessionSnapshot>;
-  muteVoiceAssistant(): Promise<VoiceAssistantSessionSnapshot>;
-  unmuteVoiceAssistant(): Promise<VoiceAssistantSessionSnapshot>;
-  interruptVoiceAssistant(): Promise<VoiceAssistantSessionSnapshot>;
-  endVoiceAssistant(): Promise<VoiceAssistantSessionSnapshot>;
-  onVoiceAssistantEvent(callback: (event: VoiceAssistantTalkEvent) => void): () => void;
   updatePreferences(patch: PreferencePatch): Promise<SettingsState>;
   getReactionAnimationSettings(): Promise<ReactionAnimationSettings>;
   getLaunchAtLogin(): Promise<LaunchAtLoginState>;
@@ -235,6 +212,13 @@ type ControlCenterApi = {
   getProviderProfiles(): Promise<ProviderControlCenterSnapshot>;
   createProviderProfile(profile: ProviderProfileInput): Promise<ProviderControlCenterSnapshot>;
   updateProviderProfile(id: string, patch: ProviderProfilePatch): Promise<ProviderControlCenterSnapshot>;
+  saveProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderControlCenterSnapshot>;
+   testProviderConfiguration(input: ProviderConfigurationSaveInput): Promise<ProviderConfigurationTestResult>;
+   beginProviderTranscriptionTest(input: ProviderConfigurationSaveInput): Promise<{ readonly sessionId: string }>;
+   finishProviderTranscriptionTest(sessionId: string): Promise<ProviderConfigurationTestResult>;
+   cancelProviderTranscriptionTest(sessionId?: string): Promise<{ readonly cancelled: boolean }>;
+   playProviderPreview(bytes: Uint8Array, mimeType: string): Promise<{ readonly output: "selected" | "system-default"; readonly reason?: string }>;
+   stopProviderPreview(): Promise<void>;
   deleteProviderProfile(id: string): Promise<ProviderControlCenterSnapshot>;
   selectProviderProfile(role: ProviderRole, id: string | null): Promise<ProviderControlCenterSnapshot>;
   updateProviderGates(patch: ProviderGatesPatch): Promise<ProviderControlCenterSnapshot>;
@@ -250,9 +234,11 @@ type ControlCenterApi = {
   installLocalPet(): Promise<unknown>;
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
+  openOrganizationsPage?(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
-  onRouteChange(callback: (route: Route) => void): () => void;
+  onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
   onPluginsRefresh(callback: () => void): () => void;
+  onDashboardRefresh?(callback: () => void): () => void;
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   updateIntegrationCommandPaths(patch: Partial<AgentSetupCommandPaths>): Promise<AgentSetupCommandPaths>;
@@ -262,24 +248,6 @@ type ControlCenterApi = {
   rotateRemoteClient(clientId: string): Promise<RemotePairingResult>;
   revokeRemoteClient(clientId: string): Promise<{ revoked: boolean }>;
 };
-
-
-type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove";
-type AgentSetupPetOption = { id: string; displayName: string; default: boolean };
-type ClaudeCodeStatus = { state: "detected" | "not_detected" | "configured" | "needs_setup" | "error"; label: string; details: string; claudeCommand?: string; version?: string; mcpListWorks: boolean; openPetsEntry: { present: boolean; verified: boolean; matchesExpected: boolean }; canConfigure: boolean; canReplace: boolean; canRemove: boolean };
-type ClaudeHookDoctorResult = { status: "installed" | "needs_setup" | "error" | "custom" | "conflict"; settingsPath: string; exists: boolean; valid: boolean; message: string; preview: Record<string, unknown>; asyncSupported: boolean; backupPath?: string };
-type ClaudeOpenPetsMemoryStatus = { state: "installed" | "needs_setup" | "error"; label: string; details: string; claudeMdPath: string; openPetsMemoryPath: string; canInstall: boolean };
-type OpenCodeSetupStatus = { state: "configured" | "needs_setup" | "not_detected" | "error"; label: string; details: string; configDir: string; canInstall: boolean; canRemove: boolean };
-type OpenCodeSetupPreview = { global: true; configDir: string; configPath: string; cleanupConfigPaths: string[]; mcpCommand: string[]; plugin: unknown[] | string; instructionPath: string; configPreview: Record<string, unknown> };
-type CursorSetupStatus = { state: "configured" | "needs_setup" | "not_detected" | "error" | "conflict" | "needs_update"; label: string; details: string; configPath: string; canInstall: boolean; canReplace: boolean; canRemove: boolean };
-type CursorSetupPreview = { global: true; configPath: string; mcpEntry: Record<string, unknown>; rulesPath: string; rulesContent: string; commandMode: "published" | "local" | "bundled" };
-type OpenClawSetupState = "unavailable" | "unsupported-host" | "management-disabled" | "not-installed" | "installed-disabled" | "installed-enabled" | "invalid" | "conflict" | "indeterminate";
-type OpenClawPluginStatus = { state: OpenClawSetupState; label: string; details: string; version?: string; installedVersion?: string; trackedSource?: "official-package" | "custom-source" | "untracked"; canInstall: boolean; canUpdate: boolean; canEnable: boolean; canRemove: boolean };
-type OpenClawSetupPreview = { command: string; install: readonly string[]; enable: readonly string[]; update: readonly string[]; remove: readonly string[]; targetVersion: string };
-type AgentSetupCommandPaths = { claude: string; node: string; opencode: string; openclaw: string };
-type AgentSetupActionResult = { ok: boolean; action: AgentSetupAction; message: string; changed: boolean };
-type AgentSetupSnapshot = { selectedPetId?: string; commandMode: "published" | "local" | "bundled"; localDevAvailable: boolean; petOptions: AgentSetupPetOption[]; preview: { displayCommand: string; mcpJson: Record<string, unknown> }; status: ClaudeCodeStatus; hookStatus: ClaudeHookDoctorResult; memoryStatus: ClaudeOpenPetsMemoryStatus; opencodeStatus: OpenCodeSetupStatus; opencodePreview: OpenCodeSetupPreview; cursorStatus: CursorSetupStatus; cursorPreview: CursorSetupPreview; openclawStatus: OpenClawPluginStatus; openclawPreview: OpenClawSetupPreview; commandPaths: AgentSetupCommandPaths; busy: boolean; lastAction?: AgentSetupActionResult };
-type StatusTone = keyof typeof statusPillToneClass;
 
 const api = (window as unknown as { openPetsControlCenter: ControlCenterApi }).openPetsControlCenter;
 
@@ -318,29 +286,6 @@ const ImportIcon = () => (
 const SetDefaultIcon = () => (
   <svg className="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-  </svg>
-);
-
-const ReplaceIcon = () => (
-  <svg className="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-    <path d="M3 3v5h5" />
-    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-    <path d="M21 21v-5h-5" />
-  </svg>
-);
-
-const HookIcon = () => (
-  <svg className="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m18 15-6-6-6 6" />
-  </svg>
-);
-
-const MemoryIcon = () => (
-  <svg className="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 10v6" />
-    <path d="M9 13h6" />
-    <rect width="18" height="18" x="3" y="3" rx="2" />
   </svg>
 );
 
@@ -490,6 +435,14 @@ const MessageIcon = ({ className }: { className?: string } = {}) => (
   </svg>
 );
 
+const MicIcon = ({ className }: { className?: string } = {}) => (
+  <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+);
+
 const HeartIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
@@ -529,7 +482,30 @@ const ShieldIcon = () => (
 );
 
 // Navigation Shell Types and Icons
-type Route = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations";
+type TeamsSnapshot = {
+  enrolled: boolean;
+  organizationId: string | null;
+  organizationName: string | null;
+  pendingEnrollment: boolean;
+  installationId: string | null;
+  pendingRevision: number;
+  appliedRevision: number;
+  lastSyncAt?: string;
+  lastError?: string;
+  teamPets: Array<{ id: string; displayName: string; source: "team" }>;
+  teamPlugins: Array<{
+    id: string;
+    version: string;
+    enabled: boolean;
+    policy: "required" | "optional";
+    source: "team";
+  }>;
+};
+type Route = "dashboard" | "pets" | "assistant" | "settings" | "plugins" | "integrations" | "teams";
+type ControlCenterRouteTarget =
+  | { readonly route: "assistant"; readonly assistantTab?: "providers" }
+  | { readonly route: Exclude<Route, "assistant">; readonly assistantTab?: never };
+
 
 const DashboardIcon = () => (
   <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -579,6 +555,14 @@ const ProvidersIcon = ({ className = "nav-icon" }: { className?: string }) => (
   </svg>
 );
 
+const HistoryIcon = ({ className = "nav-icon" }: { className?: string }) => (
+  <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3v5h5" />
+    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+    <path d="M12 7v5l4 2" />
+  </svg>
+);
+
 const SparklesIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
@@ -596,12 +580,23 @@ const IntegrationsIcon = () => (
   </svg>
 );
 
+const TeamsIcon = () => (
+  <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+
 const navTabs = [
   { id: "dashboard" as const, labelKey: "nav.dashboard", icon: <DashboardIcon /> },
   { id: "pets" as const, labelKey: "nav.pets", icon: <PetsIcon /> },
+  { id: "assistant" as const, labelKey: "nav.assistant", icon: <SparklesIcon className="nav-icon" /> },
   { id: "settings" as const, labelKey: "nav.settings", icon: <SettingsIcon /> },
   { id: "plugins" as const, labelKey: "nav.plugins", icon: <PluginsIcon /> },
   { id: "integrations" as const, labelKey: "nav.integrations", icon: <IntegrationsIcon /> },
+  { id: "teams" as const, labelKey: "nav.teams", icon: <TeamsIcon /> },
 ];
 
 const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
@@ -609,13 +604,13 @@ const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
     titleKey: "route.dashboard.title",
     descKey: "route.dashboard.description",
   },
-  conversation: {
-    titleKey: "route.conversation.title",
-    descKey: "route.conversation.description",
-  },
   pets: {
     titleKey: "route.pets.title",
     descKey: "route.pets.description",
+  },
+  assistant: {
+    titleKey: "route.assistant.title",
+    descKey: "route.assistant.description",
   },
   settings: {
     titleKey: "route.settings.title",
@@ -628,6 +623,10 @@ const routeMetadata: Record<Route, { titleKey: string; descKey: string }> = {
   integrations: {
     titleKey: "route.integrations.title",
     descKey: "route.integrations.description",
+  },
+  teams: {
+    titleKey: "route.teams.title",
+    descKey: "route.teams.description",
   },
 };
 
@@ -646,7 +645,12 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    return api.onDashboardRefresh?.(() => {
+      void load();
+    });
+  }, []);
 
   if (!snapshot) {
     return (
@@ -663,7 +667,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
 
   // Find top pet by activity or fallback to default
   const topPetId = Object.entries(activity.perPetActivityCounts).sort(([, a], [, b]) => b - a)[0]?.[0];
-  const topPetName = topPetId === defaultPet.id ? defaultPet.displayName : (topPetId || defaultPet.displayName);
+  const topPetName = topPetId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : (topPetId || defaultPet.displayName);
 
   // Find top reaction
   const reactionEntries = Object.entries(activity.reactionCounts)
@@ -796,7 +800,7 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
                 </div>
                 <div className="dashboard-bars-list">
                   {topCompanionEntries.length ? topCompanionEntries.map(([petId, count]) => {
-                    const label = petId === defaultPet.id ? defaultPet.displayName : petId.replace(/[-_]/g, " ");
+                    const label = petId === defaultPet.id ? (defaultPet.assetName ?? defaultPet.displayName) : petId.replace(/[-_]/g, " ");
                     return (
                       <div key={petId} className="dashboard-bar-item">
                         <div className="dashboard-bar-labels">
@@ -903,87 +907,33 @@ const filterLabelKeys: Record<Filter, string> = {
   codex: "pets.filter.codex",
 };
 
-const buttonVariantClass = {
-  primary: "btn-primary",
-  secondary: "btn-secondary",
-  danger: "btn-danger",
-  success: "btn-success",
-  warning: "btn-warning",
-} as const;
-
-const statusPillToneClass = {
-  blue: "pill-blue",
-  green: "pill-green",
-  orange: "pill-orange",
-  purple: "pill-purple",
-  yellow: "pill-yellow",
-  red: "pill-red",
-  slate: "pill-slate",
-} as const;
-
 function isRoute(value: string | null | undefined): value is Route {
-  return value === "dashboard" || value === "conversation" || value === "pets" || value === "settings" || value === "plugins" || value === "integrations";
+  return value === "dashboard" || value === "pets" || value === "assistant" || value === "settings" || value === "plugins" || value === "integrations" || value === "teams";
 }
 
-function initialControlCenterRoute(): Route {
+function isControlCenterRouteTarget(value: unknown): value is ControlCenterRouteTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as { readonly route?: unknown; readonly assistantTab?: unknown };
+  if (!isRoute(typeof target.route === "string" ? target.route : undefined)) return false;
+  return target.assistantTab === undefined || (target.route === "assistant" && target.assistantTab === "providers");
+}
+
+function initialControlCenterRoute(): ControlCenterRouteTarget {
   try {
     const params = new URLSearchParams(window.location.search);
     const route = params.get("route");
-    return isRoute(route) ? route : "dashboard";
+    const assistantTab = params.get("assistantTab");
+    if (!isRoute(route)) return { route: "dashboard" };
+    return route === "assistant" && assistantTab === "providers" ? { route, assistantTab } : { route };
   } catch {
-    return "dashboard";
+    return { route: "dashboard" };
   }
 }
 
-const commandModeLabelKeys: Record<AgentSetupSnapshot["commandMode"], string> = {
-  published: "integrations.commandMode.published",
-  bundled: "integrations.commandMode.bundled",
-  local: "integrations.commandMode.local",
-};
-
-function Button({
-  children,
-  variant = "primary",
-  size = "normal",
-  onClick,
-  disabled,
-  icon,
-  iconPosition = "left",
-  fullWidth,
-  ariaLabel,
-  title,
-  type = "button",
-}: {
-  children: React.ReactNode;
-  variant?: "primary" | "secondary" | "danger" | "success" | "warning";
-  size?: "normal" | "compact";
-  onClick?: () => void;
-  disabled?: boolean;
-  icon?: React.ReactNode;
-  iconPosition?: "left" | "right";
-  fullWidth?: boolean;
-  ariaLabel?: string;
-  title?: string;
-  type?: "button" | "submit" | "reset";
-}) {
-  return (
-    <button
-      type={type}
-      className={`btn ${buttonVariantClass[variant]} ${size === "compact" ? "btn-compact" : ""} ${fullWidth ? "w-full" : ""} ${icon ? "has-icon" : ""}`}
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      title={title}
-    >
-      {icon && iconPosition === "left" && <span className="btn-icon-wrapper mr-1.5 inline-flex items-center justify-center">{icon}</span>}
-      <span className="btn-text">{children}</span>
-      {icon && iconPosition === "right" && <span className="btn-icon-wrapper ml-1.5 inline-flex items-center justify-center">{icon}</span>}
-    </button>
-  );
+function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const { t } = useI18n();
+  return <input className="search" placeholder={t("pets.search.placeholder")} {...props} />;
 }
-function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) { return <section className={`glass ${className}`}>{children}</section>; }
-function StatusPill({ children, tone = "blue" }: { children: React.ReactNode; tone?: keyof typeof statusPillToneClass }) { return <span className={`pill ${statusPillToneClass[tone]}`}>{children}</span>; }
-function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) { const { t } = useI18n(); return <input className="search" placeholder={t("pets.search.placeholder")} {...props} />; }
 
 function isAllowedCatalogPreview(value: string | undefined): value is string {
   if (!value) return false;
@@ -1234,894 +1184,108 @@ function ReactionPreviewSprite({ settings, state }: { settings: ReactionAnimatio
   );
 }
 
-function profileSupportsRole(profile: { adapter: ProviderAdapter }, role: ProviderRole): boolean {
-  if (role === "text") return profile.adapter === "openai-compatible-text" || profile.adapter === "openai-realtime" || profile.adapter === "anthropic-text";
-  if (role === "stt") return profile.adapter === "openai-compatible-transcription";
-  return profile.adapter === "system-tts" || profile.adapter === "minimax-tts" || profile.adapter === "elevenlabs-tts" || profile.adapter === "openai-compatible-speech";
-}
+const isMacPlatform = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
-function renderStatusPill(status?: ProviderStatus) {
-  if (!status) return <span className="pill pill-slate">Unknown</span>;
-  switch (status.state) {
-    case "ready":
-      return <span className="pill pill-green">Ready</span>;
-    case "disabled":
-      return <span className="pill pill-slate">Disabled</span>;
-    case "missing-secret":
-      return <span className="pill pill-yellow">Credential Missing</span>;
-    case "unsupported":
-      return <span className="pill pill-orange">Unsupported</span>;
-    case "invalid":
-      return <span className="pill pill-red">Invalid Profile</span>;
-    default:
-      return <span className="pill pill-slate">{status.state}</span>;
-  }
-}
-
-function getAdapterLabel(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "OpenAI Compatible Text";
-    case "openai-realtime":
-      return "OpenAI Realtime";
-    case "anthropic-text":
-      return "Anthropic API";
-    case "openai-compatible-transcription":
-      return "OpenAI Compatible STT";
-    case "system-tts":
-      return "System Voice (Local)";
-    case "minimax-tts":
-      return "MiniMax Speech (T2A)";
-    case "elevenlabs-tts":
-      return "ElevenLabs TTS";
-    case "openai-compatible-speech":
-      return "OpenAI Compatible Speech";
-    default:
-      return adapter;
-  }
-}
-
-function getAdapterExplainer(adapter: ProviderAdapter): string {
-  switch (adapter) {
-    case "openai-compatible-text":
-      return "Generic OpenAI-compatible text endpoint. Compatible with OpenAI, Ollama, LM Studio, vLLM, LocalAI, and API gateways.";
-    case "openai-realtime":
-      return "Native OpenAI Realtime endpoint with ordinary text support.";
-    case "anthropic-text":
-      return "Native Anthropic messages API for Claude models.";
-    case "openai-compatible-transcription":
-      return "Whisper-compatible speech-to-text audio transcription endpoint.";
-    case "system-tts":
-      return "Built-in operating system speech synthesis. Requires no network connection or credential.";
-    case "minimax-tts":
-      return "MiniMax T2A high-quality speech synthesis API.";
-    case "elevenlabs-tts":
-      return "ElevenLabs voice synthesis API.";
-    case "openai-compatible-speech":
-      return "OpenAI /audio/speech voice synthesis endpoint.";
-    default:
-      return "";
-  }
-}
-
-function getDefaultAuthHeader(adapter: ProviderAdapter): string {
-  if (adapter === "anthropic-text") return "x-api-key";
-  if (adapter === "elevenlabs-tts") return "xi-api-key";
-  return "authorization";
-}
-
-function getDefaultAuthStrategy(adapter: ProviderAdapter): ProviderAuth["strategy"] {
-  return adapter === "anthropic-text" || adapter === "elevenlabs-tts" ? "raw" : "bearer";
-}
-
-function ProvidersSettingsPanel({
-  snapshot,
-  onSnapshotChange,
-  busy,
-  run,
-  setMessage,
-  setError,
-}: {
-  snapshot: ProviderControlCenterSnapshot | null;
-  onSnapshotChange: (snapshot: ProviderControlCenterSnapshot) => void;
-  busy: string;
-  run: (label: string, fn: () => Promise<void>) => Promise<void>;
-  setMessage: (msg: string) => void;
-  setError: (err: string) => void;
+/**
+ * Click-to-record shortcut capture. There is deliberately no free-text entry:
+ * the button arms recording and the next key combination the canonical
+ * validator accepts becomes the accelerator. Bare Escape cancels;
+ * modifier-only presses keep waiting.
+ */
+function ShortcutRecorder({ accelerator, disabled, clearable, onCapture, onClear }: {
+  accelerator: string;
+  disabled?: boolean;
+  clearable?: boolean;
+  onCapture: (accelerator: string) => void;
+  onClear?: () => void;
 }) {
-  const [showForm, setShowForm] = useState(false);
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
-  const [formDraft, setFormDraft] = useState<FormDraftState>({
-    id: "",
-    label: "",
-    adapter: "openai-compatible-text",
-    model: "gpt-4o-mini",
-    baseUrl: "https://api.openai.com/v1",
-    secretRef: undefined,
-    headers: [],
-  });
-  const [headersEdited, setHeadersEdited] = useState(false);
-  const [existingHeaderNames, setExistingHeaderNames] = useState<readonly string[]>([]);
-  const [authEdited, setAuthEdited] = useState(false);
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<string, string>>({});
+  const { t } = useI18n();
+  const [recording, setRecording] = useState(false);
 
-  function openCreateForm(preset?: ProviderPreset) {
-    if (preset) {
-      const id = `${preset.id}-${Math.random().toString(36).substring(2, 6)}`;
-      setFormDraft({
-        id,
-        label: preset.label,
-        adapter: preset.adapter,
-        model: preset.model,
-        baseUrl: preset.baseUrl,
-        secretRef: preset.credentialMode === "required" ? `${id}-credential` : undefined,
-        headers: [],
-      });
-    } else {
-      const id = `custom-${Math.random().toString(36).substring(2, 6)}`;
-      setFormDraft({
-        id,
-        label: "Custom Model Profile",
-        adapter: "openai-compatible-text",
-        model: "gpt-4o-mini",
-        baseUrl: "https://api.openai.com/v1",
-        secretRef: undefined,
-        headers: [],
-      });
-    }
-    setHeadersEdited(false);
-    setExistingHeaderNames([]);
-    setAuthEdited(false);
-    setEditingProfileId(null);
-    setShowForm(true);
-  }
-
-  function openEditForm(profile: ProviderProfileSummary) {
-    setEditingProfileId(profile.id);
-    setFormDraft({
-      id: profile.id,
-      label: profile.label,
-      adapter: profile.adapter,
-      model: profile.model,
-      baseUrl: profile.baseUrl,
-      secretRef: profile.secretRef,
-      auth: profile.auth,
-      headers: [],
-    });
-    setHeadersEdited(false);
-    setExistingHeaderNames(profile.headerNames);
-    setAuthEdited(false);
-    setShowForm(true);
-  }
-
-  function handleSelectRole(role: ProviderRole, id: string | null) {
-    void run("Selecting provider profile...", async () => {
-      const next = await api.selectProviderProfile(role, id);
-      onSnapshotChange(next);
-      setMessage("Provider profile selection updated.");
-    });
-  }
-
-  function handleSaveProfile() {
-    if (!formDraft.id || !formDraft.label) {
-      setError("Profile ID and Label are required.");
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isModifierOnlyKeyEvent(event.nativeEvent)) return;
+    if (event.code === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      setRecording(false);
       return;
     }
-    const isEditing = Boolean(editingProfileId);
-    void run(isEditing ? "Updating profile..." : "Creating profile...", async () => {
-      const payload = {
-        id: formDraft.id.trim(),
-        label: formDraft.label.trim(),
-        adapter: formDraft.adapter,
-        model: formDraft.model.trim(),
-        ...(formDraft.adapter === "system-tts" ? {} : {
-          baseUrl: formDraft.baseUrl?.trim() || undefined,
-          secretRef: formDraft.secretRef?.trim() || undefined,
-        }),
-        ...(isEditing
-          ? (formDraft.adapter === "system-tts" ? { baseUrl: null, secretRef: null, auth: null, headers: [] } : {
-            ...(formDraft.baseUrl?.trim() ? { baseUrl: formDraft.baseUrl.trim() } : { baseUrl: null }),
-            ...(formDraft.secretRef?.trim() ? { secretRef: formDraft.secretRef.trim() } : { secretRef: null }),
-            ...(authEdited || !formDraft.secretRef?.trim() ? { auth: formDraft.secretRef?.trim() ? formDraft.auth ?? null : null } : {}),
-            ...(headersEdited ? { headers: formDraft.headers ?? [] } : {}),
-          })
-          : (formDraft.adapter === "system-tts" ? {} : {
-            ...(formDraft.auth && formDraft.secretRef?.trim() ? { auth: formDraft.auth } : {}),
-            headers: formDraft.headers ?? [],
-          })),
-      } satisfies ProviderProfileInput | ProviderProfilePatch;
-      const next = isEditing
-        ? await api.updateProviderProfile(formDraft.id, payload)
-        : await api.createProviderProfile(payload as ProviderProfileInput);
-      onSnapshotChange(next);
-      setMessage(isEditing ? "Profile updated." : "Profile created.");
-      setShowForm(false);
-      setEditingProfileId(null);
-    });
+    const captured = acceleratorFromKeyboardEvent(event.nativeEvent);
+    if (!captured) return;
+    setRecording(false);
+    onCapture(captured);
   }
 
-  function handleDeleteProfile(id: string) {
-    void run("Deleting profile...", async () => {
-      const next = await api.deleteProviderProfile(id);
-      onSnapshotChange(next);
-      setMessage("Profile deleted.");
-    });
-  }
-
-  function handleSaveCredential(id: string) {
-    const value = (credentialDrafts[id] ?? "").trim();
-    if (!value) return;
-    void run("Saving credential...", async () => {
-      const next = await api.setProviderProfileCredential(id, value);
-      onSnapshotChange(next);
-      setCredentialDrafts((prev) => ({ ...prev, [id]: "" }));
-      setMessage("Credential stored successfully.");
-    });
-  }
-
-  function handleDeleteCredential(id: string) {
-    void run("Deleting credential...", async () => {
-      const next = await api.deleteProviderProfileCredential(id);
-      onSnapshotChange(next);
-      setMessage("Credential deleted.");
-    });
-  }
-
-  function handleGateToggle(key: keyof ProviderGates, val: unknown) {
-    void run("Updating gate...", async () => {
-      const patch = key === "quietHours" ? { quietHours: val as ProviderGates["quietHours"] } : { [key]: val };
-      const next = await api.updateProviderGates(patch);
-      onSnapshotChange(next);
-      setMessage("Host capability gate updated.");
-    });
-  }
-
-  const profiles = snapshot?.profiles ?? [];
-  const selections = snapshot?.selections ?? { text: null, stt: null, tts: null };
-  const statuses = snapshot?.statuses ?? {
-    text: { role: "text", state: "disabled", code: "", message: "No text provider selected." },
-    stt: { role: "stt", state: "disabled", code: "", message: "No STT provider selected." },
-    tts: { role: "tts", state: "disabled", code: "", message: "No TTS provider selected." },
-    realtime: { role: "realtime", state: "disabled", code: "", message: "Realtime disabled." },
-  };
-  const presets = snapshot?.presets ?? [];
-  const gates = snapshot?.gates ?? { allowPluginAudio: true, allowDynamicSpeech: false, allowPluginVoice: true, allowMicrophone: false, quietHours: { enabled: false, start: "22:00", end: "08:00" } };
+  const displayParts = acceleratorDisplayParts(accelerator, isMacPlatform);
 
   return (
-    <div className="settings-section">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="eyebrow">PROVIDERS & CAPABILITIES</p>
-          <h2 className="settings-section-title">Model & Voice Providers</h2>
-        </div>
-        <Button variant="secondary" size="compact" disabled={!!busy} onClick={() => openCreateForm()}>
-          + Create Profile
-        </Button>
-      </div>
-      <p className="text-sm text-slatecopy -mt-2 mb-2">
-        Configure independently selected profiles for text generation & reasoning, speech recognition, and text-to-speech. Realtime voice capability is derived automatically from your active text profile.
-      </p>
-
-      {/* Role Selections Section */}
-      <div className="providers-grid">
-        {/* Text Model Selection */}
-        <div className="provider-role-card">
-          <div className="provider-role-header">
-            <div>
-              <strong className="block text-sm font-bold text-navy">Text & reasoning Profile</strong>
-              <small className="text-xs text-slatecopy block">Primary model for chat, tools, multi-step reasoning, and reactions. Supports OpenAI, Anthropic, Ollama, LM Studio, vLLM, and gateways.</small>
-            </div>
-            {renderStatusPill(statuses.text)}
-          </div>
-          <select
-            className="settings-select w-full"
-            value={selections.text ?? ""}
-            disabled={!!busy}
-            onChange={(e) => handleSelectRole("text", e.target.value || null)}
-          >
-            <option value="">Disabled / None</option>
-            {profiles.filter((p) => profileSupportsRole(p, "text")).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} ({p.model || p.id})
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slatecopy m-0 opacity-80">{statuses.text.message}</p>
-          {statuses.text.state === "missing-secret" && (
-            <p className="text-xs font-semibold text-amber-600 m-0">Set API credential on selected profile below.</p>
-          )}
-        </div>
-
-        {/* STT Selection */}
-        <div className="provider-role-card">
-          <div className="provider-role-header">
-            <div>
-              <strong className="block text-sm font-bold text-navy">Speech-to-Text Profile (STT)</strong>
-              <small className="text-xs text-slatecopy block">Audio transcription model for voice input. Supports Whisper-compatible endpoints.</small>
-            </div>
-            {renderStatusPill(statuses.stt)}
-          </div>
-          <select
-            className="settings-select w-full"
-            value={selections.stt ?? ""}
-            disabled={!!busy}
-            onChange={(e) => handleSelectRole("stt", e.target.value || null)}
-          >
-            <option value="">Disabled / None</option>
-            {profiles.filter((p) => profileSupportsRole(p, "stt")).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} ({p.model || p.id})
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slatecopy m-0 opacity-80">{statuses.stt.message}</p>
-          {statuses.stt.state === "missing-secret" && (
-            <p className="text-xs font-semibold text-amber-600 m-0">Set API credential on selected STT profile below.</p>
-          )}
-        </div>
-
-        {/* TTS Selection */}
-        <div className="provider-role-card">
-          <div className="provider-role-header">
-            <div>
-              <strong className="block text-sm font-bold text-navy">Text-to-Speech Profile (TTS)</strong>
-              <small className="text-xs text-slatecopy block">Voice output engine for spoken replies. Supports System Voice, ElevenLabs, MiniMax, or OpenAI Speech.</small>
-            </div>
-            {renderStatusPill(statuses.tts)}
-          </div>
-          <select
-            className="settings-select w-full"
-            value={selections.tts ?? ""}
-            disabled={!!busy}
-            onChange={(e) => handleSelectRole("tts", e.target.value || null)}
-          >
-            <option value="">Disabled / None</option>
-            {profiles.filter((p) => profileSupportsRole(p, "tts")).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} ({p.model || p.id})
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slatecopy m-0 opacity-80">{statuses.tts.message}</p>
-          {statuses.tts.state === "missing-secret" && (
-            <p className="text-xs font-semibold text-amber-600 m-0">Set API credential on selected TTS profile below.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Derived Realtime WebRTC Status Callout */}
-      <div className="provider-realtime-callout">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <SparklesIcon className="w-4 h-4 text-brand" />
-            <strong className="text-sm font-bold text-navy">Realtime Voice Capability (Derived)</strong>
-          </div>
-          {renderStatusPill(statuses.realtime)}
-        </div>
-        <p className="text-xs text-slatecopy m-0 leading-relaxed">
-          {statuses.realtime.message} Realtime availability is derived automatically from your active Text profile when it uses the native OpenAI Realtime adapter. It is not an independently selectable provider.
-        </p>
-      </div>
-
-      {/* Presets Bar */}
-      <div className="settings-group p-5">
-        <strong className="block text-sm font-bold text-navy mb-1">Quick Add Presets</strong>
-        <p className="text-xs text-slatecopy mb-3">Click a preset to quickly configure a profile with standard default settings:</p>
-        <div className="provider-presets-bar">
-          {presets.map((preset) => (
-            <button
-              key={preset.id}
-              className="provider-preset-chip"
-              disabled={!!busy}
-              onClick={() => openCreateForm(preset)}
-            >
-              <span>+ {preset.label}</span>
-              <span className="opacity-60 text-[10px] font-mono">({preset.adapter})</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Configured Profiles List */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-monoDisplay text-lg font-black text-navy m-0">Configured Profiles ({profiles.length})</h3>
-        </div>
-
-        {profiles.length === 0 ? (
-          <div className="settings-group p-6 text-center text-sm text-slatecopy">
-            No provider profiles configured. Click a preset above or "+ Create Profile" to add your first profile.
-          </div>
+    <>
+      <button
+        type="button"
+        className={`settings-select shortcut-recorder ${recording ? "shortcut-recorder-armed animate-pulse" : ""}`}
+        disabled={disabled}
+        aria-pressed={recording}
+        onClick={() => setRecording((current) => !current)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setRecording(false)}
+      >
+        {recording ? (
+          <span className="text-xs">{t("settings.shortcut.recording")}</span>
+        ) : displayParts.length > 0 ? (
+          displayParts.map((part, index) => <kbd key={index} className="shortcut-keycap">{part}</kbd>)
         ) : (
-          profiles.map((profile) => {
-            const isSelectedText = selections.text === profile.id;
-            const isSelectedStt = selections.stt === profile.id;
-            const isSelectedTts = selections.tts === profile.id;
-            const isSelectedAny = isSelectedText || isSelectedStt || isSelectedTts;
-
-            return (
-              <div key={profile.id} className="provider-profile-card">
-                <div className="provider-profile-header">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <strong className="text-base font-bold text-navy">{profile.label}</strong>
-                      <code className="text-xs font-mono px-2 py-0.5 rounded bg-blue-100/60 text-brand">{profile.id}</code>
-                      {profile.adapter === "openai-realtime" && <span className="pill pill-purple">Realtime WebRTC</span>}
-                    </div>
-                    <span className="text-xs font-semibold text-slatecopy block mt-0.5">
-                      Adapter: <span className="font-mono text-navy">{getAdapterLabel(profile.adapter)}</span> | Model: <span className="font-mono text-navy">{profile.model || "(System)"}</span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" size="compact" disabled={!!busy} onClick={() => openEditForm(profile)}>
-                      Edit Profile
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="compact"
-                      disabled={!!busy || isSelectedAny}
-                      title={isSelectedAny ? "Unselect profile from active roles before deleting" : "Delete profile"}
-                      onClick={() => handleDeleteProfile(profile.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="provider-meta-row">
-                  {profile.baseUrl && (
-                    <span>Endpoint: <code className="font-mono text-navy">{profile.baseUrl}</code></span>
-                  )}
-                  {profile.secretRef && (
-                    <span>Secret Ref: <code className="font-mono text-navy">{profile.secretRef}</code></span>
-                  )}
-                  {profile.headerNames.length > 0 && (
-                    <span>Headers: <span className="font-mono text-navy">{profile.headerNames.join(", ")}</span></span>
-                  )}
-                </div>
-
-                {/* Active Role Badges */}
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  <span className="text-xs text-slatecopy font-semibold mr-1">Active Roles:</span>
-                  {isSelectedText && <span className="pill pill-green">Text & reasoning</span>}
-                  {isSelectedStt && <span className="pill pill-orange">STT</span>}
-                  {isSelectedTts && <span className="pill pill-purple">TTS</span>}
-                  {!isSelectedAny && <span className="pill pill-slate">Unselected</span>}
-                </div>
-
-                {/* Credential Management Box */}
-                {profile.secretRef && (
-                  <div className="provider-credential-box">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-navy">API Credential</span>
-                      {profile.hasCredential ? (
-                        <span className="pill pill-green">Credential Stored</span>
-                      ) : (
-                        <span className="pill pill-yellow">No Credential Stored</span>
-                      )}
-                    </div>
-                    <div className="flex gap-2 items-center mt-1">
-                      <input
-                        type="password"
-                        className="settings-select flex-1"
-                        placeholder={profile.hasCredential ? "Enter new API key to update..." : "Enter secret API key / token..."}
-                        value={credentialDrafts[profile.id] ?? ""}
-                        disabled={!!busy}
-                        onChange={(e) => setCredentialDrafts({ ...credentialDrafts, [profile.id]: e.target.value })}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!!busy || !(credentialDrafts[profile.id]?.trim())}
-                        onClick={() => handleSaveCredential(profile.id)}
-                      >
-                        {profile.hasCredential ? "Update Key" : "Save Key"}
-                      </Button>
-                      {profile.hasCredential && (
-                        <Button
-                          variant="secondary"
-                          size="compact"
-                          disabled={!!busy}
-                          onClick={() => handleDeleteCredential(profile.id)}
-                        >
-                          Remove credential
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+          <span className="text-xs opacity-70">{t("settings.shortcut.record")}</span>
         )}
-      </div>
-
-      {/* Form Modal / Panel for Creating or Editing Profile */}
-      {showForm && (
-        <div className="settings-group p-6 flex flex-col gap-4 border-2 border-brand/40 bg-white shadow-lg rounded-[28px] mt-4">
-          <h3 className="font-monoDisplay text-xl font-black text-navy m-0">
-            {editingProfileId ? `Edit Profile (${editingProfileId})` : "Create Provider Profile"}
-          </h3>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-navy mb-1">Profile ID</label>
-              <input
-                type="text"
-                className="settings-select w-full"
-                placeholder="e.g. ollama-local, openai-gpt4"
-                value={formDraft.id}
-                maxLength={64}
-                disabled={!!editingProfileId || !!busy}
-                onChange={(e) => setFormDraft({ ...formDraft, id: e.target.value })}
-              />
-              <small className="text-[11px] text-slatecopy block mt-1">Alphanumeric slug (e.g. openai-main, local-vllm).</small>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-navy mb-1">Display Label</label>
-              <input
-                type="text"
-                className="settings-select w-full"
-                placeholder="e.g. OpenAI GPT-4, Local Ollama"
-                value={formDraft.label}
-                maxLength={160}
-                disabled={!!busy}
-                onChange={(e) => setFormDraft({ ...formDraft, label: e.target.value })}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-navy mb-1">Adapter</label>
-            <select
-              className="settings-select w-full"
-              value={formDraft.adapter}
-              disabled={!!busy}
-              onChange={(e) => {
-                const adapter = e.target.value as ProviderAdapter;
-                setFormDraft({
-                  ...formDraft,
-                  adapter,
-                  model: adapter === "system-tts" ? "" : formDraft.model,
-                  baseUrl: adapter === "system-tts" ? undefined : formDraft.baseUrl,
-                  secretRef: adapter === "system-tts" ? undefined : formDraft.secretRef,
-                  auth: adapter === "system-tts" ? undefined : formDraft.auth,
-                  headers: adapter === "system-tts" ? [] : formDraft.headers,
-                });
-              }}
-            >
-              <option value="openai-compatible-text">OpenAI-Compatible Text (OpenAI, Ollama, LM Studio, vLLM, gateways)</option>
-              <option value="openai-realtime">OpenAI Realtime (Native WebRTC)</option>
-              <option value="anthropic-text">Anthropic API (Claude models)</option>
-              <option value="openai-compatible-transcription">OpenAI-Compatible STT (Whisper transcription)</option>
-              <option value="system-tts">System Voice (Built-in OS text-to-speech)</option>
-              <option value="minimax-tts">MiniMax TTS (T2A speech synthesis)</option>
-              <option value="elevenlabs-tts">ElevenLabs TTS (Voice synthesis)</option>
-              <option value="openai-compatible-speech">OpenAI Speech (Audio speech synthesis)</option>
-            </select>
-            <small className="text-[11px] text-slatecopy block mt-1">{getAdapterExplainer(formDraft.adapter)}</small>
-          </div>
-
-          {formDraft.adapter !== "system-tts" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-navy mb-1">Model Identifier</label>
-                <input
-                  type="text"
-                  className="settings-select w-full"
-                  placeholder="e.g. gpt-4o-mini, llama3.2, whisper-1"
-                  value={formDraft.model}
-                  maxLength={256}
-                  disabled={!!busy}
-                  onChange={(e) => setFormDraft({ ...formDraft, model: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-navy mb-1">Base Endpoint URL</label>
-                <input
-                  type="text"
-                  className="settings-select w-full"
-                  placeholder="e.g. https://api.openai.com/v1"
-                  value={formDraft.baseUrl ?? ""}
-                  maxLength={512}
-                  disabled={!!busy}
-                  onChange={(e) => setFormDraft({ ...formDraft, baseUrl: e.target.value })}
-                />
-                <small className="text-[11px] text-slatecopy block mt-1">HTTPS required unless local (http://127.0.0.1 or localhost).</small>
-              </div>
-            </div>
-          )}
-
-          {formDraft.adapter !== "system-tts" && (
-            <div>
-              <label className="block text-xs font-bold text-navy mb-1">Secret Reference (Credential Key)</label>
-              <input
-                type="text"
-                className="settings-select w-full"
-                placeholder="e.g. openai-key, elevenlabs-key"
-                value={formDraft.secretRef ?? ""}
-                maxLength={160}
-                disabled={!!busy}
-                onChange={(e) => setFormDraft({ ...formDraft, secretRef: e.target.value })}
-              />
-              <small className="text-[11px] text-slatecopy block mt-1">Opaque reference for the credential stored by the host. Leave empty to use no credential.</small>
-            </div>
-          )}
-
-          {formDraft.secretRef?.trim() && (
-            <div className="provider-credential-box">
-              <label className="block text-xs font-bold text-navy mb-1">Credential Placement</label>
-              <select
-                className="settings-select w-full"
-                value={formDraft.auth ? "custom" : "default"}
-                disabled={!!busy}
-                onChange={(e) => {
-                  if (e.target.value === "default") {
-                    setFormDraft({ ...formDraft, auth: null });
-                  } else {
-                    setFormDraft({
-                      ...formDraft,
-                      auth: formDraft.auth ?? { headerName: getDefaultAuthHeader(formDraft.adapter), strategy: getDefaultAuthStrategy(formDraft.adapter) },
-                    });
-                  }
-                  setAuthEdited(true);
-                }}
-              >
-                <option value="default">Adapter default ({getDefaultAuthHeader(formDraft.adapter)})</option>
-                <option value="custom">Custom header placement</option>
-              </select>
-              {formDraft.auth && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <input
-                    type="text"
-                    className="settings-select text-xs"
-                    placeholder="Auth header name"
-                    value={formDraft.auth.headerName}
-                    maxLength={128}
-                    disabled={!!busy}
-                    onChange={(e) => {
-                      setFormDraft({ ...formDraft, auth: { ...formDraft.auth!, headerName: e.target.value } });
-                      setAuthEdited(true);
-                    }}
-                  />
-                  <select
-                    className="settings-select text-xs"
-                    value={formDraft.auth.strategy}
-                    disabled={!!busy}
-                    onChange={(e) => {
-                      setFormDraft({ ...formDraft, auth: { ...formDraft.auth!, strategy: e.target.value as ProviderAuth["strategy"] } });
-                      setAuthEdited(true);
-                    }}
-                  >
-                    <option value="bearer">Bearer</option>
-                    <option value="raw">Raw value</option>
-                  </select>
-                </div>
-              )}
-              <small className="text-[11px] text-slatecopy block mt-1">Adapter default uses the provider's standard credential header. Choose custom placement only when the provider requires it.</small>
-            </div>
-          )}
-
-          {/* Custom Headers List */}
-          {formDraft.adapter !== "system-tts" && (
-            <div className="provider-header-table">
-              {editingProfileId && !headersEdited ? (
-                <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-navy">Stored Static Headers (Read-only)</span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!!busy}
-                        onClick={() => {
-                          setFormDraft({ ...formDraft, headers: [] });
-                          setHeadersEdited(true);
-                        }}
-                      >
-                        Replace all headers
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!!busy}
-                        onClick={() => {
-                          setFormDraft({ ...formDraft, headers: [] });
-                          setHeadersEdited(true);
-                        }}
-                      >
-                        Clear headers
-                      </Button>
-                    </div>
-                  </div>
-                  <small className="text-[11px] text-slatecopy block mb-2">
-                    Non-secret static header names are shown from the redacted snapshot. Values are stored in local profile settings and never loaded here.
-                  </small>
-                  {existingHeaderNames.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {existingHeaderNames.map((name) => <code key={name} className="text-xs font-mono px-2 py-1 rounded bg-blue-100/60 text-navy">{name}</code>)}
-                    </div>
-                  ) : (
-                    <small className="text-[11px] text-slatecopy block">No static headers stored.</small>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-navy">Custom Request Headers (Optional, Max 16)</span>
-                    <Button
-                      variant="secondary"
-                      size="compact"
-                      disabled={!!busy || (formDraft.headers?.length ?? 0) >= 16}
-                      onClick={() => {
-                        setFormDraft({ ...formDraft, headers: [...(formDraft.headers ?? []), { name: "", value: "" }] });
-                        setHeadersEdited(true);
-                      }}
-                    >
-                      + Add Header
-                    </Button>
-                  </div>
-                  <small className="text-[11px] text-slatecopy block mb-2">
-                    Non-secret static header values are stored in local provider profile settings. The submitted list replaces all stored headers; credential values are handled separately.
-                  </small>
-                  {(formDraft.headers ?? []).map((header, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      <input
-                        type="text"
-                        className="settings-select flex-1 text-xs"
-                        placeholder="Header Name (e.g. Openai-Organization)"
-                        value={header.name}
-                        maxLength={128}
-                        disabled={!!busy}
-                        onChange={(e) => {
-                          const nextHeaders = [...(formDraft.headers ?? [])];
-                          nextHeaders[idx] = { ...nextHeaders[idx], name: e.target.value };
-                          setFormDraft({ ...formDraft, headers: nextHeaders });
-                          setHeadersEdited(true);
-                        }}
-                      />
-                      <input
-                        type="text"
-                        className="settings-select flex-1 text-xs"
-                        placeholder="Header Value"
-                        value={header.value}
-                        maxLength={2048}
-                        disabled={!!busy}
-                        onChange={(e) => {
-                          const nextHeaders = [...(formDraft.headers ?? [])];
-                          nextHeaders[idx] = { ...nextHeaders[idx], value: e.target.value };
-                          setFormDraft({ ...formDraft, headers: nextHeaders });
-                          setHeadersEdited(true);
-                        }}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!!busy}
-                        onClick={() => {
-                          const nextHeaders = (formDraft.headers ?? []).filter((_, i) => i !== idx);
-                          setFormDraft({ ...formDraft, headers: nextHeaders });
-                          setHeadersEdited(true);
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-3 mt-2">
-            <Button variant="secondary" size="compact" disabled={!!busy} onClick={() => setShowForm(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="compact" disabled={!!busy} onClick={handleSaveProfile}>
-              {editingProfileId ? "Save Changes" : "Create Profile"}
-            </Button>
-          </div>
-        </div>
+      </button>
+      {clearable && !!accelerator && !recording && (
+        <Button variant="secondary" size="compact" disabled={disabled} onClick={onClear}>
+          {t("settings.shortcut.clear")}
+        </Button>
       )}
-
-      {/* Host Capability Gates Panel */}
-      <div className="settings-group mt-4">
-        <div className="p-5 border-b border-blue-50">
-          <strong className="block text-base font-bold text-navy">Host Capability Gates</strong>
-          <small className="text-xs text-slatecopy block">System-level permissions for plugin audio playback, dynamic speech generation, voice output, and microphone access.</small>
-        </div>
-        <ToggleRow
-          title="Allow Plugin Audio"
-          description="Permit plugins to play sound effects and ambient audio."
-          checked={gates.allowPluginAudio}
-          disabled={!!busy}
-          onChange={(val) => handleGateToggle("allowPluginAudio", val)}
-        />
-        <ToggleRow
-          title="Allow Plugin Voice Output"
-          description="Permit plugins to trigger host voice synthesis."
-          checked={gates.allowPluginVoice}
-          disabled={!!busy}
-          onChange={(val) => handleGateToggle("allowPluginVoice", val)}
-        />
-        <ToggleRow
-          title="Allow Dynamic Speech Generation"
-          description="Permit plugins to request dynamic text-to-speech synthesis from configured providers."
-          checked={gates.allowDynamicSpeech}
-          disabled={!!busy}
-          onChange={(val) => handleGateToggle("allowDynamicSpeech", val)}
-        />
-        <ToggleRow
-          title="Allow Microphone Access"
-          description="Permit host audio capture for speech-to-text transcription."
-          checked={gates.allowMicrophone}
-          disabled={!!busy}
-          onChange={(val) => handleGateToggle("allowMicrophone", val)}
-        />
-        <ToggleRow
-          title="Quiet Hours"
-          description="Automatically mute audio output during designated quiet hours."
-          checked={gates.quietHours.enabled}
-          disabled={!!busy}
-          onChange={(val) => handleGateToggle("quietHours", { ...gates.quietHours, enabled: val })}
-        />
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <strong>Quiet Hours Window</strong>
-            <small>Specify daily start and end times for quiet hours.</small>
-          </div>
-          <div className="flex gap-2 items-center">
-            <input
-              type="time"
-              className="settings-select"
-              value={gates.quietHours.start}
-              disabled={!gates.quietHours.enabled || !!busy}
-              onChange={(e) => handleGateToggle("quietHours", { ...gates.quietHours, start: e.target.value })}
-            />
-            <span className="opacity-60 text-xs">to</span>
-            <input
-              type="time"
-              className="settings-select"
-              value={gates.quietHours.end}
-              disabled={!gates.quietHours.enabled || !!busy}
-              onChange={(e) => handleGateToggle("quietHours", { ...gates.quietHours, end: e.target.value })}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
 
-function shortcutStatusLabel(status?: VoiceAssistantShortcutStatus): string {
-  if (status === "registered") return "Active";
-  if (status === "conflict") return "Conflict";
-  if (status === "unavailable") return "Unavailable";
-  if (status === "invalid") return "Invalid";
-  return "Unknown";
-}
+type SettingsTab = "general" | "reactions" | "plugins" | "lan" | "remote";
 
-function shortcutBadgeClass(status?: VoiceAssistantShortcutStatus): string {
-  if (status === "registered") return "voice-badge-active";
-  if (status === "conflict") return "voice-badge-conflict";
-  if (status === "unavailable" || status === "invalid") return "voice-badge-error";
-  return "voice-badge-neutral";
-}
+const settingsNavGroups: ReadonlyArray<{
+  readonly labelKey: string;
+  readonly items: ReadonlyArray<{ readonly id: SettingsTab; readonly labelKey: string; readonly icon: React.ReactNode }>;
+}> = [
+  {
+    labelKey: "settings.nav.group.app",
+    items: [
+      { id: "general", labelKey: "settings.nav.general", icon: <SettingsIcon /> },
+      { id: "reactions", labelKey: "settings.nav.reactions", icon: <PetsIcon /> },
+    ],
+  },
+  {
+    labelKey: "settings.nav.group.platform",
+    items: [{ id: "plugins", labelKey: "settings.nav.plugins", icon: <PluginsIcon /> }],
+  },
+  {
+    labelKey: "settings.nav.group.connectivity",
+    items: [
+      { id: "lan", labelKey: "settings.nav.lan", icon: <IntegrationsIcon /> },
+      { id: "remote", labelKey: "settings.nav.remote", icon: <KeyIcon /> },
+    ],
+  },
+];
 
 function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void; onTokenHandoff: (result: RemotePairingResult, endpoint: string | null) => void }) {
   const { t, localePreference, availableLocales, reload: reloadI18n } = useI18n();
   const [settings, setSettings] = useState<SettingsState | null>(null);
-  const [shortcutDraft, setShortcutDraft] = useState<string | null>(null);
-  const [shortcutSaveError, setShortcutSaveError] = useState<string>("");
+  const [petToggleShortcutSaveError, setPetToggleShortcutSaveError] = useState<string>("");
   const [reactionSettings, setReactionSettings] = useState<ReactionAnimationSettings | null>(null);
   const [launchAtLogin, setLaunchAtLogin] = useState<LaunchAtLoginState | null>(null);
   const [lanStatus, setLanStatus] = useState<LanStatusSnapshot | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<"general" | "personality" | "reactions" | "providers" | "plugins" | "lan" | "remote">("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [pluginsSnapshot, setPluginsSnapshot] = useState<PluginServiceSnapshot | null>(null);
   const [providerSnapshot, setProviderSnapshot] = useState<ProviderControlCenterSnapshot | null>(null);
-  const [personalityDraft, setPersonalityDraft] = useState<PetAssistantPersonality | null>(null);
+  const [voiceDevicesSnapshot, setVoiceDevicesSnapshot] = useState<VoiceDevicesSnapshot | null>(null);
+  const [refreshingVoiceDevices, setRefreshingVoiceDevices] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -2129,7 +1293,7 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
 
   async function loadSettings() {
     setError("");
-    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot] = await Promise.all([
+    const [nextSettings, nextReactions, nextLaunch, nextUpdate, nextProvider, nextLanStatus, nextPluginsSnapshot, nextVoiceDevices] = await Promise.all([
       api.getSettingsState(),
       api.getReactionAnimationSettings(),
       api.getLaunchAtLogin(),
@@ -2137,16 +1301,15 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
       api.getProviderProfiles().catch(() => null),
       api.getLanStatus().catch(() => null),
       api.getPluginsSnapshot().catch(() => null),
+      api.getVoiceDevices().catch(() => null),
     ]);
     setSettings(nextSettings);
-    setShortcutDraft(nextSettings.preferences.voiceAssistantShortcut ?? "");
-    setShortcutSaveError("");
-    setPersonalityDraft(nextSettings.preferences.personality);
     onAppearanceThemeChange(nextSettings.preferences.appearanceTheme);
     setReactionSettings(nextReactions);
     setLaunchAtLogin(nextLaunch);
     setUpdateStatus(nextUpdate);
     setProviderSnapshot(nextProvider);
+    setVoiceDevicesSnapshot(nextVoiceDevices);
     setLanStatus(nextLanStatus);
     setPluginsSnapshot(nextPluginsSnapshot);
     if (nextUpdate.state === "checking") {
@@ -2176,11 +1339,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     void run(t("settings.busy.saving"), async () => {
       const next = await api.updatePreferences(patch);
       setSettings(next);
-      if ("voiceAssistantShortcut" in patch) {
-        setShortcutDraft(next.preferences.voiceAssistantShortcut ?? "");
-        setShortcutSaveError("");
-      }
-      if ("personality" in patch) setPersonalityDraft(next.preferences.personality);
       if ("appearanceTheme" in patch) onAppearanceThemeChange(next.preferences.appearanceTheme);
       if ("reactionAnimationOverrides" in patch) {
         setReactionSettings((current) => current ? { ...current, overrides: next.preferences.reactionAnimationOverrides ?? {} } : current);
@@ -2192,35 +1350,29 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
-  function saveVoiceShortcut() {
-    const value = (shortcutDraft ?? "").trim();
-    if (!value) return;
-    setShortcutSaveError("");
+  function savePetToggleShortcut(value: string) {
+    setPetToggleShortcutSaveError("");
     void run(t("settings.busy.saving"), async () => {
       try {
-        const next = await api.updatePreferences({ voiceAssistantShortcut: value });
+        const next = await api.updatePreferences({ petToggleShortcut: value });
         setSettings(next);
-        const outcome = resolveShortcutSaveOutcome(value, next);
-        setShortcutDraft(outcome.savedAccelerator);
-        if (outcome.accepted) {
-          setShortcutSaveError("");
-          setMessage("Pet Talk shortcut saved");
+        const saved = next.preferences.petToggleShortcut ?? "";
+        const status = next.petToggleShortcutStatus;
+        const accepted = saved === value
+          && (value === "" || (status?.status === "registered" && status.accelerator === value && !status.reason));
+        if (accepted) {
+          setMessage(t("settings.toast.petToggleShortcutSaved"));
         } else {
-          const reason = outcome.reason ?? "Pet Talk shortcut was not activated.";
-          setShortcutSaveError(reason);
+          const reason = status?.reason ?? t("settings.general.petToggleShortcut.failed");
+          setPetToggleShortcutSaveError(reason);
           setError(reason);
         }
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : "Failed to save shortcut.";
-        setShortcutSaveError(errMsg);
+        const errMsg = err instanceof Error ? err.message : t("settings.general.petToggleShortcut.failed");
+        setPetToggleShortcutSaveError(errMsg);
         setError(errMsg);
       }
     });
-  }
-
-  function resetVoiceShortcut() {
-    setShortcutDraft(settings?.preferences.voiceAssistantShortcut ?? "");
-    setShortcutSaveError("");
   }
 
   function changeLocale(value: string) {
@@ -2264,14 +1416,41 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
-  function savePersonality() {
-    if (!personalityDraft) return;
-    void run(t("settings.busy.saving"), async () => {
-      const next = await api.updatePreferences({ personality: personalityDraft });
-      setSettings(next);
-      setPersonalityDraft(next.preferences.personality);
-      setMessage(t("settings.toast.personalitySaved"));
+  async function handleSelectInputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredInputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.inputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
     });
+  }
+
+  async function handleSelectOutputDevice(deviceId: string | null) {
+    await run(t("settings.voiceDevices.busy.saving"), async () => {
+      try {
+        const next = await api.saveVoiceDevicePreferences({ preferredOutputDeviceId: deviceId });
+        setVoiceDevicesSnapshot(next);
+        setMessage(t("settings.voiceDevices.toast.outputSaved"));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.saveFailed"));
+      }
+    });
+  }
+
+  async function handleRefreshVoiceDevices() {
+    setRefreshingVoiceDevices(true);
+    try {
+      const next = await api.refreshVoiceDevices();
+      setVoiceDevicesSnapshot(next);
+      setMessage(t("settings.voiceDevices.toast.refreshed"));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("settings.voiceDevices.toast.refreshFailed"));
+    } finally {
+      setRefreshingVoiceDevices(false);
+    }
   }
 
   const isMoverActive = (pluginsSnapshot?.plugins ?? []).some(
@@ -2284,34 +1463,21 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
 
     <div className="settings-container">
       <aside className="settings-sidebar">
-        <button className={`settings-nav-item ${activeTab === "general" ? "active" : ""}`} onClick={() => setActiveTab("general")}>
-          <SettingsIcon />
-          <span>{t("settings.nav.general")}</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "personality" ? "active" : ""}`} onClick={() => setActiveTab("personality")}>
-          <MessageIcon className="settings-nav-icon" />
-          <span>{t("settings.nav.personality")}</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "reactions" ? "active" : ""}`} onClick={() => setActiveTab("reactions")}>
-          <PetsIcon />
-          <span>{t("settings.nav.reactions")}</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "providers" ? "active" : ""}`} onClick={() => setActiveTab("providers")}>
-          <ProvidersIcon className="settings-nav-icon" />
-          <span>Providers</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "plugins" ? "active" : ""}`} onClick={() => setActiveTab("plugins")}>
-          <PluginsIcon />
-          <span>{t("settings.nav.plugins")}</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "lan" ? "active" : ""}`} onClick={() => setActiveTab("lan")}>
-          <IntegrationsIcon />
-          <span>{t("settings.nav.lan")}</span>
-        </button>
-        <button className={`settings-nav-item ${activeTab === "remote" ? "active" : ""}`} onClick={() => setActiveTab("remote")}>
-          <KeyIcon />
-          <span>{t("settings.nav.remote")}</span>
-        </button>
+        {settingsNavGroups.map((group) => (
+          <div key={group.labelKey} className="settings-nav-group">
+            <p className="settings-nav-group-label">{t(group.labelKey)}</p>
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                className={`settings-nav-item ${activeTab === item.id ? "active" : ""}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {item.icon}
+                <span>{t(item.labelKey)}</span>
+              </button>
+            ))}
+          </div>
+        ))}
       </aside>
 
       <main className="settings-content">
@@ -2338,75 +1504,6 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                 />
                 <div className="settings-row">
                   <div className="settings-row-info">
-                    <strong>{t("settings.general.petScale.title")}</strong>
-                    <small>{t("settings.general.petScale.description")}</small>
-                  </div>
-                  <select className="settings-select" value={settings?.preferences.petScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ petScale: Number(event.target.value) }, t("settings.toast.petScaleSaved"))}>
-                    {(settings?.petScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-info">
-                    <strong>Pet Talk Shortcut</strong>
-                    <small>Global hotkey to start voice conversation with your pet.</small>
-                    {settings?.voiceAssistantShortcutStatus?.reason && (
-                      <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
-                        {settings.voiceAssistantShortcutStatus.reason}
-                      </small>
-                    )}
-                    {shortcutSaveError && (
-                      <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
-                        {shortcutSaveError}
-                      </small>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-2 min-w-0">
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {settings?.voiceAssistantShortcutStatus?.status && (
-                        <span className={`voice-badge ${shortcutBadgeClass(settings.voiceAssistantShortcutStatus.status)}`}>
-                          {shortcutStatusLabel(settings.voiceAssistantShortcutStatus.status)}
-                        </span>
-                      )}
-                      <input
-                        type="text"
-                        className="settings-select w-48 font-mono text-xs"
-                        value={shortcutDraft ?? settings?.preferences.voiceAssistantShortcut ?? ""}
-                        placeholder="e.g. CommandOrControl+Shift+Space"
-                        disabled={!settings || !!busy}
-                        onChange={(event) => {
-                          setShortcutDraft(event.target.value);
-                          setShortcutSaveError("");
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            saveVoiceShortcut();
-                          }
-                        }}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="compact"
-                        disabled={!settings || !!busy || (shortcutDraft ?? "") === (settings?.preferences.voiceAssistantShortcut ?? "")}
-                        onClick={saveVoiceShortcut}
-                      >
-                        Save
-                      </Button>
-                      {(shortcutDraft ?? "") !== (settings?.preferences.voiceAssistantShortcut ?? "") && (
-                        <Button
-                          variant="secondary"
-                          size="compact"
-                          disabled={!settings || !!busy}
-                          onClick={resetVoiceShortcut}
-                        >
-                          Reset
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-row-info">
                     <strong>{t("settings.language.title")}</strong>
                     <small>{t("settings.language.description")}</small>
                   </div>
@@ -2428,50 +1525,50 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                 </div>
               </div>
 
-              <div className="settings-group">
-                <ToggleRow
-                  title={t("settings.petPool.label")}
-                  description={t("settings.petPool.description")}
-                  checked={settings?.preferences.petPoolEnabled ?? false}
-                  disabled={!settings || !!busy}
-                  onChange={(checked) => patchPreferences({ petPoolEnabled: checked }, t("settings.toast.petPoolSaved"))}
-                />
-                <div className={settings?.preferences.petPoolEnabled ? "" : "opacity-50 pointer-events-none"}>
-                  <PetPoolOrderList
-                    order={settings?.preferences.petPoolOrder ?? []}
-                    candidates={settings?.petPoolCandidates ?? []}
-                    disabled={!settings || !!busy || !(settings?.preferences.petPoolEnabled)}
-                    onChangeOrder={updatePetPoolOrder}
-                  />
-                </div>
-              </div>
-
-              <div className="settings-actions">
-                <Button variant="secondary" size="compact" disabled={!!busy} onClick={() => void run(t("settings.busy.resetting"), async () => { setSettings(await api.resetDefaultPetPosition()); setMessage(t("settings.toast.positionReset")); })}>{t("settings.general.resetPosition")}</Button>
-              </div>
-
-              <div className="settings-system-footer">
-                <div className="settings-system-info">
-                  <RefreshIcon />
-                  <span>{t("settings.general.systemStatus")}</span>
-                  <span className="settings-system-version">{updateStatus?.currentVersion}</span>
-                  <span className="opacity-60">{formatUpdateStatus(updateStatus, t)}</span>
-                </div>
-                <div className="flex gap-2">
-                  {updateStatus?.state === "available" && (
-                    <Button variant="primary" size="compact" disabled={!!busy} onClick={() => void run(t("settings.busy.opening"), async () => { await api.openUpdateReleasePage(); })}>{t("settings.general.updateAvailable")}</Button>
-                  )}
-                  <Button variant="secondary" size="compact" disabled={!!busy || updateStatus?.state === "checking"} onClick={() => void run(t("settings.busy.checking"), async () => { setUpdateStatus(await api.checkForUpdates()); })}>
-                    {busy === t("settings.busy.checking") ? t("settings.general.checking") : t("settings.general.checkForUpdates")}
-                  </Button>
-                </div>
-              </div>
             </div>
 
             <div className="settings-section">
-              <h2 className="settings-section-title">{t("settings.movement.title")}</h2>
+              <h2 className="settings-section-title">{t("settings.voiceDevices.sectionTitle")}</h2>
+              <VoiceDevicesSection
+                snapshot={voiceDevicesSnapshot}
+                busy={busy}
+                isRefreshing={refreshingVoiceDevices}
+                onSelectInputDevice={handleSelectInputDevice}
+                onSelectOutputDevice={handleSelectOutputDevice}
+                onRefresh={() => void handleRefreshVoiceDevices()}
+              />
+            </div>
+
+            <div className="settings-section">
+              <h2 className="settings-section-title">{t("settings.petBehavior.title")}</h2>
 
               <div className="settings-group">
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.petScale.title")}</strong>
+                    <small>{t("settings.general.petScale.description")}</small>
+                  </div>
+                  <select className="settings-select" value={settings?.preferences.petScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ petScale: Number(event.target.value) }, t("settings.toast.petScaleSaved"))}>
+                    {(settings?.petScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.hudScale.title")}</strong>
+                    <small>{t("settings.general.hudScale.description")}</small>
+                  </div>
+                  <select className="settings-select" value={settings?.preferences.hudScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ hudScale: Number(event.target.value) }, t("settings.toast.hudScaleSaved"))}>
+                    {(settings?.hudScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <ToggleRow
+                  title={t("settings.general.idleCursorGaze.title")}
+                  description={t("settings.general.idleCursorGaze.description")}
+                  checked={settings?.preferences.idleCursorGazeEnabled ?? true}
+                  disabled={!settings || !!busy}
+                  testId="setting-idle-cursor-gaze-toggle"
+                  onChange={(checked) => patchPreferences({ idleCursorGazeEnabled: checked }, t("settings.toast.idleCursorGazeSaved"))}
+                />
                 <ToggleRow
                   title={t("settings.petConfinement.label")}
                   description={t("settings.petConfinement.description")}
@@ -2496,9 +1593,464 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                   testId="setting-pet-gravity-toggle"
                   onChange={(checked) => patchPreferences({ petGravityEnabled: checked }, t("settings.toast.gravitySaved"))}
                 />
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.petToggleShortcut.title")}</strong>
+                    <small>{t("settings.general.petToggleShortcut.description")}</small>
+                    {Boolean(settings?.preferences.petToggleShortcut) && settings?.petToggleShortcutStatus?.reason && (
+                      <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {settings.petToggleShortcutStatus.reason}
+                      </small>
+                    )}
+                    {petToggleShortcutSaveError && (
+                      <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                        {petToggleShortcutSaveError}
+                      </small>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.petToggleShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={savePetToggleShortcut}
+                      onClear={() => savePetToggleShortcut("")}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-group">
+                <ToggleRow
+                  title={t("settings.petPool.label")}
+                  description={t("settings.petPool.description")}
+                  checked={settings?.preferences.petPoolEnabled ?? false}
+                  disabled={!settings || !!busy}
+                  onChange={(checked) => patchPreferences({ petPoolEnabled: checked }, t("settings.toast.petPoolSaved"))}
+                />
+                <div className={settings?.preferences.petPoolEnabled ? "" : "opacity-50 pointer-events-none"}>
+                  <PetPoolOrderList
+                    order={settings?.preferences.petPoolOrder ?? []}
+                    candidates={settings?.petPoolCandidates ?? []}
+                    disabled={!settings || !!busy || !(settings?.preferences.petPoolEnabled)}
+                    onChangeOrder={updatePetPoolOrder}
+                  />
+                </div>
+              </div>
+
+              <div className="settings-actions">
+                <Button variant="secondary" size="compact" disabled={!!busy} onClick={() => void run(t("settings.busy.resetting"), async () => { setSettings(await api.resetDefaultPetPosition()); setMessage(t("settings.toast.positionReset")); })}>{t("settings.general.resetPosition")}</Button>
+              </div>
+            </div>
+
+            {/* App version and update check live at the very bottom of the tab. */}
+            <div className="settings-system-footer">
+              <div className="settings-system-info">
+                <RefreshIcon />
+                <span>{t("settings.general.systemStatus")}</span>
+                <span className="settings-system-version">{updateStatus?.currentVersion}</span>
+                <span className="opacity-60">{formatUpdateStatus(updateStatus, t)}</span>
+              </div>
+              <div className="flex gap-2">
+                {updateStatus?.state === "available" && (
+                  <Button variant="primary" size="compact" disabled={!!busy} onClick={() => void run(t("settings.busy.opening"), async () => { await api.openUpdateReleasePage(); })}>{t("settings.general.updateAvailable")}</Button>
+                )}
+                <Button variant="secondary" size="compact" disabled={!!busy || updateStatus?.state === "checking"} onClick={() => void run(t("settings.busy.checking"), async () => { setUpdateStatus(await api.checkForUpdates()); })}>
+                  {busy === t("settings.busy.checking") ? t("settings.general.checking") : t("settings.general.checkForUpdates")}
+                </Button>
               </div>
             </div>
           </>
+        )}
+
+        {activeTab === "reactions" && (
+          <div className="settings-section">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="eyebrow">{t("settings.reactions.eyebrow")}</p>
+                <h2 className="settings-section-title">{t("settings.reactions.title")}</h2>
+              </div>
+              <Button variant="secondary" size="compact" disabled={!settings || !!busy || !Object.keys(overrides).length} onClick={() => patchPreferences({ reactionAnimationOverrides: {} }, t("settings.toast.reactionsReset"))}>{t("settings.reactions.resetDefaults")}</Button>
+            </div>
+            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.reactions.description")}</p>
+
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.waitingAnimationDuration.title")}</strong>
+                  <small>{t("settings.waitingAnimationDuration.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.waitingAnimationDurationMs ?? ""}
+                  disabled={!reactionSettings || !settings || !!busy}
+                  data-testid="setting-waiting-animation-duration"
+                  onChange={(event) => patchPreferences({ waitingAnimationDurationMs: Number(event.target.value) }, t("settings.toast.waitingAnimationSaved"))}
+                >
+                  {(reactionSettings?.waitingAnimationDurationOptions ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="reaction-grid">
+                {(reactionSettings?.reactions ?? []).map((reaction) => {
+                  const currentAnimation = overrides[reaction.id] ?? reaction.defaultAnimation;
+                  return (
+                    <div className="reaction-row" key={reaction.id}>
+                      <div className="reaction-preview-box">
+                        {reactionSettings?.previewSpriteUrl && (
+                          <ReactionPreviewSprite settings={reactionSettings} state={currentAnimation} />
+                        )}
+                      </div>
+                      <div className="reaction-info">
+                        <strong>{reaction.label}</strong>
+                        <small>{reaction.description}</small>
+                      </div>
+                      <select
+                        className="settings-select"
+                        value={currentAnimation}
+                        disabled={!reactionSettings || !settings || !!busy}
+                        onChange={(event) => {
+                          const value = event.target.value as UserSelectableAnimationState;
+                          updateReactionOverride(reaction, value);
+                        }}
+                      >
+                        {(reactionSettings?.animations ?? []).map((animation) => (
+                          <option key={animation.id} value={animation.id}>{animation.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {activeTab === "lan" && (
+          <LanSettingsPanel status={lanStatus} onRefresh={() => void run(t("settings.busy.checking"), async () => { setLanStatus(await api.getLanStatus()); })} busy={!!busy} />
+        )}
+
+        {activeTab === "remote" && (
+          <RemoteControlSettingsPanel busy={!!busy} onSetMessage={setMessage} onSetError={setError} onTokenHandoff={onTokenHandoff} />
+        )}
+
+        {activeTab === "plugins" && (
+          <div className="settings-section">
+            <p className="eyebrow">{t("settings.plugins.eyebrow")}</p>
+            <h2 className="settings-section-title">{t("settings.plugins.title")}</h2>
+            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.plugins.description")}</p>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.plugins.audio.title")}
+                description={t("settings.plugins.audio.description")}
+                checked={providerSnapshot?.gates.allowPluginAudio ?? true}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowPluginAudio: checked }, t("settings.toast.audioSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.voice.title")}
+                description={t("settings.plugins.voice.description")}
+                checked={providerSnapshot?.gates.allowPluginVoice ?? true}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowPluginVoice: checked }, t("settings.toast.voiceSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.dynamicSpeech.title")}
+                description={t("settings.plugins.dynamicSpeech.description")}
+                checked={providerSnapshot?.gates.allowDynamicSpeech ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowDynamicSpeech: checked }, t("settings.toast.dynamicSpeechSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.plugins.microphone.title")}
+                description={t("settings.plugins.microphone.description")}
+                checked={providerSnapshot?.gates.allowMicrophone ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ allowMicrophone: checked }, t("settings.toast.microphoneSaved"))}
+              />
+            </div>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.plugins.quietHours.title")}
+                description={t("settings.plugins.quietHours.description")}
+                checked={providerSnapshot?.gates.quietHours.enabled ?? false}
+                disabled={!providerSnapshot || !!busy}
+                onChange={(checked) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { start: "22:00", end: "08:00" }), enabled: checked } }, t("settings.toast.quietHoursSaved"))}
+              />
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.plugins.quietWindow.title")}</strong>
+                  <small>{t("settings.plugins.quietWindow.description")}</small>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.start ?? "22:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, end: "08:00" }), start: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
+                  <span className="opacity-60">{t("common.to")}</span>
+                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.end ?? "08:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, start: "22:00" }), end: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  </div>;
+}
+
+type AssistantTab = "chat" | "personality" | "history" | "providers";
+
+const assistantNavItems: ReadonlyArray<{ readonly id: AssistantTab; readonly labelKey: string; readonly icon: React.ReactNode }> = [
+  { id: "chat", labelKey: "settings.nav.assistant", icon: <MicIcon className="settings-nav-icon" /> },
+  { id: "personality", labelKey: "settings.nav.personality", icon: <MessageIcon className="settings-nav-icon" /> },
+  { id: "history", labelKey: "settings.nav.history", icon: <HistoryIcon className="settings-nav-icon" /> },
+  { id: "providers", labelKey: "settings.nav.providers", icon: <ProvidersIcon className="settings-nav-icon" /> },
+];
+
+function AssistantView({ initialTab = "chat" }: { initialTab?: AssistantTab }) {
+  const { t } = useI18n();
+  const [activeTab, setActiveTab] = useState<AssistantTab>(initialTab);
+  const [settings, setSettings] = useState<SettingsState | null>(null);
+  const [shortcutSaveError, setShortcutSaveError] = useState<string>("");
+  const [chatShortcutSaveError, setChatShortcutSaveError] = useState<string>("");
+  const [personalityDraft, setPersonalityDraft] = useState<PetAssistantPersonality | null>(null);
+  const [providerSnapshot, setProviderSnapshot] = useState<ProviderControlCenterSnapshot | null>(null);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
+
+  useEffect(() => {
+    void (async () => {
+      const [nextSettings, nextProvider] = await Promise.all([
+        api.getSettingsState(),
+        api.getProviderProfiles().catch(() => null),
+      ]);
+      setSettings(nextSettings);
+      setShortcutSaveError("");
+      setPersonalityDraft(nextSettings.preferences.personality);
+      setProviderSnapshot(nextProvider);
+    })().catch((err) => setError(String((err as Error)?.message ?? err)));
+  }, []);
+
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  async function run(label: string, fn: () => Promise<void>) {
+    try { setBusy(label); setError(""); setMessage(""); await fn(); }
+    catch (err) { setError(String((err as Error)?.message ?? err)); }
+    finally { setBusy(""); }
+  }
+
+  function patchPreferences(patch: PreferencePatch, success: string) {
+    void run(t("settings.busy.saving"), async () => {
+      const next = await api.updatePreferences(patch);
+      setSettings(next);
+      setMessage(success);
+    });
+  }
+
+  function saveVoiceShortcut(value: string) {
+    setShortcutSaveError("");
+    void run(t("settings.busy.saving"), async () => {
+      try {
+        const next = await api.updatePreferences({ voiceAssistantShortcut: value });
+        setSettings(next);
+        const outcome = resolveShortcutSaveOutcome(value, next);
+        if (outcome.accepted) {
+          setShortcutSaveError("");
+          setMessage(t("settings.toast.talkShortcutSaved"));
+        } else {
+          const reason = outcome.reason ?? t("settings.assistant.talkShortcut.failed");
+          setShortcutSaveError(reason);
+          setError(reason);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : t("settings.assistant.shortcut.saveFailed");
+        setShortcutSaveError(errMsg);
+        setError(errMsg);
+      }
+    });
+  }
+
+  function saveChatShortcut(value: string) {
+    setChatShortcutSaveError("");
+    void run(t("settings.busy.saving"), async () => {
+      try {
+        const next = await api.updatePreferences({ chatShortcut: value });
+        setSettings(next);
+        const saved = next.preferences.chatShortcut ?? "";
+        const status = next.chatShortcutStatus;
+        const accepted = saved === value
+          && (value === "" || (status?.status === "registered" && status.accelerator === value && !status.reason));
+        if (accepted) {
+          setMessage(t("settings.toast.chatShortcutSaved"));
+        } else {
+          const reason = status?.reason ?? t("settings.assistant.chatShortcut.failed");
+          setChatShortcutSaveError(reason);
+          setError(reason);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : t("settings.assistant.chatShortcut.failed");
+        setChatShortcutSaveError(errMsg);
+        setError(errMsg);
+      }
+    });
+  }
+
+  function savePersonality() {
+    if (!personalityDraft) return;
+    void run(t("settings.busy.saving"), async () => {
+      const next = await api.updatePreferences({ personality: personalityDraft });
+      setSettings(next);
+      setPersonalityDraft(next.preferences.personality);
+      setMessage(t("settings.toast.personalitySaved"));
+    });
+  }
+
+  return <div className="settings-layout">
+    {error && <div className="error settings-message">{error}</div>}
+    {message && <div className="settings-success settings-message">{message}</div>}
+
+    <div className="settings-container">
+      <aside className="settings-sidebar">
+        <div className="settings-nav-group">
+          {assistantNavItems.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-nav-item ${activeTab === item.id ? "active" : ""}`}
+              onClick={() => setActiveTab(item.id)}
+            >
+              {item.icon}
+              <span>{t(item.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="settings-content">
+        {activeTab === "chat" && (
+          <div className="settings-section">
+            <div>
+              <p className="eyebrow">{t("settings.assistant.eyebrow")}</p>
+              <h2 className="settings-section-title">{t("settings.assistant.title")}</h2>
+            </div>
+            <p className="text-sm text-slatecopy -mt-2 mb-1">{t("settings.assistant.intro")}</p>
+
+            <div className="settings-group">
+              <ToggleRow
+                title={t("settings.assistant.chatButton.title")}
+                description={t("settings.assistant.chatButton.description")}
+                checked={settings?.preferences.showChatButton ?? false}
+                disabled={!settings || !!busy}
+                onChange={(checked) => patchPreferences({ showChatButton: checked }, t("settings.toast.assistantButtonsSaved"))}
+              />
+              <ToggleRow
+                title={t("settings.assistant.talkButton.title")}
+                description={t("settings.assistant.talkButton.description")}
+                checked={settings?.preferences.showTalkButton ?? false}
+                disabled={!settings || !!busy}
+                onChange={(checked) => patchPreferences({ showTalkButton: checked }, t("settings.toast.assistantButtonsSaved"))}
+              />
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.buttons.position.title")}</strong>
+                  <small>{t("settings.assistant.buttons.position.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.petButtonsPosition ?? "right"}
+                  disabled={!settings || !!busy}
+                  onChange={(event) => patchPreferences({ petButtonsPosition: event.target.value as "left" | "right" }, t("settings.toast.assistantButtonsSaved"))}
+                >
+                  <option value="right">{t("settings.assistant.buttons.position.right")}</option>
+                  <option value="left">{t("settings.assistant.buttons.position.left")}</option>
+                </select>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.buttons.size.title")}</strong>
+                  <small>{t("settings.assistant.buttons.size.description")}</small>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings?.preferences.petButtonsSize ?? "medium"}
+                  disabled={!settings || !!busy}
+                  onChange={(event) => patchPreferences({ petButtonsSize: event.target.value as "small" | "medium" | "large" }, t("settings.toast.assistantButtonsSaved"))}
+                >
+                  <option value="small">{t("settings.assistant.buttons.size.small")}</option>
+                  <option value="medium">{t("settings.assistant.buttons.size.medium")}</option>
+                  <option value="large">{t("settings.assistant.buttons.size.large")}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.talkShortcut.title")}</strong>
+                  <small>{t("settings.assistant.talkShortcut.description")}</small>
+                  {Boolean(settings?.preferences.voiceAssistantShortcut) && settings?.voiceAssistantShortcutStatus?.reason && (
+                    <small className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-400">
+                      {settings.voiceAssistantShortcutStatus.reason}
+                    </small>
+                  )}
+                  {shortcutSaveError && (
+                    <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                      {shortcutSaveError}
+                    </small>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.voiceAssistantShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={(captured) => {
+                        setShortcutSaveError("");
+                        saveVoiceShortcut(captured);
+                      }}
+                      onClear={() => {
+                        setShortcutSaveError("");
+                        saveVoiceShortcut("");
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="settings-group">
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <strong>{t("settings.assistant.chatShortcut.title")}</strong>
+                  <small>{t("settings.assistant.chatShortcut.description")}</small>
+                  {chatShortcutSaveError && (
+                    <small className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-400">
+                      {chatShortcutSaveError}
+                    </small>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ShortcutRecorder
+                      accelerator={settings?.preferences.chatShortcut ?? ""}
+                      disabled={!settings || !!busy}
+                      clearable
+                      onCapture={saveChatShortcut}
+                      onClear={() => saveChatShortcut("")}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === "personality" && (
@@ -2597,78 +2149,12 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                 {busy === t("settings.busy.saving") ? t("settings.busy.saving") : t("settings.personality.save")}
               </Button>
             </div>
+
           </div>
         )}
 
-        {activeTab === "reactions" && (
-          <div className="settings-section">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="eyebrow">{t("settings.reactions.eyebrow")}</p>
-                <h2 className="settings-section-title">{t("settings.reactions.title")}</h2>
-              </div>
-              <Button variant="secondary" size="compact" disabled={!settings || !!busy || !Object.keys(overrides).length} onClick={() => patchPreferences({ reactionAnimationOverrides: {} }, t("settings.toast.reactionsReset"))}>{t("settings.reactions.resetDefaults")}</Button>
-            </div>
-            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.reactions.description")}</p>
-
-            <div className="settings-group">
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <strong>{t("settings.waitingAnimationDuration.title")}</strong>
-                  <small>{t("settings.waitingAnimationDuration.description")}</small>
-                </div>
-                <select
-                  className="settings-select"
-                  value={settings?.preferences.waitingAnimationDurationMs ?? ""}
-                  disabled={!reactionSettings || !settings || !!busy}
-                  data-testid="setting-waiting-animation-duration"
-                  onChange={(event) => patchPreferences({ waitingAnimationDurationMs: Number(event.target.value) }, t("settings.toast.waitingAnimationSaved"))}
-                >
-                  {(reactionSettings?.waitingAnimationDurationOptions ?? []).map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="reaction-grid">
-                {(reactionSettings?.reactions ?? []).map((reaction) => {
-                  const currentAnimation = overrides[reaction.id] ?? reaction.defaultAnimation;
-                  return (
-                    <div className="reaction-row" key={reaction.id}>
-                      <div className="reaction-preview-box">
-                        {reactionSettings?.previewSpriteUrl && (
-                          <ReactionPreviewSprite settings={reactionSettings} state={currentAnimation} />
-                        )}
-                      </div>
-                      <div className="reaction-info">
-                        <strong>{reaction.label}</strong>
-                        <small>{reaction.description}</small>
-                      </div>
-                      <select
-                        className="settings-select"
-                        value={currentAnimation}
-                        disabled={!reactionSettings || !settings || !!busy}
-                        onChange={(event) => {
-                          const value = event.target.value as UserSelectableAnimationState;
-                          updateReactionOverride(reaction, value);
-                        }}
-                      >
-                        {(reactionSettings?.animations ?? []).map((animation) => (
-                          <option key={animation.id} value={animation.id}>{animation.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-
-        {activeTab === "providers" && (
-          <ProvidersSettingsPanel
-            snapshot={providerSnapshot}
-            onSnapshotChange={setProviderSnapshot}
+        {activeTab === "history" && (
+          <ConversationArchiveSection
             busy={busy}
             run={run}
             setMessage={setMessage}
@@ -2676,72 +2162,15 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
           />
         )}
 
-        {activeTab === "lan" && (
-          <LanSettingsPanel status={lanStatus} onRefresh={() => void run(t("settings.busy.checking"), async () => { setLanStatus(await api.getLanStatus()); })} busy={!!busy} />
-        )}
-
-        {activeTab === "remote" && (
-          <RemoteControlSettingsPanel busy={!!busy} onSetMessage={setMessage} onSetError={setError} onTokenHandoff={onTokenHandoff} />
-        )}
-
-        {activeTab === "plugins" && (
-          <div className="settings-section">
-            <p className="eyebrow">{t("settings.plugins.eyebrow")}</p>
-            <h2 className="settings-section-title">{t("settings.plugins.title")}</h2>
-            <p className="text-sm text-slatecopy -mt-2 mb-2">{t("settings.plugins.description")}</p>
-
-            <div className="settings-group">
-              <ToggleRow
-                title={t("settings.plugins.audio.title")}
-                description={t("settings.plugins.audio.description")}
-                checked={providerSnapshot?.gates.allowPluginAudio ?? true}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowPluginAudio: checked }, t("settings.toast.audioSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.voice.title")}
-                description={t("settings.plugins.voice.description")}
-                checked={providerSnapshot?.gates.allowPluginVoice ?? true}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowPluginVoice: checked }, t("settings.toast.voiceSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.dynamicSpeech.title")}
-                description={t("settings.plugins.dynamicSpeech.description")}
-                checked={providerSnapshot?.gates.allowDynamicSpeech ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowDynamicSpeech: checked }, t("settings.toast.dynamicSpeechSaved"))}
-              />
-              <ToggleRow
-                title={t("settings.plugins.microphone.title")}
-                description={t("settings.plugins.microphone.description")}
-                checked={providerSnapshot?.gates.allowMicrophone ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ allowMicrophone: checked }, t("settings.toast.microphoneSaved"))}
-              />
-            </div>
-
-            <div className="settings-group">
-              <ToggleRow
-                title={t("settings.plugins.quietHours.title")}
-                description={t("settings.plugins.quietHours.description")}
-                checked={providerSnapshot?.gates.quietHours.enabled ?? false}
-                disabled={!providerSnapshot || !!busy}
-                onChange={(checked) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { start: "22:00", end: "08:00" }), enabled: checked } }, t("settings.toast.quietHoursSaved"))}
-              />
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <strong>{t("settings.plugins.quietWindow.title")}</strong>
-                  <small>{t("settings.plugins.quietWindow.description")}</small>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.start ?? "22:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, end: "08:00" }), start: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
-                  <span className="opacity-60">{t("common.to")}</span>
-                  <input type="time" className="settings-select" value={providerSnapshot?.gates.quietHours.end ?? "08:00"} disabled={!providerSnapshot || !!busy} onChange={(event) => patchProviderGates({ quietHours: { ...(providerSnapshot?.gates.quietHours ?? { enabled: false, start: "22:00" }), end: event.target.value } }, t("settings.toast.quietHoursSaved"))} />
-                </div>
-              </div>
-            </div>
-          </div>
+        {activeTab === "providers" && (
+          <ProvidersSection
+            snapshot={providerSnapshot}
+            onSnapshotChange={setProviderSnapshot}
+            busy={busy}
+            run={run}
+            setMessage={setMessage}
+            setError={setError}
+          />
         )}
       </main>
     </div>
@@ -4089,651 +3518,6 @@ function ConfigFieldEditor({ pluginId, fieldKey, field, value, onChange, onPickS
   </label>;
 }
 
-function PathField({ label, value, placeholder, onSave, disabled }: { label: string; value: string; placeholder: string; onSave: (v: string) => void; disabled?: boolean }) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState(value);
-  useEffect(() => { setDraft(value); }, [value]);
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-bold text-slatecopy uppercase tracking-wider">{label}</label>
-      <div className="flex gap-2">
-        <input
-          className="plugin-input flex-1"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder}
-          disabled={disabled}
-        />
-        <Button variant="secondary" size="compact" icon={<SaveIcon />} disabled={disabled || draft === value} onClick={() => onSave(draft)}>{t("common.save")}</Button>
-      </div>
-    </div>
-  );
-}
-
-function IntegrationIcon({ id }: { id: string }) {
-  const logos: Record<string, string> = {
-    claude: claudeLogoUrl,
-    opencode: opencodeLogoUrl,
-    cursor: cursorLogoUrl,
-    pi: piLogoUrl,
-    vscode: vscodeLogoUrl,
-    windsurf: windsurfLogoUrl,
-    zed: zedLogoUrl,
-  };
-  const src = logos[id];
-  if (src) return <img src={src} className="integration-logo" alt="" draggable="false" />;
-  return <PluginGlyph />;
-}
-
-function claudeStatusTone(state: ClaudeCodeStatus["state"]): StatusTone {
-  if (state === "configured") return "green";
-  if (state === "error") return "red";
-  if (state === "needs_setup" || state === "detected") return "blue";
-  return "slate";
-}
-
-function opencodeStatusTone(state: OpenCodeSetupStatus["state"]): StatusTone {
-  if (state === "configured") return "green";
-  if (state === "error") return "red";
-  if (state === "needs_setup") return "blue";
-  return "slate";
-}
-
-function cursorStatusTone(state: CursorSetupStatus["state"]): StatusTone {
-  if (state === "configured") return "green";
-  if (state === "error" || state === "conflict") return "red";
-  if (state === "needs_update") return "orange";
-  if (state === "needs_setup") return "blue";
-  return "slate";
-}
-
-function openclawStatusTone(state: OpenClawSetupState): StatusTone {
-  if (state === "installed-enabled") return "green";
-  if (state === "installed-disabled") return "yellow";
-  if (state === "not-installed") return "blue";
-  if (state === "invalid" || state === "conflict") return "red";
-  if (state === "indeterminate") return "orange";
-  return "slate";
-}
-
-function openclawStatusLabel(state: OpenClawSetupState, t: (key: string) => string): string {
-  return t(`integrations.openclaw.state.${state}`);
-}
-
-function openclawSourceLabel(source: OpenClawPluginStatus["trackedSource"], t: (key: string) => string): string {
-  return source ? t(`integrations.openclaw.source.${source}`) : t("integrations.openclaw.source.none");
-}
-
-function IntegrationsView() {
-  const { t } = useI18n();
-  const [snapshot, setSnapshot] = useState<AgentSetupSnapshot | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [confirmingAction, setConfirmingAction] = useState<"remove" | "update" | null>(null);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const load = async (selectedPetId?: string, commandMode?: AgentSetupSnapshot["commandMode"]) => {
-    try {
-      const petId = selectedPetId === undefined ? snapshot?.selectedPetId : selectedPetId;
-      const mode = commandMode === undefined ? snapshot?.commandMode : commandMode;
-      const next = await api.getIntegrationsState(petId, mode);
-      setSnapshot(next);
-      setError("");
-    } catch (err) {
-      setError(String((err as Error)?.message ?? err));
-    }
-  };
-
-  useEffect(() => { void load(); }, []);
-
-  useEffect(() => {
-    if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 3000);
-    return () => window.clearTimeout(timeout);
-  }, [message]);
-
-  const run = async (label: string, action: AgentSetupAction) => {
-    try {
-      setBusy(label);
-      setError("");
-      setMessage("");
-      const next = await api.runIntegrationAction(action, snapshot?.selectedPetId, snapshot?.commandMode);
-      setSnapshot(next);
-      if (next.lastAction) {
-        if (next.lastAction.ok) setMessage(next.lastAction.message);
-        else setError(next.lastAction.message);
-      }
-    } catch (err) {
-      setError(String((err as Error)?.message ?? err));
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const updatePath = async (key: keyof AgentSetupCommandPaths, value: string) => {
-    try {
-      setBusy(t("integrations.busy.savingPath"));
-      await api.updateIntegrationCommandPaths({ [key]: value });
-      await load();
-      setMessage(t("integrations.toast.pathSaved"));
-    } catch (err) {
-      setError(String((err as Error)?.message ?? err));
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const changeCommandMode = (mode: AgentSetupSnapshot["commandMode"]) => {
-    void load(snapshot?.selectedPetId, mode);
-  };
-
-  if (!snapshot) {
-    return (
-      <GlassCard className="flex h-64 flex-col items-center justify-center gap-4 text-center">
-        <p className="text-sm font-semibold text-slatecopy">{error || t("integrations.loading")}</p>
-        {error && <Button variant="secondary" size="compact" icon={<RefreshIcon />} onClick={() => void load()}>{t("common.retry")}</Button>}
-      </GlassCard>
-    );
-  }
-
-  const isBusy = Boolean(busy) || snapshot.busy;
-  const integrationDialogTitleId = selectedId ? `integration-detail-title-${selectedId}` : undefined;
-
-  const integrations = [
-    { id: "claude", name: t("integrations.claude.name"), icon: "claude", status: snapshot.status.label, tone: claudeStatusTone(snapshot.status.state), description: t("integrations.claude.description") },
-    { id: "opencode", name: t("integrations.opencode.name"), icon: "opencode", status: snapshot.opencodeStatus.label, tone: opencodeStatusTone(snapshot.opencodeStatus.state), description: t("integrations.opencode.description") },
-    { id: "cursor", name: t("integrations.cursor.name"), icon: "cursor", status: snapshot.cursorStatus.label, tone: cursorStatusTone(snapshot.cursorStatus.state), description: t("integrations.cursor.description") },
-    { id: "openclaw", name: t("integrations.openclaw.name"), icon: "openclaw", status: snapshot.openclawStatus.label, tone: openclawStatusTone(snapshot.openclawStatus.state), description: t("integrations.openclaw.description") },
-    { id: "pi", name: t("integrations.pi.name"), icon: "pi", status: t("integrations.pi.status"), tone: "blue" satisfies StatusTone, description: t("integrations.pi.description") },
-  ] as const;
-
-  const soon = [
-    { name: t("integrations.soon.vscode"), icon: "vscode" },
-    { name: t("integrations.soon.windsurf"), icon: "windsurf" },
-    { name: t("integrations.soon.zed"), icon: "zed" },
-  ];
-
-  const selectedIntegrationName = selectedId === "pi" ? t("integrations.pi.name") : integrations.find((item) => item.id === selectedId)?.name;
-
-  return (
-    <div className="flex flex-col gap-6 h-full overflow-y-auto pr-2">
-      {error && <div className="error">{error}</div>}
-      {message && <div className="settings-success settings-message">{message}</div>}
-
-      <div className="integration-grid">
-        {integrations.map((item) => (
-          <article key={item.id} className={`integration-card ${selectedId === item.id ? "border-brand ring-4 ring-brand/15" : ""}`}>
-            <div className="plugin-card-body">
-              <div className="integration-icon">
-                <IntegrationIcon id={item.icon} />
-              </div>
-              <div className="plugin-card-content">
-                <div className="flex items-center justify-between">
-                  <strong>{item.name}</strong>
-                  <StatusPill tone={item.tone}>{item.status}</StatusPill>
-                </div>
-                <small>{item.description}</small>
-              </div>
-            </div>
-            <div className="plugin-card-footer">
-              <div className="flex gap-2 w-full">
-                {item.id === "claude" && snapshot.status.canConfigure && <Button variant="primary" size="compact" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "configure")}>{t("integrations.install")}</Button>}
-                {item.id === "opencode" && snapshot.opencodeStatus.canInstall && <Button variant="primary" size="compact" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "opencode-install")}>{t("integrations.install")}</Button>}
-                {item.id === "cursor" && snapshot.cursorStatus.canInstall && <Button variant="primary" size="compact" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "cursor-install")}>{t("integrations.install")}</Button>}
-                {item.id === "openclaw" && (snapshot.openclawStatus.canInstall || snapshot.openclawStatus.canEnable) && (
-                  <Button variant="primary" size="compact" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(snapshot.openclawStatus.canEnable && !snapshot.openclawStatus.canInstall ? "Enabling" : t("integrations.busy.installing"), "openclaw-install")}>
-                    {snapshot.openclawStatus.canEnable && !snapshot.openclawStatus.canInstall ? "Enable" : t("integrations.install")}
-                  </Button>
-                )}
-                <Button variant="secondary" size="compact" icon={<ConfigureIcon />} fullWidth={item.id === "pi"} onClick={() => { setSelectedId(item.id); setConfirmingAction(null); }}>{item.id === "pi" ? t("integrations.viewSetup") : t("integrations.configure")}</Button>
-              </div>
-            </div>
-          </article>
-        ))}
-        {soon.map((item) => (
-          <article key={item.name} className="integration-card opacity-60">
-            <div className="plugin-card-body">
-              <div className="integration-icon grayscale">
-                <IntegrationIcon id={item.icon} />
-              </div>
-              <div className="plugin-card-content">
-                <div className="flex items-center justify-between">
-                  <strong>{item.name}</strong>
-                  <StatusPill tone="slate">{t("integrations.soon.status")}</StatusPill>
-                </div>
-                <small>{t("integrations.soon.description")}</small>
-              </div>
-            </div>
-            <div className="plugin-card-footer">
-              <Button variant="secondary" size="compact" fullWidth disabled>{t("integrations.soon.button")}</Button>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      {selectedId && (
-        <div className="plugin-config-overlay" role="dialog" aria-modal="true" aria-labelledby={integrationDialogTitleId}>
-          <button className="plugin-config-backdrop" type="button" aria-label={t("integrations.closeAria")} onClick={() => { setSelectedId(null); setConfirmingAction(null); }} />
-          <GlassCard className="plugin-inspector">
-            <div className="plugin-inspector-head">
-              <div className="plugin-inspector-icon">
-                <IntegrationIcon id={selectedId} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="eyebrow">{t("integrations.detail")}</p>
-                <h2 id={integrationDialogTitleId}>{selectedIntegrationName}</h2>
-              </div>
-              <Button variant="secondary" size="compact" icon={<CloseIcon />} onClick={() => { setSelectedId(null); setConfirmingAction(null); }}>{t("integrations.close")}</Button>
-            </div>
-
-            <div className="flex flex-col gap-5 mt-4">
-              {selectedId !== "pi" && selectedId !== "openclaw" && (
-                <section className="plugin-section">
-                  <div className="plugin-section-title"><small>{t("integrations.commandSource")}</small><strong>{t("integrations.cliMode")}</strong></div>
-                  <select className="settings-select w-full" value={snapshot.commandMode} disabled={isBusy} onChange={(event) => changeCommandMode(event.target.value as AgentSetupSnapshot["commandMode"])}>
-                    <option value="published">{t(commandModeLabelKeys.published)}</option>
-                    <option value="bundled">{t(commandModeLabelKeys.bundled)}</option>
-                    <option value="local" disabled={!snapshot.localDevAvailable}>{t(commandModeLabelKeys.local)}{snapshot.localDevAvailable ? "" : t("integrations.localUnavailable")}</option>
-                  </select>
-                  <p className="text-xs text-slatecopy mt-2">{t("integrations.commandModeHelp")}</p>
-                </section>
-              )}
-
-              {selectedId === "claude" && (
-                <>
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.connection")}</small><strong>{t("integrations.statusRouting")}</strong></div>
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50">
-                      <div className="flex flex-col">
-                        <strong className="text-sm text-navy">{snapshot.status.label}</strong>
-                        <small className="text-xs text-slatecopy">{snapshot.status.details}</small>
-                      </div>
-                      <StatusPill tone={claudeStatusTone(snapshot.status.state)}>{snapshot.status.state}</StatusPill>
-                    </div>
-                    <div className="mt-2">
-                      <label className="text-xs font-bold text-slatecopy uppercase tracking-wider mb-1 block">{t("integrations.petRouting")}</label>
-                      <select
-                        className="settings-select w-full"
-                        value={snapshot.selectedPetId || ""}
-                        onChange={(e) => void load(e.target.value)}
-                        disabled={isBusy}
-                      >
-                        <option value="">{t("integrations.defaultPet")}</option>
-                        {snapshot.petOptions.map(p => <option key={p.id} value={p.id}>{p.displayName}</option>)}
-                      </select>
-                    </div>
-                  </section>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.configuration")}</small><strong>{t("integrations.commandPaths")}</strong></div>
-                    <div className="flex flex-col gap-3">
-                      <PathField label={t("integrations.claudeCommand")} value={snapshot.commandPaths.claude} placeholder="claude" onSave={(v) => updatePath("claude", v)} disabled={isBusy} />
-                      <PathField label={t("integrations.nodeCommand")} value={snapshot.commandPaths.node} placeholder="node" onSave={(v) => updatePath("node", v)} disabled={isBusy} />
-                    </div>
-                  </section>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <section className="plugin-section">
-                      <div className="plugin-section-title"><small>{t("integrations.optional")}</small><strong>{t("integrations.claudeHooks")}</strong></div>
-                      <div className="flex items-center justify-between mb-2">
-                        <StatusPill tone={snapshot.hookStatus.status === "installed" ? "green" : "blue"}>{snapshot.hookStatus.status}</StatusPill>
-                      </div>
-                    <div className="flex flex-col gap-2">
-                      <Button variant="primary" size="compact" icon={<HookIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installingHooks"), "install-hooks")}>{t("integrations.installHooks")}</Button>
-                      <Button variant="danger" size="compact" icon={<RemoveIcon />} disabled={isBusy || snapshot.hookStatus.status === "needs_setup"} onClick={() => run(t("integrations.busy.removingHooks"), "uninstall-hooks")}>{t("integrations.removeHooks")}</Button>
-                    </div>
-                  </section>
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.included")}</small><strong>{t("integrations.instructions")}</strong></div>
-                    <div className="flex items-center justify-between mb-2">
-                      <StatusPill tone={snapshot.memoryStatus.state === "installed" ? "green" : "blue"}>{snapshot.memoryStatus.state}</StatusPill>
-                    </div>
-                    <Button variant="secondary" size="compact" icon={<MemoryIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.updatingInstructions"), "install-memory")}>{t("integrations.updateInstructions")}</Button>
-                  </section>
-                </div>
-
-                <section className="plugin-section">
-                  <div className="plugin-section-title"><small>{t("integrations.actions")}</small><strong>{t("integrations.management")}</strong></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {snapshot.status.canConfigure && <Button variant="primary" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "configure")}>{t("integrations.installMcp")}</Button>}
-                    {snapshot.status.canReplace && <Button variant="warning" icon={<ReplaceIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.replacing"), "replace")}>{t("integrations.replaceMcp")}</Button>}
-                    {snapshot.status.canRemove && <Button variant="danger" icon={<RemoveIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.removing"), "remove")}>{t("integrations.removeMcp")}</Button>}
-                    <Button variant="secondary" icon={<RefreshIcon />} disabled={isBusy} onClick={() => void load()}>{t("integrations.refreshStatus")}</Button>
-                  </div>
-                </section>
-
-
-                  <details className="plugin-section group">
-                    <summary className="cursor-pointer list-none flex items-center justify-between">
-                      <div className="plugin-section-title"><small>{t("integrations.advanced")}</small><strong>{t("integrations.mcpJsonPreview")}</strong></div>
-                      <span className="text-brand group-open:rotate-180 transition-transform"><NextIcon /></span>
-                    </summary>
-                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
-                      {JSON.stringify(snapshot.preview.mcpJson, null, 2)}
-                    </pre>
-                  </details>
-
-                </>
-              )}
-
-              {selectedId === "opencode" && (
-                <>
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.connection")}</small><strong>{t("integrations.globalSetup")}</strong></div>
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50">
-                      <div className="flex flex-col">
-                        <strong className="text-sm text-navy">{snapshot.opencodeStatus.label}</strong>
-                        <small className="text-xs text-slatecopy">{snapshot.opencodeStatus.details}</small>
-                      </div>
-                      <StatusPill tone={opencodeStatusTone(snapshot.opencodeStatus.state)}>{snapshot.opencodeStatus.state}</StatusPill>
-                    </div>
-                    <div className="mt-2">
-                      <label className="text-xs font-bold text-slatecopy uppercase tracking-wider mb-1 block">{t("integrations.petRouting")}</label>
-                      <select
-                        className="settings-select w-full"
-                        value={snapshot.selectedPetId || ""}
-                        onChange={(e) => void load(e.target.value)}
-                        disabled={isBusy}
-                      >
-                        <option value="">{t("integrations.defaultPet")}</option>
-                        {snapshot.petOptions.map(p => <option key={p.id} value={p.id}>{p.displayName}</option>)}
-                      </select>
-                    </div>
-                  </section>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.configuration")}</small><strong>{t("integrations.commandPaths")}</strong></div>
-                    <div className="flex flex-col gap-3">
-                      <PathField label={t("integrations.opencodeCommand")} value={snapshot.commandPaths.opencode} placeholder="opencode" onSave={(v) => updatePath("opencode", v)} disabled={isBusy} />
-                      <PathField label={t("integrations.nodeCommand")} value={snapshot.commandPaths.node} placeholder="node" onSave={(v) => updatePath("node", v)} disabled={isBusy} />
-                    </div>
-                  </section>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.actions")}</small><strong>{t("integrations.management")}</strong></div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {snapshot.opencodeStatus.canInstall && <Button variant="primary" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "opencode-install")}>{t("integrations.installGlobal")}</Button>}
-                      {snapshot.opencodeStatus.canRemove && <Button variant="danger" icon={<RemoveIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.removing"), "opencode-remove")}>{t("integrations.removeGlobal")}</Button>}
-                      <Button variant="secondary" icon={<RefreshIcon />} disabled={isBusy} onClick={() => void load()}>{t("integrations.refreshStatus")}</Button>
-                    </div>
-                  </section>
-
-                  <details className="plugin-section group">
-                    <summary className="cursor-pointer list-none flex items-center justify-between">
-                      <div className="plugin-section-title"><small>{t("integrations.advanced")}</small><strong>{t("integrations.configPreview")}</strong></div>
-                      <span className="text-brand group-open:rotate-180 transition-transform"><NextIcon /></span>
-                    </summary>
-                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
-                      {JSON.stringify(snapshot.opencodePreview.configPreview, null, 2)}
-                    </pre>
-                  </details>
-                </>
-              )}
-
-              {selectedId === "cursor" && (
-                <>
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.connection")}</small><strong>{t("integrations.globalMcp")}</strong></div>
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50">
-                      <div className="flex flex-col">
-                        <strong className="text-sm text-navy">{snapshot.cursorStatus.label}</strong>
-                        <small className="text-xs text-slatecopy">{snapshot.cursorStatus.details}</small>
-                      </div>
-                      <StatusPill tone={cursorStatusTone(snapshot.cursorStatus.state)}>{snapshot.cursorStatus.state}</StatusPill>
-                    </div>
-                    <div className="mt-2">
-                      <label className="text-xs font-bold text-slatecopy uppercase tracking-wider mb-1 block">{t("integrations.petRouting")}</label>
-                      <select
-                        className="settings-select w-full"
-                        value={snapshot.selectedPetId || ""}
-                        onChange={(e) => void load(e.target.value)}
-                        disabled={isBusy}
-                      >
-                        <option value="">{t("integrations.defaultPet")}</option>
-                        {snapshot.petOptions.map(p => <option key={p.id} value={p.id}>{p.displayName}</option>)}
-                      </select>
-                    </div>
-                  </section>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.actions")}</small><strong>{t("integrations.management")}</strong></div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {snapshot.cursorStatus.canInstall && <Button variant="primary" icon={<InstallIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.installing"), "cursor-install")}>{t("integrations.installMcp")}</Button>}
-                      {snapshot.cursorStatus.canReplace && <Button variant="warning" icon={<ReplaceIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.replacing"), "cursor-replace")}>{t("integrations.replaceMcp")}</Button>}
-                      {snapshot.cursorStatus.canRemove && <Button variant="danger" icon={<RemoveIcon />} disabled={isBusy} onClick={() => run(t("integrations.busy.removing"), "cursor-remove")}>{t("integrations.removeMcp")}</Button>}
-                      <Button variant="secondary" icon={<RefreshIcon />} disabled={isBusy} onClick={() => void load()}>{t("integrations.refreshStatus")}</Button>
-                    </div>
-                  </section>
-
-
-                  <details className="plugin-section group">
-                    <summary className="cursor-pointer list-none flex items-center justify-between">
-                      <div className="plugin-section-title"><small>{t("integrations.advanced")}</small><strong>{t("integrations.mcpEntryPreview")}</strong></div>
-                      <span className="text-brand group-open:rotate-180 transition-transform"><NextIcon /></span>
-                    </summary>
-                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
-                      {JSON.stringify({ mcpServers: snapshot.cursorPreview.mcpEntry }, null, 2)}
-                    </pre>
-                  </details>
-
-                  <details className="plugin-section group">
-                    <summary className="cursor-pointer list-none flex items-center justify-between">
-                      <div className="plugin-section-title"><small>{t("integrations.advanced")}</small><strong>{t("integrations.rulesPreview")}</strong></div>
-                      <span className="text-brand group-open:rotate-180 transition-transform"><NextIcon /></span>
-                    </summary>
-                      <p className="mt-3 text-xs text-slatecopy">{snapshot.cursorPreview.rulesPath}</p>
-                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
-                      {snapshot.cursorPreview.rulesContent}
-                    </pre>
-                  </details>
-                </>
-              )}
-
-              {selectedId === "openclaw" && (
-                <>
-                  <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-100/70 text-xs text-slatecopy leading-relaxed">
-                    <strong className="text-navy font-semibold block mb-1">{t("integrations.openclaw.localTitle")}</strong>
-                    {t("integrations.openclaw.localDescription")}
-                  </div>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.connection")}</small><strong>{t("integrations.statusRouting")}</strong></div>
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50">
-                      <div className="flex flex-col">
-                        <strong className="text-sm text-navy">{snapshot.openclawStatus.label}</strong>
-                        <small className="text-xs text-slatecopy">{snapshot.openclawStatus.details}</small>
-                      </div>
-                      <StatusPill tone={openclawStatusTone(snapshot.openclawStatus.state)}>{openclawStatusLabel(snapshot.openclawStatus.state, t)}</StatusPill>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col">
-                        <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.hostVersion")}</span>
-                        <span className="font-mono text-navy font-semibold">{snapshot.openclawStatus.version || t("integrations.openclaw.notDetected")}</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col">
-                        <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.installedPlugin")}</span>
-                        <span className="font-mono text-navy font-semibold">{snapshot.openclawStatus.installedVersion || t("integrations.openclaw.notInstalled")}</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col">
-                        <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.installationSource")}</span>
-                        <span className="font-mono text-navy font-semibold">{openclawSourceLabel(snapshot.openclawStatus.trackedSource, t)}</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col">
-                        <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.targetVersion")}</span>
-                        <span className="font-mono text-navy font-semibold">v{snapshot.openclawPreview.targetVersion}</span>
-                      </div>
-                    </div>
-                  </section>
-
-                  {snapshot.openclawStatus.state === "management-disabled" && (
-                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                      <strong>{t("integrations.openclaw.nixTitle")}</strong> {t("integrations.openclaw.nixDescription")}
-                    </div>
-                  )}
-
-                  {snapshot.openclawStatus.state === "conflict" && (
-                    <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-900">
-                      <strong>{t("integrations.openclaw.conflictTitle")}</strong> {t("integrations.openclaw.conflictDescription")}
-                    </div>
-                  )}
-
-                  {(snapshot.openclawStatus.state === "indeterminate" || snapshot.openclawStatus.state === "invalid") && (
-                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                      <strong>{t("integrations.openclaw.unverifiedTitle")}</strong> {snapshot.openclawStatus.details} {t("integrations.openclaw.unverifiedDescription")}
-                    </div>
-                  )}
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.configuration")}</small><strong>{t("integrations.commandPaths")}</strong></div>
-                    <div className="flex flex-col gap-3">
-                      <PathField label={t("integrations.openclaw.command")} value={snapshot.commandPaths.openclaw} placeholder="openclaw" onSave={(v) => updatePath("openclaw", v)} disabled={isBusy} />
-                    </div>
-                  </section>
-
-                  <section className="plugin-section">
-                    <div className="plugin-section-title"><small>{t("integrations.actions")}</small><strong>{t("integrations.management")}</strong></div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(snapshot.openclawStatus.canInstall || snapshot.openclawStatus.canEnable) && (
-                        <Button
-                          variant="primary"
-                          icon={<InstallIcon />}
-                          disabled={isBusy}
-                          onClick={() => run(snapshot.openclawStatus.canEnable && !snapshot.openclawStatus.canInstall ? t("integrations.openclaw.busy.enabling") : t("integrations.openclaw.busy.installing"), "openclaw-install")}
-                        >
-                          {snapshot.openclawStatus.canEnable && !snapshot.openclawStatus.canInstall ? t("integrations.openclaw.enable") : t("integrations.openclaw.install")}
-                        </Button>
-                      )}
-
-                      {snapshot.openclawStatus.canUpdate && !snapshot.openclawStatus.canInstall && (
-                        confirmingAction === "update" ? (
-                          <Button
-                            variant="warning"
-                            icon={<ReplaceIcon />}
-                            disabled={isBusy}
-                            onClick={() => {
-                              setConfirmingAction(null);
-                              void run(t("integrations.openclaw.busy.updating"), "openclaw-update");
-                            }}
-                          >
-                            {t("integrations.openclaw.confirmUpdate")}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="warning"
-                            icon={<ReplaceIcon />}
-                            disabled={isBusy}
-                            onClick={() => setConfirmingAction("update")}
-                          >
-                            {t("integrations.openclaw.update")}
-                          </Button>
-                        )
-                      )}
-
-                      {snapshot.openclawStatus.canRemove && (
-                        confirmingAction === "remove" ? (
-                          <Button
-                            variant="danger"
-                            icon={<RemoveIcon />}
-                            disabled={isBusy}
-                            onClick={() => {
-                              setConfirmingAction(null);
-                              void run(t("integrations.openclaw.busy.removing"), "openclaw-remove");
-                            }}
-                          >
-                            {t("integrations.openclaw.confirmRemove")}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="danger"
-                            icon={<RemoveIcon />}
-                            disabled={isBusy}
-                            onClick={() => setConfirmingAction("remove")}
-                          >
-                            {t("integrations.openclaw.remove")}
-                          </Button>
-                        )
-                      )}
-
-                      {confirmingAction && (
-                        <Button variant="secondary" disabled={isBusy} onClick={() => setConfirmingAction(null)}>
-                          {t("common.cancel")}
-                        </Button>
-                      )}
-
-                      <Button variant="secondary" icon={<RefreshIcon />} disabled={isBusy} onClick={() => { setConfirmingAction(null); void load(); }}>
-                        {t("integrations.refreshStatus")}
-                      </Button>
-                    </div>
-                  </section>
-
-                  <details className="plugin-section group">
-                    <summary className="cursor-pointer list-none flex items-center justify-between">
-                      <div className="plugin-section-title"><small>{t("integrations.advanced")}</small><strong>{t("integrations.openclaw.commandPreviews")}</strong></div>
-                      <span className="text-brand group-open:rotate-180 transition-transform"><NextIcon /></span>
-                    </summary>
-                    <div className="mt-3 flex flex-col gap-2 text-xs font-mono">
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col gap-1">
-                        <span className="text-[10px] font-sans font-bold text-slatecopy uppercase tracking-wider">{t("integrations.install")}</span>
-                        <code className="text-brand overflow-x-auto whitespace-pre">{snapshot.openclawPreview.command} {snapshot.openclawPreview.install.join(" ")}</code>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col gap-1">
-                        <span className="text-[10px] font-sans font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.enable")}</span>
-                        <code className="text-brand overflow-x-auto whitespace-pre">{snapshot.openclawPreview.command} {snapshot.openclawPreview.enable.join(" ")}</code>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col gap-1">
-                        <span className="text-[10px] font-sans font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.update")}</span>
-                        <code className="text-brand overflow-x-auto whitespace-pre">{snapshot.openclawPreview.command} {snapshot.openclawPreview.update.join(" ")}</code>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-navy/5 border border-navy/5 flex flex-col gap-1">
-                        <span className="text-[10px] font-sans font-bold text-slatecopy uppercase tracking-wider">{t("integrations.openclaw.remove")}</span>
-                        <code className="text-brand overflow-x-auto whitespace-pre">{snapshot.openclawPreview.command} {snapshot.openclawPreview.remove.join(" ")}</code>
-                      </div>
-                    </div>
-                  </details>
-                </>
-              )}
-
-              {selectedId === "pi" && (
-                <section className="plugin-section">
-                  <div className="plugin-section-title"><small>{t("integrations.pi.manualSetup")}</small><strong>{t("integrations.pi.extension")}</strong></div>
-                  <p className="text-sm text-slatecopy leading-relaxed">
-                    {t("integrations.pi.intro")}
-                  </p>
-                  <div className="mt-3 p-4 rounded-2xl bg-navy/5 border border-navy/5 flex flex-col gap-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.pi.globalInstall")}</span>
-                      <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">pi install npm:@open-pets/pi</code>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.pi.projectInstall")}</span>
-                      <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">pi install -l npm:@open-pets/pi</code>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.pi.remove")}</span>
-                      <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">pi remove npm:@open-pets/pi</code>
-                    </div>
-                  </div>
-                  <div className="mt-3 p-4 rounded-2xl bg-blue-50/50 border border-blue-100/60 flex flex-col gap-2">
-                    <span className="text-[10px] font-bold text-slatecopy uppercase tracking-wider">{t("integrations.pi.slashCommands")}</span>
-                    <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">/openpets status</code>
-                    <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">/openpets test</code>
-                    <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">/openpets react &lt;reaction&gt;</code>
-                    <code className="bg-white px-2 py-1 rounded border border-blue-100 text-brand text-xs">/openpets say &lt;message&gt;</code>
-                  </div>
-                  <p className="text-xs text-slatecopy mt-2">
-                    {t("integrations.pi.outro")}
-                  </p>
-                </section>
-              )}
-            </div>
-          </GlassCard>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function PluginsView() {
   const { t } = useI18n();
@@ -5019,7 +3803,9 @@ function PluginsView() {
 
 function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (theme: AppearanceTheme) => void }) {
   const { t } = useI18n();
-  const [currentRoute, setCurrentRoute] = useState<Route>(() => initialControlCenterRoute());
+  const [initialTarget] = useState<ControlCenterRouteTarget>(() => initialControlCenterRoute());
+  const [currentRoute, setCurrentRoute] = useState<Route>(initialTarget.route);
+  const [assistantTab, setAssistantTab] = useState<"providers" | undefined>(initialTarget.assistantTab);
   const [remoteTokenHandoff, setRemoteTokenHandoff] = useState<RemoteTokenHandoffState>(null);
   const [state, setState] = useState<StateSnapshot | null>(null);
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
@@ -5035,8 +3821,16 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const petDetailDialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => api.onRouteChange((route) => {
-    if (isRoute(route)) setCurrentRoute(route);
+  function navigateToRoute(route: Route): void {
+    setCurrentRoute(route);
+    setAssistantTab(undefined);
+  }
+
+  useEffect(() => api.onRouteChange((target) => {
+    if (isControlCenterRouteTarget(target)) {
+      setCurrentRoute(target.route);
+      setAssistantTab(target.route === "assistant" ? target.assistantTab : undefined);
+    }
   }), []);
 
   async function loadPetsData() {
@@ -5070,10 +3864,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       const localSpritesheet = p.id && !catalogPet && !codexPet && !p.builtIn ? installedPetSpritesheetUrl(p.id) : undefined;
       const spritesheet = safePetImage(codexPet?.spritesheet) || safePetImage(catalogPet?.spritesheet) || safePetImage(localSpritesheet);
       const preview = safePetImage(codexPet?.preview) || safePetImage(catalogPet?.preview) || safePetImage(catalogPet?.thumbnail) || safePetImage(p.source && "preview" in p.source ? (p.source as { preview?: string }).preview : undefined) || safePetImage(localSpritesheet) || defaultThumbUrl;
-      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? p.spriteLayout;
+      const spriteLayout = codexPet?.spriteLayout ?? catalogPet?.spriteLayout ?? getCatalogPetSpriteLayout(catalogPet?.spriteVersionNumber) ?? p.spriteLayout;
       const category = catalogPet?.category;
       const original = catalogPet?.original;
       const featured = catalogPet?.featured;
+      const spriteVersionNumber = catalogPet?.spriteVersionNumber
+        ?? codexPet?.spriteVersionNumber
+        ?? (p.spriteLayout?.version === 2 ? 2 : undefined);
       return {
         ...p,
         spritesheet,
@@ -5082,6 +3879,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         category,
         original,
         featured,
+        spriteVersionNumber,
         sourceKind: "installed" as const,
         installed: true,
       };
@@ -5093,6 +3891,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           ...p,
           preview: safePetImage(p.preview) || safePetImage(p.thumbnail) || defaultThumbUrl,
           spritesheet: safePetImage(p.spritesheet),
+          spriteLayout: getCatalogPetSpriteLayout(p.spriteVersionNumber),
           sourceKind: "catalog",
           installed: false,
         });
@@ -5258,41 +4057,52 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   return (
     <main className="app-shell">
       <header className="hero">
+        <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />
         <div className="hero-content">
           <p className="eyebrow">{t("app.controlCenter")}</p>
           <h1>{t(currentMeta.titleKey)}</h1>
-          <p className="hero-desc">{t(currentMeta.descKey)}</p>
         </div>
-        <div className="hero-logo-container">
-          <img src={openPetsLogoUrl} className="hero-brand-logo" alt={t("app.logo.alt")} />
-        </div>
+        <p className="hero-desc">{t(currentMeta.descKey)}</p>
       </header>
 
       <nav className="nav-bar">
-        {navTabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
-            onClick={() => setCurrentRoute(tab.id)}
-          >
-            {tab.icon}
-            <span>{t(tab.labelKey)}</span>
-          </button>
-        ))}
+        {navTabs.map((tab) => {
+          const translated = t(tab.labelKey);
+          // "nav.teams" may be missing from some locales; fall back to English.
+          const label = tab.labelKey === "nav.teams" && translated === tab.labelKey ? "Teams" : translated;
+          return (
+            <button
+              key={tab.id}
+              className={`nav-tab ${currentRoute === tab.id ? "active" : ""}`}
+              onClick={() => navigateToRoute(tab.id)}
+            >
+              {tab.icon}
+              <span>{label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {error && <div className="error">{error}</div>}
 
       {currentRoute === "dashboard" ? (
-        <DashboardView onNavigate={setCurrentRoute} />
-      ) : currentRoute === "conversation" ? (
-        <ConversationView api={api} />
+        <DashboardView onNavigate={navigateToRoute} />
+      ) : currentRoute === "assistant" ? (
+        <AssistantView initialTab={assistantTab ?? "chat"} />
       ) : currentRoute === "settings" ? (
         <SettingsView onAppearanceThemeChange={onAppearanceThemeChange} onTokenHandoff={(result, endpoint) => setRemoteTokenHandoff({ result, endpoint })} />
       ) : currentRoute === "plugins" ? (
         <PluginsView />
       ) : currentRoute === "integrations" ? (
-        <IntegrationsView />
+        <IntegrationsView api={api} />
+      ) : currentRoute === "teams" ? (
+        <TeamsView
+          api={{
+            ...api,
+            onRouteChange: (callback: (route: string) => void) => api.onRouteChange((target) => callback(target.route)),
+          }}
+          onNavigate={navigateToRoute}
+        />
       ) : (
         <div className="layout">
           <GlassCard className="gallery">
@@ -5313,7 +4123,14 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
               </div>
               <div className="filter-actions">
                 <Button variant="secondary" size="compact" icon={<FolderPlusIcon />} disabled={!!busy} onClick={() => void act(t("pets.busy.importing"), () => api.installLocalPet())}>{t("pets.import")}</Button>
-                <Button variant="secondary" size="compact" icon={<HeartIcon />} onClick={() => void api.openGallery().catch((err) => setError(String(err?.message ?? err)))}>{t("pets.gallery")}</Button>
+                <Button
+                  variant="accent"
+                  size="compact"
+                  icon={<HeartIcon />}
+                  onClick={() => void api.openGallery().catch((err) => setError(String(err?.message ?? err)))}
+                >
+                  {t("pets.gallery")}
+                </Button>
               </div>
             </div>
             <div className="pets-grid">{pets.map((pet) => {
@@ -5343,7 +4160,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       <b className="card-title">{pet.displayName}</b>
                     </span>
                     <p className="card-desc">{pet.description || pet.id}</p>
-                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
+                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
 
                     <div className="pet-card-actions" onClick={(event) => event.stopPropagation()}>
                       <Button
@@ -5469,8 +4286,9 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       {selected.broken && <StatusPill tone="red">{t("pets.badge.broken")}</StatusPill>}
                       {selected.installed && !selected.broken && <StatusPill tone="green">{t("pets.badge.ready")}</StatusPill>}
                       {selected.builtIn && <StatusPill tone="orange">{t("pets.badge.originals")}</StatusPill>}
-                      {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
-                      {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.original && !selected.builtIn && <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill>}
+                       {selected.featured && !selected.original && <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill>}
+                       {selected.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}
                     </div>
                     {statusText && <p className="text-sm text-slatecopy mt-3 mb-0 font-medium">{statusText}</p>}
                   </div>

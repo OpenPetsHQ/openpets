@@ -25,7 +25,7 @@ see [Plugin platform](/plugins). For the author-facing API, see
 ## Current catalog lineup
 
 The public plugin catalog is `web/public/plugins/catalog.v2.json`. The current
-catalog contains ten official plugins and three community plugins.
+catalog contains eleven official plugins and five community plugins.
 
 | Plugin | Type | What it does |
 | --- | --- | --- |
@@ -39,9 +39,12 @@ catalog contains ten official plugins and three community plugins.
 | Quick Reminders | Official | Creates reminders with due/missed alerts, snooze, done, status, optional notifications, and sound. |
 | Virtual Pet | Official | Adds Tamagotchi-style state, actions, and a pinned HUD. |
 | Water Reminder | Official | Runs hydration reminders on a configurable cadence. |
+| System Resources | Official | Reports host CPU, RAM, optional GPU and system-volume Disk metrics in an integrated pinned HUD, with optional battery/network reporting and configurable alerts. |
+| Vocabulary Drag & Drop | Community | Drag words to see definitions and translations in a natively scrollable HUD card. |
 | Higgsfield Watch | Community | Catalog-listed community plugin. |
 | Spotify Buddy | Community | Catalog-listed community plugin. |
 | Walkabout | Community | Lets the pet roam, follow the cursor, or patrol. |
+| Usage Buddy | Community | Reflects live Claude and Codex usage from a local usage monitor endpoint. |
 
 Official plugin source lives under `plugins/official/`. Community catalog
 plugins are labeled `publisherType: "community"` and are never bundled or
@@ -50,21 +53,29 @@ enabled by default.
 ## Bundled defaults
 
 The desktop app can ship selected official plugins inside the application bundle.
-Those defaults are defined in `apps/desktop/src/plugin-service.ts`.
+Those defaults are defined in `apps/desktop/src/bundled-plugins.ts` and consumed by `apps/desktop/src/plugin-service.ts`.
 
 | Default | Plugins |
 | --- | --- |
-| Bundled with the app | Quick Reminders, Focus Buddy, Launch Buddy, Virtual Pet |
+| Bundled with the app | Quick Reminders, Focus Buddy, Launch Buddy, Virtual Pet, System Resources |
 | Enabled by default | Quick Reminders, Focus Buddy, Launch Buddy |
-| Bundled but disabled by default | Virtual Pet |
+| Bundled but disabled by default | Virtual Pet, System Resources |
 
 Everything else is installable from the catalog, not preloaded into a fresh app
 install.
 
-Focus Buddy and Quick Reminders also expose typed Pet Assistant capabilities
-when enabled. Their assistant operations use the same durable domain state as
-their pet-menu controls, while the host conversation owns the spoken or chat
-response.
+Every bundled plugin exposes its useful operations as typed Pet Assistant
+capabilities when enabled. Their assistant operations use the same durable
+domain state as their pet-menu controls, while the host conversation owns the
+spoken or chat response.
+
+| Plugin | Assistant capabilities |
+| --- | --- |
+| Quick Reminders | Create, list, complete, snooze, and remove reminders. |
+| Focus Buddy | Start, inspect, pause, resume, end, or skip to a break in a focus session. |
+| Launch Buddy | Deliver the configured greeting on demand. |
+| Virtual Pet | Inspect its status, then feed, play with, pet, or put it down for a nap. |
+| System Resources | Read metrics and show or hide its pinned HUD. |
 
 The same file also defines `staleBundledPluginIds`, a cleanup list for old
 bundled plugins that should be removed during upgrade. Keep that list when old

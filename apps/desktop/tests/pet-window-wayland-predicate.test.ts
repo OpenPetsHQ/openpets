@@ -58,3 +58,15 @@ describe("shouldPetWindowBeFocusable", () => {
     assert.equal(shouldPetWindowBeFocusable("win32", false, true), true);
   });
 });
+
+describe("isLayerShellBackendRequested (production predicate)", () => {
+  it("requires Linux and the exact native layer-shell opt-in value", async () => {
+    const { isLayerShellBackendRequested } = await import("../src/wayland-backend.js");
+    assert.equal(isLayerShellBackendRequested("linux", { OPENPETS_NATIVE_WAYLAND: "1" }), true);
+    assert.equal(isLayerShellBackendRequested("linux", { OPENPETS_NATIVE_WAYLAND: "0" }), false);
+    assert.equal(isLayerShellBackendRequested("linux", { OPENPETS_NATIVE_WAYLAND: "true" }), false);
+    assert.equal(isLayerShellBackendRequested("linux", {}), false);
+    assert.equal(isLayerShellBackendRequested("darwin", { OPENPETS_NATIVE_WAYLAND: "1" }), false);
+    assert.equal(isLayerShellBackendRequested("win32", { OPENPETS_NATIVE_WAYLAND: "1" }), false);
+  });
+});

@@ -33,6 +33,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -54,6 +56,7 @@ jobs:
         shell: bash
         run: |
           pnpm --dir apps/desktop exec tsc
+          pnpm --dir apps/desktop build:preload
           pnpm --dir apps/desktop exec vite build
 
       - name: Clean package output
@@ -61,6 +64,9 @@ jobs:
 
       - name: Build unpacked Windows app
         run: pnpm --dir apps/desktop exec electron-builder --win dir --x64 --publish never
+
+      - name: Validate unpacked Windows package
+        run: pnpm --dir apps/desktop exec node dist/check-packaging-contract.js --output --platform win32 --arch x64
 
       - name: Upload unsigned app executable
         id: upload-unsigned-app-exe
@@ -132,7 +138,16 @@ jobs:
           $signedInstaller = Get-ChildItem -Path signed-installer -Recurse -Filter "OpenPets-*-win-x64-setup.exe" | Select-Object -First 1
           if (-not $signedInstaller) { throw "Signed Windows installer was not returned by SignPath." }
           Copy-Item -Path $signedInstaller.FullName -Destination "signed-release/$($signedInstaller.Name)" -Force
-          Get-FileHash "signed-release/$($signedInstaller.Name)" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($signedInstaller.Name)" } | Set-Content -NoNewline signed-release/SHA256SUMS.windows.txt
+           Get-FileHash "signed-release/$($signedInstaller.Name)" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($signedInstaller.Name)" } | Set-Content -NoNewline signed-release/SHA256SUMS.windows.txt
+
+      - name: Validate signed installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path validated-installer -Force | Out-Null
+          $installer = Get-ChildItem -Path signed-release -Filter "OpenPets-*-win-x64-setup.exe" | Select-Object -First 1
+          & 7z x $installer.FullName "-ovalidated-installer" -y | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract the signed Windows installer." }
+          pnpm --dir apps/desktop exec node dist/check-packaging-contract.js --output --output-dir "$pwd\validated-installer" --platform win32 --arch x64
 
       - name: Upload signed Windows release artifact
         uses: actions/upload-artifact@v4

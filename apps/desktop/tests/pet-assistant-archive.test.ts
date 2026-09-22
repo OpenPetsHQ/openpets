@@ -101,8 +101,8 @@ function messageContent(message: PetAssistantTextModelRequest["messages"][number
     const unavailableArchive = {
       list: () => { throw new Error("archive cleanup failed"); },
       append: () => { throw new Error("not reached"); },
-      deleteMessage: () => false,
-      clear: () => {},
+      deleteMessage: () => { throw new Error("archive delete failed"); },
+      clear: () => { throw new Error("archive clear failed"); },
     };
     const resilient = new PetAssistantService({ generate: () => {
       providerCalls += 1;
@@ -111,6 +111,9 @@ function messageContent(message: PetAssistantTextModelRequest["messages"][number
       conversationArchive: unavailableArchive,
       onConversationArchiveError: (error) => archiveErrors.push(error instanceof Error ? error.message : "unknown"),
     });
+    assert.throws(() => resilient.getConversationHistory(), /archive cleanup failed/);
+    assert.throws(() => resilient.deleteConversationHistoryMessage("history-id"), /archive delete failed/);
+    assert.throws(() => resilient.clearConversationHistory(), /archive clear failed/);
     const result = await resilient.startTurn(PET_ASSISTANT_CONVERSATION_ID, "continue without archive");
     assert.equal(result.status, "completed");
     assert.equal(providerCalls, 1, "archive cleanup failure never suppresses a valid provider turn");

@@ -59,7 +59,9 @@ assert.equal(defaultPetSprite.fileName, "default-pet-spritesheet.webp", "sprite 
 assert.equal(defaultPetSprite.frameWidth, 192, "sprite frame width must be 192");
 assert.equal(defaultPetSprite.frameHeight, 208, "sprite frame height must be 208");
 assert.equal(defaultPetSprite.columns, 8, "sprite columns must be 8");
-assert.equal(defaultPetSprite.rows, 9, "sprite rows must be 9");
+assert.equal(defaultPetSprite.version, 2, "bundled default sprite must use V2");
+assert.equal(defaultPetSprite.rows, 11, "bundled default sprite must use the 8x11 atlas");
+assert.deepEqual(defaultPetSprite.neutralPose, { row: 0, column: 6 }, "bundled default sprite must use the V2 neutral idle pose");
 
 // Waiting duration preference normalization and supported values.
 assert.equal(defaultWaitingAnimationDurationMs, 1010, "waiting animation default must remain 1010 ms");

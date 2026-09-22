@@ -1,13 +1,15 @@
-import { app, globalShortcut, powerMonitor } from "electron";
+import { app, globalShortcut, powerMonitor, screen, type Display } from "electron";
 import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
-import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock } from "./app-state.js";
+import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock, updatePreferences } from "./app-state.js";
 import { createAppIcon } from "./assets.js";
 import { summarizeLegacyCodexV2MigrationSkips } from "./codex-pet-migration.js";
 import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
+import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
+import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, installDefaultPetDisplayHandlers, isDefaultPetVisible, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, openDefaultPetManagerCheckIn, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
 import { initializeLanController, isDefaultPetAwayForLan, startLanController } from "./lan-controller.js";
 import { debug, error as logError, getLogFilePath, info, initializeLogger, warn } from "./logger.js";
@@ -25,8 +27,28 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol } from "./windows.js";
+import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
+import { broadcastDefaultPetManagerCheckInSnapshot, installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
+import { initializeChatShortcut } from "./chat-shortcut.js";
+import { initializePetToggleShortcut } from "./pet-toggle-shortcut.js";
+import { initializeTeamService, type TeamService } from "./team-service.js";
+import { TeamApiClient } from "./team-api-client.js";
+import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
+import { findTeamEnrollmentLink } from "./team-protocol.js";
+import { resolveDevControlCenterRoute } from "./control-center-route.js";
+import { getSharedVoiceDeviceService } from "./voice-device-service.js";
+import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
+import { invalidateDisplayCache } from "./display.js";
+import { reclampAgentPetWindows } from "./agent-pet-controller.js";
+import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
+import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
+import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
+
+let teamService: TeamService | null = null;
+let managerCheckInService: ManagerCheckInService | null = null;
+let pendingTeamEnrollmentLink: string | null = null;
+let petDisplayCoordinator: PetDisplayCoordinator<Display> | null = null;
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
 // real encryption backend. On Linux use the keyring so safeStorage can
@@ -106,7 +128,25 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  installAppLifecycle();
+  installAppLifecycle({
+    onTeamEnrollmentLink: (link) => {
+      const value = `openpets://teams/enroll?intent=${encodeURIComponent(link.intentId)}`;
+      if (!teamService) {
+        pendingTeamEnrollmentLink = value;
+        return;
+      }
+      teamService.handleDeepLink(value);
+      openControlCenterWindow("teams");
+    },
+    stopTeams: () =>
+      teamService?.stop() ?? Promise.resolve(),
+    stopManagerCheckIns: () => {
+      return managerCheckInService?.stop() ?? Promise.resolve();
+    },
+    stopPetDisplayCoordinator: () => {
+      petDisplayCoordinator?.stop();
+    },
+  });
 
   app.whenReady().then(async () => {
     initializeLogger();
@@ -129,6 +169,32 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
+    getSharedVoiceDeviceService({
+      enumerate: enumerateTrustedVoiceDevices,
+      probeOutputSelection: probeTrustedVoiceOutput,
+      getPreferences: () => {
+        const preferences = getAppStateSnapshot().preferences;
+        return {
+          preferredInputDeviceId: preferences.preferredVoiceInputDeviceId,
+          preferredOutputDeviceId: preferences.preferredVoiceOutputDeviceId,
+        };
+      },
+      savePreferences: (preferences) => updatePreferences({
+        ...(preferences.preferredInputDeviceId === undefined ? {} : { preferredVoiceInputDeviceId: preferences.preferredInputDeviceId }),
+        ...(preferences.preferredOutputDeviceId === undefined ? {} : { preferredVoiceOutputDeviceId: preferences.preferredOutputDeviceId }),
+      }),
+    });
+    await recoverPetInstallTransactions({
+      petsRoot: getPetsRoot(),
+      onWarning: ({ message, petId }) => warn("state", message, petId ? { petId } : undefined),
+    });
+    try {
+      app.setAsDefaultProtocolClient("openpets");
+    } catch (error) {
+      warn("app", "Teams enrollment protocol registration unavailable", {
+        reason: error instanceof Error ? error.message : "registration_failed",
+      });
+    }
     try {
       const migration = await migrateLegacyCodexV2ImportsAtStartup();
       info("state", "Codex V2 import metadata migration completed", {
@@ -145,6 +211,21 @@ if (!gotSingleInstanceLock) {
     initializeVoiceAssistantShortcut(globalShortcut, () => {
       void import("./voice-assistant-host.js").then(({ toggleVoiceAssistant }) => toggleVoiceAssistant()).catch((error: unknown) => logError("app", "voice shortcut toggle failed", error));
     }, getAppStateSnapshot().preferences.voiceAssistantShortcut);
+    initializeChatShortcut(globalShortcut, () => {
+      void import("./default-pet-chat.js").then(({ isDefaultPetChatExpanded, isDefaultPetChatCompactOpen, setDefaultPetChatCompactOpen }) => {
+        // With full chat history open the composer is already available.
+        if (isDefaultPetChatExpanded()) return;
+        setDefaultPetChatCompactOpen(!isDefaultPetChatCompactOpen());
+      }).catch((error: unknown) => logError("app", "chat shortcut toggle failed", error));
+    }, getAppStateSnapshot().preferences.chatShortcut);
+    initializePetToggleShortcut(globalShortcut, () => {
+      void import("./default-pet-controller.js").then(({ isDefaultPetVisible, hideDefaultPet, showDefaultPet }) => {
+        if (isDefaultPetVisible()) hideDefaultPet();
+        else showDefaultPet();
+        // The tray's hide/show label reflects visibility; keep it in sync.
+        return import("./tray.js").then(({ refreshTrayMenu }) => refreshTrayMenu());
+      }).catch((error: unknown) => logError("app", "pet toggle shortcut failed", error));
+    }, getAppStateSnapshot().preferences.petToggleShortcut);
     // Resolve the UI language before any window or the tray is built.
     setLocaleFromPreference(getAppStateSnapshot().preferences.locale);
     initializeLanController();
@@ -158,8 +239,19 @@ if (!gotSingleInstanceLock) {
     });
     installInternalUiProtocol();
     installInternalUiHandlers();
+    installDefaultPetChatIpcHandlers();
     createAppTray();
-    installDefaultPetDisplayHandlers();
+    petDisplayCoordinator = new PetDisplayCoordinator({
+      displaySource: screen,
+      powerSource: powerMonitor,
+      invalidateDisplayCache,
+      reclampDefaultPetWindow,
+      reclampAgentPetWindows,
+      reclampLanVisitingPetWindows,
+      reclampPluginPetWindows,
+      recoverDefaultPetMouseInterop,
+    });
+    petDisplayCoordinator.start();
     await startLocalIpcServer();
     releaseStartupInstallLock();
     const roots = parseDevPluginEnv(process.env.OPENPETS_DEV_PLUGIN_ROOTS);
@@ -169,6 +261,63 @@ if (!gotSingleInstanceLock) {
     const pluginCapabilities = createElectronPluginHostCapabilities(app.getPath("userData"));
     let devPluginWatcher: ReturnType<typeof startDevPluginWatcher> | undefined;
     const pluginService = initializePluginService(app.getPath("userData"), defaultPluginPetApi, app.getVersion(), new ElectronPluginJsHost(), writePluginRuntimeLog, process.env.OPENPETS_DISABLE_PLUGIN_CATALOG === "1" || devPluginMode, resolveBundledOfficialPluginRoots(), !devPluginMode, pluginCapabilities, undefined, (sourcePath) => devPluginWatcher?.addPaths([sourcePath]), (sourcePath) => devPluginWatcher?.removePath(sourcePath));
+    const teamsApiClient = new TeamApiClient({ production: app.isPackaged });
+    teamService = initializeTeamService({
+      userDataPath: app.getPath("userData"),
+      apiClient: teamsApiClient,
+      pluginService,
+      log: (level, message, fields) =>
+        level === "error"
+          ? logError("teams", message, fields)
+          : level === "warn"
+            ? warn("teams", message, fields)
+            : info("teams", message, fields),
+    });
+    teamService.subscribeToEnrollmentPreview(() => {
+      // Reuse the existing route event so an already-running Control Center
+      // refetches the authoritative preview instead of retaining its initial
+      // pending snapshot with null identity and expiry.
+      openControlCenterWindow("teams");
+    });
+    managerCheckInService = initializeManagerCheckInService({
+      teamStateStore: teamService.stateStore,
+      credentialStore: teamService.credentialStore,
+      apiClient: teamsApiClient,
+      stateOptions: { userDataPath: app.getPath("userData") },
+      offerWeeklyCheckIn: (offer, onPresented) => presentManagerCheckInOffer(
+        offer,
+        () => openDefaultPetManagerCheckIn(),
+        onPresented,
+      ),
+      log: (level, message, fields) => {
+        if (level === "error") {
+          logError("teams", message, fields);
+        } else if (level === "warn") {
+          warn("teams", message, fields);
+        } else {
+          info("teams", message, fields);
+        }
+      },
+    });
+    managerCheckInService.subscribe((snapshot) => {
+      broadcastDefaultPetManagerCheckInSnapshot(snapshot);
+    });
+    powerMonitor.on("resume", () => {
+      void teamService?.syncNow().catch(() => undefined);
+      void managerCheckInService?.syncNow().catch(() => undefined);
+    });
+    const startupTeamLink = findTeamEnrollmentLink(process.argv);
+    if (startupTeamLink) {
+      teamService.handleDeepLink(
+        `openpets://teams/enroll?intent=${encodeURIComponent(startupTeamLink.intentId)}`,
+      );
+      openControlCenterWindow("teams");
+    }
+    if (pendingTeamEnrollmentLink) {
+      teamService.handleDeepLink(pendingTeamEnrollmentLink);
+      pendingTeamEnrollmentLink = null;
+      openControlCenterWindow("teams");
+    }
     // Wall-clock schedules (daily/cron/at) re-arm deterministically after sleep.
     powerMonitor.on("resume", () => pluginService.runtime.resyncSchedules());
     if (shouldOpenDefaultPetOnLaunch()) {
@@ -184,6 +333,8 @@ if (!gotSingleInstanceLock) {
     void (async () => {
       const service = pluginService;
       await service.start();
+      await teamService?.start();
+      await managerCheckInService?.start();
       const assistant = startPetAssistantHost(service, pluginCapabilities.secretsStore, {
         // App state is host-owned and synchronous; the service snapshots this
         // profile before each turn.
@@ -213,6 +364,16 @@ if (!gotSingleInstanceLock) {
     })().catch((error) => logError("app", "plugin service startup failed", error));
     void checkForGitHubReleaseUpdate().then(() => refreshTrayMenu());
     info("app", "startup complete", { logFile: getLogFilePath(), openDefaultPetOnLaunch: shouldOpenDefaultPetOnLaunch() });
+    const devRoute = app.isPackaged
+      ? null
+      : resolveDevControlCenterRoute(process.env.OPENPETS_DEV_ROUTE, false);
+    if (devRoute?.kind === "invalid") {
+      warn("ui", "ignored invalid OPENPETS_DEV_ROUTE", { value: devRoute.rawValue });
+    } else if (devRoute?.kind === "route") {
+      openControlCenterWindow(devRoute.route);
+    } else if (devRoute?.kind === "target") {
+      openControlCenterWindowTarget(devRoute.target);
+    }
     console.log("OpenPets desktop shell ready.");
   }).catch((error: unknown) => {
     releaseStartupInstallLock();

@@ -1,117 +1,40 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * Desktop test runner
  * Runs preload checks, builds and runs behavior tests, contract tests, then remaining dist checks.
  */
 
 import { spawn } from "node:child_process";
+import { rm, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { discoverArtifacts, relativePath } from "./test-discovery.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
 
-const preloadChecks = ["control-center-preload.cjs", "pet-preload.cjs", "pet-tts-helper.cjs", "plugin-sdk-preload.cjs", "panel-preload.cjs", "voice-realtime-preload.cjs"];
-const behaviorTests = [
-  ".test-dist/tests/lease-manager.test.js",
-  ".test-dist/tests/lease-manager-fixes.test.js",
-  ".test-dist/tests/lan-state.test.js",
-  ".test-dist/tests/lan-pet-presence.test.js",
-  ".test-dist/tests/lan-pet-activity.test.js",
-  ".test-dist/tests/lan-auth.test.js",
-  ".test-dist/tests/lan-controller.test.js",
-  ".test-dist/tests/lan-client-retry.test.js",
-  ".test-dist/tests/lan-persistence.test.js",
-  ".test-dist/tests/default-pet-external-show.test.js",
-  ".test-dist/tests/onboarding-state.test.js",
-  ".test-dist/tests/opencode-command.test.js",
-  ".test-dist/tests/update-version.test.js",
-  ".test-dist/tests/reaction-animation-mapping.test.js",
-  ".test-dist/tests/zip-safety.test.js",
-  ".test-dist/tests/codex-pets.test.js",
-  ".test-dist/tests/codex-pet-migration.test.js",
-  ".test-dist/tests/control-center-pet-preview.test.js",
-  ".test-dist/tests/claude-memory.test.js",
-  ".test-dist/tests/plugin-config.test.js",
-  ".test-dist/tests/plugin-assets.test.js",
-  ".test-dist/tests/plugin-delivery.test.js",
-  ".test-dist/tests/plugin-state.test.js",
-  ".test-dist/tests/plugin-runtime.test.js",
-  ".test-dist/tests/plugin-catalog-validation.test.js",
-  ".test-dist/tests/plugin-package.test.js",
-  ".test-dist/tests/plugin-service.test.js",
-  ".test-dist/tests/provider-profiles.test.js",
-  ".test-dist/tests/provider-service.test.js",
-  ".test-dist/tests/provider-credential-deletion.test.js",
-  ".test-dist/tests/plugin-ai-gateway.test.js",
-  ".test-dist/tests/text-model-client.test.js",
-  ".test-dist/tests/pet-assistant-personality.test.js",
-  ".test-dist/tests/pet-assistant-archive.test.js",
-  ".test-dist/tests/pet-assistant-history-ipc.test.js",
-  ".test-dist/tests/pet-assistant-service.test.js",
-  ".test-dist/tests/pet-assistant-host.test.js",
-  ".test-dist/tests/pet-assistant-conversation.test.js",
-  ".test-dist/tests/control-center-preload.test.js",
-  ".test-dist/tests/control-center-preload-voice-contract.test.js",
-  ".test-dist/tests/voice-bridge.test.js",
-  ".test-dist/tests/voice-lifecycle.test.js",
-  ".test-dist/tests/voice-conversation.test.js",
-  ".test-dist/tests/voice-realtime-assistant.test.js",
-  ".test-dist/tests/voice-assistant-session.test.js",
-  ".test-dist/tests/renderer-conversation-voice-state.test.js",
-  ".test-dist/tests/renderer-conversation-history-state.test.js",
-  ".test-dist/tests/voice-assistant-host-core.test.js",
-  ".test-dist/tests/pet-assistant-modality.test.js",
-  ".test-dist/tests/voice-assistant-host-cleanup.test.js",
-  ".test-dist/tests/voice-playback.test.js",
-  ".test-dist/tests/voice-activity-slot.test.js",
-  ".test-dist/tests/tray-voice.test.js",
-  ".test-dist/tests/voice-assistant-shortcut.test.js",
-  ".test-dist/tests/pet-assistant-feedback.test.js",
-  ".test-dist/tests/plugin-bridge-fuzz.test.js",
-  ".test-dist/tests/pet-fallback-notify.test.js",
-  ".test-dist/tests/pet-pool-order.test.js",
-  ".test-dist/tests/pet-pool.test.js",
-  ".test-dist/tests/pool-toggle.test.js",
-  ".test-dist/tests/local-ipc-confinement.test.js",
-  ".test-dist/tests/remote-control.test.js",
-  ".test-dist/tests/logger-redaction.test.js",
-  ".test-dist/tests/confinement-permission.test.js",
-  ".test-dist/tests/confinement-poller-backoff.test.js",
-  ".test-dist/tests/window-tracker.test.js",
-  ".test-dist/tests/window-tracker-chain.test.js",
-  ".test-dist/tests/window-tracker-win32.test.js",
-  ".test-dist/tests/window-tracker-reentry.test.js",
-  ".test-dist/tests/confinement-manager.test.js",
-  ".test-dist/tests/pet-confinement-enabled.test.js",
-  ".test-dist/tests/pet-horizontal-flip.test.js",
-  ".test-dist/tests/pet-motion-gravity.test.js",
-  ".test-dist/tests/pet-motion-engine-clamp.test.js",
-  ".test-dist/tests/pet-motion-engine-shared-ticker.test.js",
-  ".test-dist/tests/pet-motion-engine-single-writer.test.js",
-  ".test-dist/tests/pet-motion-engine-gravity-seam.test.js",
-  ".test-dist/tests/pet-motion-engine-hidden-move.test.js",
-  ".test-dist/tests/pet-motion-engine-nan-guard.test.js",
-  ".test-dist/tests/pet-roaming-controller.test.js",
-  ".test-dist/tests/display.test.js",
-  ".test-dist/tests/system-metrics.test.js",
-  ".test-dist/tests/preference-patch.test.js",
-  ".test-dist/tests/plugin-agent-activity.test.js",
-  ".test-dist/tests/pet-window-wayland-predicate.test.js",
-  ".test-dist/tests/pet-window-mouse-forwarding-predicate.test.js",
-  ".test-dist/tests/pet-render-lifecycle.test.js",
-];
-const contractTests = [
-  ".test-dist/contracts/local-ipc-protocol.contract.js",
-  ".test-dist/contracts/remote-control-protocol.contract.js",
-  ".test-dist/contracts/catalog-fixture.contract.js",
-  ".test-dist/contracts/plugin-manifest.contract.js",
-];
-const distChecks = [
-  "dist/check-opencode-desktop-setup.js",
-  "dist/check-cursor-desktop.js",
-  "dist/check-packaging-contract.js",
-];
+const preloadChecks = ["control-center-preload.cjs", "dist/pet-preload.cjs", "pet-tts-helper.cjs", "plugin-sdk-preload.cjs", "panel-preload.cjs", "voice-realtime-preload.cjs"];
+
+async function assertArtifactsExist(label, artifacts) {
+  const missing = [];
+  for (const artifact of artifacts) {
+    try {
+      if (!(await stat(artifact)).isFile()) missing.push(artifact);
+    } catch (error) {
+      if (error.code === "ENOENT") missing.push(artifact);
+      else throw error;
+    }
+  }
+  if (missing.length > 0) {
+    const listed = missing.map((artifact) => `  ${relativePath(rootDir, artifact)}`).join("\n");
+    throw new Error(`Missing mapped ${label} artifacts:\n${listed}`);
+  }
+}
+
+function logDiscoveredArtifacts(label, artifacts) {
+  console.log(`\nDiscovered ${label}:`);
+  for (const artifact of artifacts) console.log(`- ${relativePath(rootDir, artifact)}`);
+}
 
 function commandForPlatform(command, args) {
   if (process.platform === "win32" && command === "pnpm") {
@@ -141,25 +64,50 @@ function run(command, args = [], options = {}) {
 }
 
 async function main() {
+  console.log("\n[preflight] Checking test discovery invariants...");
+  await run("node", ["scripts/test-discovery.test.mjs"]);
+
+  console.log("\n[preflight] Checking npm release gate invariants...");
+  await run("node", ["scripts/npm-release-gate.test.mjs"]);
+
+  const { behaviorTests, contractTests, distChecks } = await discoverArtifacts(rootDir);
+  await rm(join(rootDir, ".test-dist"), { force: true, recursive: true });
+  logDiscoveredArtifacts("behavior tests", behaviorTests);
+  logDiscoveredArtifacts("contract tests", contractTests);
+  logDiscoveredArtifacts("dist checks", distChecks);
+
   // 1. Preload syntax checks
   console.log("\n[1/5] Checking preload syntax...");
+  await run("pnpm", ["build:preload"]);
   for (const preload of preloadChecks) await run("node", ["--check", preload]);
 
   // 2. Build tests
   console.log("\n[2/5] Building tests...");
   await run("pnpm", ["test:build"]);
+  await assertArtifactsExist("behavior test", behaviorTests);
+  await assertArtifactsExist("contract test", contractTests);
 
   // 3. Run behavior tests
   console.log("\n[3/5] Running behavior tests...");
-  for (const test of behaviorTests) await run("node", [test]);
+  for (const test of behaviorTests) {
+    console.log(`- ${relativePath(rootDir, test)}`);
+    await run("node", [test]);
+  }
 
   // 4. Run contract tests
   console.log("\n[4/5] Running contract tests...");
-  for (const test of contractTests) await run("node", [test]);
+  for (const test of contractTests) {
+    console.log(`- ${relativePath(rootDir, test)}`);
+    await run("node", [test]);
+  }
 
   // 5. Run remaining dist checks
   console.log("\n[5/5] Running dist checks...");
+  await rm(join(rootDir, "dist"), { force: true, recursive: true });
+  await run("pnpm", ["build:main"]);
+  await assertArtifactsExist("dist check", distChecks);
   for (const check of distChecks) {
+    console.log(`- ${relativePath(rootDir, check)}`);
     await run("node", [check]);
   }
 

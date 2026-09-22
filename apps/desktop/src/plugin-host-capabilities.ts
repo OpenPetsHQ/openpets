@@ -31,7 +31,8 @@ import { getAppStateSnapshot } from "./app-state.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { resolveTrustedPluginSprite } from "./plugin-assets.js";
 import { getPluginService } from "./plugin-service.js";
-import { createStaleWhileRevalidateCache, readExtendedSystemMetrics } from "./system-metrics.js";
+import { createNetworkRateSampler, createStaleWhileRevalidateCache } from "./system-metrics-core.js";
+import { readExtendedSystemMetrics, readNetworkCountersForPlatform } from "./system-metrics.js";
 
 /**
  * The Electron implementation of every SDK v3 host capability. Built once at
@@ -44,9 +45,15 @@ const maxPickedFileBytes = 16 * 1024 * 1024;
 type PickedFileEntry = { path: string; name: string; sizeBytes: number };
 
 let cpuSample: { idle: number; total: number } | null = null;
+const networkRateSampler = createNetworkRateSampler(
+  () => readNetworkCountersForPlatform(process.platform),
+);
+// The System Resources plugin's minimum scheduled interval is five seconds.
+// Keep a successful extended sample fresh across at least one scheduled poll;
+// an expired value is explicitly marked stale while the next refresh runs.
 const cachedExtendedSystemMetrics = createStaleWhileRevalidateCache(
-  () => readExtendedSystemMetrics(),
-  { ttlMs: 5_000 },
+  () => readExtendedSystemMetrics({ readNetworkRate: networkRateSampler }),
+  { ttlMs: 15_000 },
 );
 
 function sampleCpus(): { idle: number; total: number } {
@@ -74,7 +81,7 @@ export type ElectronPluginHostCapabilities = PluginHostCapabilities & {
   readonly providerService: HostProviderService;
   readonly aiGateway: PluginAiGateway;
   /** Tear down everything a plugin owns on stop/reload. */
-  clearPlugin(pluginId: string): Promise<void>;
+  clearPlugin(pluginId: string, isCurrentGeneration?: () => boolean): Promise<void>;
   shutdown(): void;
 };
 
@@ -277,7 +284,9 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       async metrics() {
         const memory = process.getSystemMemoryInfo();
         const memUsedPercent = memory.total > 0 ? Math.round(Math.min(100, Math.max(0, (1 - memory.free / memory.total) * 100))) : 0;
-        return { cpuPercent: cpuPercent(), memUsedPercent, ...cachedExtendedSystemMetrics() };
+        const extended = cachedExtendedSystemMetrics();
+        const { sampledAt, ...publicExtended } = extended;
+        return { cpuPercent: cpuPercent(), memUsedPercent, ...publicExtended, ...(sampledAt === undefined ? {} : { extendedMetricsSampledAt: sampledAt }) };
       },
       async openExternal(url) {
         let host: string | undefined;
@@ -299,8 +308,10 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       listenAllowed: () => getPluginPlatformSettings().allowMicrophone,
       inQuietHours: () => isInQuietHours(),
     },
-    async clearPlugin(pluginId: string) {
+    async clearPlugin(pluginId: string, isCurrentGeneration = () => true) {
+      if (!isCurrentGeneration()) return;
       await cancelPluginVoiceListen(pluginId, "The plugin was stopped.").catch(() => undefined);
+      if (!isCurrentGeneration()) return;
       try {
         teardownPluginDeliveries(pluginId);
         clearPluginPetsForPlugin(pluginId);

@@ -57,7 +57,7 @@ each gated by a permission ([Plugin platform](/plugins)):
 | `ctx.auth` | Host-mediated OAuth/PKCE | `auth` |
 | `ctx.net` | Declared∩approved hosts; public HTTPS + optional local HTTP via `network:local`; non-GET via `network:write` | `network`, `network:write`, `network:local` |
 | `ctx.files` | Scoped file access | `files` |
-| `ctx.system` | System info, aggregate CPU/memory and optional GPU/system-volume metrics, clipboard | `system:*`, `clipboard` |
+| `ctx.system` | System info, aggregate CPU/memory plus optional GPU, system-volume, battery, and network metrics, clipboard | `system:*`, `clipboard` |
 | `ctx.assets` | Resolve declared asset refs (icons/images/sprites/sounds) | (declared assets) |
 | `ctx.commands` | Register right-click commands | `commands` |
 | `ctx.status` | Publish status text | (status surface) |
@@ -67,9 +67,16 @@ each gated by a permission ([Plugin platform](/plugins)):
 
 The exact signatures live in `packages/sdk/src/index.ts` - that file is the
 contract, so program against it rather than any list copied into a doc.
-`ctx.system.metrics()` always returns aggregate CPU and memory usage; its
-GPU and system-volume fields are optional because host support varies by OS and
-hardware. It never exposes process, application, file, or device identity data.
+`ctx.system.metrics()` always returns aggregate CPU and memory usage; GPU,
+system-volume, battery, and network fields are optional because host support
+varies by OS and hardware. Network throughput is derived from successive
+per-interface counter samples matched by host-stable identities, so newly seen
+or reset interfaces are baselined and contribute no delta until a consecutive
+sample exists. It is omitted until at least one valid interface delta exists
+and is reset after a command failure or a long sleep/wake gap. The optional
+`extendedMetricsSampledAt` and `extendedMetricsFresh` fields identify whether
+extended values come from a new host probe or an expired cache awaiting refresh.
+They never expose process, application, file, interface, or device identity data.
 `OpenPetsPermission` in the SDK mirrors manifest validation so authors get
 autocomplete for exactly the capabilities they can request.
 
@@ -118,13 +125,13 @@ write access.
 
 ### `ctx.voice.listen`
 
-`ctx.voice.listen()` is a single, host-owned push-to-talk capture. It is visibly
-indicated only after microphone acquisition succeeds, never listens ambiently,
+`ctx.voice.listen()` is a single, host-owned push-to-talk capture. Its live
+microphone ownership is tracked only after acquisition succeeds, and it never listens ambiently,
 and rejects concurrent requests. The host bounds acquisition at 15 seconds and
 transcription at 30 seconds, trims the returned text, and rejects empty output
 with `Voice transcription returned no text.` The host cancellation path is used
 when a plugin is stopped or OpenPets shuts down; plugin code does not receive raw
-audio, credentials, or a renderer handle for the privacy surface.
+audio, credentials, or any microphone UI handle.
 
 Commands time out after five seconds by default. A command that deliberately
 waits for user interaction, such as host-mediated OAuth, may declare a bounded

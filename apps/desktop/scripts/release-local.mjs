@@ -6,6 +6,11 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { getDesktopNpmGateMode, getDesktopNpmGateSpecs, verifyExactNpmVersions } from "../../../scripts/npm-exact-version-probe.mjs";
+import { discoverPublicWorkspacePackages } from "../../../scripts/npm-workspace-release.mjs";
+import { describeOutputs, outputsIntact } from "./release-checkpoint.mjs";
+import { extractArtifactPayload } from "./package-artifact.mjs";
+
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptsDir, "..");
 const repoRoot = resolve(desktopDir, "../..");
@@ -78,6 +83,8 @@ if (dryRun && yes) throw new Error("--dry-run cannot be combined with --yes; it 
 const desktopPackageJson = readJson(join(desktopDir, "package.json"));
 const version = desktopPackageJson.version;
 const tag = `v${version}`;
+const publicNpmPackages = discoverPublicWorkspacePackages(repoRoot);
+const npmGateMode = getDesktopNpmGateMode({ desktopVersion: version, publicPackages: publicNpmPackages });
 const statePath = join(stateDir, `${tag}.json`);
 const expectedWindowsInstaller = `OpenPets-${version}-win-x64-setup.exe`;
 const requiredPreSigningArtifactNames = new Set([
@@ -112,12 +119,12 @@ function main() {
     return;
   }
 
-  preflight(state);
-  context.previousTag = findPreviousReleaseTag(head, resume || isStageComplete(state, "tag"));
+  const tagAlreadyCreated = preflight(state);
+  context.previousTag = findPreviousReleaseTag(head, tagAlreadyCreated);
 
   console.log(`\nStaged release plan for ${tag} (${stages.length} stages):`);
   for (const [index, stage] of stages.entries()) {
-    const done = !stage.alwaysRun && isStageComplete(state, stage.id) && outputsIntact(state.stages[stage.id]);
+    const done = !stage.alwaysRun && isStageComplete(state, stage.id) && outputsIntact(repoRoot, state.stages[stage.id]);
     console.log(`  ${String(index + 1).padStart(2, " ")}. ${done ? "done   " : "pending"} ${stage.id} — ${stage.title}`);
   }
   console.log(`\nCheckpoint file: ${relative(repoRoot, statePath)}`);
@@ -142,6 +149,18 @@ function main() {
 function createStagePlan(context, state) {
   const stages = [];
   const artifactPath = (name) => join(outputDir, name);
+
+  if (yes) {
+    stages.push({
+      id: "verify:npm-integrations",
+      title: `Verify published npm versions (${npmGateMode === "full" ? "all public packages" : "desktop integrations"})`,
+      alwaysRun: true,
+      run: () => {
+        verifyDesktopNpmGate();
+        return [];
+      },
+    });
+  }
 
   if (!skipChecks) {
     stages.push({
@@ -170,9 +189,11 @@ function createStagePlan(context, state) {
       id: build.id,
       title: build.name,
       run: () => {
+        validatePackagedOutput(build);
         run("pnpm", ["exec", "electron-builder", ...build.args, "--publish", "never"], { cwd: desktopDir });
         const outputs = build.outputs.map(artifactPath);
         for (const output of outputs) requireBuiltArtifact(output, build.name, build.minimumBytes);
+        validatePackagedArtifacts(outputs, build.artifactTargets);
         return outputs;
       },
     });
@@ -182,7 +203,9 @@ function createStagePlan(context, state) {
     stages.push({
       id: "stage:linux-packages",
       title: `Copy validated Linux DEB/RPM from ${linuxPackageDir}`,
-      run: () => copyLinuxPackageArtifacts(),
+      run: () => {
+        return copyLinuxPackageArtifacts();
+      },
     });
   }
 
@@ -216,6 +239,16 @@ function createStagePlan(context, state) {
   }
 
   if (!yes) return stages;
+
+  stages.push({
+    id: "verify:npm-pre-tag",
+    title: "Re-verify published npm versions before creating the tag",
+    alwaysRun: true,
+    run: () => {
+      verifyDesktopNpmGate();
+      return [];
+    },
+  });
 
   stages.push({
     id: "tag",
@@ -261,6 +294,7 @@ function createStagePlan(context, state) {
       try {
         downloadSignedWindowsArtifact(signPath.runId, signedArtifactDir);
         installSignedWindowsInstaller(signedArtifactDir);
+        validatePackagedArtifact(join(outputDir, expectedWindowsInstaller), { platform: "win32", arch: "x64" });
       } finally {
         rmSync(signedArtifactDir, { recursive: true, force: true });
       }
@@ -304,6 +338,16 @@ function createStagePlan(context, state) {
   });
 
   stages.push({
+    id: "verify:npm-pre-publish",
+    title: "Re-verify published npm versions before publishing the release",
+    alwaysRun: true,
+    run: () => {
+      verifyDesktopNpmGate();
+      return [];
+    },
+  });
+
+  stages.push({
     id: "release:publish",
     title: `Publish the GitHub release ${tag}`,
     run: () => {
@@ -317,6 +361,10 @@ function createStagePlan(context, state) {
   return stages;
 }
 
+function verifyDesktopNpmGate() {
+  verifyExactNpmVersions({ specs: getDesktopNpmGateSpecs({ repoRoot, desktopVersion: version, publicPackages: publicNpmPackages }), repoRoot });
+}
+
 function runStages(stages, state) {
   const total = stages.length;
   for (const [index, stage] of stages.entries()) {
@@ -324,7 +372,7 @@ function runStages(stages, state) {
     const record = state.stages[stage.id];
     const reusable = !stage.alwaysRun && Boolean(record);
 
-    if (reusable && outputsIntact(record)) {
+    if (reusable && outputsIntact(repoRoot, record)) {
       console.log(`\n${label} — already completed at ${record.completedAt}; skipping.`);
       continue;
     }
@@ -341,7 +389,7 @@ function runStages(stages, state) {
       throw error;
     }
 
-    state.stages[stage.id] = { completedAt: new Date().toISOString(), outputs: describeOutputs(outputs) };
+    state.stages[stage.id] = { completedAt: new Date().toISOString(), outputs: describeOutputs(repoRoot, outputs) };
     saveState(state);
   }
 }
@@ -364,7 +412,7 @@ function printStatus(stages, state) {
     const record = state.stages[stage.id];
     let status = "pending";
     if (stage.alwaysRun) status = "always";
-    else if (record && outputsIntact(record)) status = "done";
+    else if (record && outputsIntact(repoRoot, record)) status = "done";
     else if (record) status = "stale";
     const when = record ? ` (${record.completedAt})` : "";
     console.log(`  ${String(index + 1).padStart(2, " ")}. ${status.padEnd(7, " ")} ${stage.id} — ${stage.title}${when}`);
@@ -450,25 +498,7 @@ function clearState() {
 
 function isStageComplete(state, stageId) {
   const record = state.stages[stageId];
-  return Boolean(record) && outputsIntact(record);
-}
-
-function describeOutputs(outputs) {
-  return outputs.map((filePath) => ({ name: relative(repoRoot, filePath), size: statSync(filePath).size }));
-}
-
-function outputsIntact(record) {
-  if (!record) return false;
-  for (const output of record.outputs || []) {
-    let stat;
-    try {
-      stat = statSync(join(repoRoot, output.name));
-    } catch {
-      return false;
-    }
-    if (!stat.isFile() || stat.size !== output.size) return false;
-  }
-  return true;
+  return Boolean(record) && outputsIntact(repoRoot, record);
 }
 
 function requireBuiltArtifact(filePath, stageName, minimumBytes) {
@@ -491,6 +521,9 @@ function preflight(state) {
   }
   requireCommand("pnpm", ["--version"]);
   requireCommand("gh", ["--version"]);
+  if (!commandExists("unsquashfs", { cwd: repoRoot })) {
+    throw new Error("Linux AppImage payload validation requires unsquashfs. Install it with: brew install squashfs");
+  }
   run("gh", ["auth", "status", "--hostname", "github.com"], { cwd: repoRoot });
 
   const remoteUrl = commandOutput("git", ["remote", "get-url", "origin"], { cwd: repoRoot }).trim();
@@ -501,9 +534,9 @@ function preflight(state) {
   if (status) throw new Error(`Git working tree must be clean before release.\n${status}`);
 
   run("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
+  run("git", ["fetch", "--tags", "origin"], { cwd: repoRoot });
   const upstream = commandOutput("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd: repoRoot }).trim();
   if (!upstream) throw new Error("Release branch must have an upstream remote branch.");
-  run("git", ["fetch", "--tags", "origin"], { cwd: repoRoot });
   const localHead = commandOutput("git", ["rev-parse", "HEAD"], { cwd: repoRoot }).trim();
   const remoteHead = commandOutput("git", ["rev-parse", upstream], { cwd: repoRoot }).trim();
   if (localHead !== remoteHead) throw new Error(`HEAD must be pushed to ${upstream} before release.`);
@@ -511,7 +544,7 @@ function preflight(state) {
   const localTagExists = commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/${tag}`], { cwd: repoRoot });
   const remoteTagCommit = getRemoteTagCommit();
   const release = getReleaseDetails();
-  const tagAlreadyCreated = resume || isStageComplete(state, "tag");
+  const tagAlreadyCreated = resume || isStageComplete(state, "tag") || (localTagExists && remoteTagCommit === localHead);
 
   if (tagAlreadyCreated) {
     if (!localTagExists || !remoteTagCommit) {
@@ -519,7 +552,7 @@ function preflight(state) {
     }
     assertTagAtHead(localTagExists, remoteTagCommit);
     if (release && !release.isDraft) throw new Error(`GitHub release ${tag} is already published; the release script refuses to modify published releases.`);
-    return;
+    return true;
   }
 
   if (localTagExists) throw new Error(`Git tag already exists locally: ${tag}`);
@@ -527,9 +560,16 @@ function preflight(state) {
   if (release) {
     throw new Error(`GitHub release already exists: ${tag}`);
   }
+  return false;
 }
 
 function createAndPushTag(target) {
+  const localTagExists = commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/${tag}`], { cwd: repoRoot });
+  const remoteTagCommit = getRemoteTagCommit();
+  if (localTagExists && remoteTagCommit) {
+    assertTagAtHead(localTagExists, remoteTagCommit);
+    return;
+  }
   run("git", ["tag", "--annotate", tag, "--message", `OpenPets ${tag}`, target], { cwd: repoRoot });
   run("git", ["push", "origin", `refs/tags/${tag}`], { cwd: repoRoot });
   assertTagAtHead(true, target);
@@ -801,15 +841,17 @@ function verifyReleaseAssets(uploadArtifacts) {
 
 function createBuildPlan() {
   const plan = [
-    { id: "build:mac-dmg", name: "macOS DMG x64 + arm64", args: ["--mac", "dmg", "--x64", "--arm64"], outputs: [`OpenPets-${version}-mac-x64.dmg`, `OpenPets-${version}-mac-arm64.dmg`] },
-    { id: "build:mac-zip", name: "macOS ZIP x64 + arm64", args: ["--mac", "zip", "--x64", "--arm64"], outputs: [`OpenPets-${version}-mac-x64.zip`, `OpenPets-${version}-mac-arm64.zip`] },
-    { id: "build:linux-appimage", name: "Linux AppImage x64", args: ["--linux", "AppImage", "--x64"], outputs: [`OpenPets-${version}-linux-x86_64.AppImage`] },
+    { id: "build:mac-dmg", name: "macOS DMG x64 + arm64", args: ["--mac", "dmg", "--x64", "--arm64"], validationTargets: [{ args: ["--mac", "--x64"], platform: "darwin", arch: "x64" }, { args: ["--mac", "--arm64"], platform: "darwin", arch: "arm64" }], artifactTargets: [{ platform: "darwin", arch: "x64" }, { platform: "darwin", arch: "arm64" }], outputs: [`OpenPets-${version}-mac-x64.dmg`, `OpenPets-${version}-mac-arm64.dmg`] },
+    { id: "build:mac-zip", name: "macOS ZIP x64 + arm64", args: ["--mac", "zip", "--x64", "--arm64"], validationTargets: [{ args: ["--mac", "--x64"], platform: "darwin", arch: "x64" }, { args: ["--mac", "--arm64"], platform: "darwin", arch: "arm64" }], artifactTargets: [{ platform: "darwin", arch: "x64" }, { platform: "darwin", arch: "arm64" }], outputs: [`OpenPets-${version}-mac-x64.zip`, `OpenPets-${version}-mac-arm64.zip`] },
+    { id: "build:linux-appimage", name: "Linux AppImage x64", args: ["--linux", "AppImage", "--x64"], validationTargets: [{ args: ["--linux", "--x64"], platform: "linux", arch: "x64" }], artifactTargets: [{ platform: "linux", arch: "x64" }], outputs: [`OpenPets-${version}-linux-x86_64.AppImage`] },
   ];
   if (!linuxPackageDir) {
     plan.push({
       id: "build:linux-deb",
       name: "Linux DEB x64",
       args: ["--linux", "deb", "--x64"],
+      validationTargets: [{ args: ["--linux", "--x64"], platform: "linux", arch: "x64" }],
+      artifactTargets: [{ platform: "linux", arch: "x64" }],
       outputs: [`OpenPets-${version}-linux-amd64.deb`],
       minimumBytes: minimumLinuxPackageBytes,
     });
@@ -817,16 +859,50 @@ function createBuildPlan() {
       id: "build:linux-rpm",
       name: "Linux RPM x64",
       args: ["--linux", "rpm", "--x64"],
+      validationTargets: [{ args: ["--linux", "--x64"], platform: "linux", arch: "x64" }],
+      artifactTargets: [{ platform: "linux", arch: "x64" }],
       outputs: [`OpenPets-${version}-linux-x86_64.rpm`],
       minimumBytes: minimumLinuxPackageBytes,
     });
   }
-  plan.push({ id: "build:linux-targz", name: "Linux tar.gz x64", args: ["--linux", "tar.gz", "--x64"], outputs: [`OpenPets-${version}-linux-x64.tar.gz`] });
+  plan.push({ id: "build:linux-targz", name: "Linux tar.gz x64", args: ["--linux", "tar.gz", "--x64"], validationTargets: [{ args: ["--linux", "--x64"], platform: "linux", arch: "x64" }], artifactTargets: [{ platform: "linux", arch: "x64" }], outputs: [`OpenPets-${version}-linux-x64.tar.gz`] });
   if (includeExperimentalArm) {
-    plan.push({ id: "build:arm-win-nsis", name: "Windows NSIS arm64 (disposable, never published)", args: ["--win", "nsis", "--arm64"], outputs: [] });
-    plan.push({ id: "build:arm-linux-appimage", name: "Linux AppImage arm64 (experimental)", args: ["--linux", "AppImage", "--arm64"], outputs: [`OpenPets-${version}-linux-arm64.AppImage`] });
+    plan.push({ id: "build:arm-win-nsis", name: "Windows NSIS arm64 (disposable, never published)", args: ["--win", "nsis", "--arm64"], validationTargets: [{ args: ["--win", "--arm64"], platform: "win32", arch: "arm64" }], artifactTargets: [], outputs: [] });
+    plan.push({ id: "build:arm-linux-appimage", name: "Linux AppImage arm64 (experimental)", args: ["--linux", "AppImage", "--arm64"], validationTargets: [{ args: ["--linux", "--arm64"], platform: "linux", arch: "arm64" }], artifactTargets: [{ platform: "linux", arch: "arm64" }], outputs: [`OpenPets-${version}-linux-arm64.AppImage`] });
   }
   return plan;
+}
+
+function validatePackagedOutput(build) {
+  if (!build.validationTargets?.length) throw new Error(`No packaged-output validation target is configured for ${build.id}.`);
+  for (const [index, validationTarget] of build.validationTargets.entries()) {
+    const validationDir = mkdtempSync(join(tmpdir(), `openpets-package-${version}-`));
+    try {
+      run("pnpm", ["exec", "electron-builder", ...validationTarget.args, "--dir", "--publish", "never", `--config.directories.output=${validationDir}`], { cwd: desktopDir });
+      run("node", ["dist/check-packaging-contract.js", "--output", "--output-dir", validationDir, "--platform", validationTarget.platform, "--arch", validationTarget.arch], { cwd: desktopDir });
+      console.log(`Temporary packaged-output validation passed for ${build.name} target ${index + 1}/${build.validationTargets.length}.`);
+    } finally {
+      rmSync(validationDir, { recursive: true, force: true });
+    }
+  }
+}
+
+function validatePackagedArtifacts(artifacts, targets) {
+  if (artifacts.length !== targets.length) throw new Error(`Packaged artifact/target count mismatch: ${artifacts.length} artifacts, ${targets.length} targets.`);
+  for (const [index, artifact] of artifacts.entries()) validatePackagedArtifact(artifact, targets[index]);
+}
+
+function validatePackagedArtifact(artifact, target) {
+  const extractionDir = mkdtempSync(join(tmpdir(), `openpets-artifact-${version}-`));
+  let extracted;
+  try {
+    extracted = extractArtifactPayload(artifact, extractionDir);
+    run("node", ["dist/check-packaging-contract.js", "--output", "--output-dir", extracted.payloadDir, "--platform", target.platform, "--arch", target.arch], { cwd: desktopDir });
+    console.log(`Actual artifact payload validation passed for ${basename(artifact)} (${target.platform}/${target.arch}).`);
+  } finally {
+    extracted?.cleanup();
+    rmSync(extractionDir, { recursive: true, force: true });
+  }
 }
 
 function copyLinuxPackageArtifacts() {
@@ -857,6 +933,7 @@ function copyLinuxPackageArtifacts() {
     if (sourceStat.size < minimumLinuxPackageBytes) {
       throw new Error(`Linux package artifact is too small to be valid (${sourceStat.size} bytes; minimum ${minimumLinuxPackageBytes}): ${sourcePath}`);
     }
+    validatePackagedArtifact(sourcePath, { platform: "linux", arch: "x64" });
     const destinationPath = join(outputDir, name);
     copyFileSync(sourcePath, destinationPath);
     copied.push(destinationPath);
@@ -935,6 +1012,10 @@ function commandSucceeds(command, args, options) {
   return spawnSync(command, args, { cwd: options.cwd, stdio: "ignore" }).status === 0;
 }
 
+function commandExists(command, options) {
+  return !spawnSync(command, [], { cwd: options.cwd, stdio: "ignore" }).error;
+}
+
 function commandOutput(command, args, options) {
   const result = spawnSync(command, args, { cwd: options.cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed:\n${result.stderr || result.stdout}`);
@@ -979,21 +1060,24 @@ run is retried by re-running the same command: completed stages are skipped and
 work resumes at the stage that failed.
 
 Stages (default plan):
+  verify:npm-integrations verify exact @open-pets/opencode + @open-pets/openclaw versions exist on npm (--yes only)
   checks                  pnpm build + desktop check
   clean                   clean apps/desktop/dist-electron
-  build:mac-dmg           macOS DMG x64 + arm64
-  build:mac-zip           macOS ZIP x64 + arm64
-  build:linux-appimage    Linux AppImage x64
-  build:linux-deb         Linux DEB x64
-  build:linux-rpm         Linux RPM x64
-  build:linux-targz       Linux tar.gz x64
+  build:mac-dmg           macOS DMG x64 + arm64 (each packaged-output validated first)
+  build:mac-zip           macOS ZIP x64 + arm64 (each packaged-output validated first)
+  build:linux-appimage    Linux AppImage x64 (packaged-output validated first)
+  build:linux-deb         Linux DEB x64 (packaged-output validated first)
+  build:linux-rpm         Linux RPM x64 (packaged-output validated first)
+  build:linux-targz       Linux tar.gz x64 (packaged-output validated first)
   verify:local            working-tree check + pre-signing artifact set
+  verify:npm-pre-tag      re-verify exact npm specs before tagging (--yes only)
   tag                     create and push the annotated v<version> tag
   sign:dispatch           dispatch the SignPath workflow, record its run id
   sign:collect            wait for that run, download and verify the signed installer
   verify:final            validate the signed artifact set, write SHA256SUMS
   release:draft           create or refresh the draft GitHub release
   release:upload          upload only the assets GitHub is missing, then verify
+  verify:npm-pre-publish  re-verify exact npm specs before publishing (--yes only)
   release:publish         publish the verified draft
 
 The Windows x64 installer is never built locally; it is produced by SignPath.

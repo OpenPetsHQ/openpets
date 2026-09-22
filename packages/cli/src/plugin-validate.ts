@@ -202,12 +202,19 @@ export function validatePluginFolder(sourceDir: string): PluginValidationResult 
 function isSpriteDeclaration(value: unknown): value is { path: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
-  const frameWidth = item.frameWidth;
-  const frameHeight = item.frameHeight;
-  const frames = item.frames;
-  const durationMs = item.durationMs;
   if (Object.keys(item).some((key) => !["path", "frameWidth", "frameHeight", "frames", "durationMs"].includes(key))) return false;
-  return typeof item.path === "string" && typeof frameWidth === "number" && Number.isInteger(frameWidth) && frameWidth >= 32 && frameWidth <= 512 && typeof frameHeight === "number" && Number.isInteger(frameHeight) && frameHeight >= 32 && frameHeight <= 512 && typeof frames === "number" && Number.isInteger(frames) && frames >= 1 && frames <= 16 && typeof durationMs === "number" && Number.isInteger(durationMs) && durationMs >= 100 && durationMs <= 4000;
+
+  if (typeof item.path !== "string") return false;
+  if (!isIntegerInRange(item.frameWidth, 32, 512)) return false;
+  if (!isIntegerInRange(item.frameHeight, 32, 512)) return false;
+  if (!isIntegerInRange(item.frames, 1, 16)) return false;
+  if (!isIntegerInRange(item.durationMs, 100, 4000)) return false;
+
+  return true;
+}
+
+function isIntegerInRange(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
 }
 
 function readWebpDimensions(path: string): { width: number; height: number } | undefined {
@@ -216,10 +223,19 @@ function readWebpDimensions(path: string): { width: number; height: number } | u
     if (bytes.length < 30 || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WEBP") return undefined;
     const chunk = bytes.toString("ascii", 12, 16);
     if (chunk === "VP8X") return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
-    if (chunk === "VP8L" && bytes[20] === 0x2f) { const bits = bytes.readUInt32LE(21); return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }; }
+    if (chunk === "VP8L") return readVp8lDimensions(bytes);
     if (chunk === "VP8 " && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
   } catch {}
   return undefined;
+}
+
+function readVp8lDimensions(bytes: Buffer): { width: number; height: number } | undefined {
+  if (bytes[20] !== 0x2f) return undefined;
+
+  const bits = bytes.readUInt32LE(21);
+  const width = (bits & 0x3fff) + 1;
+  const height = ((bits >> 14) & 0x3fff) + 1;
+  return { width, height };
 }
 
 function checkFile(dir: string, relPath: string, maxBytes: number, where: string, fail: (path: string, message: string) => void): void {

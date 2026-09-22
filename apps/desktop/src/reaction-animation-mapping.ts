@@ -1,5 +1,6 @@
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
 import { defaultWaitingAnimationDurationMs, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { codexV2SpriteLayout } from "./codex-pets-core.js";
 
 export type PetMotionState = "idle" | "run-left" | "run-right";
 export type UniversalSpriteState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
@@ -21,6 +22,18 @@ export const motionToSpriteState = {
   "run-left": "running-left",
 } as const satisfies Record<PetMotionState, UniversalSpriteState>;
 
+/**
+ * Directional sprite rows are authored in unflipped space. When a pet is
+ * mirrored with scaleX(-1), a directional row plays visually reversed, so a
+ * flipped pet must use the opposite row to keep its on-screen direction
+ * (e.g. dragging left should still show a left-facing run).
+ */
+export function mirrorDirectionalSpriteState(state: UniversalSpriteState): UniversalSpriteState {
+  if (state === "running-left") return "running-right";
+  if (state === "running-right") return "running-left";
+  return state;
+}
+
 export const defaultReactionToSpriteState = {
   idle: "idle",
   thinking: "review",
@@ -37,10 +50,7 @@ export const defaultReactionToSpriteState = {
 
 export const defaultPetSprite = {
   fileName: "default-pet-spritesheet.webp",
-  frameWidth: 192,
-  frameHeight: 208,
-  columns: 8,
-  rows: 9,
+  ...codexV2SpriteLayout,
   states: {
     idle: { row: 0, frames: 6, durationMs: 5500, iterations: "infinite" },
     "running-right": { row: 1, frames: 8, durationMs: 1060 },
@@ -122,6 +132,41 @@ export function validateReactionAnimationOverrides(value: unknown): ReactionAnim
 export function resolveReactionSpriteState(reaction: OpenPetsReaction | undefined, overrides: ReactionAnimationOverrides | undefined): UserSelectableAnimationState {
   if (!reaction) return "idle";
   return overrides?.[reaction] ?? defaultReactionToSpriteState[reaction] ?? "idle";
+}
+
+export function isLoopingSpriteState(state: UniversalSpriteState, states: Record<UniversalSpriteState, SpriteStateDefinition> = defaultPetSprite.states): boolean {
+  const row = states[state];
+  const iterations = row && "iterations" in row ? row.iterations : "infinite";
+  return typeof iterations !== "number";
+}
+
+/**
+ * Render decision for the visible sprite.
+ *
+ * The transient display (bubble) expires after a few seconds while a busy
+ * status badge (thinking/working/editing/running/testing/waiting) survives
+ * much longer. When the display reaction is gone, a badge that resolves to a
+ * looping animation keeps the pet visibly animated; a badge that resolves to
+ * a finite one-shot (success/error/waving/celebrating, or a user override to
+ * one) falls back to idle so terminal reactions stay bounded.
+ */
+export function resolveEffectiveSpriteState(
+  displayReaction: OpenPetsReaction | undefined,
+  badgeReaction: OpenPetsReaction | undefined,
+  overrides?: ReactionAnimationOverrides,
+  states: Record<UniversalSpriteState, SpriteStateDefinition> = defaultPetSprite.states,
+): UserSelectableAnimationState {
+  if (displayReaction) {
+    return resolveReactionSpriteState(displayReaction, overrides);
+  }
+  if (!badgeReaction || badgeReaction === "idle") {
+    return "idle";
+  }
+  const badgeState = resolveReactionSpriteState(badgeReaction, overrides);
+  if (badgeState === "idle" || !isLoopingSpriteState(badgeState, states)) {
+    return "idle";
+  }
+  return badgeState;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

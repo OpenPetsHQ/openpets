@@ -40,6 +40,65 @@ at `docs/README.md`, then read the doc for the area you're touching:
 When you change behavior, update the matching `docs/*.md` in the same change.
 Ongoing improvement ideas / known issues are tracked in the root `improvements.md`.
 
+## Architecture and Module Ownership
+
+Maintain the architecture described by the codemaps. Before adding code, find the
+existing owner of the concern and extend it when that keeps ownership clear. Do
+not add a parallel path merely because it is easier than understanding the
+existing one.
+
+- Give each durable state, external resource, protocol, and lifecycle one clear
+  owner. Keep persistence, filesystem writes, Electron windows, child processes,
+  timers, sockets, and subscription cleanup with the module that owns their
+  lifecycle.
+- Keep facades thin: they compose established collaborators and own public
+  orchestration, not duplicated parsing, transport, persistence, or policy.
+- Extract a cohesive boundary only when it separates a real responsibility. Good
+  boundaries include pure protocol/validation/calculation code, bounded
+  transport, and focused state or lifecycle coordinators. Do not split files
+  solely to reduce line count.
+- Pure modules must be dependency-light and deterministic. Do not import
+  Electron, filesystem, logging, settings, or UI modules into a pure core unless
+  that dependency is intrinsic to its responsibility. Convert platform objects
+  at the adapter boundary.
+- Keep imports one-way from orchestration to focused collaborators. Move shared
+  contracts/types into the lowest appropriate dependency layer rather than
+  creating cycles or making a state module import its orchestrator.
+- Preserve operational invariants when refactoring: public and IPC shapes,
+  persisted data, protocol bytes, ordering, cancellation, cleanup, error
+  precedence, and bounded-resource behavior are contracts even when not
+  formally published.
+- Prefer a small, explicit function or module over a generic framework, factory,
+  compatibility shim, or abstraction that has only one consumer. Do not add
+  speculative extension points.
+- Remove superseded code, duplicate paths, unused exports, stale tests, and
+  obsolete documentation in the same change. Do not leave a new and old path
+  running in parallel without a documented versioned-data reason.
+
+## Change Discipline
+
+- Read the relevant codemap, conceptual documentation, owner module, and direct
+  callers before editing. Reuse established helpers, names, types, limits, and
+  error conventions instead of recreating them.
+- Make each change a coherent, reviewable unit with one responsibility. Avoid
+  opportunistic rewrites or formatting churn in unrelated code.
+- Name files and symbols for the responsibility they own. Use suffixes such as
+  `-core`, `-protocol`, `-transport`, or `-coordinator` only when they accurately
+  describe a real boundary, not as a naming ritual.
+- Keep validation, data access, transport, rendering, and lifecycle control in
+  their appropriate layers. Do not put database/filesystem/network work in UI
+  components or make UI code own durable state and cleanup.
+- Treat cancellation, timeouts, replacement generations, retries, and teardown
+  as part of the normal behavior. Clean up listeners, timers, readers, sockets,
+  child processes, and windows on every terminal path.
+- Do not silence type errors with broad casts, `any`, ignored promises, or empty
+  catches. Narrow unknown input at boundaries and either handle failures with
+  context or deliberately propagate them. A best-effort cleanup failure may be
+  ignored only when it cannot affect the state invariant and the reason is clear.
+- After a behavior or structure change, update the owning folder codemap and the
+  relevant conceptual documentation when its responsibility, contract, or flow
+  changed.
+
 ## Tests Must Protect Behavior
 
 Tests are evidence of a user-visible behavior, public contract, or a plausible
@@ -55,9 +114,39 @@ regression—not a record of the implementation that happened to be written.
 - Keep one behavior-focused purpose per test. Remove no-op assertions,
   duplicate coverage, and brittle snapshots/regexes that fail on harmless
   refactors or copy changes.
+- Never assert by reading source files and matching regexes or slicing on
+  code text (e.g. `readFileSync` a `.tsx` + `assert.match`). Such tests pin
+  the implementation, not behavior; delete them on sight instead of updating
+  them after a refactor.
 - When fixing a bug, add the narrowest regression test that fails without the
   fix. When reviewing existing tests, delete or rewrite tests that do not
   protect a plausible failure mode.
+- Do not test implementation-specific error-code strings, helper call order,
+  source layout, or internal constants unless that exact value is a documented
+  externally observable contract. Prefer the user-visible outcome and stable
+  boundary behavior.
+
+## Desktop Code Readability
+
+Desktop TypeScript and TSX must be written for human maintenance. Do not compress
+functions, conditionals, validation, object construction, or JSX into dense
+single-line expressions. Use conventional multi-line formatting, named
+intermediate values, focused helpers, and explicit branches when they make the
+state transition or boundary decision clearer. Prefer a readable function over
+a clever expression; do not trade clarity for fewer lines.
+
+Tests that assert arbitrary source strings, implementation codes, or incidental
+contract details are meaningless and should be removed rather than maintained.
+
+## Validation Before Commit
+
+Run the narrowest relevant behavior tests first, then the applicable project
+check. For desktop changes, normally run
+`pnpm --filter @open-pets/desktop check`; run
+`pnpm --filter @open-pets/desktop test` for cross-cutting changes or before
+merge. Build docs with `pnpm docs:build` whenever documentation changes.
+Always finish with `git diff --check` and leave the working tree free of generated
+or unrelated changes.
 
 ## Catalog Direction
 

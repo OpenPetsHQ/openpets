@@ -159,6 +159,47 @@ for (const { key, errMsg } of booleanKeys) {
 }
 
 // ---------------------------------------------------------------------------
+// hudScale — only listed HUD scale values are accepted
+// ---------------------------------------------------------------------------
+{
+  assert.equal(validatePreferencePatch({ hudScale: 1.4 }).hudScale, 1.4);
+  assert.equal(validatePreferencePatch({ hudScale: 2 }).hudScale, 2);
+  assert.equal(validatePreferencePatch({ hudScale: 0.85 }).hudScale, 0.85);
+  assert.equal(validatePreferencePatch({ hudScale: 1.1 }).hudScale, 1.1);
+  assert.equal(validatePreferencePatch({ hudScale: 1.7 }).hudScale, 1.7);
+
+  for (const value of [null, "1", true, 0, 3, Number.NaN]) {
+    assert.throws(
+      () => validatePreferencePatch({ hudScale: value }),
+      /Invalid HUD scale value\./,
+      `hudScale must reject ${String(value)}`,
+    );
+  }
+  console.log("validatePreferencePatch: hudScale validation — PASS");
+}
+
+// ---------------------------------------------------------------------------
+// Assistant buttons & chat shortcut — enums validated, empty chatShortcut clears
+// ---------------------------------------------------------------------------
+{
+  assert.equal(validatePreferencePatch({ chatShortcut: "" }).chatShortcut, "");
+  assert.equal(validatePreferencePatch({ chatShortcut: "CommandOrControl+Shift+C" }).chatShortcut, "CommandOrControl+Shift+C");
+  assert.throws(() => validatePreferencePatch({ chatShortcut: "notakey" }), /Invalid voice assistant shortcut\./);
+
+  assert.equal(validatePreferencePatch({ petToggleShortcut: "" }).petToggleShortcut, "");
+  assert.equal(validatePreferencePatch({ petToggleShortcut: "CommandOrControl+Shift+H" }).petToggleShortcut, "CommandOrControl+Shift+H");
+  assert.throws(() => validatePreferencePatch({ petToggleShortcut: "notakey" }), /Invalid voice assistant shortcut\./);
+
+  assert.equal(validatePreferencePatch({ petButtonsPosition: "left" }).petButtonsPosition, "left");
+  assert.throws(() => validatePreferencePatch({ petButtonsPosition: "top" }), /Invalid pet buttons position value\./);
+  assert.equal(validatePreferencePatch({ petButtonsSize: "large" }).petButtonsSize, "large");
+  assert.throws(() => validatePreferencePatch({ petButtonsSize: "huge" }), /Invalid pet buttons size value\./);
+  assert.throws(() => validatePreferencePatch({ showChatButton: "yes" }), /Invalid chat button visibility value\./);
+  assert.equal(validatePreferencePatch({ showTalkButton: false }).showTalkButton, false);
+  console.log("validatePreferencePatch: assistant buttons & chat shortcut — PASS");
+}
+
+// ---------------------------------------------------------------------------
 // Pet Assistant personality — nested renderer values are validated and bounded
 // ---------------------------------------------------------------------------
 {
@@ -184,9 +225,10 @@ for (const { key, errMsg } of booleanKeys) {
   console.log("validatePreferencePatch: personality validation and bounds — PASS");
 }
 
-// Talk shortcut preferences accept only canonical Electron accelerators.
+// Talk shortcut preferences accept canonical Electron accelerators; empty clears.
 {
   assert.equal(validatePreferencePatch({ voiceAssistantShortcut: "CommandOrControl+Shift+Space" }).voiceAssistantShortcut, "CommandOrControl+Shift+Space");
+  assert.equal(validatePreferencePatch({ voiceAssistantShortcut: "" }).voiceAssistantShortcut, "");
   assert.throws(() => validatePreferencePatch({ voiceAssistantShortcut: "Ctrl+Shift+Space" }), /Invalid voice assistant shortcut/);
   assert.throws(() => validatePreferencePatch({ voiceAssistantShortcut: "Space" }), /Invalid voice assistant shortcut/);
   console.log("validatePreferencePatch: Talk shortcut validation — PASS");

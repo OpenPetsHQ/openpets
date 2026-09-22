@@ -14,17 +14,7 @@ import {
   type VoiceCaptureResult,
 } from "../src/voice-capture.js";
 import { VoiceMicrophoneArbiter } from "../src/voice-microphone-arbiter.js";
-import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
-
-class FakeSurface implements VoicePrivacyIndicatorSurface {
-  showCount = 0;
-  hideCount = 0;
-  destroyCount = 0;
-
-  show(): void { this.showCount += 1; }
-  hide(): void { this.hideCount += 1; }
-  destroy(): void { this.destroyCount += 1; }
-}
+import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 
 class FakeTransport implements VoiceConversationTransport {
   readonly resources = { micTracks: 1, peerOpen: true, channelOpen: true, audioAttached: true, windowAlive: true };
@@ -127,8 +117,7 @@ class ImmediateAttempt implements VoiceCaptureAttempt {
 }
 
 function fixture(options: { autoConnect?: boolean; startFailure?: Error; factoryError?: Error } = {}) {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   const microphoneArbiter = new VoiceMicrophoneArbiter();
   const transports: FakeTransport[] = [];
   const service = new VoiceConversationService({
@@ -141,7 +130,7 @@ function fixture(options: { autoConnect?: boolean; startFailure?: Error; factory
       return transport;
     },
   });
-  return { surface, indicator, microphoneArbiter, service, transports };
+  return { indicator, microphoneArbiter, service, transports };
 }
 
 async function flush(): Promise<void> {
@@ -180,7 +169,7 @@ async function flush(): Promise<void> {
   current.transports[0]?.connect();
   await flush();
   assert.equal(current.service.snapshot().phase, "idle");
-  assert.equal(current.surface.showCount, 0);
+  assert.equal(current.indicator.liveTracks, 0);
 }
 
 {
@@ -189,10 +178,10 @@ async function flush(): Promise<void> {
   await flush();
   current.transports[0]!.emit({ type: "microphone-acquired" });
   current.transports[0]!.emit({ type: "negotiating" });
-  assert.equal(current.surface.showCount, 1);
+  assert.equal(current.indicator.liveTracks, 1);
   await current.service.close();
   await assert.rejects(start, /closed/);
-  assert.equal(current.surface.hideCount, 1);
+  assert.equal(current.indicator.liveTracks, 0);
   assert.equal(current.microphoneArbiter.activeOwner, null);
 }
 
@@ -306,17 +295,15 @@ for (const failure of [
   assert.equal(transport.resources.channelOpen, false);
   assert.equal(transport.resources.audioAttached, false);
   assert.equal(transport.resources.windowAlive, false);
-  assert.equal(current.indicator.liveTracks, 0);
-  assert.equal(current.surface.destroyCount, 0, "lane shutdown must not destroy shared privacy state");
+  assert.equal(current.indicator.liveTracks, 0, "lane shutdown must release shared microphone state");
   current.indicator.shutdown();
-  assert.equal(current.surface.destroyCount, 1, "the shared owner performs final indicator destruction");
+  assert.equal(current.indicator.liveTracks, 0, "shared privacy state can be reset by host teardown");
   assert.equal(current.microphoneArbiter.activeOwner, null);
   await assert.rejects(() => current.service.start(), /shut down/);
 }
 
 {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   const arbiter = new VoiceMicrophoneArbiter();
   const conversation = new VoiceConversationService({
     microphoneArbiter: arbiter,
@@ -339,8 +326,7 @@ for (const failure of [
 }
 
 {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   const arbiter = new VoiceMicrophoneArbiter();
   const capture = new VoiceCaptureService(
     (_duration, onAcquired) => new ImmediateAttempt(onAcquired),

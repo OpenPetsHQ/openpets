@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 
-import {
-  VoiceAssistantSession,
-  type VoiceAssistantActivityEvent,
-  type VoiceAssistantInput,
-  type VoiceAssistantInputOptions,
-  type VoiceAssistantPlayer,
-  type VoiceAssistantSessionEvent,
-  type VoiceAssistantSessionSnapshot,
-  type VoiceAssistantSpeech,
-  type VoiceAssistantSynthesizer,
-  type VoiceAssistantTurnAdapter,
-  type VoiceAssistantTurnResult,
-} from "../src/voice-assistant-session.js";
+import { VoiceAssistantSession } from "../src/voice-assistant-session.js";
+import type {
+  VoiceAssistantActivityEvent,
+  VoiceAssistantInput,
+  VoiceAssistantInputOptions,
+  VoiceAssistantPlayer,
+  VoiceAssistantSessionEvent,
+  VoiceAssistantSessionSnapshot,
+  VoiceAssistantSpeech,
+  VoiceAssistantSynthesizer,
+  VoiceAssistantTurnAdapter,
+  VoiceAssistantTurnResult,
+} from "../src/voice-assistant-session-contract.js";
 import {
   VoiceCaptureService,
   type VoiceCaptureAttempt,
@@ -20,7 +20,7 @@ import {
   type VoiceCaptureResult,
 } from "../src/voice-capture.js";
 import { VoiceMicrophoneArbiter, type VoiceMicrophoneReservation } from "../src/voice-microphone-arbiter.js";
-import { VoicePrivacyIndicator, type VoicePrivacyIndicatorSurface } from "../src/voice-privacy-indicator.js";
+import { VoicePrivacyIndicator } from "../src/voice-privacy-indicator.js";
 
 type Deferred<T> = { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void };
 
@@ -136,7 +136,7 @@ function distinctActivities(events: readonly VoiceAssistantSessionEvent[]): Arra
   return values.filter((value, index) => index === 0 || value !== values[index - 1]);
 }
 
-// Multi-turn canonical behavior: partials are turn-local replacements and the
+// One-shot canonical behavior: partials are turn-local replacements and the
 // assistant transcript is the terminal capability-aware Pet Assistant result.
 {
   const current = fixture();
@@ -154,34 +154,38 @@ function distinctActivities(events: readonly VoiceAssistantSessionEvent[]): Arra
   await flush();
   current.player.calls[0]!.result.resolve(undefined);
   await flush();
-  assert.equal(current.session.snapshot().turnId, "voice-turn-2");
-  assert.equal(current.session.snapshot().userTranscript, null);
-  assert.equal(current.session.snapshot().assistantTranscript, null);
-
-  current.input.partial("same");
-  current.input.finish("second turn");
-  await flush();
-  current.assistant.calls[1]!.result.resolve({ status: "completed", response: "second answer" });
-  await flush();
-  current.synthesizer.calls[1]!.result.resolve({ kind: "system", text: "second answer" });
-  await flush();
-  current.player.calls[1]!.result.resolve(undefined);
-  await flush();
+  assert.equal(current.session.snapshot().status, "ended");
+  assert.equal(current.session.snapshot().activity, null);
+  assert.equal(current.session.snapshot().turnId, "voice-turn-1");
+  assert.equal(current.input.calls.length, 1, "completed Talk does not automatically start another recording");
+  assert.equal(current.microphoneArbiter.activeOwner, null, "one-shot completion releases the microphone");
 
   const transcripts = current.sessionEvents.filter((event): event is Extract<VoiceAssistantSessionEvent, { type: "transcript" }> => event.type === "transcript");
   assert.deepEqual(transcripts.map(({ turnId, speaker, kind, text }) => [turnId, speaker, kind, text]), [
     ["voice-turn-1", "user", "partial", "same"],
     ["voice-turn-1", "user", "final", "same"],
     ["voice-turn-1", "assistant", "final", "Capability outcomes: completed=1, rejected=0, unavailable=0, indeterminate=0."],
-    ["voice-turn-2", "user", "partial", "same"],
-    ["voice-turn-2", "user", "final", "second turn"],
-    ["voice-turn-2", "assistant", "final", "second answer"],
   ]);
-  assert.deepEqual(current.assistant.calls.map((call) => call.conversationId), ["same-conversation", "same-conversation"]);
-  assert.equal(current.player.calls[1]!.speech.kind, "system");
-  assert.deepEqual(distinctActivities(current.sessionEvents), ["listening", "thinking", "acting", "thinking", "speaking", "listening", "thinking", "speaking", "listening"]);
+  assert.deepEqual(current.assistant.calls.map((call) => call.conversationId), ["same-conversation"]);
+  assert.deepEqual(distinctActivities(current.sessionEvents), ["listening", "thinking", "acting", "thinking", "speaking", null]);
   assert.ok(current.sessionEvents.every((event) => Object.isFrozen(event)));
   await current.session.end();
+}
+
+// A later turn requires a fresh explicit session activation.
+{
+  const current = fixture();
+  await current.session.start();
+  current.input.finish("fresh click");
+  await flush();
+  current.assistant.calls[0]!.result.resolve({ status: "completed", response: "fresh answer" });
+  await flush();
+  current.synthesizer.calls[0]!.result.resolve({ kind: "system", text: "fresh answer" });
+  await flush();
+  current.player.calls[0]!.result.resolve(undefined);
+  await flush();
+  assert.equal(current.input.calls.length, 1);
+  assert.equal(current.session.snapshot().status, "ended");
 }
 
 // Final-only STT emits only its one nonblank final.
@@ -236,8 +240,8 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   await current.session.end();
 }
 
-// Mute is microphone-only: output continues, but host activity is cleared and
-// the session becomes muted without opening a new input until unmute.
+// Mute is microphone-only while output is active, but one-shot completion still
+// ends the session instead of opening another input.
 {
   const current = fixture();
   await current.session.start();
@@ -255,15 +259,15 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   assert.equal(current.session.snapshot().activity, null);
   current.player.calls[0]!.result.resolve(undefined);
   await flush();
-  assert.equal(current.session.snapshot().status, "muted");
+  assert.equal(current.session.snapshot().status, "ended");
   assert.equal(current.session.snapshot().activity, null);
   assert.equal(current.input.calls.length, 1);
   await current.session.unmute();
-  assert.equal(current.input.calls.length, 2);
+  assert.equal(current.input.calls.length, 1, "unmute cannot reopen a one-shot session after completion");
   await current.session.end();
 }
 
-// Synthesis and request-scoped playback failures also recover to listening.
+// Synthesis and request-scoped playback failures end the one-shot session.
 {
   const synthesisFailure = fixture();
   await synthesisFailure.session.start();
@@ -273,7 +277,8 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   await flush();
   synthesisFailure.synthesizer.calls[0]!.result.reject(new Error("synthesis failed"));
   await flush();
-  assert.equal(synthesisFailure.input.calls.length, 2);
+  assert.equal(synthesisFailure.input.calls.length, 1);
+  assert.equal(synthesisFailure.session.snapshot().status, "ended");
   assert.ok(synthesisFailure.sessionEvents.some((event) => event.type === "error" && event.scope === "synthesis"));
   await synthesisFailure.session.end();
 
@@ -287,7 +292,8 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   await flush();
   playbackFailure.player.calls[0]!.result.reject(new Error("playback failed"));
   await flush();
-  assert.equal(playbackFailure.input.calls.length, 2);
+  assert.equal(playbackFailure.input.calls.length, 1);
+  assert.equal(playbackFailure.session.snapshot().status, "ended");
   assert.ok(playbackFailure.sessionEvents.some((event) => event.type === "error" && event.scope === "playback"));
   await playbackFailure.session.end();
 }
@@ -359,7 +365,8 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   assert.equal(current.sessionEvents.filter((event) => event.type === "ended").length, 1);
 }
 
-// Adapter cancellation and failed turns recover to a fresh listening stage.
+// Adapter cancellation and failed turns end the one-shot session; a new stage
+// is created only by a fresh session activation.
 {
   const current = fixture();
   await current.session.start();
@@ -373,23 +380,19 @@ for (const stage of ["input", "assistant", "synthesis", "playback"] as const) {
   await flush();
   current.assistant.calls[0]!.result.resolve({ status: "cancelled" });
   await flush();
-  assert.equal(current.input.calls.length, 3);
-  current.input.finish("failed turn");
-  await flush();
-  current.assistant.calls[1]!.result.resolve({ status: "failed", error: "failed deterministically" });
-  await flush();
-  assert.equal(current.input.calls.length, 4);
-  assert.ok(current.sessionEvents.some((event) => event.type === "error" && event.scope === "assistant"));
-  await current.session.end();
-}
+  assert.equal(current.input.calls.length, 2);
+  assert.equal(current.session.snapshot().status, "ended");
 
-class FakeSurface implements VoicePrivacyIndicatorSurface {
-  showCount = 0;
-  hideCount = 0;
-  destroyCount = 0;
-  show(): void { this.showCount += 1; }
-  hide(): void { this.hideCount += 1; }
-  destroy(): void { this.destroyCount += 1; }
+  const failed = fixture();
+  await failed.session.start();
+  failed.input.finish("failed turn");
+  await flush();
+  failed.assistant.calls[0]!.result.resolve({ status: "failed", error: "failed deterministically" });
+  await flush();
+  assert.equal(failed.input.calls.length, 1);
+  assert.equal(failed.session.snapshot().status, "ended");
+  assert.ok(failed.sessionEvents.some((event) => event.type === "error" && event.scope === "assistant"));
+  await current.session.end();
 }
 
 class ImmediateRecording implements VoiceCaptureRecording {
@@ -414,23 +417,22 @@ class ImmediateAttempt implements VoiceCaptureAttempt {
 }
 
 // The real capture seam acquires one child track, drives privacy from that
-// actual track, rejects a second child, and leaves shared indicator teardown to
+// actual track, rejects a second child, and leaves shared lifecycle teardown to
 // the host rather than VoiceCaptureService.shutdown().
 {
-  const surface = new FakeSurface();
-  const indicator = new VoicePrivacyIndicator(() => surface);
+  const indicator = new VoicePrivacyIndicator();
   const arbiter = new VoiceMicrophoneArbiter();
   const reservation: VoiceMicrophoneReservation = arbiter.reserve("assistant-session");
   const capture = new VoiceCaptureService((_duration, onAcquired) => new ImmediateAttempt(onAcquired), indicator, { microphoneArbiter: arbiter });
   const second = new VoiceCaptureService((_duration, onAcquired) => new ImmediateAttempt(onAcquired), indicator, { microphoneArbiter: arbiter });
   const handle = await capture.start(1_000, reservation);
-  assert.equal(surface.showCount, 1);
+  assert.equal(indicator.liveTracks, 1);
   assert.equal(Object.prototype.hasOwnProperty.call(reservation, "release"), false);
   await assert.rejects(() => second.start(1_000, reservation), /already has an active track/);
   await handle.cancel("test cleanup");
-  assert.equal(surface.hideCount, 1);
+  assert.equal(indicator.liveTracks, 0);
   await capture.shutdown();
-  assert.equal(surface.destroyCount, 0);
+  assert.equal(indicator.liveTracks, 0);
   arbiter.releaseReservation(reservation);
   assert.equal(arbiter.activeOwner, null);
 }

@@ -5,7 +5,6 @@ import { VoicePrivacyIndicator } from "./voice-privacy-indicator.js";
 export type VoiceResourceOwnerOptions = {
   readonly microphoneArbiter?: VoiceMicrophoneArbiter;
   readonly privacyIndicator?: VoicePrivacyIndicator;
-  readonly privacyIndicatorFactory?: () => VoicePrivacyIndicator;
   readonly captureFactory?: VoiceCaptureFactory;
 };
 
@@ -19,9 +18,8 @@ export class VoiceResourceOwner {
 
   constructor(options: VoiceResourceOwnerOptions = {}) {
     this.microphoneArbiter = options.microphoneArbiter ?? new VoiceMicrophoneArbiter();
-    if (!options.privacyIndicator && !options.privacyIndicatorFactory) throw new Error("A shared voice privacy indicator is required.");
     if (!options.captureFactory) throw new Error("A shared voice capture factory is required.");
-    this.privacyIndicator = options.privacyIndicator ?? options.privacyIndicatorFactory!();
+    this.privacyIndicator = options.privacyIndicator ?? new VoicePrivacyIndicator();
     this.#captureFactory = options.captureFactory;
   }
 

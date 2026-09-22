@@ -28,7 +28,7 @@ process owns the surface, and the existing renderer keeps producing the pet:
 ```text
 OpenPets Electron main process (pet runtime / animation unchanged)
         │  hidden offscreen BrowserWindow renders the same pet HTML page
-        │  offscreen frame stream → BGRA frames
+        │  offscreen frame stream → cropped BGRA frames
         │  Unix socket (XDG_RUNTIME_DIR)
         ▼
 openpets-wayland-helper   (Rust, smithay-client-toolkit)
@@ -43,6 +43,16 @@ are **unchanged** — only the window carrier is swapped. The `BrowserWindow`'s
 display-facing methods (`show`/`hide`/`setPosition`/`getPosition`/…) are patched
 on the instance so existing controllers keep working, while the visible surface
 is the helper's layer-shell overlay.
+
+The adapter in `apps/desktop/src/wayland-layer-backend.ts` retains process and
+socket ownership, reconnect generations, timers, frame scheduling, Electron
+`NativeImage` conversion, renderer input replay, drag/menu behavior, and the
+patched `BrowserWindow` methods. The Electron-free
+`apps/desktop/src/wayland-layer-protocol.ts` owns only the length-prefixed wire
+encoders, incremental helper-message decoder, transparent-frame cropping, and
+pointer coordinate/button mapping. Cropped frames retain their logical canvas
+offsets, and helper pointer events are replayed into the offscreen renderer at
+both logical and global coordinates.
 
 ## Enable
 
@@ -103,9 +113,6 @@ The binary is expected at
 
 ## What does not work yet (P1/P2)
 
-- **Dragging the pet** with the mouse (the helper has no pointer input path yet;
-  the layer-shell surface has an input region but no drag handling).
-- Right-click context menu on the sprite.
 - Multiple pets / agent pets (only the default pet path is exercised so far,
   though the mechanism is generic).
 - Multi-monitor placement beyond the primary output.

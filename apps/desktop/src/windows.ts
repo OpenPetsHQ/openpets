@@ -2,67 +2,61 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell, type IpcMainInvokeEvent, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type WebContents } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, normalizePetPoolOrder, petScaleOptions, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
 import { getCodexPetsUiState, importCodexPet, readCodexPetSpritesheet } from "./codex-pets.js";
-import { codexV1SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
+import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
-import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
-import { assertSafePetId, getInstalledPetDir } from "./pet-paths.js";
+import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
-import { getPluginService, type PluginConfigSoundPickResult, type PluginServiceResult } from "./plugin-service.js";
-import { endVoiceAssistant, getVoiceAssistantSnapshot, interruptVoiceAssistant, muteVoiceAssistant, onVoiceAssistantEvent, startVoiceAssistant, unmuteVoiceAssistant } from "./voice-assistant-host.js";
-import { getPetAssistantConversationController, onPetAssistantConversationControllerReady } from "./pet-assistant-host.js";
-import { createEmptyPetAssistantConversationSnapshot, validateConversationMessageInput } from "./pet-assistant-conversation.js";
-import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
+import {
+  getPluginService,
+  type PluginConfigSoundPickResult,
+  type PluginServiceResult,
+} from "./plugin-service.js";
 import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
+import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
+import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
+import { installControlCenterRemoteIpcHandlers } from "./control-center-remote-ipc.js";
+import { getPetAssistantConversationController } from "./pet-assistant-host.js";
+import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
 import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
 import { getRemoteControlService } from "./remote-control-service.js";
-import { getPluginHostCapabilitiesForUi, type ElectronPluginHostCapabilities } from "./plugin-host-capabilities.js";
-import { deleteProviderCredentialForProfile } from "./provider-service.js";
-import { validateRemoteScopeList, type RemoteControlScope } from "./remote-control-protocol.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
-import {
-  buildProviderControlCenterSnapshot,
-  createProviderProfile,
-  deleteProviderProfile,
-  getPluginPlatformSettings,
-  isProviderSecretRefReferenced,
-  isProviderRole,
-  selectProviderProfile,
-  updateProviderProfile,
-  updatePluginPlatformSettings,
-  validateProviderGatesPatch,
-  validateProviderProfilePatch,
-  validateProviderProfile,
-  type ProviderProfileInput,
-} from "./plugin-platform-settings.js";
+import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
+import { configurePetToggleShortcut, getPetToggleShortcutSnapshot, resolvePetToggleShortcutPreference } from "./pet-toggle-shortcut.js";
+import { getTeamService } from "./team-service.js";
+import { getManagerCheckInService } from "./manager-check-in-service.js";
+import { normalizeControlCenterRoute, normalizeControlCenterRouteTarget, type ControlCenterRoute, type ControlCenterRouteTarget } from "./control-center-route.js";
+import { getSharedVoiceDeviceService } from "./voice-device-service.js";
+import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
+import { installControlCenterProviderIpcHandlers, type ControlCenterProviderIpcLifecycle } from "./control-center-provider-ipc.js";
+import { installControlCenterPetManagementIpcHandlers } from "./control-center-pet-management-ipc.js";
+import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 
 type InternalUiWindowKind = "control-center";
-export type ControlCenterRoute = "dashboard" | "conversation" | "pets" | "settings" | "plugins" | "integrations";
-
-const controlCenterRoutes = new Set<ControlCenterRoute>(["dashboard", "conversation", "pets", "settings", "plugins", "integrations"]);
+export type { ControlCenterRoute } from "./control-center-route.js";
 let controlCenterWindow: BrowserWindow | null = null;
 let internalUiHandlersInstalled = false;
-const conversationSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
-const voiceAssistantSubscriptions = new Map<number, { readonly token: string; readonly cleanup: () => void }>();
-let pendingControlCenterRoute: ControlCenterRoute | null = null;
+let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
+let controlCenterProviderIpc: ControlCenterProviderIpcLifecycle | null = null;
 const dockHideShowCooldownMs = 1100;
 
 function hasOpenInternalUiWindows(): boolean {
@@ -94,28 +88,15 @@ function syncDockVisibilityForInternalUi(): void {
   }
 }
 
-async function getPetsStateSnapshot(): Promise<{
-  preferences: { defaultPetId: string };
-  pets: { installed: ReadonlyArray<ReturnType<typeof getAppStateSnapshot>["pets"]["installed"][number] & { readonly spriteLayout?: CodexPetSpriteLayout }> };
-}> {
-  const state = getAppStateSnapshot();
-  const installed = await Promise.all(state.pets.installed.map(async (pet) => {
-    if (pet.builtIn) return { ...pet, spriteLayout: codexV1SpriteLayout };
-    try {
-      return { ...pet, spriteLayout: await readInstalledPetSpriteLayout(pet.id) };
-    } catch {
-      return pet;
-    }
-  }));
-  return { preferences: { defaultPetId: state.preferences.defaultPetId }, pets: { installed } };
-}
-
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "waitingAnimationDurationMs" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
+  hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
+  chatShortcutStatus: ReturnType<typeof getChatShortcutSnapshot>;
+  petToggleShortcutStatus: ReturnType<typeof getPetToggleShortcutSnapshot>;
 } {
   const state = getAppStateSnapshot();
   return {
@@ -123,7 +104,9 @@ function getSettingsStateSnapshot(): {
       openDefaultPetOnLaunch: state.preferences.openDefaultPetOnLaunch,
       appearanceTheme: state.preferences.appearanceTheme,
       petScale: state.preferences.petScale,
+      hudScale: state.preferences.hudScale,
       waitingAnimationDurationMs: state.preferences.waitingAnimationDurationMs,
+      idleCursorGazeEnabled: state.preferences.idleCursorGazeEnabled,
       reactionAnimationOverrides: state.preferences.reactionAnimationOverrides,
       petPoolOrder: state.preferences.petPoolOrder,
       petPoolEnabled: state.preferences.petPoolEnabled,
@@ -132,12 +115,21 @@ function getSettingsStateSnapshot(): {
       petGravityEnabled: state.preferences.petGravityEnabled,
       personality: state.preferences.personality,
       voiceAssistantShortcut: state.preferences.voiceAssistantShortcut,
+      chatShortcut: state.preferences.chatShortcut,
+      petToggleShortcut: state.preferences.petToggleShortcut,
+      showChatButton: state.preferences.showChatButton,
+      showTalkButton: state.preferences.showTalkButton,
+      petButtonsPosition: state.preferences.petButtonsPosition,
+      petButtonsSize: state.preferences.petButtonsSize,
     },
     petScaleOptions,
+    hudScaleOptions,
     petPoolCandidates: state.pets.installed
       .filter((p) => !p.builtIn && !p.broken && p.id !== state.preferences.defaultPetId)
       .map(({ id, displayName }) => ({ id, displayName })),
     voiceAssistantShortcutStatus: getVoiceAssistantShortcutSnapshot(),
+    chatShortcutStatus: getChatShortcutSnapshot(),
+    petToggleShortcutStatus: getPetToggleShortcutSnapshot(),
   };
 }
 
@@ -156,7 +148,7 @@ function getI18nSnapshot(): {
 }
 
 async function getDashboardSnapshot(): Promise<{
-  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly previewSpriteUrl: string; readonly spriteLayout: CodexPetSpriteLayout };
+  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly spriteLayout: CodexPetSpriteLayout };
   readonly installedPetCount: number;
   readonly catalog: { readonly source: string; readonly total?: number; readonly page?: number; readonly pageCount?: number; readonly error?: string };
   readonly plugins: { readonly installed: number; readonly enabled: number; readonly broken: number };
@@ -165,6 +157,9 @@ async function getDashboardSnapshot(): Promise<{
 }> {
   const state = getAppStateSnapshot();
   const defaultPet = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId && !pet.broken) ?? state.pets.installed[0];
+  const assetName = defaultPet?.displayName ?? "OpenPets";
+  const personalName = state.preferences.personality?.petName;
+  const companionDisplayName = resolveCompanionDisplayName(personalName, assetName);
   const preview = await getDefaultPetPreviewSpriteInfo();
   const catalog = await getCatalogUiState().catch((error: unknown) => ({ source: "error" as const, pets: [], total: undefined, page: undefined, pageCount: undefined, error: error instanceof Error ? error.message : "Catalog unavailable." }));
   const pluginSnapshot = await getPluginService().getSnapshot().catch((error: unknown) => {
@@ -178,7 +173,9 @@ async function getDashboardSnapshot(): Promise<{
   return {
     defaultPet: {
       id: defaultPet?.id ?? state.preferences.defaultPetId,
-      displayName: defaultPet?.displayName ?? "OpenPets",
+      displayName: companionDisplayName,
+      assetName,
+      petName: personalName,
       previewSpriteUrl: `openpets-pet-preview://spritesheet/default?v=${encodeURIComponent(preview.version)}`,
       spriteLayout: preview.spriteLayout,
     },
@@ -212,7 +209,6 @@ export function installInternalUiHandlers(): void {
   }
 
   internalUiHandlersInstalled = true;
-
   // Apply the persisted petConfinementEnabled preference as the initial value
   // for the confinement-manager flag. This runs once after app-state is loaded.
   setConfinementEnabled(getAppStateSnapshot().preferences.petConfinementEnabled);
@@ -220,14 +216,72 @@ export function installInternalUiHandlers(): void {
   // Apply the persisted petGravityEnabled preference on startup.
   applyRoamingToAllPets();
 
-  ipcMain.handle("openpets:get-pets-state", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetsStateSnapshot();
+  installControlCenterPetManagementIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    isCurrentControlCenterSender: (event) => getInternalUiWindowKindForWebContents(event.sender.id) === "control-center",
+    getOwnerForSender: (event) => BrowserWindow.fromWebContents(event.sender as WebContents) ?? undefined,
+    showMessageBox: (owner, options) => owner
+      ? dialog.showMessageBox(owner as BrowserWindow, options)
+      : dialog.showMessageBox(options),
+    showOpenDialog: (owner, options) => owner
+      ? dialog.showOpenDialog(owner as BrowserWindow, options)
+      : dialog.showOpenDialog(options),
+    stat,
+    openExternal: (url) => shell.openExternal(url),
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    getAppStateSnapshot,
+    getSettingsStateSnapshot,
+    readInstalledPetSpriteLayout,
+    getCatalogUiState,
+    getCatalogPageUiState,
+    getCatalogSearchUiState,
+    getCodexPetsUiState,
+    setDefaultInstalledPet,
+    refreshDefaultPetContent,
+    recoverDefaultPetMouseInterop,
+    broadcastDashboardRefresh,
+    normalizePetPoolOrder,
+    setPetPoolOrder,
+    installPet,
+    installPetFromFolder,
+    installPetFromZipFile,
+    importCodexPet,
+    removePet,
+    resetDefaultPetToInitialPosition,
+    logger: {
+      debug: (message, fields) => debug("ui", message, fields),
+      error: (message, fields) => logError("ui", message, fields),
+    },
   });
 
   ipcMain.handle("openpets:get-settings-state", (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getSettingsStateSnapshot();
+  });
+
+  ipcMain.handle("openpets:voice-devices-get", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getSharedVoiceDeviceService().refresh();
+  });
+
+  ipcMain.handle("openpets:voice-devices-refresh", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getSharedVoiceDeviceService().refresh();
+  });
+
+  ipcMain.handle("openpets:voice-devices-save-preferences", (event, input: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Voice device preferences must be an object.");
+    const value = input as { readonly preferredInputDeviceId?: unknown; readonly preferredOutputDeviceId?: unknown };
+    if (value.preferredInputDeviceId !== undefined && value.preferredInputDeviceId !== null && typeof value.preferredInputDeviceId !== "string") throw new Error("Preferred input device id is invalid.");
+    if (value.preferredOutputDeviceId !== undefined && value.preferredOutputDeviceId !== null && typeof value.preferredOutputDeviceId !== "string") throw new Error("Preferred output device id is invalid.");
+    if (typeof value.preferredInputDeviceId === "string" && normalizeVoiceDeviceId(value.preferredInputDeviceId) === null) throw new Error("Preferred input device id is invalid.");
+    if (typeof value.preferredOutputDeviceId === "string" && normalizeVoiceDeviceId(value.preferredOutputDeviceId) === null) throw new Error("Preferred output device id is invalid.");
+    return getSharedVoiceDeviceService().savePreferences({
+      ...(value.preferredInputDeviceId === undefined ? {} : { preferredInputDeviceId: value.preferredInputDeviceId === null ? null : normalizeVoiceDeviceId(value.preferredInputDeviceId) }),
+      ...(value.preferredOutputDeviceId === undefined ? {} : { preferredOutputDeviceId: value.preferredOutputDeviceId === null ? null : normalizeVoiceDeviceId(value.preferredOutputDeviceId) }),
+    });
   });
 
   ipcMain.handle("openpets:get-lan-status", (event) => {
@@ -240,151 +294,20 @@ export function installInternalUiHandlers(): void {
     return getI18nSnapshot();
   });
 
-  ipcMain.handle("openpets:get-conversation-snapshot", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetAssistantConversationController()?.getSnapshot() ?? createEmptyPetAssistantConversationSnapshot();
-  });
-
+  // Archive management remains a host-owned Control Center capability. It is
+  // intentionally not part of the companion chat bridge; Settings can own the
+  // presentation in a later phase without giving the pet renderer authority.
   ipcMain.handle("openpets:get-conversation-history", (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getConversationHistory(getPetAssistantConversationController());
   });
-
   ipcMain.handle("openpets:delete-conversation-history-message", (event, id: unknown): { deleted: boolean } => {
     assertAllowedSender(event, ["control-center"]);
     return deleteConversationHistoryMessage(getPetAssistantConversationController(), id);
   });
-
   ipcMain.handle("openpets:clear-conversation-history", (event): { cleared: true } => {
     assertAllowedSender(event, ["control-center"]);
     return clearConversationHistory(getPetAssistantConversationController());
-  });
-
-  ipcMain.handle("openpets:conversation-send-message", async (event, text: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPetAssistantConversationController()?.sendTypedMessage(validateConversationMessageInput(text))
-      ?? Promise.reject(new Error("Pet Assistant is still starting."));
-  });
-
-  ipcMain.handle("openpets:conversation-cancel-turn", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return { cancelled: getPetAssistantConversationController()?.cancelTypedTurn() ?? false };
-  });
-
-  ipcMain.handle("openpets:get-voice-assistant-snapshot", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getVoiceAssistantSnapshot();
-  });
-
-  ipcMain.handle("openpets:voice-assistant-start", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return startVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-mute", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return muteVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-unmute", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return unmuteVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-interrupt", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return interruptVoiceAssistant();
-  });
-  ipcMain.handle("openpets:voice-assistant-end", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return endVoiceAssistant();
-  });
-
-  ipcMain.on("openpets:voice-assistant-subscribe", (event, token: unknown) => {
-    try { assertAllowedSender(event, ["control-center"]); } catch { return; }
-    if (typeof token !== "string" || token.length === 0 || token.length > 128) return;
-    clearVoiceAssistantSubscription(event.sender.id);
-    const sender = event.sender;
-    let cleanedUp = false;
-    let cleanup = () => {};
-    const unsubscribe = onVoiceAssistantEvent((voiceEvent) => {
-      if (sender.isDestroyed()) { cleanup(); return; }
-      try { sender.send("openpets:voice-assistant-event", voiceEvent); } catch { cleanup(); }
-    });
-    const onDestroyed = () => clearVoiceAssistantSubscription(sender.id);
-    cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      unsubscribe();
-      sender.removeListener("destroyed", onDestroyed);
-      if (voiceAssistantSubscriptions.get(sender.id)?.cleanup === cleanup) voiceAssistantSubscriptions.delete(sender.id);
-    };
-    voiceAssistantSubscriptions.set(sender.id, { token, cleanup });
-    sender.once("destroyed", onDestroyed);
-  });
-
-  ipcMain.on("openpets:voice-assistant-unsubscribe", (event, token: unknown) => {
-    try { assertAllowedSender(event, ["control-center"]); } catch { return; }
-    if (typeof token === "string") clearVoiceAssistantSubscription(event.sender.id, token);
-  });
-
-  ipcMain.on("openpets:conversation-subscribe", (event, token: unknown) => {
-    try {
-      assertAllowedSender(event, ["control-center"]);
-    } catch (error) {
-      warn("ui", "conversation subscription rejected", { error: error instanceof Error ? error.message : "unexpected sender" });
-      return;
-    }
-    if (typeof token !== "string" || token.length === 0 || token.length > 128) return;
-    clearConversationSubscription(event.sender.id);
-    const sender = event.sender;
-    let unsubscribeController: (() => void) | null = null;
-    let unsubscribeReady: (() => void) | null = null;
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      unsubscribeController?.();
-      unsubscribeReady?.();
-      sender.removeListener("destroyed", onDestroyed);
-      if (conversationSubscriptions.get(sender.id)?.cleanup === cleanup) conversationSubscriptions.delete(sender.id);
-    };
-    const onDestroyed = () => clearConversationSubscription(sender.id);
-    const attach = (controller: NonNullable<ReturnType<typeof getPetAssistantConversationController>>) => {
-      if (cleanedUp || sender.isDestroyed()) {
-        cleanup();
-        return;
-      }
-      unsubscribeController = controller.subscribe((conversationEvent) => {
-        if (sender.isDestroyed()) {
-          cleanup();
-          return;
-        }
-        try {
-          sender.send("openpets:conversation-event", conversationEvent);
-        } catch {
-          cleanup();
-        }
-      });
-      try {
-        const snapshot = controller.getSnapshot();
-        sender.send("openpets:conversation-event", { type: "snapshot", sequence: snapshot.lastSequence, snapshot });
-      } catch {
-        cleanup();
-      }
-    };
-    conversationSubscriptions.set(sender.id, { token, cleanup });
-    sender.once("destroyed", onDestroyed);
-    const controller = getPetAssistantConversationController();
-    if (controller) attach(controller);
-    else unsubscribeReady = onPetAssistantConversationControllerReady(attach);
-  });
-
-  ipcMain.on("openpets:conversation-unsubscribe", (event, token: unknown) => {
-    try {
-      assertAllowedSender(event, ["control-center"]);
-    } catch {
-      return;
-    }
-    if (typeof token !== "string") return;
-    clearConversationSubscription(event.sender.id, token);
   });
 
   ipcMain.handle("openpets:get-dashboard-snapshot", async (event) => {
@@ -392,203 +315,164 @@ export function installInternalUiHandlers(): void {
     return getDashboardSnapshot();
   });
 
+  ipcMain.handle("openpets:teams-snapshot", (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getTeamService().getSnapshot();
+  });
+  ipcMain.handle("openpets:teams-enroll", async (event, displayName: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (
+      typeof displayName !== "string"
+      || displayName.length > 120
+      || displayName.trim().length === 0
+    ) {
+      throw new Error("Invalid Teams display name.");
+    }
+    const result = await getTeamService().submitEnrollment(displayName.trim());
+    await getManagerCheckInService().syncNow().catch(() => undefined);
+    return result;
+  });
+  ipcMain.handle("openpets:teams-sync", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getTeamService().syncNow();
+  });
+  ipcMain.handle("openpets:teams-approve-plugin-permissions", async (event, id: unknown, approvalToken: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (
+      typeof id !== "string"
+      || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)
+      || typeof approvalToken !== "string"
+      || !/^[A-Za-z0-9_-]{43}$/.test(approvalToken)
+    ) throw new Error("Invalid Team plugin approval request.");
+    return getTeamService().approveTeamPluginPermissions(id, approvalToken);
+  });
+  ipcMain.handle("openpets:teams-set-plugin-enabled", async (event, id: unknown, enabled: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (
+      typeof id !== "string"
+      || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)
+      || typeof enabled !== "boolean"
+    ) {
+      throw new Error("Invalid Team plugin enabled state request.");
+    }
+    return getTeamService().setTeamPluginEnabled(id, enabled);
+  });
+  ipcMain.handle("openpets:teams-leave", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    await getManagerCheckInService().stop();
+    try {
+      return await getTeamService().leave();
+    } finally {
+      await getManagerCheckInService().start();
+    }
+  });
+
+  ipcMain.handle("openpets:manager-check-ins-snapshot", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getManagerCheckInService().getSnapshot();
+  });
+  ipcMain.handle("openpets:manager-check-ins-sync", async (event) => {
+    assertAllowedSender(event, ["control-center"]);
+    return getManagerCheckInService().syncNow();
+  });
+  ipcMain.handle("openpets:manager-check-ins-history", async (event, cursor: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (!isValidManagerCheckInHistoryCursor(cursor)) {
+      throw new Error("Invalid manager check-in history cursor.");
+    }
+    return getManagerCheckInService().getHistory(cursor);
+  });
+  ipcMain.handle("openpets:manager-check-ins-set-device-paused", async (event, paused: unknown) => {
+    assertAllowedSender(event, ["control-center"]);
+    if (typeof paused !== "boolean") {
+      throw new Error("Invalid manager check-in pause request.");
+    }
+    return getManagerCheckInService().setDevicePaused(paused);
+  });
+
   ipcMain.handle("openpets:get-reaction-animation-settings", async (event) => {
     assertAllowedSender(event, ["control-center"]);
     return getReactionAnimationSettingsSnapshot();
   });
 
-  ipcMain.handle("openpets:plugins-snapshot", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().getSnapshot();
+  installControlCenterPluginIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getPluginService,
+    logger: {
+      debug: (message, fields) => debug("ui", message, fields),
+      warn: (message, fields) => warn("ui", message, fields),
+      error: (message, fields) => logError("ui", message, fields),
+    },
   });
 
-  ipcMain.handle("openpets:plugins-set-enabled", async (event, id: unknown, enabled: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof enabled !== "boolean") return pluginUiError("Invalid plugin enable request.");
-    return getPluginService().setEnabled(id, enabled);
+  installControlCenterAgentSetupIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getAgentSetupSnapshot,
+    runAgentSetupAction,
+    updateAgentSetupCommandPaths,
   });
 
-  ipcMain.handle("openpets:plugins-save-config", async (event, id: unknown, config: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || !isPlainObject(config)) return pluginUiError("Invalid plugin config request.");
-    return getPluginService().saveConfig(id, config);
+  installControlCenterRemoteIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getRemoteControlService,
   });
 
-  ipcMain.handle("openpets:plugins-pick-config-sound", async (event, id: unknown): Promise<PluginConfigSoundPickResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) {
-      warn("ui", "Plugin sound pick invalid request.", { ok: false, reason: "invalid-plugin-id" });
-      return pluginUiSoundError("Invalid plugin sound request.");
-    }
-    debug("ui", "Plugin sound pick requested.", { pluginId: id });
-    try {
-      const result = await getPluginService().pickConfigSound(id);
-      if (result.ok && "sound" in result && result.sound.id) debug("ui", "Plugin sound pick succeeded.", { pluginId: id, ok: true, soundId: result.sound.id });
-      else if (result.ok) debug("ui", "Plugin sound pick canceled.", { pluginId: id, ok: true, canceled: true });
-      else warn("ui", "Plugin sound pick failed.", { pluginId: id, ok: false, reason: result.error });
-      return result;
-    } catch (error) {
-      logError("ui", "Plugin sound pick errored.", { pluginId: id, ok: false, reason: error instanceof Error ? error.message : "unknown" });
-      throw error;
-    }
-  });
-
-  ipcMain.handle("openpets:plugins-reload", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin reload request.");
-    return getPluginService().reload(id);
-  });
-
-  ipcMain.handle("openpets:plugins-refresh-local", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin refresh request.");
-    return getPluginService().refreshLocal(id);
-  });
-
-  ipcMain.handle("openpets:plugins-execute-command", async (event, id: unknown, commandId: unknown, args: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id) || typeof commandId !== "string" || !/^[A-Za-z0-9._:-]{1,64}$/.test(commandId) || (args !== undefined && !isPlainObject(args))) return pluginUiError("Invalid plugin command request.");
-    return getPluginService().executeCommand(id, commandId, isPlainObject(args) ? args as Record<string, unknown> : undefined);
-  });
-
-  ipcMain.handle("openpets:plugins-load-local", async (event): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().loadLocal();
-  });
-
-  ipcMain.handle("openpets:plugins-catalog-snapshot", async (event, refresh: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getPluginService().getCatalogSnapshot(refresh === true);
-  });
-
-  ipcMain.handle("openpets:plugins-install-catalog", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin install request.");
-    return getPluginService().installCatalog(id);
-  });
-
-  ipcMain.handle("openpets:plugins-update-catalog", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin update request.");
-    return getPluginService().updateCatalog(id);
-  });
-
-  ipcMain.handle("openpets:plugins-uninstall", async (event, id: unknown): Promise<PluginServiceResult> => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) return pluginUiError("Invalid plugin uninstall request.");
-    return getPluginService().uninstall(id);
-  });
-
-  ipcMain.handle("openpets:plugins-inspector", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) throw new Error("Invalid plugin inspector request.");
-    return getPluginService().runtime.getInspectorState(id);
-  });
-
-  ipcMain.handle("openpets:provider-profiles-get", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-create", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    const profile = validateProviderProfile(input) as ProviderProfileInput;
-    createProviderProfile(profile);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-update", async (event, id: unknown, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || !isPlainObject(patch)) throw new Error("Invalid provider profile update.");
-    const previous = getPluginPlatformSettings().profiles[id];
-    updateProviderProfile(id, validateProviderProfilePatch(patch));
-    const next = getPluginPlatformSettings().profiles[id];
-    if (previous?.secretRef && previous.secretRef !== next?.secretRef && !isProviderSecretRefReferenced(getPluginPlatformSettings(), previous.secretRef)) await getProviderCapabilities().secretsStore.delete("__openpets-host", `provider:${previous.secretRef}`);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-delete", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const existing = getPluginPlatformSettings().profiles[id];
-    const settings = deleteProviderProfile(id);
-    const capabilities = getProviderCapabilities();
-    const ref = existing?.secretRef;
-    if (ref && !isProviderSecretRefReferenced(settings, ref)) await capabilities.secretsStore.delete("__openpets-host", `provider:${ref}`);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-gates-update", async (event, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    updatePluginPlatformSettings(validateProviderGatesPatch(patch));
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-select", async (event, role: unknown, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!isProviderRole(role) || (id !== null && typeof id !== "string")) throw new Error("Invalid provider profile selection.");
-    selectProviderProfile(role, id as string | null);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-credential-set", async (event, id: unknown, value: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string" || typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 || value.length === 0) throw new Error("Invalid provider credential.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    if (!profile?.secretRef) throw new Error("Provider profile has no credential reference.");
-    await getProviderCapabilities().secretsStore.set("__openpets-host", `provider:${profile.secretRef}`, value);
-    return getProviderControlCenterSnapshot();
-  });
-  ipcMain.handle("openpets:provider-profile-credential-status", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    return { hasCredential: Boolean(profile?.secretRef && await getProviderCapabilities().secretsStore.has("__openpets-host", `provider:${profile.secretRef}`)) };
-  });
-  ipcMain.handle("openpets:provider-profile-credential-delete", async (event, id: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof id !== "string") throw new Error("Invalid provider profile id.");
-    const profile = getPluginPlatformSettings().profiles[id];
-    if (profile) await deleteProviderCredentialForProfile(getProviderCapabilities().secretsStore, profile, Object.values(getPluginPlatformSettings().profiles));
-    return getProviderControlCenterSnapshot();
-  });
-
-  ipcMain.handle("openpets:get-catalog", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCatalogUiState();
-  });
-
-  ipcMain.handle("openpets:get-catalog-page", async (event, page: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof page !== "number" || !Number.isInteger(page) || page < 0) throw new Error("Invalid catalog page.");
-    return getCatalogPageUiState(page);
-  });
-
-  ipcMain.handle("openpets:get-catalog-search", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCatalogSearchUiState();
-  });
-
-  ipcMain.handle("openpets:get-codex-pets", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getCodexPetsUiState();
+  controlCenterProviderIpc = installControlCenterProviderIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    registerBeforeQuit: (listener) => app.on("before-quit", () => listener()),
+    logger: { debug: (message, fields) => debug("plugin", message, fields) },
   });
 
   ipcMain.handle("openpets:update-preferences", (event, patch: unknown) => {
     assertAllowedSender(event, ["control-center"]);
     const previousScale = getAppStateSnapshot().preferences.petScale;
+    const previousHudScale = getAppStateSnapshot().preferences.hudScale;
     const previousWaitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
+    const previousIdleCursorGazeEnabled = getAppStateSnapshot().preferences.idleCursorGazeEnabled;
     const previousOverrides = JSON.stringify(getAppStateSnapshot().preferences.reactionAnimationOverrides ?? {});
     const previousLocale = getActiveLocale();
     const previousPoolEnabled = getAppStateSnapshot().preferences.petPoolEnabled;
+    const previousPersonalityPetName = getAppStateSnapshot().preferences.personality.petName;
     const validatedPatch = validatePreferencePatch(patch);
     const currentShortcut = getAppStateSnapshot().preferences.voiceAssistantShortcut;
-    const shortcutSnapshot = validatedPatch.voiceAssistantShortcut
+    const shortcutSnapshot = validatedPatch.voiceAssistantShortcut !== undefined
       ? configureVoiceAssistantShortcut(validatedPatch.voiceAssistantShortcut)
       : null;
-    const effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut
+    let effectivePatch = shortcutSnapshot && validatedPatch.voiceAssistantShortcut !== undefined
       ? { ...validatedPatch, voiceAssistantShortcut: resolveVoiceAssistantShortcutPreference(currentShortcut, validatedPatch.voiceAssistantShortcut, shortcutSnapshot) }
       : validatedPatch;
+    if (validatedPatch.chatShortcut !== undefined) {
+      const currentChatShortcut = getAppStateSnapshot().preferences.chatShortcut;
+      const chatSnapshot = configureChatShortcut(validatedPatch.chatShortcut);
+      effectivePatch = { ...effectivePatch, chatShortcut: resolveChatShortcutPreference(currentChatShortcut, validatedPatch.chatShortcut, chatSnapshot) };
+    }
+    if (validatedPatch.petToggleShortcut !== undefined) {
+      const currentPetToggleShortcut = getAppStateSnapshot().preferences.petToggleShortcut;
+      const petToggleSnapshot = configurePetToggleShortcut(validatedPatch.petToggleShortcut);
+      effectivePatch = { ...effectivePatch, petToggleShortcut: resolvePetToggleShortcutPreference(currentPetToggleShortcut, validatedPatch.petToggleShortcut, petToggleSnapshot) };
+    }
     const state = updatePreferences(effectivePatch);
     if (validatedPatch.personality) debug("ui", "Pet Assistant personality preferences updated", { fields: Object.keys(validatedPatch.personality) });
     const nextOverrides = JSON.stringify(state.preferences.reactionAnimationOverrides ?? {});
-    if (state.preferences.petScale !== previousScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides) {
+    const petButtonPrefsChanged = validatedPatch.showChatButton !== undefined
+      || validatedPatch.showTalkButton !== undefined
+      || validatedPatch.petButtonsPosition !== undefined
+      || validatedPatch.petButtonsSize !== undefined;
+    const personalityPetNameChanged = state.preferences.personality.petName !== previousPersonalityPetName;
+    if (personalityPetNameChanged) {
+      refreshDefaultPetContent();
+      broadcastDashboardRefresh();
+    }
+    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
+    }
+    if (state.preferences.idleCursorGazeEnabled !== previousIdleCursorGazeEnabled) {
+      refreshPetGazePreference();
     }
     if (setLocaleFromPreference(state.preferences.locale) !== previousLocale) {
       // Tray labels are rendered eagerly, so rebuild the menu in the new language.
@@ -641,201 +525,11 @@ export function installInternalUiHandlers(): void {
     await openUpdateReleasePage();
   });
 
-  ipcMain.handle("openpets:remote-get-snapshot", async (event) => {
+  ipcMain.handle("openpets:open-organizations-page", async (event) => {
     assertAllowedSender(event, ["control-center"]);
-    const service = getRemoteControlService();
-    return {
-      config: service.getConfiguration(),
-      clients: service.listClients(),
-    };
+    await shell.openExternal("https://openpets.dev/organizations");
   });
 
-  ipcMain.handle("openpets:remote-configure", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!isPlainObject(input) || typeof input.enabled !== "boolean") {
-      throw new Error("Invalid remote control configuration request.");
-    }
-    const { enabled, address, port } = input as { enabled: boolean; address?: unknown; port?: unknown };
-    if (address !== undefined && typeof address !== "string") {
-      throw new Error("Invalid remote control configuration request.");
-    }
-    if (port !== undefined && typeof port !== "number") {
-      throw new Error("Invalid remote control configuration request.");
-    }
-    const service = getRemoteControlService();
-    const config = await service.configure({
-      enabled,
-      ...(typeof address === "string" ? { address } : {}),
-      ...(typeof port === "number" ? { port } : {}),
-    });
-    return {
-      config,
-      clients: service.listClients(),
-    };
-  });
-
-  ipcMain.handle("openpets:remote-pair-client", async (event, input: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!isPlainObject(input) || typeof input.name !== "string" || !Array.isArray(input.scopes)) {
-      throw new Error("Invalid remote client pair request.");
-    }
-    const { name, scopes } = input as { name: string; scopes: unknown[] };
-    let normalizedScopes: RemoteControlScope[];
-    try {
-      normalizedScopes = validateRemoteScopeList(scopes);
-    } catch {
-      throw new Error("Invalid remote client pair request.");
-    }
-    const service = getRemoteControlService();
-    return service.pairClient({ name, scopes: normalizedScopes });
-  });
-
-  ipcMain.handle("openpets:remote-rotate-client", async (event, clientId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof clientId !== "string" || !clientId) {
-      throw new Error("Invalid remote client rotate request.");
-    }
-    const service = getRemoteControlService();
-    return service.rotateClient(clientId);
-  });
-
-  ipcMain.handle("openpets:remote-revoke-client", async (event, clientId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof clientId !== "string" || !clientId) {
-      throw new Error("Invalid remote client revoke request.");
-    }
-    const service = getRemoteControlService();
-    return service.revokeClient(clientId);
-  });
-
-  ipcMain.handle("openpets:set-default-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await setDefaultInstalledPet(petId);
-    refreshDefaultPetContent();
-    recoverDefaultPetMouseInterop("default-pet-changed");
-    setTimeout(() => recoverDefaultPetMouseInterop("default-pet-changed+500ms"), 500).unref?.();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:set-pet-pool-order", (event, ids: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (!Array.isArray(ids)) throw new Error("Invalid pet pool order: expected an array.");
-    const normalized = normalizePetPoolOrder(ids);
-    setPetPoolOrder(normalized ?? []);
-    return getSettingsStateSnapshot();
-  });
-
-  ipcMain.handle("openpets:install-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await installPet(petId);
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:install-local-pet", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    const importKind = await chooseLocalPetImportKind(owner);
-    if (!importKind) return getPetsStateSnapshot();
-    const options: OpenDialogOptions = importKind === "zip" ? {
-      title: "Install pet from ZIP",
-      buttonLabel: "Install Pet",
-      properties: ["openFile"],
-      filters: [{ name: "OpenPets ZIP", extensions: ["zip"] }],
-    } : {
-      title: "Install pet from folder",
-      buttonLabel: "Install Pet",
-      properties: ["openDirectory"],
-    };
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
-    if (result.canceled || !result.filePaths[0]) return getPetsStateSnapshot();
-    const selectedPath = result.filePaths[0];
-    try {
-      const selectedStats = await stat(selectedPath);
-      const state = selectedStats.isDirectory() ? await installPetFromFolder(selectedPath) : await installPetFromZipFile(selectedPath);
-      debug("ui", "local pet import succeeded", { kind: selectedStats.isDirectory() ? "folder" : "zip" });
-      refreshDefaultPetContent();
-      return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-    } catch (error) {
-      logError("ui", "local pet import failed", { error: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-  });
-
-  ipcMain.handle("openpets:open-gallery", async (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    await shell.openExternal("https://openpets.dev/gallery");
-  });
-
-  ipcMain.handle("openpets:import-codex-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await importCodexPet(petId);
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:remove-pet", async (event, petId: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (typeof petId !== "string") {
-      throw new Error("Invalid pet id.");
-    }
-
-    const state = await removePet(petId);
-    refreshDefaultPetContent();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getPetsStateSnapshot() : state;
-  });
-
-  ipcMain.handle("openpets:reset-default-pet-position", (event) => {
-    assertAllowedSender(event, ["control-center"]);
-    resetDefaultPetToInitialPosition();
-    return getInternalUiWindowKindForWebContents(event.sender.id) === "control-center" ? getSettingsStateSnapshot() : getAppStateSnapshot();
-  });
-
-  ipcMain.handle("openpets:agent-setup-snapshot", async (event, selectedPetId: unknown, commandMode: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return getAgentSetupSnapshot(selectedPetId, commandMode);
-  });
-
-  ipcMain.handle("openpets:agent-setup-action", async (event, action: unknown, selectedPetId: unknown, commandMode: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    if (action !== "configure" && action !== "replace" && action !== "remove" && action !== "install-memory" && action !== "doctor-hooks" && action !== "install-hooks" && action !== "uninstall-hooks" && action !== "opencode-install" && action !== "opencode-remove" && action !== "cursor-install" && action !== "cursor-replace" && action !== "cursor-remove" && action !== "openclaw-install" && action !== "openclaw-update" && action !== "openclaw-remove") {
-      throw new Error("Invalid agent setup action.");
-    }
-
-    return runAgentSetupAction(action, selectedPetId, commandMode);
-  });
-
-  ipcMain.handle("openpets:agent-setup-command-paths", (event, patch: unknown) => {
-    assertAllowedSender(event, ["control-center"]);
-    return updateAgentSetupCommandPaths(patch);
-  });
-}
-
-async function chooseLocalPetImportKind(owner: BrowserWindow | undefined): Promise<"zip" | "folder" | null> {
-  const options = {
-    type: "question" as const,
-    title: "Install pet",
-    message: "Install pet from ZIP or folder?",
-    detail: "Choose the source type before selecting the pet package.",
-    buttons: ["ZIP", "Folder", "Cancel"],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-  };
-  const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
-  if (result.response === 0) return "zip";
-  if (result.response === 1) return "folder";
-  return null;
 }
 
 export function installInternalUiProtocol(): void {
@@ -867,7 +561,10 @@ export function installInternalUiProtocol(): void {
       assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheetPath = join(getInstalledPetDir(petId), "spritesheet.webp");
+      const spritesheetPath = join(
+        getPetDir(petId, pet.source?.kind === "team" ? "team" : "personal"),
+        "spritesheet.webp",
+      );
       const spritesheet = await stat(spritesheetPath);
       if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) return new Response(null, { status: 404 });
       return new Response(await readFile(spritesheetPath), {
@@ -903,21 +600,32 @@ export function installInternalUiProtocol(): void {
   });
 }
 
+// The renderer layout reads slightly oversized at native scale; zoom the whole
+// control center out a notch so more content fits without restyling every view.
+const controlCenterZoomFactor = 0.9;
+
 export function openControlCenterWindow(route: ControlCenterRoute = "dashboard"): void {
-  const safeRoute = normalizeControlCenterRoute(route);
+  openControlCenterWindowTarget({ route: normalizeControlCenterRoute(route) });
+}
+
+export function openControlCenterWindowTarget(target: ControlCenterRouteTarget): void {
+  const safeTarget = normalizeControlCenterRouteTarget(target);
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     syncDockVisibilityForInternalUi();
     if (controlCenterWindow.isMinimized()) controlCenterWindow.restore();
     controlCenterWindow.show();
     controlCenterWindow.focus();
-    routeControlCenterWindow(controlCenterWindow, safeRoute);
+    routeControlCenterWindow(controlCenterWindow, safeTarget);
     return;
   }
 
+  // Near-square shape reads best for the control center; clamp to the work
+  // area so the window never spawns larger than small laptop screens.
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const window = new BrowserWindow({
     title: "OpenPets — Control Center",
-    width: 1180,
-    height: 820,
+    width: Math.min(1020, Math.floor(workAreaSize.width * 0.9)),
+    height: Math.min(1000, Math.floor(workAreaSize.height * 0.9)),
     minWidth: 820,
     minHeight: 620,
     show: false,
@@ -928,6 +636,7 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
       contextIsolation: true,
       sandbox: true,
       preload: getControlCenterPreloadPath(),
+      zoomFactor: controlCenterZoomFactor,
     },
   });
 
@@ -948,18 +657,26 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
     else debug("ui", "control center console", fields);
   });
   window.webContents.on("render-process-gone", (_event, details) => {
-    clearConversationSubscription(window.webContents.id);
-    clearVoiceAssistantSubscription(window.webContents.id);
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
+    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center renderer was lost.");
   });
-  window.on("closed", () => { clearConversationSubscription(window.webContents.id); clearVoiceAssistantSubscription(window.webContents.id); controlCenterWindow = null; syncDockVisibilityForInternalUi(); });
+  window.on("closed", () => {
+    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center window was closed.");
+    controlCenterWindow = null;
+    syncDockVisibilityForInternalUi();
+  });
   window.once("ready-to-show", () => { window.show(); window.focus(); });
-  pendingControlCenterRoute = safeRoute;
-  window.webContents.on("did-finish-load", () => flushPendingControlCenterRoute(window));
+  pendingControlCenterRouteTarget = safeTarget;
+  window.webContents.on("did-finish-load", () => {
+    // Chromium remembers per-host zoom, which can override the initial
+    // webPreferences value after reloads; pin it on every load.
+    window.webContents.setZoomFactor(controlCenterZoomFactor);
+    flushPendingControlCenterRoute(window);
+  });
 
   const devUrl = getSafeControlCenterDevUrl();
-  const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeRoute)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: { route: safeRoute } });
+  const load = devUrl ? window.loadURL(withControlCenterRoute(devUrl, safeTarget)) : window.loadFile(join(app.getAppPath(), "dist", "renderer", "index.html"), { query: controlCenterRouteQuery(safeTarget) });
   load.catch((error: unknown) => {
     console.error("Failed to load Control Center.", error);
   });
@@ -974,13 +691,9 @@ export function focusOpenTaskWindows(): void {
   }
 }
 
-function normalizeControlCenterRoute(route: unknown): ControlCenterRoute {
-  return typeof route === "string" && controlCenterRoutes.has(route as ControlCenterRoute) ? route as ControlCenterRoute : "dashboard";
-}
-
-function sendControlCenterRoute(window: BrowserWindow, route: ControlCenterRoute): void {
+function sendControlCenterRoute(window: BrowserWindow, target: ControlCenterRouteTarget): void {
   if (window.isDestroyed()) return;
-  window.webContents.send("openpets:control-center-route", route);
+  window.webContents.send("openpets:control-center-route", target);
 }
 
 /** Tell the open Control Center to re-fetch the plugin snapshot (e.g. after a locale change). */
@@ -990,22 +703,34 @@ function broadcastPluginRecordsRefresh(): void {
   }
 }
 
-function routeControlCenterWindow(window: BrowserWindow, route: ControlCenterRoute): void {
-  pendingControlCenterRoute = route;
+/** Tell the open Control Center to re-fetch the dashboard snapshot (e.g. after personality or default pet changes). */
+function broadcastDashboardRefresh(): void {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.webContents.send("openpets:dashboard-refresh");
+  }
+}
+
+function routeControlCenterWindow(window: BrowserWindow, target: ControlCenterRouteTarget): void {
+  pendingControlCenterRouteTarget = target;
   if (window.webContents.isLoading()) return;
   flushPendingControlCenterRoute(window);
 }
 
 function flushPendingControlCenterRoute(window: BrowserWindow): void {
-  if (window.isDestroyed() || !pendingControlCenterRoute) return;
-  const route = pendingControlCenterRoute;
-  pendingControlCenterRoute = null;
-  sendControlCenterRoute(window, route);
+  if (window.isDestroyed() || !pendingControlCenterRouteTarget) return;
+  const target = pendingControlCenterRouteTarget;
+  pendingControlCenterRouteTarget = null;
+  sendControlCenterRoute(window, target);
 }
 
-function withControlCenterRoute(rawUrl: string, route: ControlCenterRoute): string {
+function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; assistantTab?: string } {
+  return target.assistantTab ? { route: target.route, assistantTab: target.assistantTab } : { route: target.route };
+}
+
+function withControlCenterRoute(rawUrl: string, target: ControlCenterRouteTarget): string {
   const url = new URL(rawUrl);
-  url.searchParams.set("route", route);
+  url.searchParams.set("route", target.route);
+  if (target.assistantTab) url.searchParams.set("assistantTab", target.assistantTab);
   return url.toString();
 }
 
@@ -1017,10 +742,9 @@ function pluginUiSoundError(error: string): PluginConfigSoundPickResult {
   return { ok: false, error, snapshot: { plugins: [] } };
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  return prototype === Object.prototype || prototype === null;
+function isValidManagerCheckInHistoryCursor(value: unknown): boolean {
+  return value === undefined
+    || (typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value));
 }
 
 function getControlCenterPreloadPath(): string {
@@ -1042,38 +766,12 @@ function getSafeControlCenterDevUrl(): string | null {
   return null;
 }
 
-function getProviderCapabilities(): ElectronPluginHostCapabilities {
-  const capabilities = getPluginHostCapabilitiesForUi();
-  if (capabilities) return capabilities;
-  throw new Error("Plugin host capabilities are unavailable.");
-}
-
-async function getProviderControlCenterSnapshot(): Promise<import("./plugin-platform-settings.js").ProviderControlCenterSnapshot> {
-  const capabilities = getProviderCapabilities();
-  const settings = getPluginPlatformSettings();
-  const credentialRefs = new Set<string>();
-  for (const profile of Object.values(settings.profiles)) if (profile.secretRef && await capabilities.secretsStore.has("__openpets-host", `provider:${profile.secretRef}`)) credentialRefs.add(profile.secretRef);
-  return buildProviderControlCenterSnapshot(settings, (profile) => Boolean(profile.secretRef && credentialRefs.has(profile.secretRef)));
-}
-
-function assertAllowedSender(event: IpcMainInvokeEvent, allowedKinds: readonly InternalUiWindowKind[]): void {
+function assertAllowedSender(event: { readonly sender: { readonly id: number } }, allowedKinds: readonly InternalUiWindowKind[]): void {
   const actualKind = getInternalUiWindowKindForWebContents(event.sender.id);
 
   if (!actualKind || !allowedKinds.includes(actualKind)) {
     throw new Error("OpenPets internal UI request came from an unexpected window.");
   }
-}
-
-function clearConversationSubscription(webContentsId: number, token?: string): void {
-  const subscription = conversationSubscriptions.get(webContentsId);
-  if (!subscription || token !== undefined && subscription.token !== token) return;
-  subscription.cleanup();
-}
-
-function clearVoiceAssistantSubscription(webContentsId: number, token?: string): void {
-  const subscription = voiceAssistantSubscriptions.get(webContentsId);
-  if (!subscription || token !== undefined && subscription.token !== token) return;
-  subscription.cleanup();
 }
 
 function getInternalUiWindowKindForWebContents(webContentsId: number): InternalUiWindowKind | null {
@@ -1116,19 +814,27 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string
   const builtInPath = join(app.getAppPath(), "assets", defaultPetSprite.fileName);
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
   const candidatePath = usesInstalledCandidate && selected
-    ? join(getInstalledPetDir(selected.id), "spritesheet.webp")
+    ? join(
+        getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"),
+        "spritesheet.webp",
+      )
     : builtInPath;
   try {
     const spritesheet = await stat(candidatePath);
     if (spritesheet.isFile() && spritesheet.size > 0 && spritesheet.size <= 100 * 1024 * 1024) {
-      const spriteLayout = usesInstalledCandidate && selected ? await readInstalledPetSpriteLayout(selected.id) : codexV1SpriteLayout;
+      const spriteLayout = usesInstalledCandidate && selected
+        ? await readInstalledPetSpriteLayout(
+            selected.id,
+            selected.source?.kind === "team" ? "team" : "personal",
+          )
+        : codexV2SpriteLayout;
       return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
   } catch {
     // Fall back to the bundled pet if an installed default disappears while Settings is open.
   }
   const fallback = await stat(builtInPath);
-  return { path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV1SpriteLayout };
+  return { path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV2SpriteLayout };
 }
 
 function getLaunchAtLoginState(): { supported: boolean; enabled: boolean } {

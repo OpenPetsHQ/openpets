@@ -1,6 +1,7 @@
 !v1
 !web
 !lfs
+!teams
 !local
 !.slim/deepwork/
 !.slim/deepwork/**
@@ -9,6 +10,7 @@
 !.slim/worktrees/
 !.slim/worktrees.json
 !third-parties/
+!.env
 
 # BEGIN oh-my-opencode-slim clonedeps
 !.slim/

@@ -1,6 +1,6 @@
 {
   "name": "openpets-v2-workspace",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "private": true,
   "description": "OpenPets 2.0 workspace",
   "license": "MIT",
@@ -35,12 +35,13 @@
     "plugins:publish": "node web/scripts/sync-plugins.js",
     "plugins:deploy": "pnpm --dir web deploy",
     "plugins:release": "pnpm plugins:package && pnpm plugins:validate-release && pnpm plugins:publish && pnpm plugins:deploy && pnpm plugins:validate-live",
-    "test": "pnpm build && pnpm -r --if-present test",
+    "test": "pnpm build && node scripts/npm-workspace-release.test.mjs && node scripts/npm-release-policy.test.mjs && node scripts/release-npm-ref-orchestration.test.mjs && node apps/desktop/scripts/npm-release-gate.test.mjs && pnpm -r --if-present test",
     "check": "pnpm -r check",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build"
   },
   "devDependencies": {
+    "@open-pets/plugin-sdk": "workspace:*",
     "blume": "^1.3.1",
     "typescript": "^6.0.3",
     "wrangler": "^4.120.0"

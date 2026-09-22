@@ -28,10 +28,10 @@ when they disagree with the generated catalog.
 
 | Data                             | URL                                                    | Owner in app                  |
 | -------------------------------- | ------------------------------------------------------ | ----------------------------- |
-| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | `apps/desktop/src/catalog.ts` |
-| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | `catalog.ts`                  |
-| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | `catalog.ts`                  |
-| Pet catalog v2 (legacy/fallback) | `https://openpets.dev/pets/catalog.v2.json`            | `catalog.ts`                  |
+| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` façade |
+| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
+| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
+| Pet catalog v2 (legacy/fallback) | `https://openpets.dev/pets/catalog.v2.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` fallback |
 | Pet ZIPs                         | `https://zip.openpets.dev/pets/{slug}/{installId}.zip` | `pet-installation.ts`         |
 | Plugin catalog v2 (active)       | `https://openpets.dev/plugins/catalog.v2.json`         | `plugin-catalog.ts`           |
 | Plugin catalog v1 (empty compat) | `https://openpets.dev/plugins/catalog.v1.json`         | `plugin-catalog.ts`           |
@@ -46,9 +46,12 @@ v3 is **paginated** to keep each runtime fetch small. The flow the app follows:
    `originalsCount`, `featuredCount`), and a `pages[]` array of page URLs.
 2. Fetch **pages** on demand. Each page entry carries install + render data:
    `id`, `displayName`, `description`, `thumbnail`, `spritesheet`, `zip`,
-   `category`, optional `subcategory`, `featured`, `original`.
+   `category`, optional `subcategory`, `featured`, `original`, and optional
+   `spriteVersionNumber: 2`. Older entries omit the field and retain V1
+   behavior; any other supplied value is invalid.
 3. Use **search pages** for lightweight lookup: `id`, `displayName`,
-   `searchText`, `category`, `catalogPage`, `featured`, `original`.
+   `searchText`, `category`, `catalogPage`, `featured`, `original`, and the
+   optional `spriteVersionNumber: 2`.
 
 Only pets with a valid `category` (`western` or `asian`) appear in v3 - the
 generator drops the rest and logs a warning. To keep the app UI clean, the
@@ -66,6 +69,21 @@ contract, not any hand-written copy.
 (`catalog.v2.fixture.json`) keeps the app usable offline / in tests. The fixture
 should never be the path real users hit online; it is a last-resort floor, not a
 shipping catalog.
+
+`catalog-remote.ts` owns remote HTTP requests, five-second deadlines, bounded
+streaming, final-URL checks, schema validation at the remote boundary, and the
+module-instance caches for the V3 index/pages/search data and V2 catalog. It
+keeps successful V3 pages cacheable while allowing a failed page request to be
+retried. `catalog.ts` remains the product façade: it owns fixture fallback,
+V3-only curated visibility, virtual pagination/search composition, and explicit
+lookup semantics. When V3 is unavailable, the validated V2 catalog and bundled
+fixture expose all of their validated pets for browsing and lookup/install;
+their V2-compatible entries do not require V3 `original`/`featured` metadata.
+The V3 → V2 → fixture precedence and error behavior remain unchanged.
+
+The legacy V2 catalog may also carry the optional exact numeric
+`spriteVersionNumber: 2`; desktop V3-to-compat and V2 fallback conversion
+preserve it. Omitted markers remain V1-compatible.
 
 ## Pet generated artifacts
 
@@ -164,12 +182,27 @@ bucket with `OPENPETS_R2_BUCKET`; `--skip-r2` is for local testing only.
 ## How the app uses all this
 
 - **Browsing**: the Pets page in the Control Center pages through v3 and uses the
-  search index for filtering.
+  search index for filtering. A catalog entry with `spriteVersionNumber: 2`
+  carries the same 8×11 layout metadata as an imported/local Codex V2 pet;
+  entries without it remain V1-compatible.
 - **Installing**: see the install flow in [Pets](/pets) - catalog lookup (which allows installing any valid v3 catalog pet by ID, even if not original or featured) →
   ZIP download → validated extraction → state update → tray refresh. (Control Center UI surfaces only curated original/featured pets, but explicit install by ID allows any valid v3 pet).
 - **Plugins**: the Plugins page lists catalog v2 entries filtered by app version
   and install state; install downloads + verifies the plugin ZIP. See
   [Plugin platform](/plugins).
+
+## Teams private catalog lane
+
+Teams is an optional cloud service separate from the public catalog. The desktop
+uses `OPENPETS_TEAMS_API_URL` (default
+`https://openpets-teams-api.tokozedg793.workers.dev`) and downloads
+Team artifacts only through the authenticated configured API origin. Team Packs
+contain published pets/plugins, required/optional policy, organization
+configuration, immutable release references, and removals. Dedicated storage,
+strict package validation, and ZIP safety preserve public catalog restrictions.
+Updates are staged before activation and applied revision advances only after
+convergence. Offline leave/removal retains pending state and never claims remote
+deletion.
 
 ## Related docs
 

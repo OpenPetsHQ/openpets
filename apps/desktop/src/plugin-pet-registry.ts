@@ -12,6 +12,7 @@ import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { resolveReactionSpriteState } from "./reaction-animation-mapping.js";
 import type { PluginAnimationSpec, PluginPetInfo, PluginPetState } from "./plugin-sdk-bridge.js";
+import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 
 /**
  * Multi-pet registry (§4): addressable pet handles for plugins. "default" is
@@ -347,13 +348,17 @@ export function getPluginPetArbiter(petHandleId: string): PetBubbleArbiter {
   return pet.arbiter;
 }
 
-export function reclampPluginPetWindows(): void {
+export function reclampPluginPetWindows(reason?: DisplayChangeReason): void {
   for (const pet of spawnedPets.values()) {
     const { window } = pet;
     if (!window || window.isDestroyed()) continue;
     const [cx, cy] = window.getPosition();
     const safe = readWindowPosition(window);
     if (safe.x !== cx || safe.y !== cy) window.setPosition(safe.x, safe.y, false);
+    // A live display-scale change invalidates the Linux setShape() click-through
+    // mask for plugin pet windows too, not just the default pet -- see the
+    // matching fix in default-pet-controller.ts's reclampDefaultPetWindow().
+    if (reason === "display-metrics-changed") refreshSpawnedPet(pet);
   }
 }
 

@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Agent } from "undici";
+
 import { PluginSdkBridge, type PluginDeliveryHostHandle, type PluginHostCapabilities } from "../src/plugin-sdk-bridge.js";
 import { pluginSdkQuotas } from "../src/plugin-sdk-quotas.js";
 import { PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js";
@@ -14,6 +16,7 @@ import { PET_ASSISTANT_CONVERSATION_ID } from "../src/pet-assistant-conversation
 import { petAssistantToolName } from "../src/pet-assistant-tools.js";
 import { assistantCapabilityFailure } from "../src/plugin-sdk-assistant.js";
 import type { PetAssistantCapabilityRuntime } from "../src/pet-assistant-types.js";
+import { setPluginSdkNetworkTestHooks } from "../src/plugin-sdk-network.js";
 
 await scenario("storage.subscribe receives set value and delete as undefined", async ({ api }) => {
   const values: unknown[] = [];
@@ -290,39 +293,6 @@ await scenario("late delivery registration is dismissed after generation clear",
   assert.equal(dismissals, 1);
 });
 
-await scenario("net.fetch with network:local reaches exact local HTTP and public HTTPS hosts", async ({ bridge, store }) => {
-  const originalFetch = globalThis.fetch;
-  const localHost = "127.0.0.1:18765";
-  const publicHost = "1.1.1.1";
-  const seen: string[] = [];
-  globalThis.fetch = (async (input: string | URL | { url?: string }) => {
-    const href = String(input);
-    seen.push(href);
-    return new Response(href.includes("127.0.0.1") ? "local-ok" : "public-ok", { status: 200 });
-  }) as typeof fetch;
-  try {
-    const record = {
-      ...store.getRecord("plug")!,
-      approvedPermissions: ["network" as const, "network:local" as const],
-      approvedNetworkHosts: [localHost, publicHost],
-    };
-    store.upsertRecord(record);
-    const api = bridge.createApi(record, manifest({
-      permissions: ["network", "network:local"],
-      network: { hosts: [localHost, publicHost] },
-    }));
-    const local = await api.net.fetch(`http://${localHost}/status`);
-    assert.equal(local.status, 200);
-    assert.equal(local.text, "local-ok");
-    const pub = await api.net.fetch(`https://${publicHost}/`);
-    assert.equal(pub.status, 200);
-    assert.equal(pub.text, "public-ok");
-    assert.equal(seen.length, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 await scenario("stale network:local approval is denied after manifest removal", async ({ bridge, store }) => {
   const localHost = "127.0.0.1:18765";
   const record = {
@@ -337,22 +307,14 @@ await scenario("stale network:local approval is denied after manifest removal", 
 });
 
 await scenario("bare host approval does not authorize a non-default URL port", async ({ bridge, store }) => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response("ok", { status: 200 })) as typeof fetch;
-  try {
-    const record = {
-      ...store.getRecord("plug")!,
-      approvedPermissions: ["network" as const],
-      approvedNetworkHosts: ["1.1.1.1"],
-    };
-    store.upsertRecord(record);
-    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: ["1.1.1.1"] } }));
-    await assert.rejects(() => api.net.fetch("https://1.1.1.1:8443/"), /host is not approved/);
-    const ok = await api.net.fetch("https://1.1.1.1/");
-    assert.equal(ok.status, 200);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const record = {
+    ...store.getRecord("plug")!,
+    approvedPermissions: ["network" as const],
+    approvedNetworkHosts: ["1.1.1.1"],
+  };
+  store.upsertRecord(record);
+  const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: ["1.1.1.1"] } }));
+  await assert.rejects(() => api.net.fetch("https://1.1.1.1:8443/"), /host is not approved/);
 });
 
 await scenario("legacy http.fetch stays GET-only even when network:write is approved", async ({ bridge, store }) => {
@@ -364,6 +326,185 @@ await scenario("legacy http.fetch stays GET-only even when network:write is appr
   store.upsertRecord(record);
   const api = bridge.createApi(record, manifest({ permissions: ["network", "network:write"], network: { hosts: ["1.1.1.1"] } }));
   await assert.rejects(() => api.http.fetch("https://1.1.1.1/", { method: "POST" }), /only supports GET/);
+});
+
+await scenario("network rejects URL credentials before attempting a fetch", async ({ bridge, store }) => {
+  const restore = setPluginSdkNetworkTestHooks({ fetch: async () => { throw new Error("fetch should not be called"); } });
+  try {
+    const record = { ...store.getRecord("plug")!, approvedPermissions: ["network" as const], approvedNetworkHosts: ["example.com"] };
+    store.upsertRecord(record);
+    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: ["example.com"] } }));
+    await assert.rejects(() => api.net.fetch("https://user:password@example.com/"), /credentials are not allowed/);
+  } finally {
+    restore();
+  }
+});
+
+await scenario("net.stream reports and propagates a throwing bridge callback", async ({ bridge, store }) => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array([1])); },
+    cancel() { canceled = true; },
+  });
+  const restore = setPluginSdkNetworkTestHooks({ fetch: async () => ({ status: 200, ok: true, headers: new Headers(), body }) as never });
+  try {
+    const record = { ...store.getRecord("plug")!, approvedPermissions: ["network" as const], approvedNetworkHosts: ["1.1.1.1"] };
+    store.upsertRecord(record);
+    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: ["1.1.1.1"] } }));
+    await assert.rejects(
+      () => api.net.stream("https://1.1.1.1/", { method: "GET" }, () => { throw new Error("bridge callback failed"); }),
+      /bridge callback failed/,
+    );
+    assert.equal(canceled, true);
+    assert.equal(bridge.getInspectorState("plug").lastError, "bridge callback failed");
+  } finally {
+    restore();
+  }
+});
+
+await scenario("net.stream awaits async callback rejection, cancels, and reports it once", async ({ bridge, store, errors }) => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array([1])); },
+    cancel() { canceled = true; },
+  });
+  const restore = setPluginSdkNetworkTestHooks({ fetch: async () => ({ status: 200, ok: true, headers: new Headers(), body }) as never });
+  try {
+    const record = { ...store.getRecord("plug")!, approvedPermissions: ["network" as const], approvedNetworkHosts: ["1.1.1.1"] };
+    store.upsertRecord(record);
+    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: ["1.1.1.1"] } }));
+    await assert.rejects(
+      () => api.net.stream("https://1.1.1.1/", { method: "GET" }, async () => {
+        await Promise.resolve();
+        throw new Error("async bridge callback failed");
+      }),
+      /async bridge callback failed/,
+    );
+    assert.equal(canceled, true);
+    assert.deepEqual(errors, ["async bridge callback failed"]);
+    assert.equal(bridge.getInspectorState("plug").lastError, "async bridge callback failed");
+  } finally {
+    restore();
+  }
+});
+
+await scenario("clear aborts every network route and a new generation succeeds", async ({ bridge, store }) => {
+  const host = "1.1.1.1";
+  const record = {
+    ...store.getRecord("plug")!,
+    approvedPermissions: ["network"] as const,
+    approvedNetworkHosts: [host],
+  };
+  store.upsertRecord(record);
+  let fresh = false;
+  let aborted = 0;
+  const restore = setPluginSdkNetworkTestHooks({
+    fetch: async (_input, init) => {
+      if (fresh) return new Response("fresh", { status: 200 }) as never;
+      const signal = (init as { signal?: AbortSignal } | undefined)?.signal;
+      return new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => { aborted += 1; reject(new Error("underlying request aborted")); }, { once: true });
+      });
+    },
+  });
+  try {
+    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: [host] } }));
+    const pending = [
+      api.net.fetch(`https://${host}/fetch`),
+      api.net.stream(`https://${host}/stream`, { method: "GET" }, () => undefined),
+      api.http.fetch(`https://${host}/legacy`),
+    ];
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const cleanup = bridge.clearPlugin("plug");
+    await Promise.all(pending.map((request) => assert.rejects(request, /Plugin is no longer active\./)));
+    await cleanup;
+    assert.equal(aborted, 3);
+
+    fresh = true;
+    const current = store.getRecord("plug")!;
+    const freshApi = bridge.createApi(current, manifest({ permissions: ["network"], network: { hosts: [host] } }));
+    assert.equal((await freshApi.net.fetch(`https://${host}/fresh`)).text, "fresh");
+  } finally {
+    restore();
+  }
+});
+
+await scenario("a successful network response racing clear is rejected as inactive", async ({ bridge, store }) => {
+  const host = "1.1.1.1";
+  const record = { ...store.getRecord("plug")!, approvedPermissions: ["network"] as const, approvedNetworkHosts: [host] };
+  store.upsertRecord(record);
+  let closeStarted!: () => void;
+  let releaseClose!: () => void;
+  const closeStartedPromise = new Promise<void>((resolve) => { closeStarted = resolve; });
+  const closePromise = new Promise<void>((resolve) => { releaseClose = resolve; });
+  const agent = new Agent();
+  Object.defineProperty(agent, "close", { configurable: true, value: () => { closeStarted(); return closePromise; } });
+  Object.defineProperty(agent, "destroy", { configurable: true, value: () => { releaseClose(); } });
+  const restore = setPluginSdkNetworkTestHooks({ createAgent: () => agent, fetch: async () => new Response("ok", { status: 200 }) as never });
+  try {
+    const api = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: [host] } }));
+    const response = api.net.fetch(`https://${host}/race`);
+    await closeStartedPromise;
+    const cleanup = bridge.clearPlugin("plug");
+    await assert.rejects(response, /Plugin is no longer active\./);
+    await cleanup;
+  } finally {
+    releaseClose();
+    restore();
+  }
+});
+
+await scenario("old-generation cleanup cannot remove replacement network tracking", async ({ bridge, store }) => {
+  const host = "1.1.1.1";
+  const record = { ...store.getRecord("plug")!, approvedPermissions: ["network"] as const, approvedNetworkHosts: [host] };
+  store.upsertRecord(record);
+  let oldDestroyStarted!: () => void;
+  let releaseOldDestroy!: () => void;
+  let oldFetchStarted!: () => void;
+  let freshFetchStarted!: () => void;
+  const oldDestroyStartedPromise = new Promise<void>((resolve) => { oldDestroyStarted = resolve; });
+  const oldDestroyPromise = new Promise<void>((resolve) => { releaseOldDestroy = resolve; });
+  const oldFetchStartedPromise = new Promise<void>((resolve) => { oldFetchStarted = resolve; });
+  const freshFetchStartedPromise = new Promise<void>((resolve) => { freshFetchStarted = resolve; });
+  const oldAgent = new Agent();
+  Object.defineProperty(oldAgent, "destroy", { configurable: true, value: () => { oldDestroyStarted(); return oldDestroyPromise; } });
+  const freshAgent = new Agent();
+  Object.defineProperty(freshAgent, "destroy", { configurable: true, value: () => undefined });
+  let agentCount = 0;
+  const restore = setPluginSdkNetworkTestHooks({
+    createAgent: () => ++agentCount === 1 ? oldAgent : freshAgent,
+    fetch: async (_input, init) => {
+      if (agentCount === 1) oldFetchStarted();
+      else freshFetchStarted();
+      return new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("underlying request aborted")), { once: true });
+      });
+    },
+  });
+  try {
+    const oldApi = bridge.createApi(record, manifest({ permissions: ["network"], network: { hosts: [host] } }));
+    const oldRequest = oldApi.net.fetch(`https://${host}/old`);
+    await oldFetchStartedPromise;
+    const oldCleanup = bridge.clearPlugin("plug");
+    await oldDestroyStartedPromise;
+
+    const current = store.getRecord("plug")!;
+    const freshApi = bridge.createApi(current, manifest({ permissions: ["network"], network: { hosts: [host] } }));
+    const freshRequest = freshApi.net.fetch(`https://${host}/fresh`);
+    await freshFetchStartedPromise;
+
+    const oldRequestFailure = assert.rejects(oldRequest, /Plugin is no longer active\./);
+    releaseOldDestroy();
+    await oldCleanup;
+    await oldRequestFailure;
+
+    const freshCleanup = bridge.clearPlugin("plug");
+    await assert.rejects(freshRequest, /Plugin is no longer active\./);
+    await freshCleanup;
+  } finally {
+    releaseOldDestroy();
+    restore();
+  }
 });
 
 await scenario("approved bare hostname does not approve a newly declared host:port entry", async ({ bridge, store }) => {
@@ -583,6 +724,7 @@ type ScenarioContext = {
   bridge: PluginSdkBridge;
   store: PluginStateStore;
   capabilities: TestCapabilities;
+  errors: string[];
 };
 
 function assistantHandle(bridge: PluginSdkBridge, capabilityId: string) {
@@ -611,14 +753,16 @@ async function scenario(name: string, run: (context: ScenarioContext) => Promise
     };
     store.upsertRecord(record);
     const capabilities = createTestCapabilities();
+    const errors: string[] = [];
     const bridge = new PluginSdkBridge({
       stateStore: store,
       petApi: { speak() {}, react() {}, moveBy() {}, wander() {}, moveToHome() {} },
       scheduler: { setTimeout: () => ({ cancel() {} }) },
       capabilities,
+      onError: (_id, reason) => errors.push(reason),
     });
     const api = bridge.createApi(record, manifest());
-    await run({ api, bridge, store, capabilities });
+    await run({ api, bridge, store, capabilities, errors });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
