@@ -311,4 +311,3 @@ export function setPetGazePluginOverride(window: BrowserWindow, active: boolean)
   resetPetGazeDirection(entry);
   syncPetGazeTicker();
 }
-

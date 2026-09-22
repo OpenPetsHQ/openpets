@@ -62,6 +62,7 @@ const {
   buildPetContextMenuTemplate,
   handlePetScaleChange,
 } = await import("../src/pet-window.js");
+const { setPluginServiceForTests } = await import("../src/plugin-service.js");
 
 try {
   initializeAppState();
@@ -137,7 +138,40 @@ try {
   handlePetScaleChange(1 as PetScaleValue);
   assert.equal(getAppStateSnapshot().preferences.petScale, 1, "handlePetScaleChange updates global preference to Medium");
   assert.equal(getAppStateSnapshot().preferences.hudScale, 1.4, "Medium pet size uses the Medium HUD scale (1.4)");
+
+  // 7. V4 pet menus expose every featured/top-level command; there is no
+  // implicit eight-item cap on the rendered context menu.
+  const manyTopLevelPlugins = Array.from({ length: 9 }, (_, index) => {
+    const suffix = String(index + 1).padStart(2, "0");
+    return {
+      id: `plugin-${suffix}`,
+      name: `Plugin ${suffix}`,
+      version: "1.0.0",
+      source: "catalog",
+      enabled: true,
+      approvedPermissions: [],
+      commands: [{ id: "run", title: `Plugin ${suffix} action`, placement: "top", featured: true }],
+    };
+  });
+  setPluginServiceForTests({
+    getSnapshot: async () => ({ plugins: manyTopLevelPlugins }),
+    runtime: { getPluginState: () => ({ commands: [], menuItems: [] }) },
+    stop() {},
+  } as never);
+  const populatedDefaultMenu = await buildPetContextMenuTemplate({
+    label: "Hide pet",
+    click: () => {},
+    defaultPet: true,
+  });
+  assert.deepEqual(
+    populatedDefaultMenu
+      .map((item) => item.label)
+      .filter((label): label is string => typeof label === "string" && label.startsWith("Plugin ")),
+    manyTopLevelPlugins.map((plugin) => `${plugin.name} action`),
+    "all nine top-level plugin commands remain accessible from the V4 pet menu",
+  );
 } finally {
+  setPluginServiceForTests(null);
   releaseStartupInstallLock();
   rmSync(userDataPath, { recursive: true, force: true });
 }

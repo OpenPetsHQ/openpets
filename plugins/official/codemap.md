@@ -24,6 +24,7 @@ First-party SDK v3 plugin product source. These plugins are the reviewed default
 | Plugin | Primary responsibility | Main SDK surfaces |
 |--------|------------------------|-------------------|
 | `openpets.reminders` | Quick reminders with due/missed alert delivery, snooze/done actions, status text, optional notification/sound, and localized reminder messages. | `schedule`, `storage`, `status`, `ui.alert`, `commands`, `assets`, `config`, `notify` |
+| `openpets.simple-timer` | One-shot countdown timer with preset/custom durations, a pinned pet HUD, pause/resume, extension/cancel controls, and snoozeable expiry alerts. | `schedule`, `storage`, `status`, `commands`, `ui.bubble`, `ui.alert`, `pet:speak`, `pet:pin`, `audio`, `notify`, `config` |
 | `openpets.launch-buddy` | Launch/checklist companion for shipping moments, using scheduled prompts and command-driven progress feedback. | `schedule`, `storage`, `commands`, `pet`, `audio`, `assets`, `config` |
 | `openpets.water-reminder` | Hydration reminder loop with configurable cadence and localized alerts. | `schedule`, `storage`, `commands`, `ui.alert`, `assets`, `config` |
 | `openpets.focus-buddy` | Focus-session helper with timers, commands, status updates, and completion/break feedback. | `schedule`, `storage`, `status`, `commands`, `ui`, `config` |

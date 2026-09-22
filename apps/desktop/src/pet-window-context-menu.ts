@@ -311,7 +311,7 @@ export async function buildPetContextMenuTemplate(
       });
   };
   if (topLevel.length > 0) {
-    template.push(...topLevel.slice(0, 8), { type: "separator" });
+    template.push(...topLevel, { type: "separator" });
   }
   if (plugins.size > 0) {
     template.push(
