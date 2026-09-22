@@ -311,11 +311,14 @@ Newest first.
   Guided breathing = third practice (practiceId guided-breathing,
   kind breathing): Box 4-4-4-4 ×8, Calming 4-7-8 ×4, Energizing
   4-4-6 ×8, Quick reset 3-3-3 ×6. Pattern chips under the header
-  (name + host-derived timing); locked while a run is live; picking
+  (name + host-derived timing), switchable any time: a live run
+  restarts on the new pattern, paused stays paused at its start,
   after completion returns to idle. Holds say "lungs full/empty".
-  Info leads with the selected pattern (what it is, best for), then
-  shared how/science/when/notice/tips; swaps on pick via
-  session.update. Last pattern stored (lastGuidedPattern). Pet
+  Info opens with all four patterns as cards (AAT overview style:
+  icon, what it is, "Best for" line, current one badged), then
+  shared how/science/when/notice/tips; the badge moves on pick via
+  session.update. SDK Info cards gained `detail` + `highlighted`
+  and icons square/moon/zap. Last pattern stored (lastGuidedPattern). Pet
   command "Start guided breathing". AAT copy rewritten: no
   "oxygen saturates blood" or Navy SEAL lines; 4-7-8 starts at four
   rounds; disclaimer covers holds. Card estimate 328 (chip row).
