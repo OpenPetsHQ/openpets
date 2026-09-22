@@ -67,8 +67,8 @@ const { setPluginServiceForTests } = await import("../src/plugin-service.js");
 try {
   initializeAppState();
 
-  // 1. Initial state: petScale should default to 1 (Medium)
-  assert.equal(getAppStateSnapshot().preferences.petScale, 1);
+  // 1. Initial state: petScale defaults to Medium (0.75)
+  assert.equal(getAppStateSnapshot().preferences.petScale, 0.75);
 
   // 2. Default pet context menu contains Size submenu with correct checkmarks
   const defaultMenu = await buildPetContextMenuTemplate({
@@ -94,8 +94,8 @@ try {
   if (typeof hugeOption.click === "function") {
     hugeOption.click({} as any, undefined as any, undefined as any);
   }
-  assert.equal(getAppStateSnapshot().preferences.petScale, 1.5, "clicking Huge updates the global petScale preference");
-  assert.equal(getAppStateSnapshot().preferences.hudScale, 2, "clicking Huge updates the global HUD scale preference");
+  assert.equal(getAppStateSnapshot().preferences.petScale, 1.25, "clicking Huge updates the global petScale preference");
+  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.7, "clicking Huge updates the global HUD scale preference");
 
   // 4. Next menu build reflects the newly selected size as checked
   const updatedDefaultMenu = await buildPetContextMenuTemplate({
@@ -123,21 +123,21 @@ try {
   assert.equal(agentHugeOption?.checked, true, "agent pet menu reflects global Huge scale");
 
   // 6. Direct scale change through handlePetScaleChange updates preference across all stepped tiers
-  handlePetScaleChange(0.75 as PetScaleValue);
-  assert.equal(getAppStateSnapshot().preferences.petScale, 0.75, "handlePetScaleChange updates global preference to Small");
-  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.1, "Small pet size uses the Small HUD scale (1.1)");
+  handlePetScaleChange(0.35 as PetScaleValue);
+  assert.equal(getAppStateSnapshot().preferences.petScale, 0.35, "handlePetScaleChange updates global preference to XS");
+  assert.equal(getAppStateSnapshot().preferences.hudScale, 0.85, "XS pet size uses the minimum readable HUD scale (0.85)");
 
   handlePetScaleChange(0.5 as PetScaleValue);
-  assert.equal(getAppStateSnapshot().preferences.petScale, 0.5, "handlePetScaleChange updates global preference to XS");
-  assert.equal(getAppStateSnapshot().preferences.hudScale, 0.85, "XS pet size uses the minimum HUD scale (0.85)");
+  assert.equal(getAppStateSnapshot().preferences.petScale, 0.5, "handlePetScaleChange updates global preference to Small");
+  assert.equal(getAppStateSnapshot().preferences.hudScale, 0.85, "Small pet size keeps the minimum readable HUD scale (0.85)");
 
-  handlePetScaleChange(1.25 as PetScaleValue);
-  assert.equal(getAppStateSnapshot().preferences.petScale, 1.25, "handlePetScaleChange updates global preference to Large");
-  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.7, "Large pet size uses the Large HUD scale (1.7)");
+  handlePetScaleChange(0.75 as PetScaleValue);
+  assert.equal(getAppStateSnapshot().preferences.petScale, 0.75, "handlePetScaleChange updates global preference to Medium");
+  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.1, "Medium pet size uses the 1.1 HUD scale");
 
   handlePetScaleChange(1 as PetScaleValue);
-  assert.equal(getAppStateSnapshot().preferences.petScale, 1, "handlePetScaleChange updates global preference to Medium");
-  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.4, "Medium pet size uses the Medium HUD scale (1.4)");
+  assert.equal(getAppStateSnapshot().preferences.petScale, 1, "handlePetScaleChange updates global preference to Large");
+  assert.equal(getAppStateSnapshot().preferences.hudScale, 1.4, "Large pet size uses the 1.4 HUD scale");
 
   // 7. V4 pet menus expose every featured/top-level command; there is no
   // implicit eight-item cap on the rendered context menu.
