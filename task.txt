@@ -301,6 +301,17 @@ a first slice.
 
 Newest first.
 
+2026-09-22 — pet window zoom pinned to 1x; sizing diagnostics.
+  Still a big card→orb gap in-app. Log: overlay reported 880 for
+  grounding while the drawn card was ~0.75 of its measured size — the
+  pet page was rendering zoomed (~0.75). Chromium keeps zoom per host
+  and all file:// pages share one, so a zoom set elsewhere leaks into
+  the pet window, which never pinned its own (Control Center does).
+  Pet window now pins zoomFactor 1 on create/load/zoom-changed and
+  locks pinch zoom; "pet window zoom reset" logs when it corrects.
+  Height reports now log the measurement inputs (card, sprite,
+  viewport, DPR, orb radius, lift) under pet.session.
+
 2026-09-22 — carrier fits measured content; practice-only pet menu (Alvin).
   In-app the top-card layout showed a big empty band: the carrier was
   sized from per-practice card estimates (PMR 537 vs ~405 real) and

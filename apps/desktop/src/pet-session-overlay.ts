@@ -451,14 +451,28 @@ export function installSessionOverlayIpcHandlers(): void {
 
   // The overlay measures its real card + orb and reports the carrier height it
   // needs; estimates only size the first frame.
-  ipcMain.on("openpets:session-overlay-content-height", (event: IpcMainEvent, rawHeight: unknown) => {
+  ipcMain.on("openpets:session-overlay-content-height", (event: IpcMainEvent, payload: unknown) => {
     if (!isAuthorizedSessionSender(event.sender.id)) return;
     const session = activeSession;
     if (!session || session.closed) return;
-    const height = Number(rawHeight);
+    if (typeof payload !== "object" || payload === null) return;
+    const report = payload as Record<string, unknown>;
+    const height = Number(report.height);
     if (!Number.isFinite(height)) return;
     const clamped = Math.max(minSessionContentHeight, Math.min(maxSessionContentHeight, Math.round(height)));
-    debug("pet.session", "session overlay content height", { pluginId: session.pluginId, height: clamped });
+    // The measurement inputs make carrier-size mismatches diagnosable from openpets.log.
+    const numberField = (key: string) => (typeof report[key] === "number" ? Math.round(report[key] as number * 100) / 100 : null);
+    debug("pet.session", "session overlay content height", {
+      pluginId: session.pluginId,
+      height: clamped,
+      cardHeight: numberField("cardHeight"),
+      spriteHeight: numberField("spriteHeight"),
+      spriteClass: typeof report.spriteClass === "string" ? report.spriteClass.slice(0, 40) : null,
+      viewport: `${numberField("viewportWidth")}x${numberField("viewportHeight")}`,
+      devicePixelRatio: numberField("devicePixelRatio"),
+      orbRadius: numberField("orbRadius"),
+      petLift: numberField("petLift"),
+    });
     setDefaultPetSessionMeasuredHeight(clamped);
   });
 
