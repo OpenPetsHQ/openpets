@@ -402,7 +402,7 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
 
 function validatePractices(value: unknown): readonly SessionPracticeChoice[] {
   check(Array.isArray(value), "Session practices must be an array.");
-  check(value.length >= 1 && value.length <= 6, "Session practices must contain 1–6 entries.");
+  check(value.length >= 1 && value.length <= 8, "Session practices must contain 1–8 entries.");
   const seen = new Set<string>();
   const practices = value.map((entry) => {
     check(isRecord(entry), "Invalid session practice choice.");

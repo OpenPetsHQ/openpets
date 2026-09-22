@@ -310,6 +310,19 @@ a first slice.
 
 Newest first.
 
+2026-09-22 — peaceful visualization on the player.
+  AAT's 9 scenes × 7 narrated steps from R2 peaceful-visualization/
+  {en|es|pt|zh}/…; captions ×7 (AAT transcripts, OpenCC zh-Hant,
+  ja/ko translated); subtitle = AAT "soundscape · atmosphere" (the
+  scene descriptions overflow 80 chars in es/pt). Honest Info: the
+  imagery evidence is mostly small medical-setting trials — Parizad
+  2021 RCT (COVID-19), Forward 2015 RCT (touch + imagery, joint
+  replacement), Kumari 2023 (small GAD study); AAT's "meta-analysis of
+  36 imagery trials" is really Chen 2012 on meditative therapies and
+  is not repeated. Covers: NOT yet — the image service hit its
+  subscription limit (resets ~2026-09-24); tracks show the placeholder
+  tile until the 9 covers are generated. Practice cap 6 → 8.
+
 2026-09-22 — media player platform + guided meditation (Alvin: do all 3).
   Decisions (Alvin): one compact player HUD for meditation /
   visualization / sounds with a cover THUMBNAIL in the card (orb

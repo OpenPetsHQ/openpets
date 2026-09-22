@@ -11,6 +11,8 @@ import {
   buildMeditationDescriptor,
   buildMeditationInfo,
   buildMeditationTracks,
+  buildVisualizationDescriptor,
+  buildVisualizationTracks,
   MEDIA_ORIGIN,
   narrationLanguage,
   buildGuidedInfo,
@@ -27,6 +29,7 @@ import {
   SITE_URL,
   STORAGE_KEY_LAST_GUIDED_PATTERN,
   STORAGE_KEY_LAST_MEDITATION,
+  STORAGE_KEY_LAST_VISUALIZATION,
 } from "./index.js";
 
 let createTestHarness;
@@ -224,6 +227,17 @@ const highlightedMeditation = meditationInfo.sections.flatMap((section) => secti
 assert.deepEqual(highlightedMeditation.map((card) => card.title), [t("meditation.metta-loving-kindness-protocol.title")]);
 assert.ok(meditationInfo.citations.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
 
+// Peaceful visualization: AAT's nine scenes, seven narrated steps each.
+const visualizationTracks = buildVisualizationTracks(t, "pt-BR");
+assert.equal(visualizationTracks.length, 9);
+for (const track of visualizationTracks) {
+  assert.equal(track.segments.length, 7);
+  track.segments.forEach((segment, index) => {
+    assert.equal(segment.audioUrl, `${MEDIA_ORIGIN}/peaceful-visualization/pt/${track.id}/0${index + 1}.mp3`);
+    assert.ok(segment.caption.length > 0);
+  });
+}
+
 // The practice picker lists every practice, each with an icon.
 const practices = buildPractices(t);
 assert.deepEqual(
@@ -234,6 +248,7 @@ assert.deepEqual(
     ["pmr", t("practice.pmr")],
     ["grounding", t("practice.grounding")],
     ["meditation", t("practice.meditation")],
+    ["visualization", t("practice.visualization")],
   ],
 );
 assert.ok(practices.every((choice) => typeof choice.icon === "string"));
@@ -252,6 +267,7 @@ assert.deepEqual(
     ["start-pmr", "$t:practice.pmr"],
     ["start-grounding", "$t:practice.grounding"],
     ["start-meditation", "$t:practice.meditation"],
+    ["start-visualization", "$t:practice.visualization"],
   ],
 );
 
@@ -414,6 +430,17 @@ const jaCtx = { ...harness.ctx, locale: "ja", t: (key) => harness.ctx.t(key), as
 const jaMeditation = buildMeditationDescriptor(jaCtx, false);
 assert.equal(jaMeditation.narrationNote, t("meditation.narrationNote"));
 assert.ok(jaMeditation.tracks[0].segments[0].audioUrl.includes("/guided-meditation/en/"));
+
+// 6b. Visualization uses the same player and remembers the last scene.
+await harness.runCommand("start-visualization");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "player");
+assert.equal(latestSpec.practiceId, "visualization");
+assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["visualization-pause", "visualization-stop"]);
+latestEventHandler({ type: "patternChanged", patternId: "cozyRainyCabin" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_VISUALIZATION), "cozyRainyCabin");
+assert.equal(buildVisualizationDescriptor(harness.ctx, false, "cozyRainyCabin").trackId, "cozyRainyCabin");
 
 // 7. Stop session
 await latestSession.stop();

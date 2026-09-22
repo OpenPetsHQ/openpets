@@ -21,12 +21,20 @@ export const MENU_GROUNDING_STOP = "grounding-stop";
 export const MENU_MEDITATION_PAUSE = "meditation-pause";
 export const MENU_MEDITATION_RESUME = "meditation-resume";
 export const MENU_MEDITATION_STOP = "meditation-stop";
+export const MENU_VISUALIZATION_PAUSE = "visualization-pause";
+export const MENU_VISUALIZATION_RESUME = "visualization-resume";
+export const MENU_VISUALIZATION_STOP = "visualization-stop";
+
+const MENU_PAUSE_IDS = new Set([MENU_PAUSE, MENU_PMR_PAUSE, MENU_MEDITATION_PAUSE, MENU_VISUALIZATION_PAUSE]);
+const MENU_RESUME_IDS = new Set([MENU_RESUME, MENU_PMR_RESUME, MENU_MEDITATION_RESUME, MENU_VISUALIZATION_RESUME]);
+const MENU_STOP_IDS = new Set([MENU_STOP, MENU_PMR_STOP, MENU_GROUNDING_STOP, MENU_MEDITATION_STOP, MENU_VISUALIZATION_STOP]);
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
 export const STORAGE_KEY_LAST_MEDITATION = "lastMeditation";
+export const STORAGE_KEY_LAST_VISUALIZATION = "lastVisualization";
 
-export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding", "meditation"];
+export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding", "meditation", "visualization"];
 
 /** Narration lives on AAT's R2; the host downloads and caches each segment. */
 export const MEDIA_ORIGIN = "https://r2.anxietyaidtools.com";
@@ -43,6 +51,20 @@ export const MEDITATION_SESSIONS = [
   { id: "metta-loving-kindness-protocol", category: "mindfulness", group: "spiritual", segments: 12 },
 ];
 export const MEDITATION_IDS = MEDITATION_SESSIONS.map((session) => session.id);
+
+/** AAT peaceful visualization scenes; each is seven narrated steps. */
+export const VISUALIZATION_SCENES = [
+  "mountainPeakSunrise",
+  "tranquilForestGrove",
+  "peacefulOceanBeach",
+  "sereneGardenParadise",
+  "starlitMeadowNight",
+  "cozyRainyCabin",
+  "mistyLakesideDawn",
+  "sunlitDesertOasis",
+  "floatingCloudSanctuary",
+];
+const VISUALIZATION_STEPS = 7;
 
 /**
  * AAT records narration in en, es, pt, and zh (and languages OpenPets does not
@@ -235,7 +257,27 @@ export function buildPractices(t) {
     { id: "pmr", name: t("practice.pmr"), icon: "person-standing" },
     { id: "grounding", name: t("practice.grounding"), icon: "anchor" },
     { id: "meditation", name: t("practice.meditation"), icon: "headphones" },
+    { id: "visualization", name: t("practice.visualization"), icon: "sparkles" },
   ];
+}
+
+export function buildVisualizationTracks(t, locale) {
+  const language = narrationLanguage(locale);
+  return VISUALIZATION_SCENES.map((scene) => {
+    const segments = [];
+    for (let index = 1; index <= VISUALIZATION_STEPS; index += 1) {
+      segments.push({
+        audioUrl: `${MEDIA_ORIGIN}/peaceful-visualization/${language}/${scene}/${String(index).padStart(2, "0")}.mp3`,
+        caption: t(`visualization.${scene}.caption${index}`),
+      });
+    }
+    return {
+      id: scene,
+      title: t(`visualization.${scene}.title`),
+      subtitle: t(`visualization.${scene}.subtitle`),
+      segments,
+    };
+  });
 }
 
 export function buildMeditationTracks(t, locale, assets) {
@@ -482,6 +524,63 @@ export const MEDITATION_CITATIONS = [
   },
 ];
 
+export const VISUALIZATION_CITATIONS = [
+  {
+    label: "Parizad N. et al. (2021). Effect of guided imagery on anxiety, muscle pain, and vital signs in patients with COVID-19: a randomized controlled trial. Complementary Therapies in Clinical Practice, 43:101335.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC7982304/",
+  },
+  {
+    label: "Forward J.B. et al. (2015). Effect of structured touch and guided imagery for pain and anxiety in elective joint replacement patients: a randomized controlled trial. The Permanente Journal, 19(4):18–28.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC4625990/",
+  },
+  {
+    label: "Kumari D., Patil J. (2023). Guided imagery for anxiety disorder: therapeutic efficacy and changes in quality of life. Industrial Psychiatry Journal, 32(Suppl 1):S191–S195.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10871407/",
+  },
+];
+
+export function buildVisualizationInfo(t, logo) {
+  return {
+    intro: t("visualization.info.intro"),
+    sections: [
+      {
+        heading: t("info.how.heading"),
+        body: t("visualization.info.how.body"),
+        cards: [
+          { title: t("visualization.info.how.card1.title"), body: t("visualization.info.how.card1.body"), icon: "leaf" },
+          { title: t("visualization.info.how.card2.title"), body: t("visualization.info.how.card2.body"), icon: "sparkles" },
+          { title: t("visualization.info.how.card3.title"), body: t("visualization.info.how.card3.body"), icon: "calendar-check" },
+        ],
+      },
+      {
+        heading: t("info.science.heading"),
+        body: t("visualization.info.science.body"),
+        cards: [
+          { title: t("visualization.info.science.card1.title"), body: t("visualization.info.science.card1.body"), icon: "heart-pulse", url: VISUALIZATION_CITATIONS[0].url },
+          { title: t("visualization.info.science.card2.title"), body: t("visualization.info.science.card2.body"), icon: "activity", url: VISUALIZATION_CITATIONS[1].url },
+          { title: t("visualization.info.science.card3.title"), body: t("visualization.info.science.card3.body"), icon: "brain", url: VISUALIZATION_CITATIONS[2].url },
+        ],
+      },
+      {
+        heading: t("info.when.heading"),
+        items: [t("visualization.info.when.item1"), t("visualization.info.when.item2"), t("visualization.info.when.item3"), t("visualization.info.when.item4")],
+      },
+      {
+        heading: t("info.tips.heading"),
+        cards: [
+          { title: t("visualization.info.tips.card1.title"), body: t("visualization.info.tips.card1.body"), icon: "headphones" },
+          { title: t("visualization.info.tips.card2.title"), body: t("visualization.info.tips.card2.body"), icon: "eye" },
+          { title: t("visualization.info.tips.card3.title"), body: t("visualization.info.tips.card3.body"), icon: "anchor" },
+        ],
+      },
+    ],
+    citations: VISUALIZATION_CITATIONS,
+    disclaimer: t("visualization.info.disclaimer"),
+    site: { label: t("info.site.label"), url: SITE_URL },
+    ...(logo ? { logo } : {}),
+  };
+}
+
 /** Meditation Info: the sessions (current one marked), then the shared knowledge. */
 export function buildMeditationInfo(t, logo, trackId) {
   const sessionCards = (group) => MEDITATION_SESSIONS
@@ -660,6 +759,27 @@ export function buildMeditationDescriptor(ctx, autoStart, trackId = MEDITATION_I
   };
 }
 
+export function buildVisualizationDescriptor(ctx, autoStart, trackId = VISUALIZATION_SCENES[0]) {
+  const t = (key) => ctx.t(key);
+  const selected = VISUALIZATION_SCENES.includes(trackId) ? trackId : VISUALIZATION_SCENES[0];
+  const locale = ctx.locale ?? "en";
+  const englishForOtherLocale = narrationLanguage(locale) === "en" && !String(locale).toLowerCase().startsWith("en");
+  return {
+    kind: "player",
+    title: t("visualization.session.title"),
+    subtitle: t("visualization.session.subtitle"),
+    tracks: buildVisualizationTracks(t, locale),
+    trackId: selected,
+    autoStart,
+    countdownSeconds: 3,
+    segmentGapSeconds: 1.5,
+    ...(englishForOtherLocale ? { narrationNote: t("meditation.narrationNote") } : {}),
+    info: buildVisualizationInfo(t, ctx.assets.svg("logo")),
+    practices: buildPractices(t),
+    practiceId: "visualization",
+  };
+}
+
 export function buildPmrDescriptor(ctx, autoStart) {
   const t = (key) => ctx.t(key);
   return {
@@ -688,6 +808,9 @@ export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "
   if (practiceId === "meditation") {
     return buildMeditationDescriptor(ctx, autoStart, guidedPatternId);
   }
+  if (practiceId === "visualization") {
+    return buildVisualizationDescriptor(ctx, autoStart, guidedPatternId);
+  }
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
 
@@ -701,6 +824,11 @@ function sessionMenuItems(ctx, mode, practiceId) {
     const stopItem = { id: MENU_MEDITATION_STOP, title: ctx.t("menu.meditation.stop") };
     if (mode === "paused") return [{ id: MENU_MEDITATION_RESUME, title: ctx.t("menu.meditation.resume") }, stopItem];
     return [{ id: MENU_MEDITATION_PAUSE, title: ctx.t("menu.meditation.pause") }, stopItem];
+  }
+  if (practiceId === "visualization") {
+    const stopItem = { id: MENU_VISUALIZATION_STOP, title: ctx.t("menu.visualization.stop") };
+    if (mode === "paused") return [{ id: MENU_VISUALIZATION_RESUME, title: ctx.t("menu.visualization.resume") }, stopItem];
+    return [{ id: MENU_VISUALIZATION_PAUSE, title: ctx.t("menu.visualization.pause") }, stopItem];
   }
   const isPmr = practiceId === "pmr";
   const stop = { id: isPmr ? MENU_PMR_STOP : MENU_STOP, title: ctx.t(isPmr ? "menu.pmr.stop" : "menu.stop") };
@@ -747,6 +875,7 @@ async function openSession(ctx, state, autoStart, practiceId) {
   let guidedPatternId;
   if (practiceId === "guided-breathing") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN);
   else if (practiceId === "meditation") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_MEDITATION);
+  else if (practiceId === "visualization") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_VISUALIZATION);
   const descriptor = buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId, guidedPatternId);
 
   const session = await ctx.ui.session(descriptor);
@@ -765,6 +894,8 @@ async function openSession(ctx, state, autoStart, practiceId) {
       void selectGuidedPattern(ctx, session, event.patternId);
     } else if (event.type === "patternChanged" && practiceId === "meditation") {
       void selectMeditation(ctx, session, event.patternId);
+    } else if (event.type === "patternChanged" && practiceId === "visualization" && VISUALIZATION_SCENES.includes(event.patternId)) {
+      void ctx.storage.set(STORAGE_KEY_LAST_VISUALIZATION, event.patternId).catch(() => undefined);
     } else if (event.type === "audioToggled") {
       void ctx.storage.set(STORAGE_KEY_AUDIO_CUES, event.enabled).catch(() => undefined);
     } else if (event.type === "practiceSelected") {
@@ -822,12 +953,20 @@ export function register(OpenPetsPlugin) {
         },
         () => openSession(ctx, state, true, "meditation"),
       );
+      await ctx.commands.register(
+        {
+          id: "start-visualization",
+          title: "$t:practice.visualization",
+          description: "$t:command.startVisualization.description",
+        },
+        () => openSession(ctx, state, true, "visualization"),
+      );
       ctx.ui.menu.onSelect((id) => {
         const session = state.session;
         if (!session) return;
-        if (id === MENU_PAUSE || id === MENU_PMR_PAUSE || id === MENU_MEDITATION_PAUSE) void session.pause().catch(() => undefined);
-        else if (id === MENU_RESUME || id === MENU_PMR_RESUME || id === MENU_MEDITATION_RESUME) void session.resume().catch(() => undefined);
-        else if (id === MENU_STOP || id === MENU_PMR_STOP || id === MENU_GROUNDING_STOP || id === MENU_MEDITATION_STOP) void session.stop().catch(() => undefined);
+        if (MENU_PAUSE_IDS.has(id)) void session.pause().catch(() => undefined);
+        else if (MENU_RESUME_IDS.has(id)) void session.resume().catch(() => undefined);
+        else if (MENU_STOP_IDS.has(id)) void session.stop().catch(() => undefined);
       });
     },
     async stop() {},

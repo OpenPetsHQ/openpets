@@ -499,7 +499,7 @@ export interface OpenPetsGroundingSessionOptions {
   countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
@@ -548,7 +548,7 @@ export interface OpenPetsPmrSessionOptions {
   countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
@@ -575,7 +575,7 @@ export interface OpenPetsBreathingSessionOptions {
   info?: OpenPetsSessionInfo;
   /** Optional phase audio cues with an overlay mute toggle. */
   audio?: OpenPetsSessionAudio;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
