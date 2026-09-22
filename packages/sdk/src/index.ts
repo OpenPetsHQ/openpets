@@ -342,7 +342,7 @@ export interface OpenPetsBreathPattern {
  * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
  * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
  * `sparkles`, `timer`, `square`, `moon`, `zap`, `anchor`, `eye`, `hand`,
- * `ear`, `flower`, `coffee`. The same names serve practice choices and
+ * `ear`, `flower`, `coffee`, `headphones`. The same names serve practice choices and
  * grounding steps.
  */
 export type OpenPetsSessionInfoIcon =
@@ -366,7 +366,8 @@ export type OpenPetsSessionInfoIcon =
   | "hand"
   | "ear"
   | "flower"
-  | "coffee";
+  | "coffee"
+  | "headphones";
 
 /** A titled card inside an Info section (mechanism, research finding, tip). */
 export interface OpenPetsSessionInfoCard {
@@ -580,10 +581,62 @@ export interface OpenPetsBreathingSessionOptions {
   practiceId?: string;
 }
 
+/** One narrated piece of a player track. */
+export interface OpenPetsPlayerSegment {
+  /** https URL on one of the plugin's approved `network.hosts` (mp3/m4a/ogg/wav, ≤500 chars). */
+  audioUrl: string;
+  /** Transcript line shown while this segment plays (1–400 chars). */
+  caption?: string;
+}
+
+export interface OpenPetsPlayerTrack {
+  /** Stable track id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Track title (1–60 chars). */
+  title: string;
+  /** One-line description (1–80 chars). */
+  subtitle?: string;
+  /** Manifest-declared cover image (`ctx.assets.image(...)`). */
+  cover?: OpenPetsAssetRef;
+  /** Segments played in order (1–40). */
+  segments: OpenPetsPlayerSegment[];
+}
+
+/**
+ * Narrated media practice (e.g. guided meditation, visualization). The host
+ * downloads each segment once from the plugin's approved hosts (requires the
+ * `network` permission), caches it, and plays the track with a short gap
+ * between segments. Events report the selected track id as `patternId`;
+ * `patternChanged` fires when the user picks another track, and
+ * `paused`/`resumed`/`stopped` carry the 1-based segment as `cycle`.
+ */
+export interface OpenPetsPlayerSessionOptions {
+  kind: "player";
+  /** Overlay title (e.g. "Guided meditation"). */
+  title: string;
+  subtitle?: string;
+  /** Tracks offered by the track picker (1–24). */
+  tracks: OpenPetsPlayerTrack[];
+  /** Initially selected track id; defaults to the first track. */
+  trackId?: string;
+  /** Start playing immediately (default true). */
+  autoStart?: boolean;
+  /** Lead-in countdown in seconds (0–15, default 5). */
+  countdownSeconds?: number;
+  /** Silence between segments in seconds (0–10, default 2). */
+  segmentGapSeconds?: number;
+  /** Short note on the card, e.g. "Narration in English" (1–60 chars). */
+  narrationNote?: string;
+  info?: OpenPetsSessionInfo;
+  practices?: OpenPetsPracticeChoice[];
+  practiceId?: string;
+}
+
 export type OpenPetsSessionOptions =
   | OpenPetsBreathingSessionOptions
   | OpenPetsPmrSessionOptions
-  | OpenPetsGroundingSessionOptions;
+  | OpenPetsGroundingSessionOptions
+  | OpenPetsPlayerSessionOptions;
 
 /** Lifecycle and interaction events emitted by the session overlay. */
 export type OpenPetsSessionEvent =

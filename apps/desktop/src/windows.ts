@@ -29,6 +29,7 @@ import {
 } from "./plugin-service.js";
 import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
+import { registerSessionMediaProtocol } from "./session-media-cache.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
 import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
 import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
@@ -534,6 +535,7 @@ export function installInternalUiHandlers(): void {
 
 export function installInternalUiProtocol(): void {
   registerPluginAssetProtocol(protocol, getPluginService);
+  registerSessionMediaProtocol(protocol);
   protocol.handle("openpets-codex", async (request) => {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });

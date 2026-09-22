@@ -204,8 +204,8 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       open: (opts) => openPluginPanel(opts),
     },
     session: {
-      async open({ pluginId, descriptor, callbacks }) {
-        return openPluginSessionOverlay({ pluginId, descriptor, callbacks });
+      async open({ pluginId, descriptor, callbacks, mediaHosts }) {
+        return openPluginSessionOverlay({ pluginId, descriptor, callbacks, ...(mediaHosts ? { mediaHosts } : {}) });
       },
     },
     delivery: {

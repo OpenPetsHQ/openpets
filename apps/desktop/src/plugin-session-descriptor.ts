@@ -62,6 +62,7 @@ export const sessionInfoIconNames = new Set([
   "ear",
   "flower",
   "coffee",
+  "headphones",
 ]);
 
 export interface SessionInfoCard {
@@ -210,10 +211,54 @@ export interface PluginGroundingSessionDescriptor {
   readonly practiceId?: string;
 }
 
+/** One narrated piece of a player track, streamed from an approved https host. */
+export interface SessionPlayerSegment {
+  readonly audioUrl: string;
+  /** Transcript line shown under the title while this segment plays. */
+  readonly caption?: string;
+}
+
+export interface SessionPlayerTrack {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle?: string;
+  /** Manifest-declared cover image; the bridge resolves it into `coverPath`. */
+  readonly cover?: SessionAssetRef;
+  readonly coverPath?: string;
+  /** Renderer-only: file URL for `coverPath`, attached by the session coordinator. */
+  readonly coverUrl?: string;
+  readonly segments: readonly SessionPlayerSegment[];
+}
+
+/**
+ * Narrated media practice (guided meditation, peaceful visualization): the
+ * host plays a track's segments in order with a short gap between them.
+ * Audio URLs are https on the plugin's approved network hosts; the host
+ * downloads and caches them and never exposes the remote origin to the pet
+ * window.
+ */
+export interface PluginPlayerSessionDescriptor {
+  readonly kind: "player";
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly tracks: readonly SessionPlayerTrack[];
+  readonly trackId: string;
+  readonly autoStart: boolean;
+  readonly countdownSeconds: number;
+  /** Silence between segments (0–10 seconds). */
+  readonly segmentGapSeconds: number;
+  /** Short note shown on the card, e.g. that narration is in another language. */
+  readonly narrationNote?: string;
+  readonly info?: SessionInfo;
+  readonly practices?: readonly SessionPracticeChoice[];
+  readonly practiceId?: string;
+}
+
 export type PluginSessionDescriptor =
   | PluginBreathingSessionDescriptor
   | PluginPmrSessionDescriptor
-  | PluginGroundingSessionDescriptor;
+  | PluginGroundingSessionDescriptor
+  | PluginPlayerSessionDescriptor;
 
 /** Patch accepted by `ui.sessionUpdate`. */
 export interface PluginSessionUpdate {
@@ -246,12 +291,14 @@ const maxCitations = 8;
 const maxSteps = 24;
 const maxGroundingSteps = 8;
 const maxGroundingItems = 6;
+const maxPlayerTracks = 24;
+const maxPlayerSegments = 40;
 
 export function validateSessionDescriptor(value: unknown): PluginSessionDescriptor {
   check(isRecord(value), "Invalid session descriptor.");
   check(
-    value.kind === "breathing" || value.kind === "pmr" || value.kind === "grounding",
-    "Session kind must be \"breathing\", \"pmr\", or \"grounding\".",
+    value.kind === "breathing" || value.kind === "pmr" || value.kind === "grounding" || value.kind === "player",
+    "Session kind must be \"breathing\", \"pmr\", \"grounding\", or \"player\".",
   );
 
   const title = validateLine(value.title, 1, 60, "session title");
@@ -285,6 +332,37 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
       countdownSeconds,
       ...(info === undefined ? {} : { info }),
       ...(audio === undefined ? {} : { audio }),
+      ...(practices === undefined ? {} : { practices }),
+      ...(practiceId === undefined ? {} : { practiceId }),
+    };
+  }
+
+  if (value.kind === "player") {
+    checkKnownKeys(value, ["kind", "title", "subtitle", "tracks", "trackId", "autoStart", "countdownSeconds", "segmentGapSeconds", "narrationNote", "info", "practices", "practiceId"], "player session descriptor");
+    const tracks = validatePlayerTracks(value.tracks);
+    let trackId = tracks[0].id;
+    if (value.trackId !== undefined) {
+      check(typeof value.trackId === "string" && tracks.some((track) => track.id === value.trackId), "Selected session track id is not in the track list.");
+      trackId = value.trackId;
+    }
+    let segmentGapSeconds = 2;
+    if (value.segmentGapSeconds !== undefined) {
+      const gap = Number(value.segmentGapSeconds);
+      check(Number.isFinite(gap) && gap >= 0 && gap <= 10, "Session segmentGapSeconds must be 0–10.");
+      segmentGapSeconds = Math.round(gap * 4) / 4;
+    }
+    const narrationNote = value.narrationNote === undefined ? undefined : validateLine(value.narrationNote, 1, 60, "session narration note");
+    return {
+      kind: "player",
+      title,
+      ...(subtitle === undefined ? {} : { subtitle }),
+      tracks,
+      trackId,
+      autoStart,
+      countdownSeconds,
+      segmentGapSeconds,
+      ...(narrationNote === undefined ? {} : { narrationNote }),
+      ...(info === undefined ? {} : { info }),
       ...(practices === undefined ? {} : { practices }),
       ...(practiceId === undefined ? {} : { practiceId }),
     };
@@ -374,6 +452,39 @@ function validateGroundingSteps(value: unknown): readonly SessionGroundingStep[]
       prompt: validateLine(entry.prompt, 1, 80, "grounding step prompt"),
       ...(icon === undefined ? {} : { icon }),
       items,
+    };
+  });
+}
+
+function validatePlayerTracks(value: unknown): readonly SessionPlayerTrack[] {
+  check(Array.isArray(value), "Session tracks must be an array.");
+  check(value.length >= 1 && value.length <= maxPlayerTracks, `Session tracks must contain 1–${maxPlayerTracks} entries.`);
+  const seen = new Set<string>();
+  return value.map((entry): SessionPlayerTrack => {
+    check(isRecord(entry), "Invalid session track.");
+    checkKnownKeys(entry, ["id", "title", "subtitle", "cover", "segments"], "session track");
+    check(typeof entry.id === "string" && idPattern.test(entry.id), "Invalid session track id.");
+    check(!seen.has(entry.id), `Duplicate session track id "${entry.id}".`);
+    seen.add(entry.id);
+    check(Array.isArray(entry.segments), "Session track segments must be an array.");
+    check(entry.segments.length >= 1 && entry.segments.length <= maxPlayerSegments, `Session track segments must contain 1–${maxPlayerSegments} entries.`);
+    const segments = entry.segments.map((segment): SessionPlayerSegment => {
+      check(isRecord(segment), "Invalid session track segment.");
+      checkKnownKeys(segment, ["audioUrl", "caption"], "session track segment");
+      const caption = segment.caption === undefined ? undefined : validateText(segment.caption, 1, 400, "session segment caption");
+      return {
+        audioUrl: validateHttpsUrl(segment.audioUrl, "session segment audioUrl", 500),
+        ...(caption === undefined ? {} : { caption }),
+      };
+    });
+    const subtitle = entry.subtitle === undefined ? undefined : validateLine(entry.subtitle, 1, 80, "session track subtitle");
+    const cover = entry.cover === undefined ? undefined : validateAssetRefShape(entry.cover, "session track cover");
+    return {
+      id: entry.id,
+      title: validateLine(entry.title, 1, 60, "session track title"),
+      ...(subtitle === undefined ? {} : { subtitle }),
+      ...(cover === undefined ? {} : { cover }),
+      segments,
     };
   });
 }
@@ -699,8 +810,8 @@ function validateText(value: unknown, min: number, max: number, label: string): 
   return text;
 }
 
-function validateHttpsUrl(value: unknown, label: string): string {
-  check(typeof value === "string" && value.length <= 300, `Invalid ${label}.`);
+function validateHttpsUrl(value: unknown, label: string, maxLength = 300): string {
+  check(typeof value === "string" && value.length <= maxLength, `Invalid ${label}.`);
   let parsed: URL;
   try {
     parsed = new URL(value);

@@ -99,6 +99,16 @@ export const en = {
   "session.noticed": "noticed",
   "session.footerGrounding": "grounding with {name}",
   "session.switchPractice": "Switch practice",
+  "session.footerListening": "listening with {name}",
+  "session.partOf": "Part {n} of {total}",
+  "session.rewind": "Back 15 seconds",
+  "session.previousPart": "Previous part",
+  "session.nextPart": "Next part",
+  "session.mediaLoading": "Loading audio…",
+  "session.mediaUnavailable": "Audio unavailable — follow the words at your own pace",
+  "session.chooseTrack": "Choose a session",
+  "session.muteAudio": "Mute",
+  "session.unmuteAudio": "Unmute",
 
   // --- Confinement / Screen Recording permission (main process) ---
   "confinement.screenPermission.title": "Screen Recording permission needed",

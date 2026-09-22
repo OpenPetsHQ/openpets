@@ -63,7 +63,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data: openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>OpenPets Default Pet</title>
         <style>
@@ -182,7 +182,7 @@ export async function createInstalledPetRender(
       <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
         <head>
           <meta charset="utf-8" />
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data: openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>OpenPets Default Pet</title>
           <style>

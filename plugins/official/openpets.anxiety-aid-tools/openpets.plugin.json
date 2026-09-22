@@ -61,7 +61,18 @@
       "guided-energizing-out": "assets/guided/energizing-out.mp3",
       "guided-quick-in": "assets/guided/quick-in.mp3",
       "guided-quick-out": "assets/guided/quick-out.mp3"
+    },
+    "images": {
+      "meditation-physiological-sigh-reset": "assets/meditation/physiological-sigh-reset.webp",
+      "meditation-structural-realignment-protocol": "assets/meditation/structural-realignment-protocol.webp",
+      "meditation-kinetic-grounding-sequence": "assets/meditation/kinetic-grounding-sequence.webp",
+      "meditation-hypnagogic-induction-sequence": "assets/meditation/hypnagogic-induction-sequence.webp",
+      "meditation-vagus-nerve-delta-descent": "assets/meditation/vagus-nerve-delta-descent.webp",
+      "meditation-oceanic-consciousness-projection": "assets/meditation/oceanic-consciousness-projection.webp",
+      "meditation-infinite-horizon-projection": "assets/meditation/infinite-horizon-projection.webp",
+      "meditation-metta-loving-kindness-protocol": "assets/meditation/metta-loving-kindness-protocol.webp"
     }
   },
-  "permissions": ["ui:session", "commands", "storage"]
+  "permissions": ["ui:session", "commands", "storage", "network"],
+  "network": { "hosts": ["r2.anxietyaidtools.com"] }
 }

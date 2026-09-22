@@ -8,14 +8,17 @@
 // (breathing-practice.cjs, pmr-practice.cjs, grounding-practice.cjs) that
 // owns its clock, its own card rows, and what the shared rows and the orb
 // show. Practices may also override the primary/secondary buttons (grounding
-// uses Next/Back) and opt out of pausing. The header doubles as the practice
-// picker on the idle and completed card.
+// uses Next/Back), opt out of pausing, hide the shared progress rows and
+// the header count, add their own control buttons (the media player), and
+// react to pause/resume/stop. The header doubles as the practice picker on
+// the idle and completed card.
 // ---------------------------------------------------------------------------
 
 const { createSessionOrb } = require("./orb-renderer.cjs");
 const { createBreathingPractice } = require("./breathing-practice.cjs");
 const { createPmrPractice } = require("./pmr-practice.cjs");
 const { createGroundingPractice } = require("./grounding-practice.cjs");
+const { createPlayerPractice } = require("./player-practice.cjs");
 
 const IDLE_COLOR = [0.45, 0.62, 0.98];
 const ORB_CARD_GAP = 10;
@@ -41,6 +44,10 @@ const chromeFallback = {
   tense: "Tense", release: "Release", groupProgress: "{n} / {total}", footerRelaxing: "relaxing with {name}",
   currentChoice: "Current", next: "Next", back: "Back", finish: "Finish", noticed: "noticed",
   footerGrounding: "grounding with {name}", switchPractice: "Switch practice",
+  footerListening: "listening with {name}", partOf: "Part {n} of {total}", rewind: "Back 15 seconds",
+  previousPart: "Previous part", nextPart: "Next part", mediaLoading: "Loading audio…",
+  mediaUnavailable: "Audio unavailable — follow the words at your own pace", chooseTrack: "Choose a session",
+  muteAudio: "Mute", unmuteAudio: "Unmute",
 };
 
 // Icons from better-icons/Iconify. Pause/play are filled so the primary pill
@@ -478,7 +485,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
       const paused = runState === "paused";
       phaseName.textContent = paused ? chromeText("paused") : phase.name;
       phaseGuidance.textContent = paused ? chromeText("pausedGuidance") : phase.guidance;
-      phaseCount.style.display = paused ? "none" : "";
+      phaseCount.style.display = paused || practice.hidesCount ? "none" : "";
     }
     practice.renderPhaseDetails();
   };
@@ -679,6 +686,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   const pauseRun = () => {
     if (practice.pausable === false) return;
+    practice.onPause?.();
     runState = "paused";
     stopCuePlayback();
     const progress = eventProgress();
@@ -688,6 +696,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   const resumeRun = () => {
     runState = "active";
+    practice.onResume?.();
     const progress = eventProgress();
     sendSessionEvent({ type: "resumed", patternId: progress.patternId, cycle: progress.cycle });
     renderStatics();
@@ -695,6 +704,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   const stopRun = () => {
     stopCuePlayback();
+    practice.onStop?.();
     const progress = eventProgress();
     sendSessionEvent({ type: "stopped", patternId: progress.patternId, cycle: progress.cycle });
     runState = "idle";
@@ -720,6 +730,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     chromeText,
     escapeChromeText,
     completeRun,
+    resolveMedia: (url) => ipcRenderer.invoke("openpets:session-media-get", url).catch(() => null),
     send: sendSessionEvent,
     playPhaseCue,
     stopCuePlayback,
@@ -758,13 +769,21 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     breathing: createBreathingPractice(ui),
     pmr: createPmrPractice(ui),
     grounding: createGroundingPractice(ui),
+    player: createPlayerPractice(ui),
   };
 
   const mountPractice = (next) => {
     if (practice === next) return;
     practice?.deactivate();
+    practice?.extraControls?.remove();
     practice = next;
     practiceRows.replaceChildren(...(next ? next.topRows : []));
+    // Media players drop the shared dots/tiles/track rows for a compact card.
+    const sharedDisplay = next?.hidesSharedRows ? "none" : "";
+    dotsRow.style.display = sharedDisplay;
+    tiles.style.display = sharedDisplay;
+    steps.style.display = sharedDisplay;
+    if (next?.extraControls) controls.insertBefore(next.extraControls, restartBtn);
   };
 
   // --- Frame loop ----------------------------------------------------------

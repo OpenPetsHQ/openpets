@@ -150,7 +150,8 @@ function createTestCapabilities(): PluginHostCapabilities {
   };
 }
 
-function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>) {
+function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>, access: { permissions?: string[]; networkHosts?: string[] } = {}) {
+  const permissions = (access.permissions ?? ["ui:session", "commands"]) as PluginStateRecord["approvedPermissions"];
   const root = mkdtempSync(join(tmpdir(), "openpets-session-test-"));
   const store = new PluginStateStore({ statePath: join(root, "state.json") });
   store.initialize();
@@ -165,7 +166,8 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>)
     runtime: "javascript",
     sdkVersion: "3.0.0",
     enabled: true,
-    approvedPermissions: ["ui:session", "commands"],
+    approvedPermissions: permissions,
+    ...(access.networkHosts ? { approvedNetworkHosts: access.networkHosts } : {}),
     config: {},
   };
   store.upsertRecord(record);
@@ -178,8 +180,9 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>)
     runtime: "javascript",
     sdkVersion: "3.0.0",
     entry: "index.js",
-    permissions: ["ui:session", "commands"],
-  };
+    permissions,
+    ...(access.networkHosts ? { network: { hosts: access.networkHosts } } : {}),
+  } as OpenPetsJavascriptPluginManifest;
 
   const capabilities = {
     ...createTestCapabilities(),
@@ -335,3 +338,32 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>)
 }
 
 console.log("plugin-sdk-ui-session tests passed successfully.");
+
+// Player media is downloaded on the plugin's behalf, so every segment must be
+// on a host the user approved, and those hosts travel with the session open.
+{
+  const playerDescriptor = {
+    kind: "player",
+    title: "Guided meditation",
+    tracks: [{ id: "calm", title: "Calm", segments: [{ audioUrl: "https://media.example.com/calm/01.mp3", caption: "Settle in." }] }],
+  };
+  let openedHosts: ReadonlySet<string> | undefined;
+  const { api, cleanup } = createTestHarness({
+    session: {
+      open: async (options) => {
+        openedHosts = options.mediaHosts;
+        return { update: async () => undefined, pause: async () => undefined, resume: async () => undefined, stop: async () => undefined, close: async () => undefined };
+      },
+    },
+  }, { permissions: ["ui:session", "commands", "network"], networkHosts: ["media.example.com"] });
+  try {
+    await api.ui.session(playerDescriptor);
+    assert.deepEqual([...(openedHosts ?? [])], ["media.example.com"]);
+    await assert.rejects(
+      api.ui.session({ ...playerDescriptor, tracks: [{ ...playerDescriptor.tracks[0], segments: [{ audioUrl: "https://elsewhere.example.net/a.mp3" }] }] }),
+      /not an approved network host/,
+    );
+  } finally {
+    cleanup();
+  }
+}

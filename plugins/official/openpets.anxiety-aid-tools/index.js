@@ -18,11 +18,43 @@ export const MENU_PMR_PAUSE = "pmr-pause";
 export const MENU_PMR_RESUME = "pmr-resume";
 export const MENU_PMR_STOP = "pmr-stop";
 export const MENU_GROUNDING_STOP = "grounding-stop";
+export const MENU_MEDITATION_PAUSE = "meditation-pause";
+export const MENU_MEDITATION_RESUME = "meditation-resume";
+export const MENU_MEDITATION_STOP = "meditation-stop";
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
+export const STORAGE_KEY_LAST_MEDITATION = "lastMeditation";
 
-export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding"];
+export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding", "meditation"];
+
+/** Narration lives on AAT's R2; the host downloads and caches each segment. */
+export const MEDIA_ORIGIN = "https://r2.anxietyaidtools.com";
+
+/** AAT guided meditation sessions, grouped as on the website. */
+export const MEDITATION_SESSIONS = [
+  { id: "physiological-sigh-reset", category: "anxiety", group: "grounded", segments: 7 },
+  { id: "structural-realignment-protocol", category: "anxiety", group: "grounded", segments: 13 },
+  { id: "vagus-nerve-delta-descent", category: "sleep", group: "grounded", segments: 14 },
+  { id: "kinetic-grounding-sequence", category: "walking", group: "grounded", segments: 10 },
+  { id: "hypnagogic-induction-sequence", category: "sleep", group: "grounded", segments: 13 },
+  { id: "oceanic-consciousness-projection", category: "mindfulness", group: "spiritual", segments: 12 },
+  { id: "infinite-horizon-projection", category: "mindfulness", group: "spiritual", segments: 11 },
+  { id: "metta-loving-kindness-protocol", category: "mindfulness", group: "spiritual", segments: 12 },
+];
+export const MEDITATION_IDS = MEDITATION_SESSIONS.map((session) => session.id);
+
+/**
+ * AAT records narration in en, es, pt, and zh (and languages OpenPets does not
+ * ship). Other host locales hear English with translated captions.
+ */
+export function narrationLanguage(locale) {
+  const value = String(locale || "en").toLowerCase();
+  if (value.startsWith("es")) return "es";
+  if (value.startsWith("pt")) return "pt";
+  if (value.startsWith("zh")) return "zh";
+  return "en";
+}
 
 /** 5-4-3-2-1 grounding senses (AAT grounding), in countdown order. */
 export const GROUNDING_SENSES = [
@@ -202,7 +234,30 @@ export function buildPractices(t) {
     { id: "guided-breathing", name: t("practice.guided"), icon: "timer" },
     { id: "pmr", name: t("practice.pmr"), icon: "person-standing" },
     { id: "grounding", name: t("practice.grounding"), icon: "anchor" },
+    { id: "meditation", name: t("practice.meditation"), icon: "headphones" },
   ];
+}
+
+export function buildMeditationTracks(t, locale, assets) {
+  const image = assets?.image ? (name) => assets.image(name) : (name) => ({ kind: "image", name });
+  const language = narrationLanguage(locale);
+  return MEDITATION_SESSIONS.map((session) => {
+    const segments = [];
+    for (let index = 1; index <= session.segments; index += 1) {
+      const file = String(index).padStart(2, "0");
+      segments.push({
+        audioUrl: `${MEDIA_ORIGIN}/guided-meditation/${language}/${session.id}/${file}.mp3`,
+        caption: t(`meditation.${session.id}.caption${index}`),
+      });
+    }
+    return {
+      id: session.id,
+      title: t(`meditation.${session.id}.title`),
+      subtitle: t(`meditation.category.${session.category}`),
+      cover: image(`meditation-${session.id}`),
+      segments,
+    };
+  });
 }
 
 export function buildGroundingSteps(t) {
@@ -412,6 +467,75 @@ export function buildGroundingInfo(t, logo) {
   };
 }
 
+export const MEDITATION_CITATIONS = [
+  {
+    label: "Goyal M. et al. (2014). Meditation programs for psychological stress and well-being: a systematic review and meta-analysis. JAMA Internal Medicine, 174(3):357–368.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC4142584/",
+  },
+  {
+    label: "Hofmann S.G. et al. (2010). The effect of mindfulness-based therapy on anxiety and depression: a meta-analytic review. Journal of Consulting and Clinical Psychology, 78(2):169–183.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC2848393/",
+  },
+  {
+    label: "Hofmann S.G., Grossman P., Hinton D.E. (2011). Loving-kindness and compassion meditation: potential for psychological interventions. Clinical Psychology Review, 31(7):1126–1132.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC3176989/",
+  },
+];
+
+/** Meditation Info: the sessions (current one marked), then the shared knowledge. */
+export function buildMeditationInfo(t, logo, trackId) {
+  const sessionCards = (group) => MEDITATION_SESSIONS
+    .filter((session) => session.group === group)
+    .map((session) => ({
+      title: t(`meditation.${session.id}.title`),
+      body: t(`meditation.${session.id}.about`),
+      detail: t(`meditation.category.${session.category}`),
+      icon: session.group === "grounded" ? "leaf" : "sparkles",
+      ...(session.id === trackId ? { highlighted: true } : {}),
+    }));
+  return {
+    intro: t("meditation.info.intro"),
+    sections: [
+      { heading: t("meditation.info.grounded.heading"), cards: sessionCards("grounded") },
+      { heading: t("meditation.info.spiritual.heading"), cards: sessionCards("spiritual") },
+      {
+        heading: t("info.how.heading"),
+        body: t("meditation.info.how.body"),
+        cards: [
+          { title: t("meditation.info.how.card1.title"), body: t("meditation.info.how.card1.body"), icon: "headphones" },
+          { title: t("meditation.info.how.card2.title"), body: t("meditation.info.how.card2.body"), icon: "heart-pulse" },
+          { title: t("meditation.info.how.card3.title"), body: t("meditation.info.how.card3.body"), icon: "brain" },
+        ],
+      },
+      {
+        heading: t("info.science.heading"),
+        body: t("meditation.info.science.body"),
+        cards: [
+          { title: t("meditation.info.science.card1.title"), body: t("meditation.info.science.card1.body"), icon: "activity", url: MEDITATION_CITATIONS[0].url },
+          { title: t("meditation.info.science.card2.title"), body: t("meditation.info.science.card2.body"), icon: "shield-check", url: MEDITATION_CITATIONS[1].url },
+          { title: t("meditation.info.science.card3.title"), body: t("meditation.info.science.card3.body"), icon: "sparkles", url: MEDITATION_CITATIONS[2].url },
+        ],
+      },
+      {
+        heading: t("info.when.heading"),
+        items: [t("meditation.info.when.item1"), t("meditation.info.when.item2"), t("meditation.info.when.item3"), t("meditation.info.when.item4")],
+      },
+      {
+        heading: t("info.tips.heading"),
+        cards: [
+          { title: t("meditation.info.tips.card1.title"), body: t("meditation.info.tips.card1.body"), icon: "headphones" },
+          { title: t("meditation.info.tips.card2.title"), body: t("meditation.info.tips.card2.body"), icon: "armchair" },
+          { title: t("meditation.info.tips.card3.title"), body: t("meditation.info.tips.card3.body"), icon: "calendar-check" },
+        ],
+      },
+    ],
+    citations: MEDITATION_CITATIONS,
+    disclaimer: t("meditation.info.disclaimer"),
+    site: { label: t("info.site.label"), url: SITE_URL },
+    ...(logo ? { logo } : {}),
+  };
+}
+
 export function buildPmrInfo(t, logo) {
   return {
     intro: t("pmr.info.intro"),
@@ -515,6 +639,27 @@ export function buildGroundingDescriptor(ctx, autoStart) {
   };
 }
 
+export function buildMeditationDescriptor(ctx, autoStart, trackId = MEDITATION_IDS[0]) {
+  const t = (key) => ctx.t(key);
+  const selected = MEDITATION_IDS.includes(trackId) ? trackId : MEDITATION_IDS[0];
+  const locale = ctx.locale ?? "en";
+  const englishForOtherLocale = narrationLanguage(locale) === "en" && !String(locale).toLowerCase().startsWith("en");
+  return {
+    kind: "player",
+    title: t("meditation.session.title"),
+    subtitle: t("meditation.session.subtitle"),
+    tracks: buildMeditationTracks(t, locale, ctx.assets),
+    trackId: selected,
+    autoStart,
+    countdownSeconds: 3,
+    segmentGapSeconds: 1.5,
+    ...(englishForOtherLocale ? { narrationNote: t("meditation.narrationNote") } : {}),
+    info: buildMeditationInfo(t, ctx.assets.svg("logo"), selected),
+    practices: buildPractices(t),
+    practiceId: "meditation",
+  };
+}
+
 export function buildPmrDescriptor(ctx, autoStart) {
   const t = (key) => ctx.t(key);
   return {
@@ -529,6 +674,7 @@ export function buildPmrDescriptor(ctx, autoStart) {
   };
 }
 
+/** `selectionId` is the remembered pattern (guided breathing) or track (meditation). */
 export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "breathing", guidedPatternId) {
   if (practiceId === "pmr") {
     return buildPmrDescriptor(ctx, autoStart);
@@ -539,6 +685,9 @@ export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "
   if (practiceId === "grounding") {
     return buildGroundingDescriptor(ctx, autoStart);
   }
+  if (practiceId === "meditation") {
+    return buildMeditationDescriptor(ctx, autoStart, guidedPatternId);
+  }
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
 
@@ -547,6 +696,11 @@ function sessionMenuItems(ctx, mode, practiceId) {
   if (mode === "none") return [];
   if (practiceId === "grounding") {
     return [{ id: MENU_GROUNDING_STOP, title: ctx.t("menu.grounding.stop") }];
+  }
+  if (practiceId === "meditation") {
+    const stopItem = { id: MENU_MEDITATION_STOP, title: ctx.t("menu.meditation.stop") };
+    if (mode === "paused") return [{ id: MENU_MEDITATION_RESUME, title: ctx.t("menu.meditation.resume") }, stopItem];
+    return [{ id: MENU_MEDITATION_PAUSE, title: ctx.t("menu.meditation.pause") }, stopItem];
   }
   const isPmr = practiceId === "pmr";
   const stop = { id: isPmr ? MENU_PMR_STOP : MENU_STOP, title: ctx.t(isPmr ? "menu.pmr.stop" : "menu.stop") };
@@ -576,11 +730,23 @@ async function selectGuidedPattern(ctx, session, patternId) {
   }
 }
 
+/** Remember the picked meditation and mark it in Info. */
+async function selectMeditation(ctx, session, trackId) {
+  if (!MEDITATION_IDS.includes(trackId)) return;
+  await ctx.storage.set(STORAGE_KEY_LAST_MEDITATION, trackId).catch(() => undefined);
+  const t = (key) => ctx.t(key);
+  try {
+    await session.update({ info: buildMeditationInfo(t, ctx.assets.svg("logo"), trackId) });
+  } catch (error) {
+    ctx.log.warn("meditation info update failed", { trackId, reason: String(error && error.message ? error.message : error) });
+  }
+}
+
 async function openSession(ctx, state, autoStart, practiceId) {
   const audioCuesEnabled = (await ctx.storage.get(STORAGE_KEY_AUDIO_CUES)) !== false;
-  const guidedPatternId = practiceId === "guided-breathing"
-    ? await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN)
-    : undefined;
+  let guidedPatternId;
+  if (practiceId === "guided-breathing") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN);
+  else if (practiceId === "meditation") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_MEDITATION);
   const descriptor = buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId, guidedPatternId);
 
   const session = await ctx.ui.session(descriptor);
@@ -597,6 +763,8 @@ async function openSession(ctx, state, autoStart, practiceId) {
       void setSessionMenu(ctx, "none");
     } else if (event.type === "patternChanged" && practiceId === "guided-breathing") {
       void selectGuidedPattern(ctx, session, event.patternId);
+    } else if (event.type === "patternChanged" && practiceId === "meditation") {
+      void selectMeditation(ctx, session, event.patternId);
     } else if (event.type === "audioToggled") {
       void ctx.storage.set(STORAGE_KEY_AUDIO_CUES, event.enabled).catch(() => undefined);
     } else if (event.type === "practiceSelected") {
@@ -646,12 +814,20 @@ export function register(OpenPetsPlugin) {
         },
         () => openSession(ctx, state, true, "grounding"),
       );
+      await ctx.commands.register(
+        {
+          id: "start-meditation",
+          title: "$t:practice.meditation",
+          description: "$t:command.startMeditation.description",
+        },
+        () => openSession(ctx, state, true, "meditation"),
+      );
       ctx.ui.menu.onSelect((id) => {
         const session = state.session;
         if (!session) return;
-        if (id === MENU_PAUSE || id === MENU_PMR_PAUSE) void session.pause().catch(() => undefined);
-        else if (id === MENU_RESUME || id === MENU_PMR_RESUME) void session.resume().catch(() => undefined);
-        else if (id === MENU_STOP || id === MENU_PMR_STOP || id === MENU_GROUNDING_STOP) void session.stop().catch(() => undefined);
+        if (id === MENU_PAUSE || id === MENU_PMR_PAUSE || id === MENU_MEDITATION_PAUSE) void session.pause().catch(() => undefined);
+        else if (id === MENU_RESUME || id === MENU_PMR_RESUME || id === MENU_MEDITATION_RESUME) void session.resume().catch(() => undefined);
+        else if (id === MENU_STOP || id === MENU_PMR_STOP || id === MENU_GROUNDING_STOP || id === MENU_MEDITATION_STOP) void session.stop().catch(() => undefined);
       });
     },
     async stop() {},

@@ -522,11 +522,13 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       session: async (spec) => {
         requirePermission("ui:session");
         const id = newId("session");
-        // Match the host: breathing events carry the selected pattern, other
-        // kinds carry the kind itself ("pmr", "grounding").
+        // Match the host: breathing events carry the selected pattern, player
+        // events the selected track, other kinds the kind itself ("pmr", "grounding").
         const patternId = spec.kind === "breathing"
           ? spec.patternId ?? spec.patterns[0]?.id ?? ""
-          : spec.kind;
+          : spec.kind === "player"
+            ? spec.trackId ?? spec.tracks[0]?.id ?? ""
+            : spec.kind;
         let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
         // Auto-start delivers on subscription so plugins that attach their
         // handler right after `await ctx.ui.session(...)` never miss it.

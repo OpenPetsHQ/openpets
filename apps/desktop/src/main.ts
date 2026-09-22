@@ -1,4 +1,4 @@
-import { app, globalShortcut, powerMonitor, screen, type Display } from "electron";
+import { app, globalShortcut, powerMonitor, protocol, screen, type Display } from "electron";
 import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
@@ -28,6 +28,7 @@ import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
 import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
+import { sessionMediaScheme } from "./session-media-cache.js";
 import { broadcastDefaultPetManagerCheckInSnapshot, installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { initializeChatShortcut } from "./chat-shortcut.js";
@@ -122,6 +123,12 @@ if (isLinux && !allowWayland && !layerShellBackend) {
 if (layerShellBackend && !hasExplicitOzonePlatformArg) {
   app.commandLine.appendSwitch("ozone-platform", "wayland");
 }
+
+// Privileged schemes must be registered before app ready, in a single call.
+// Session media is served to <audio> elements, which need `stream` to seek.
+protocol.registerSchemesAsPrivileged([
+  { scheme: sessionMediaScheme, privileges: { stream: true, supportFetchAPI: true, corsEnabled: true } },
+]);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 

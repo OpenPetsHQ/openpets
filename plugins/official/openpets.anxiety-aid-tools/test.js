@@ -8,6 +8,11 @@ import {
   buildGroundingInfo,
   buildGroundingSteps,
   buildGuidedDescriptor,
+  buildMeditationDescriptor,
+  buildMeditationInfo,
+  buildMeditationTracks,
+  MEDIA_ORIGIN,
+  narrationLanguage,
   buildGuidedInfo,
   buildGuidedPatterns,
   buildPmrDescriptor,
@@ -21,6 +26,7 @@ import {
   register,
   SITE_URL,
   STORAGE_KEY_LAST_GUIDED_PATTERN,
+  STORAGE_KEY_LAST_MEDITATION,
 } from "./index.js";
 
 let createTestHarness;
@@ -198,7 +204,27 @@ assert.deepEqual(groundingScience.cards.map((card) => card.url), GROUNDING_CITAT
 assert.ok(GROUNDING_CITATIONS.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
 assert.equal(groundingInfo.site.url, SITE_URL);
 
-// The practice picker lists all four practices, each with an icon.
+// Guided meditation: AAT's eight sessions with the segment counts recorded on
+// R2, one narrated URL per segment in the narration language, a caption each.
+assert.deepEqual(
+  [["en", "en"], ["es-419", "es"], ["pt-BR", "pt"], ["zh-Hans", "zh"], ["zh-Hant", "zh"], ["ja", "en"], ["ko", "en"]].map(([locale]) => narrationLanguage(locale)),
+  ["en", "es", "pt", "zh", "zh", "en", "en"],
+);
+const meditationTracks = buildMeditationTracks(t, "es-419");
+assert.deepEqual(meditationTracks.map((track) => track.segments.length), [7, 13, 14, 10, 13, 12, 11, 12]);
+for (const track of meditationTracks) {
+  assert.deepEqual(track.cover, { kind: "image", name: `meditation-${track.id}` });
+  track.segments.forEach((segment, index) => {
+    assert.equal(segment.audioUrl, `${MEDIA_ORIGIN}/guided-meditation/es/${track.id}/${String(index + 1).padStart(2, "0")}.mp3`);
+    assert.ok(segment.caption.length > 0);
+  });
+}
+const meditationInfo = buildMeditationInfo(t, undefined, "metta-loving-kindness-protocol");
+const highlightedMeditation = meditationInfo.sections.flatMap((section) => section.cards ?? []).filter((card) => card.highlighted);
+assert.deepEqual(highlightedMeditation.map((card) => card.title), [t("meditation.metta-loving-kindness-protocol.title")]);
+assert.ok(meditationInfo.citations.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
+
+// The practice picker lists every practice, each with an icon.
 const practices = buildPractices(t);
 assert.deepEqual(
   practices.map((choice) => [choice.id, choice.name]),
@@ -207,6 +233,7 @@ assert.deepEqual(
     ["guided-breathing", t("practice.guided")],
     ["pmr", t("practice.pmr")],
     ["grounding", t("practice.grounding")],
+    ["meditation", t("practice.meditation")],
   ],
 );
 assert.ok(practices.every((choice) => typeof choice.icon === "string"));
@@ -224,6 +251,7 @@ assert.deepEqual(
     ["start-guided-breathing", "$t:practice.guided"],
     ["start-pmr", "$t:practice.pmr"],
     ["start-grounding", "$t:practice.grounding"],
+    ["start-meditation", "$t:practice.meditation"],
   ],
 );
 
@@ -365,7 +393,29 @@ assert.equal(latestSpec.countdownSeconds, 0);
 assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["grounding-stop"]);
 assert.equal(buildGroundingDescriptor(harness.ctx, false).steps.length, 5);
 
-// 6. Stop session
+// 6. Guided meditation plays through the host player; Japanese hears English
+// narration with a note, English does not show one.
+await harness.runCommand("start-meditation");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "player");
+assert.equal(latestSpec.practiceId, "meditation");
+assert.equal(latestSpec.tracks.length, 8);
+assert.equal(latestSpec.narrationNote, undefined);
+assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["meditation-pause", "meditation-stop"]);
+latestEventHandler({ type: "patternChanged", patternId: "vagus-nerve-delta-descent" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_MEDITATION), "vagus-nerve-delta-descent");
+const meditationUpdate = sessionUpdates.at(-1);
+assert.equal(meditationUpdate.info.sections.flatMap((section) => section.cards ?? []).find((card) => card.highlighted).title, t("meditation.vagus-nerve-delta-descent.title"));
+await harness.runCommand("start-meditation");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.trackId, "vagus-nerve-delta-descent");
+const jaCtx = { ...harness.ctx, locale: "ja", t: (key) => harness.ctx.t(key), assets: harness.ctx.assets };
+const jaMeditation = buildMeditationDescriptor(jaCtx, false);
+assert.equal(jaMeditation.narrationNote, t("meditation.narrationNote"));
+assert.ok(jaMeditation.tracks[0].segments[0].audioUrl.includes("/guided-meditation/en/"));
+
+// 7. Stop session
 await latestSession.stop();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(harness.calls.menuItems, [], "stopping session must clear menu items");

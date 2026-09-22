@@ -16,6 +16,8 @@ export function createPluginUiApi(options: {
   readonly validateBubbleSpec: (spec: unknown, forUpdate?: boolean) => PluginBubbleDescriptor;
   readonly validatePetHandleId: (value: unknown) => string;
   readonly resolveAssetRef: (ref: unknown, kinds: readonly PluginAssetKind[]) => { path: string };
+  /** The plugin's approved network hosts (manifest hosts the user approved). */
+  readonly allowedNetworkHosts: () => ReadonlySet<string>;
   readonly resolvePanelPath: (name: string) => string;
   readonly normalizeJson: (value: unknown, maxBytes: number, label: string) => unknown;
   readonly validateMenuItems: (value: unknown) => PluginMenuItem[];
@@ -25,7 +27,7 @@ export function createPluginUiApi(options: {
   readonly onError: (reason: string) => void;
   readonly quotas: { petActionsPerMinute: number; activeBubbles: number; notifyPerMinute: number; toastPerMinute: number; activePanels: number; deliveriesPerMinute: number; busPayloadBytes: number };
 }) {
-  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
+  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, allowedNetworkHosts, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
 
   const showBubble = async (petHandleId: string, spec: unknown): Promise<{ bubbleId: string }> => {
     requirePermission("pet:speak");
@@ -153,6 +155,28 @@ export function createPluginUiApi(options: {
     };
   };
 
+  /**
+   * Player sessions stream media on the plugin's behalf: every segment must be
+   * on a host the user approved, and covers resolve to declared images.
+   */
+  const resolvePlayerMedia = (validated: PluginSessionDescriptor): { descriptor: PluginSessionDescriptor; mediaHosts?: ReadonlySet<string> } => {
+    if (validated.kind !== "player") return { descriptor: validated };
+    requirePermission("network");
+    const hosts = allowedNetworkHosts();
+    for (const track of validated.tracks) {
+      for (const segment of track.segments) {
+        const host = new URL(segment.audioUrl).hostname.toLowerCase();
+        if (!hosts.has(host)) throw new Error(`Session media host "${host}" is not an approved network host.`);
+      }
+    }
+    const tracks = validated.tracks.map((track) => {
+      if (!track.cover) return track;
+      const { cover, ...rest } = track;
+      return { ...rest, coverPath: resolveAssetRef(cover, ["images"]).path };
+    });
+    return { descriptor: { ...validated, tracks }, mediaHosts: hosts };
+  };
+
   const maxEarlySessionEvents = 16;
   const sessionEventBuffers = new WeakMap<SessionSlot, PluginSessionEvent[]>();
 
@@ -161,8 +185,9 @@ export function createPluginUiApi(options: {
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
     const validated = validateSessionDescriptor(spec);
     const withCues = validated.kind === "breathing" ? resolvePatternCues(validated) : validated;
+    const player = resolvePlayerMedia(withCues);
     const descriptor = resolveSessionPmrIllustrations(
-      resolveSessionAudio(resolveSessionInfoLogo(withCues))
+      resolveSessionAudio(resolveSessionInfoLogo(player.descriptor))
     );
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
@@ -172,6 +197,7 @@ export function createPluginUiApi(options: {
       slot.host = await capabilities.session.open({
         pluginId,
         descriptor,
+        ...(player.mediaHosts ? { mediaHosts: player.mediaHosts } : {}),
         callbacks: {
           onEvent: (event: PluginSessionEvent) => {
             if (slot.closed) return;
