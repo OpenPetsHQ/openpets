@@ -175,7 +175,84 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   await h.stop();
 }
 
-// 5) Stale duplicate callbacks from an old timer generation are ignored.
+// 5) A successful fallback speech delivery acknowledges expiry and does not
+// speak again after a restart.
+{
+  const now = Date.now();
+  const h = createTestHarness(register, options(now, { soundEnabled: false, osNotification: false }));
+  const originalAlert = h.ctx.ui.alert;
+  h.ctx.ui.alert = async () => {
+    throw new Error("alert unavailable");
+  };
+  await h.ctx.storage.set("timer", {
+    version: 1,
+    timerId: "timer-speech-fallback",
+    label: "Fallback delivery",
+    startedAt: now - 10 * 60_000,
+    durationMs: 5 * 60_000,
+    phase: "running",
+    endsAt: now - 5 * 60_000,
+  });
+  await h.start();
+  assert.equal(h.calls.alerts.length, 0);
+  h.expectSpoke("Fallback delivery is done.");
+  h.expectStored("timer", (value) => value.phase === "expired" && value.alertShownAt !== null);
+  const speechCount = h.calls.speak.length;
+  h.ctx.ui.alert = originalAlert;
+  await h.stop();
+  await h.start();
+  assert.equal(h.calls.speak.length, speechCount, "an acknowledged fallback must not redeliver on restart");
+  assert.equal(h.calls.alerts.length, 0);
+  h.expectNoErrors();
+  await h.stop();
+}
+
+// 6) If both delivery paths fail, expiry remains pending without a schedule
+// retry loop; a later lifecycle recovery delivers it once and acknowledges it.
+{
+  const now = Date.now();
+  const h = createTestHarness(register, options(now, { soundEnabled: false, osNotification: false }));
+  const originalAlert = h.ctx.ui.alert;
+  const originalSpeak = h.ctx.pet.speak;
+  h.ctx.ui.alert = async () => {
+    throw new Error("alert unavailable");
+  };
+  h.ctx.pet.speak = async () => {
+    throw new Error("speech unavailable");
+  };
+  await h.ctx.storage.set("timer", {
+    version: 1,
+    timerId: "timer-pending-delivery",
+    label: "Pending delivery",
+    startedAt: now - 10 * 60_000,
+    durationMs: 5 * 60_000,
+    phase: "running",
+    endsAt: now - 5 * 60_000,
+  });
+  await h.start();
+  assert.equal(h.calls.alerts.length, 0);
+  assert.equal(h.calls.bubbles.length, 0);
+  h.expectStored("timer", (value) => value.phase === "expired" && value.alertShownAt === null);
+  await h.clock.advance(60 * 60_000);
+  assert.equal(h.calls.alerts.length, 0, "failed delivery must not self-schedule unbounded retries");
+  assert.equal(h.calls.schedules.size, 0);
+
+  await h.stop();
+  h.ctx.ui.alert = originalAlert;
+  h.ctx.pet.speak = originalSpeak;
+  await h.start();
+  assert.equal(h.calls.alerts.length, 1, "recovery must retry the pending expiry once");
+  h.expectStored("timer", (value) => value.phase === "expired" && value.alertShownAt !== null);
+  const firstAlertCount = h.calls.alerts.length;
+  await h.stop();
+  await h.start();
+  assert.equal(h.calls.alerts.length, firstAlertCount, "a recovered expiry must not alert twice");
+  assert.equal(h.calls.schedules.size, 0);
+  h.expectNoErrors();
+  await h.stop();
+}
+
+// 7) Stale duplicate callbacks from an old timer generation are ignored.
 {
   const now = Date.now();
   const h = createTestHarness(register, options(now));
@@ -192,7 +269,7 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   await h.stop();
 }
 
-// 6) Invalid persisted data is ignored at the storage boundary and lifecycle
+// 8) Invalid persisted data is ignored at the storage boundary and lifecycle
 // cleanup leaves no schedules or registered commands behind.
 {
   const h = createTestHarness(register, options(Date.now()));
@@ -206,7 +283,7 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   h.expectNoErrors();
 }
 
-// 7) Stopping with an active timer cancels both schedules, dismisses the HUD,
+// 9) Stopping with an active timer cancels both schedules, dismisses the HUD,
 // and unregisters every command so reloads cannot leave live callbacks behind.
 {
   const h = createTestHarness(register, options(Date.now()));

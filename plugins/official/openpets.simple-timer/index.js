@@ -353,6 +353,7 @@ async function showExpiryAlert(ctx, timer, token) {
   const osNotification = settings.osNotification !== false;
   const text = alertText(ctx, timer);
   let alert = null;
+  let deliverySucceeded = false;
   try {
     alert = await ctx.ui.alert({
       text,
@@ -366,9 +367,11 @@ async function showExpiryAlert(ctx, timer, token) {
         { id: "dismiss", label: ctx.t("action.dismiss") },
       ],
     });
+    deliverySucceeded = true;
   } catch {
     try {
       await ctx.pet.speak(text);
+      deliverySucceeded = true;
     } catch {}
   }
   if (!isCurrent(ctx, token)) {
@@ -379,6 +382,7 @@ async function showExpiryAlert(ctx, timer, token) {
     }
     return;
   }
+  if (!deliverySucceeded) return;
   if (alert) {
     state.alert = { timerId: timer.timerId, handle: alert };
     alert.onAction((actionId) => {
