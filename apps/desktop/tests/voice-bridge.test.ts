@@ -67,6 +67,7 @@ function createCapabilities(requests: Array<{ timeoutMs?: number; pluginId?: str
     toast: async () => undefined,
     notify: async () => undefined,
     panels: { open: async () => ({ id: "panel", show: async () => undefined, hide: async () => undefined, postMessage: async () => undefined, close: async () => undefined }) },
+    session: { open: async () => ({ update: async () => undefined, pause: async () => undefined, resume: async () => undefined, stop: async () => undefined, close: async () => undefined }) },
     delivery: { register: async () => ({ dismiss: () => undefined, onDismiss: () => undefined }), teardown: () => undefined },
     secrets: { get: async () => undefined, set: async () => undefined, delete: async () => undefined, has: async () => false },
     ai: { available: async () => false, complete: async () => ({ text: "" }), stream: async () => ({ text: "" }) },

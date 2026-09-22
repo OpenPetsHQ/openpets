@@ -87,7 +87,7 @@ const updateOnPetTalkButton = (snapshot) => {
 
 const isInteractivePanelOrBubble = (target) => {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
+  return Boolean(target.closest(".openpets-chat-panel, .openpets-compact-composer, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .bubble, .openpets-context-menu"));
 };
 
 const dismissBubble = (event) => {
@@ -223,7 +223,7 @@ function updateAssistantHeader(displayName, assetName) {
 
 const getInteractiveTarget = (event) => {
   const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu");
+  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu");
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -246,7 +246,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -1268,7 +1268,7 @@ const installDefaultPetChat = () => {
   });
 
   // --- Carrier Panel State Listener ---
-  const validCarrierStates = new Set(["collapsed", "compact-chat", "expanded-chat", "expanded-check-in"]);
+  const validCarrierStates = new Set(["collapsed", "compact-chat", "expanded-chat", "expanded-check-in", "expanded-session"]);
   let latestPanelStateSequence = -1;
   const handleCarrierPanelState = (payload) => {
     const rawState = payload && typeof payload.state === "string" ? payload.state : (typeof payload === "string" ? payload : null);
@@ -1303,6 +1303,14 @@ const installDefaultPetChat = () => {
       if (panelEl && typeof panelEl.offsetHeight === "number" && panelEl.offsetHeight > 0) {
         ipcRenderer.send("openpets:default-pet-chat-panel-resize", Math.round(panelEl.offsetHeight));
       }
+    } else if (rawState === "expanded-session") {
+      // The practice session overlay owns the carrier; every chat surface closes.
+      document.documentElement.dataset.checkInExpanded = "false";
+      document.documentElement.dataset.chatExpanded = "false";
+      document.documentElement.dataset.compactComposerOpen = "false";
+      updateDraftState({ type: "expanded-changed", expanded: false });
+      updateDraftState({ type: "compact-changed", compactOpen: false });
+      handleCheckInCarrierCollapsed();
     } else if (rawState === "compact-chat") {
       document.documentElement.dataset.checkInExpanded = "false";
       document.documentElement.dataset.chatExpanded = "false";
@@ -2293,6 +2301,1673 @@ const installLayerShellContextMenu = () => {
   });
 };
 
+// ---------------------------------------------------------------------------
+// Practice session overlay (ui:session) — breathing orb around the pet.
+// The host coordinator sends a validated descriptor over
+// "openpets:session-overlay"; this module owns the 60fps orb shader, the
+// phase clock, the session card, and reports control events back.
+// ---------------------------------------------------------------------------
+
+const installDefaultPetSession = () => {
+  if (document.documentElement?.dataset?.petRole !== "default") return;
+
+  // The stylesheet ships static fallback geometry; the source of truth is a
+  // runtime measurement of the real rendered sprite and session card, applied
+  // as :root CSS variable overrides so the orb hugs the pet, the pet sits at
+  // the orb centre, and the orb rests on the card for any pet asset or scale.
+  const readGeometryVar = (name, fallback) => {
+    const raw = Number(getComputedStyle(document.documentElement).getPropertyValue(name));
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  };
+  let ORB_RADIUS = readGeometryVar("--session-orb-radius", 140);
+  const ORB_CARD_GAP = 10;
+  const CARD_BOTTOM_INSET = 14;
+
+  const PHASE_STYLE = {
+    in: { nameKey: "inhale", guidanceKey: "inhaleGuidance", color: [0.42, 0.68, 1.0], css: "#7ab3ff" },
+    hold: { nameKey: "hold", guidanceKey: "holdGuidance", color: [0.72, 0.62, 1.0], css: "#b7a4ff" },
+    out: { nameKey: "exhale", guidanceKey: "exhaleGuidance", color: [0.30, 0.86, 0.78], css: "#4fdcc5" },
+  };
+  const IDLE_COLOR = [0.45, 0.62, 0.98];
+
+  // Host-localized chrome strings arrive with the descriptor; English is the
+  // in-place fallback so a missing key never renders blank.
+  const chromeFallback = {
+    inhale: "Inhale", hold: "Hold", exhale: "Exhale",
+    inhaleGuidance: "Breathe in slowly", holdGuidance: "Hold gently", exhaleGuidance: "Breathe out slowly",
+    paused: "Paused", pausedGuidance: "Resume when you're ready",
+    complete: "Complete", completeGuidance: "Nice work. Take a moment.",
+    idleGuidance: "Press start when you're ready",
+    pause: "Pause", resume: "Resume", start: "Start", done: "Done", restart: "Restart", again: "Again",
+    remaining: "remaining", elapsed: "elapsed", breathPace: "breath pace",
+    cyclesCount: "{count} cycles", cycleN: "cycle {n}", untilStopped: "until stopped",
+    footerBreathing: "breathing with {name}", footerComplete: "nicely done", footerReady: "ready when you are",
+    close: "Close", about: "About this technique",
+    mute: "Mute breathing cues", unmute: "Unmute breathing cues",
+    getReady: "Get ready", getReadyGuidance: "Settle in — we begin in a moment", startNow: "Start now",
+    tense: "Tense", release: "Release", groupProgress: "{n} / {total}", footerRelaxing: "relaxing with {name}",
+  };
+  let chromeStrings = { ...chromeFallback };
+
+  const PMR_TENSE_COLOR = [0.90, 0.64, 0.42];
+  const PMR_TENSE_CSS = "#e6a36b";
+  const PMR_RELEASE_COLOR = [0.30, 0.86, 0.78];
+  const PMR_RELEASE_CSS = "#4fdcc5";
+
+  const chromeText = (key, vars) => {
+    let text = typeof chromeStrings[key] === "string" && chromeStrings[key] ? chromeStrings[key] : chromeFallback[key] ?? "";
+    if (vars) {
+      for (const [name, value] of Object.entries(vars)) {
+        text = text.split(`{${name}}`).join(String(value));
+      }
+    }
+    return text;
+  };
+
+  let descriptor = null;
+  let runState = "idle"; // idle | active | paused | complete
+  let selectedPatternId = null;
+  let phaseIndex = 0;
+  let cycleIndex = 0;
+  let stepIndex = 0;
+  let stepPhase = "tense"; // "tense" | "release"
+  let phaseElapsedMs = 0;
+  let countdownRemainingMs = 0;
+  let lastFrameAt = 0;
+  let rafHandle = null;
+  let pulseStartedAt = -10;
+  let breathValue = 0;
+  let currentColor = IDLE_COLOR.slice();
+  let targetColor = IDLE_COLOR.slice();
+  let currentPhaseCss = "#7ab3ff";
+  let lastCountdownText = "";
+  let currentIllustrationUrl = "";
+  let illustrationVisible = false;
+  let cuesVisible = false;
+  let lastRenderedCuesStep = null;
+
+  // Phase audio cues (host-gated by the global plugin-audio setting and quiet
+  // hours; user-toggled via the top-bar mute button).
+  let audioCues = null; // { enabled, allowed, inhaleEl, exhaleEl }
+
+  const stopCuePlayback = () => {
+    if (!audioCues) return;
+    for (const element of [audioCues.inhaleEl, audioCues.exhaleEl]) {
+      if (element) {
+        element.pause();
+        element.currentTime = 0;
+      }
+    }
+  };
+
+  const playPhaseCue = (phaseKind) => {
+    if (!audioCues || !audioCues.enabled || !audioCues.allowed || runState !== "active") return;
+    const element = phaseKind === "in" ? audioCues.inhaleEl : phaseKind === "out" ? audioCues.exhaleEl : null;
+    if (!element) return;
+    stopCuePlayback();
+    element.volume = 0.9;
+    element.currentTime = 0;
+    void element.play().catch(() => undefined);
+  };
+
+  const applyAudioPayload = (raw) => {
+    if (!raw || typeof raw !== "object") {
+      stopCuePlayback();
+      audioCues = null;
+      return;
+    }
+    const makeCueElement = (dataUrl, existing) => {
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:audio/")) return null;
+      if (existing && existing.src === dataUrl) return existing;
+      const element = new Audio();
+      element.preload = "auto";
+      element.src = dataUrl;
+      return element;
+    };
+    audioCues = {
+      enabled: raw.enabled !== false,
+      allowed: raw.allowed === true,
+      inhaleEl: makeCueElement(raw.inhaleDataUrl, audioCues?.inhaleEl),
+      exhaleEl: makeCueElement(raw.exhaleDataUrl, audioCues?.exhaleEl),
+    };
+  };
+
+  const sendSessionEvent = (payload) => {
+    ipcRenderer.send("openpets:session-overlay-event", payload);
+  };
+
+  const selectedPattern = () => {
+    if (!descriptor || descriptor.kind !== "breathing") return null;
+    return descriptor.patterns.find((pattern) => pattern.id === selectedPatternId) ?? descriptor.patterns[0];
+  };
+
+  // --- DOM ---------------------------------------------------------------
+
+  const root = document.createElement("div");
+  root.className = "openpets-session-overlay";
+  root.setAttribute("role", "region");
+  root.setAttribute("aria-label", "Practice session");
+
+  const orbCanvas = document.createElement("canvas");
+  orbCanvas.className = "session-orb-canvas";
+  root.appendChild(orbCanvas);
+
+
+  const topbar = document.createElement("div");
+  topbar.className = "session-card-header";
+  const topbarIcon = document.createElement("div");
+  topbarIcon.className = "session-header-icon";
+  // lucide:leaf (via better-icons/Iconify)
+  topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>';
+  const topbarTitles = document.createElement("div");
+  topbarTitles.className = "session-header-titles";
+  const topbarTitle = document.createElement("div");
+  topbarTitle.className = "session-header-title";
+  const topbarSubtitle = document.createElement("div");
+  topbarSubtitle.className = "session-header-subtitle";
+  topbarTitles.appendChild(topbarTitle);
+  topbarTitles.appendChild(topbarSubtitle);
+  // The top bar doubles as the phase HUD: during a run it shows the phase
+  // name, guidance, and the live countdown instead of the plugin title.
+  const phaseName = topbarTitle;
+  const phaseGuidance = topbarSubtitle;
+  const phaseCount = document.createElement("div");
+  phaseCount.className = "session-header-count";
+  const phaseCountValue = document.createElement("span");
+  const phaseCountUnit = document.createElement("span");
+  phaseCountUnit.className = "count-unit";
+  phaseCountUnit.textContent = "s";
+  phaseCount.appendChild(phaseCountValue);
+  phaseCount.appendChild(phaseCountUnit);
+  // lucide:volume-2 / lucide:volume-x (via better-icons/Iconify)
+  const volumeOnSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298zM16 9a5 5 0 0 1 0 6m3.364 3.364a9 9 0 0 0 0-12.728"/></svg>';
+  const volumeOffSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298zm5.5 9.798l5-5m-5 0l5 5"/></svg>';
+  const audioBtn = document.createElement("button");
+  audioBtn.type = "button";
+  audioBtn.className = "session-close-btn session-audio-btn";
+  audioBtn.style.display = "none";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "session-close-btn";
+  closeBtn.setAttribute("aria-label", "Close session");
+  closeBtn.setAttribute("title", "Close (Esc)");
+  // lucide:x (via better-icons/Iconify)
+  closeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+
+  const card = document.createElement("div");
+  card.className = "session-card";
+
+  // Row 1: the header (phase name/guidance, countdown, mute, close) — the
+  // former top bar, merged into the single bottom HUD.
+  topbar.appendChild(topbarIcon);
+  topbar.appendChild(topbarTitles);
+  topbar.appendChild(phaseCount);
+  topbar.appendChild(audioBtn);
+  topbar.appendChild(closeBtn);
+  card.appendChild(topbar);
+
+  // PMR pose illustration well: fixed height so tense/release swaps do not jump
+  // the card. Hidden when breathing or when the step has no declared pose image.
+  const illustrationWell = document.createElement("div");
+  illustrationWell.className = "session-illustration";
+  const illustrationImg = document.createElement("img");
+  illustrationImg.className = "session-illustration-img";
+  illustrationImg.alt = "";
+  illustrationImg.addEventListener("error", () => {
+    if (illustrationVisible) {
+      illustrationVisible = false;
+      illustrationWell.style.display = "none";
+      currentIllustrationUrl = "";
+      scheduleSessionGeometry();
+    }
+  });
+  illustrationWell.appendChild(illustrationImg);
+  card.appendChild(illustrationWell);
+
+  // PMR cue row: side-by-side exercise step bullets (tense & release)
+  const cuesRow = document.createElement("div");
+  cuesRow.className = "session-pmr-cues";
+
+  const tenseCol = document.createElement("div");
+  tenseCol.className = "session-cues-col is-tense";
+  const tenseHeader = document.createElement("div");
+  tenseHeader.className = "session-cues-header";
+  const tenseTitle = document.createElement("span");
+  tenseTitle.className = "session-cues-title";
+  tenseHeader.appendChild(tenseTitle);
+  const tenseList = document.createElement("ol");
+  tenseList.className = "session-cues-list";
+  tenseCol.appendChild(tenseHeader);
+  tenseCol.appendChild(tenseList);
+
+  const releaseCol = document.createElement("div");
+  releaseCol.className = "session-cues-col is-release";
+  const releaseHeader = document.createElement("div");
+  releaseHeader.className = "session-cues-header";
+  const releaseTitle = document.createElement("span");
+  releaseTitle.className = "session-cues-title";
+  releaseHeader.appendChild(releaseTitle);
+  const releaseList = document.createElement("ol");
+  releaseList.className = "session-cues-list";
+  releaseCol.appendChild(releaseHeader);
+  releaseCol.appendChild(releaseList);
+
+  cuesRow.appendChild(tenseCol);
+  cuesRow.appendChild(releaseCol);
+  card.appendChild(cuesRow);
+
+  // Row 2: cycle dots (or a slim bar for long/until-stopped runs) + count.
+  const dotsRow = document.createElement("div");
+  dotsRow.className = "session-dots-row";
+  const dotsBox = document.createElement("div");
+  dotsBox.className = "session-dots";
+  const dotsBar = document.createElement("div");
+  dotsBar.className = "session-dots-bar";
+  const dotsBarFill = document.createElement("div");
+  dotsBarFill.className = "session-dots-bar-fill";
+  dotsBar.appendChild(dotsBarFill);
+  const dotsCount = document.createElement("div");
+  dotsCount.className = "session-dots-count";
+  dotsRow.appendChild(dotsBox);
+  dotsRow.appendChild(dotsBar);
+  dotsRow.appendChild(dotsCount);
+  card.appendChild(dotsRow);
+
+  // Row 2: session timer · animated lungs · breath pace.
+  const tiles = document.createElement("div");
+  tiles.className = "session-tiles";
+  const makeTile = (extraClass) => {
+    const tile = document.createElement("div");
+    tile.className = `session-tile${extraClass ? ` ${extraClass}` : ""}`;
+    return tile;
+  };
+  const timerTile = makeTile("");
+  const timerIcon = document.createElement("div");
+  timerIcon.className = "session-tile-icon";
+  // lucide:timer (via better-icons/Iconify)
+  timerIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M10 2h4m-2 12l3-3"/><circle cx="12" cy="14" r="8"/></svg>';
+  const timerContent = document.createElement("div");
+  timerContent.className = "session-tile-content";
+  const timerValue = document.createElement("div");
+  timerValue.className = "session-tile-value";
+  const timerLabel = document.createElement("div");
+  timerLabel.className = "session-tile-label";
+  timerLabel.textContent = "remaining";
+  timerContent.appendChild(timerValue);
+  timerContent.appendChild(timerLabel);
+  timerTile.appendChild(timerIcon);
+  timerTile.appendChild(timerContent);
+
+  const lungsTile = makeTile("is-middle");
+  const lungsIcon = document.createElement("div");
+  lungsIcon.className = "session-lungs";
+  lungsIcon.setAttribute("aria-hidden", "true");
+  // tabler:lungs (via better-icons/Iconify)
+  lungsIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" aria-hidden="true"><path d="M6.081 20C7.693 20 9 18.665 9 17.02V7.257C9 6.563 8.448 6 7.768 6c-.205 0-.405.052-.584.15l-.13.083C5.594 7.292 4.622 8.88 3.65 12.057q-.63 2.055-.648 4.775c-.012 1.675 1.261 3.054 2.877 3.161zm11.839 0C16.307 20 15 18.665 15 17.02V7.257C15 6.563 15.552 6 16.233 6c.204 0 .405.052.584.15l.13.083c1.46 1.059 2.432 2.647 3.405 5.824q.63 2.055.648 4.775c.012 1.675-1.261 3.054-2.878 3.161zM9 12a3 3 0 0 0 3-3a3 3 0 0 0 3 3m-3-8v5"/></svg>';
+  const phaseWord = document.createElement("div");
+  phaseWord.className = "session-tile-value";
+  phaseWord.style.display = "none";
+  lungsTile.appendChild(lungsIcon);
+  lungsTile.appendChild(phaseWord);
+
+  const paceTile = makeTile("");
+  const paceIcon = document.createElement("div");
+  paceIcon.className = "session-tile-icon";
+  // lucide:audio-waveform (via better-icons/Iconify)
+  paceIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/></svg>';
+  const paceContent = document.createElement("div");
+  paceContent.className = "session-tile-content";
+  const paceValue = document.createElement("div");
+  paceValue.className = "session-tile-value";
+  const paceLabel = document.createElement("div");
+  paceLabel.className = "session-tile-label";
+  paceLabel.textContent = "breath pace";
+  paceContent.appendChild(paceValue);
+  paceContent.appendChild(paceLabel);
+  paceTile.appendChild(paceIcon);
+  paceTile.appendChild(paceContent);
+
+  tiles.appendChild(timerTile);
+  tiles.appendChild(lungsTile);
+  tiles.appendChild(paceTile);
+  card.appendChild(tiles);
+
+  // Row 3: the phase segment track.
+  const steps = document.createElement("div");
+  steps.className = "session-steps";
+  card.appendChild(steps);
+
+  // Row 4: Info · Restart · Pause/Resume/Done.
+  const controls = document.createElement("div");
+  controls.className = "session-controls";
+  const infoBtn = document.createElement("button");
+  infoBtn.type = "button";
+  infoBtn.className = "session-info-btn";
+  infoBtn.setAttribute("aria-label", "About this technique");
+  infoBtn.setAttribute("title", "About this technique");
+  // lucide:info (via better-icons/Iconify)
+  infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>';
+  const controlsSpacer = document.createElement("div");
+  controlsSpacer.className = "session-controls-spacer";
+  const switchPracticeBtn = document.createElement("button");
+  switchPracticeBtn.type = "button";
+  switchPracticeBtn.className = "session-ghost-btn";
+  switchPracticeBtn.style.display = "none";
+  switchPracticeBtn.addEventListener("click", () => {
+    if (!descriptor?.practices || descriptor.practices.length <= 1) return;
+    const currentId = descriptor.practiceId ?? (descriptor.kind === "breathing" ? "breathing" : "pmr");
+    const currentIndex = descriptor.practices.findIndex((p) => p.id === currentId);
+    const nextPractice = descriptor.practices[(currentIndex + 1) % descriptor.practices.length];
+    if (nextPractice) {
+      sendSessionEvent({ type: "practiceSelected", practiceId: nextPractice.id });
+    }
+  });
+  const restartBtn = document.createElement("button");
+  restartBtn.type = "button";
+  restartBtn.className = "session-ghost-btn";
+  const primaryBtn = document.createElement("button");
+  primaryBtn.type = "button";
+  primaryBtn.className = "session-primary-btn";
+  controls.appendChild(infoBtn);
+  controls.appendChild(controlsSpacer);
+  controls.appendChild(switchPracticeBtn);
+  controls.appendChild(restartBtn);
+  controls.appendChild(primaryBtn);
+  card.appendChild(controls);
+
+  // Footer: paws + companion line.
+  const footer = document.createElement("div");
+  footer.className = "session-footer";
+  card.appendChild(footer);
+
+  root.appendChild(card);
+
+  document.body.appendChild(root);
+
+  // --- Runtime geometry ------------------------------------------------------
+  // Measures the real rendered sprite and card, then aligns orb, ring, and
+  // pet lift so the composition is exact for any pet asset and scale.
+
+  const parseCurrentPetLift = (hitbox) => {
+    const transform = getComputedStyle(hitbox).transform;
+    if (!transform || transform === "none") return 0;
+    const match = /matrix\(([^)]+)\)/.exec(transform);
+    if (!match) return 0;
+    const parts = match[1].split(",").map((value) => Number(value.trim()));
+    const translateY = parts.length === 6 && Number.isFinite(parts[5]) ? parts[5] : 0;
+    return -translateY;
+  };
+
+  const applySessionGeometry = () => {
+    if (!descriptor) return;
+    const sprite = document.querySelector(".installed-sprite, .sprite");
+    const hitbox = document.querySelector(".pet-hitbox");
+    if (!sprite || !hitbox) return;
+    const cardHeight = Math.max(110, Math.round(card.getBoundingClientRect().height));
+    const spriteRect = sprite.getBoundingClientRect();
+    if (spriteRect.height <= 0 || window.innerHeight <= 0) return;
+
+    // The lift transform may already (or still) be applied; subtracting the
+    // live translation recovers the sprite's resting centre.
+    const currentLift = parseCurrentPetLift(hitbox);
+    const restCenterY = spriteRect.top + spriteRect.height / 2 + currentLift;
+
+    // Keep the orb (rim glow included) inside the band above the card.
+    const rimReserved = 18;
+    const bandHeight = window.innerHeight - rimReserved - (CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP);
+    const maxRadius = Math.max(96, Math.floor((bandHeight - 40) / 2));
+    ORB_RADIUS = Math.max(96, Math.min(Math.min(240, maxRadius), Math.round(spriteRect.height)));
+
+    const orbCenterBottom = CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP + ORB_RADIUS;
+    const desiredCenterY = window.innerHeight - orbCenterBottom;
+    const petLift = Math.max(0, Math.round(restCenterY - desiredCenterY));
+
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--session-orb-radius", String(ORB_RADIUS));
+    rootStyle.setProperty("--session-orb-center-bottom", String(orbCenterBottom));
+    rootStyle.setProperty("--session-pet-lift", `${petLift}px`);
+
+  };
+
+  const scheduleSessionGeometry = () => {
+    requestAnimationFrame(() => requestAnimationFrame(applySessionGeometry));
+  };
+
+  window.addEventListener("resize", () => {
+    if (descriptor) scheduleSessionGeometry();
+  });
+
+  // --- WebGL orb -----------------------------------------------------------
+
+  const orbGl = createOrbRenderer(orbCanvas);
+
+  function createOrbRenderer(canvas) {
+    const gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true, antialias: true });
+    if (!gl) {
+      // Graceful fallback: a layered radial gradient still reads as an orb.
+      canvas.style.background = "radial-gradient(circle at 50% 42%, rgba(120,170,255,0.55), rgba(48,90,190,0.34) 42%, rgba(20,40,90,0.18) 58%, transparent 68%)";
+      canvas.style.borderRadius = "50%";
+      return null;
+    }
+
+    const vertexSource = `
+      attribute vec2 a_position;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+    const fragmentSource = `
+      precision highp float;
+      uniform vec2 u_resolution;
+      uniform float u_radius;
+      uniform float u_time;
+      uniform float u_breath;
+      uniform float u_energy;
+      uniform float u_pulse;
+      uniform vec3 u_tint;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.55;
+        for (int i = 0; i < 4; i++) {
+          value += amplitude * noise(p);
+          p = p * 2.03 + vec2(17.7, 9.2);
+          amplitude *= 0.5;
+        }
+        return value;
+      }
+
+      vec2 rotate(vec2 p, float a) {
+        float c = cos(a);
+        float s = sin(a);
+        return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+      }
+
+      void main() {
+        vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / u_radius;
+        p.y = -p.y;
+        float breathScale = 0.84 + 0.13 * u_breath;
+        float d = length(p) / breathScale;
+
+        // Saturated galaxy palette: indigo base + violet nebula accent.
+        // No near-black bases — dark desaturated colors read as gray fog
+        // once composited at partial alpha over light desktops.
+        vec3 deep = vec3(0.10, 0.16, 0.46);
+        vec3 nebulaViolet = vec3(0.54, 0.32, 0.95);
+        vec3 tint = u_tint;
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+
+        if (d < 1.0) {
+          float z = sqrt(max(0.0, 1.0 - d * d));
+          vec3 n = vec3(p / breathScale, z);
+
+          // The galaxy's own night sky: a near-opaque deep-space disc fitted
+          // exactly to the sphere (it breathes with it), so the nebula reads
+          // the same on light and dark desktops.
+          float discMask = smoothstep(1.0, 0.975, d);
+          vec3 space = vec3(0.014, 0.028, 0.082);
+
+          // Volumetric wisps: two drifting fbm layers, weighted toward depth.
+          vec2 q = rotate(p, u_time * 0.05) * 1.9;
+          float w1 = fbm(q + vec2(0.0, -u_time * 0.09));
+          float w2 = fbm(rotate(p, -u_time * 0.03) * 3.1 + vec2(u_time * 0.05, 0.0));
+          float wisps = (w1 * 0.72 + w2 * 0.45) * (0.35 + 0.65 * z);
+          // Only the bright filaments render — the space between strands stays
+          // fully transparent so the orb never fogs the desktop behind it.
+          float strands = max(0.0, wisps - 0.42) * 1.9;
+
+          // A compact luminous heart that swells with the breath.
+          float core = exp(-d * d * 4.5) * (0.22 + 0.5 * u_breath);
+
+          // Rim light (fresnel) sells the sphere.
+          float fresnel = pow(1.0 - z, 2.4);
+
+          // Soft glint from the top-left (p is y-down here).
+          vec3 lightDir = normalize(vec3(-0.42, -0.58, 0.72));
+          float spec = pow(max(dot(n, lightDir), 0.0), 34.0) * 0.7;
+
+          // Sparse round motes drifting inside the volume.
+          vec2 moteCoord = rotate(p, u_time * 0.02) * 7.0 + vec2(0.0, u_time * 0.12);
+          vec2 moteCell = floor(moteCoord);
+          vec2 moteLocal = fract(moteCoord) - 0.5;
+          vec2 moteOffset = vec2(hash(moteCell) - 0.5, hash(moteCell + 19.7) - 0.5) * 0.6;
+          float moteDist = length(moteLocal - moteOffset);
+          float mote = smoothstep(0.11, 0.02, moteDist) * step(0.78, hash(moteCell + 7.3)) * z;
+          float twinkle = mote * (0.30 + 0.70 * (0.5 + 0.5 * sin(u_time * 1.7 + hash(moteCell.yx) * 6.283)));
+
+          // Broad colored galaxy volume: saturated, so it tints white
+          // desktops instead of graying them (compositing is single-alpha).
+          float bodyGlow = (0.30 + 0.38 * wisps) * z;
+
+          vec3 body = mix(deep, tint, clamp(0.28 + 0.55 * wisps, 0.0, 1.0));
+          body = mix(body, nebulaViolet, clamp(w2 * 0.65, 0.0, 0.65));
+          color = space * discMask
+            + body * (core * 1.5 + strands * 1.1 + bodyGlow)
+            + tint * fresnel * 0.95
+            + vec3(0.80, 0.88, 1.0) * spec * 0.5
+            + vec3(0.85, 0.93, 1.0) * twinkle * 0.55;
+          alpha = clamp(core * 1.2 + strands * 0.6 + bodyGlow * 0.85 + fresnel * 0.9 + spec * 0.5 + twinkle * 0.55, 0.0, 1.0);
+          alpha = max(alpha, discMask * 0.96);
+        }
+
+        // Halo + crisp rim band. The halo is windowed to a hard outer edge so
+        // the canvas never veils the desktop beyond the glow.
+        float rim = exp(-abs(d - 1.0) * 26.0);
+        float haloWindow = 1.0 - smoothstep(1.02, 1.42, d);
+        float halo = d >= 1.0 ? exp(-(d - 1.0) * 4.2) * 0.28 * haloWindow : 0.0;
+        color += tint * (rim * 0.85 + halo);
+        alpha = clamp(alpha + rim * 0.75 + halo, 0.0, 1.0);
+
+        // Expanding ripple on phase change: icy phase-tinted light.
+        float pulseAge = u_time - u_pulse;
+        if (pulseAge >= 0.0 && pulseAge < 1.6) {
+          float rippleRadius = 1.0 + pulseAge * 0.30;
+          float rippleFade = (1.0 - pulseAge / 1.6);
+          float ripple = exp(-abs(d - rippleRadius) * 34.0) * rippleFade * rippleFade * 0.7;
+          vec3 rippleColor = mix(tint, vec3(0.85, 0.93, 1.0), 0.35);
+          color += rippleColor * ripple;
+          alpha = clamp(alpha + ripple, 0.0, 1.0);
+        }
+
+        alpha *= u_energy;
+        // Hard floor: fully transparent outside the visible glow.
+        if (alpha < 0.006) alpha = 0.0;
+        // Premultiplied output: color already carries the light energy — do
+        // NOT multiply by alpha again, or every semi-transparent pixel
+        // composites darker than its true color (black-fringed glows).
+        gl_FragColor = vec4(min(color * u_energy, vec3(1.0)), alpha);
+      }
+    `;
+
+    const compile = (type, source) => {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error("Session orb shader failed to compile.", gl.getShaderInfoLog(shader));
+        return null;
+      }
+      return shader;
+    };
+    const vertexShader = compile(gl.VERTEX_SHADER, vertexSource);
+    const fragmentShader = compile(gl.FRAGMENT_SHADER, fragmentSource);
+    if (!vertexShader || !fragmentShader) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error("Session orb shader failed to link.", gl.getProgramInfoLog(program));
+      return null;
+    }
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const positionLocation = gl.getAttribLocation(program, "a_position");
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    return {
+      gl,
+      uniforms: {
+        resolution: gl.getUniformLocation(program, "u_resolution"),
+        radius: gl.getUniformLocation(program, "u_radius"),
+        time: gl.getUniformLocation(program, "u_time"),
+        breath: gl.getUniformLocation(program, "u_breath"),
+        energy: gl.getUniformLocation(program, "u_energy"),
+        pulse: gl.getUniformLocation(program, "u_pulse"),
+        tint: gl.getUniformLocation(program, "u_tint"),
+      },
+    };
+  }
+
+  const resizeOrbCanvas = () => {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const width = orbCanvas.clientWidth || 1;
+    const height = orbCanvas.clientHeight || 1;
+    if (orbCanvas.width !== Math.round(width * dpr) || orbCanvas.height !== Math.round(height * dpr)) {
+      orbCanvas.width = Math.round(width * dpr);
+      orbCanvas.height = Math.round(height * dpr);
+      if (orbGl) orbGl.gl.viewport(0, 0, orbCanvas.width, orbCanvas.height);
+    }
+    return dpr;
+  };
+
+  // --- Phase clock ---------------------------------------------------------
+
+  const phasePresentation = (phase) => {
+    const base = PHASE_STYLE[phase.kind] ?? PHASE_STYLE.in;
+    return {
+      name: chromeText(base.nameKey),
+      guidance: typeof phase.label === "string" && phase.label ? phase.label : chromeText(base.guidanceKey),
+      color: base.color,
+    };
+  };
+
+  const easeInOutSine = (t) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
+
+  const breathTargetFor = (phase, progress) => {
+    if (!phase) return 0.25;
+    if (phase.kind === "in") return easeInOutSine(progress);
+    if (phase.kind === "out") return 1 - easeInOutSine(progress);
+    // Hold keeps the lungs where the previous phase left them.
+    const pattern = selectedPattern();
+    if (!pattern) return 0.5;
+    const previous = pattern.phases[(phaseIndex + pattern.phases.length - 1) % pattern.phases.length];
+    return previous && previous.kind === "out" ? 0.06 : 1;
+  };
+
+  const triggerPulse = (nowSeconds) => {
+    pulseStartedAt = nowSeconds;
+  };
+
+  const advancePmrClock = (deltaMs, nowSeconds) => {
+    if (!descriptor || descriptor.kind !== "pmr" || runState !== "active") return;
+    phaseElapsedMs += deltaMs;
+    let guard = 0;
+    while (guard < 32) {
+      guard += 1;
+      const step = descriptor.steps[stepIndex];
+      if (!step) break;
+      const phaseMs = (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000;
+      if (phaseElapsedMs < phaseMs) break;
+      phaseElapsedMs -= phaseMs;
+      triggerPulse(nowSeconds);
+      if (stepPhase === "tense") {
+        stepPhase = "release";
+      } else {
+        stepPhase = "tense";
+        stepIndex += 1;
+        if (stepIndex >= descriptor.steps.length) {
+          runState = "complete";
+          phaseElapsedMs = 0;
+          sendSessionEvent({ type: "completed", patternId: "pmr", cycles: 1 });
+          renderStatics();
+          return;
+        }
+        renderStepTrack();
+        renderProgressMeta();
+      }
+      renderPhaseText();
+    }
+  };
+
+  const advanceClock = (deltaMs, nowSeconds) => {
+    if (descriptor?.kind === "pmr") {
+      advancePmrClock(deltaMs, nowSeconds);
+      return;
+    }
+    const pattern = selectedPattern();
+    if (!pattern || runState !== "active") return;
+    phaseElapsedMs += deltaMs;
+    let guard = 0;
+    while (guard < 16) {
+      guard += 1;
+      const phase = pattern.phases[phaseIndex];
+      const phaseMs = phase.seconds * 1000;
+      if (phaseElapsedMs < phaseMs) break;
+      phaseElapsedMs -= phaseMs;
+      phaseIndex += 1;
+      triggerPulse(nowSeconds);
+      if (phaseIndex >= pattern.phases.length) {
+        phaseIndex = 0;
+        cycleIndex += 1;
+        if (pattern.cycles !== null && cycleIndex >= pattern.cycles) {
+          runState = "complete";
+          phaseElapsedMs = 0;
+          stopCuePlayback();
+          sendSessionEvent({ type: "completed", patternId: pattern.id, cycles: pattern.cycles });
+          renderStatics();
+          return;
+        }
+        renderProgressMeta();
+      }
+      playPhaseCue(pattern.phases[phaseIndex].kind);
+      renderPhaseText();
+    }
+  };
+
+  // --- Rendering -----------------------------------------------------------
+
+  const renderIllustration = () => {
+    if (!descriptor || descriptor.kind !== "pmr") {
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+        scheduleSessionGeometry();
+      } else {
+        illustrationWell.style.display = "none";
+      }
+      return;
+    }
+
+    const stepsList = Array.isArray(descriptor.steps) ? descriptor.steps : [];
+    let targetUrl = null;
+    let activeStep = null;
+
+    if (runState === "idle" || runState === "countdown") {
+      activeStep = stepsList[0] ?? null;
+      targetUrl = activeStep?.tenseImageUrl ?? null;
+    } else if (runState === "complete") {
+      activeStep = stepsList[Math.max(0, stepsList.length - 1)] ?? null;
+      targetUrl = activeStep?.releaseImageUrl ?? activeStep?.tenseImageUrl ?? null;
+    } else {
+      activeStep = stepsList[stepIndex] ?? stepsList[0] ?? null;
+      targetUrl = (stepPhase === "tense" ? activeStep?.tenseImageUrl : activeStep?.releaseImageUrl) ?? null;
+    }
+
+    const hasUrl = typeof targetUrl === "string" && targetUrl.trim().length > 0;
+    if (!hasUrl) {
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+        scheduleSessionGeometry();
+      } else {
+        illustrationWell.style.display = "none";
+      }
+      return;
+    }
+
+    if (!illustrationVisible) {
+      illustrationVisible = true;
+      illustrationWell.style.display = "flex";
+      scheduleSessionGeometry();
+    }
+
+    if (currentIllustrationUrl !== targetUrl) {
+      currentIllustrationUrl = targetUrl;
+      illustrationImg.src = targetUrl;
+      illustrationImg.alt = activeStep?.name ? String(activeStep.name) : "";
+    }
+  };
+
+  const renderCues = () => {
+    if (!descriptor || descriptor.kind !== "pmr") {
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+        scheduleSessionGeometry();
+      } else {
+        cuesRow.style.display = "none";
+      }
+      return;
+    }
+
+    const stepsList = Array.isArray(descriptor.steps) ? descriptor.steps : [];
+    let activeStep = null;
+
+    if (runState === "idle" || runState === "countdown") {
+      activeStep = stepsList[0] ?? null;
+    } else if (runState === "complete") {
+      activeStep = stepsList[Math.max(0, stepsList.length - 1)] ?? null;
+    } else {
+      activeStep = stepsList[stepIndex] ?? stepsList[0] ?? null;
+    }
+
+    const hasCues = Boolean(
+      activeStep &&
+      Array.isArray(activeStep.tenseCues) &&
+      activeStep.tenseCues.length > 0 &&
+      Array.isArray(activeStep.releaseCues) &&
+      activeStep.releaseCues.length > 0
+    );
+
+    if (!hasCues) {
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+        scheduleSessionGeometry();
+      } else {
+        cuesRow.style.display = "none";
+      }
+      return;
+    }
+
+    if (!cuesVisible) {
+      cuesVisible = true;
+      cuesRow.style.display = "grid";
+      scheduleSessionGeometry();
+    }
+
+    tenseTitle.textContent = activeStep.tenseLabel || chromeText("tense");
+    releaseTitle.textContent = activeStep.releaseLabel || chromeText("release");
+
+    if (lastRenderedCuesStep !== activeStep) {
+      lastRenderedCuesStep = activeStep;
+
+      const populateList = (listEl, items) => {
+        listEl.textContent = "";
+        for (let i = 0; i < items.length; i += 1) {
+          const item = document.createElement("li");
+          item.className = "session-cue-item";
+          const badge = document.createElement("span");
+          badge.className = "session-cue-badge";
+          badge.textContent = String(i + 1);
+          const text = document.createElement("span");
+          text.className = "session-cue-text";
+          text.textContent = String(items[i]);
+          item.appendChild(badge);
+          item.appendChild(text);
+          listEl.appendChild(item);
+        }
+      };
+
+      populateList(tenseList, activeStep.tenseCues);
+      populateList(releaseList, activeStep.releaseCues);
+    }
+
+    const isTenseActive = (runState === "active" || runState === "paused") && stepPhase === "tense";
+    const isReleaseActive = ((runState === "active" || runState === "paused") && stepPhase === "release") || runState === "complete";
+
+    tenseCol.classList.toggle("is-active", isTenseActive);
+    releaseCol.classList.toggle("is-active", isReleaseActive);
+    cuesRow.classList.toggle("has-active", isTenseActive || isReleaseActive);
+  };
+
+  const renderPhaseText = () => {
+    if (!descriptor) return;
+    if (runState === "complete") {
+      phaseName.textContent = chromeText("complete");
+      phaseGuidance.textContent = chromeText("completeGuidance");
+      phaseCount.style.display = "none";
+      updateStepStates();
+      renderIllustration();
+      renderCues();
+      return;
+    }
+    if (runState === "countdown") {
+      phaseName.textContent = chromeText("getReady");
+      phaseGuidance.textContent = chromeText("getReadyGuidance");
+      phaseCount.style.display = "";
+      updateStepStates();
+      renderIllustration();
+      renderCues();
+      return;
+    }
+    if (runState === "idle") {
+      phaseName.textContent = descriptor.title;
+      phaseGuidance.textContent = descriptor.subtitle ?? chromeText("idleGuidance");
+      phaseCount.style.display = "none";
+      if (descriptor.kind === "pmr") {
+        phaseWord.textContent = chromeText("tense");
+      }
+      updateStepStates();
+      renderIllustration();
+      renderCues();
+      return;
+    }
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex] ?? descriptor.steps[0];
+      if (!step) return;
+      phaseName.textContent = runState === "paused" ? chromeText("paused") : step.name;
+      const hasCues = Boolean(
+        step &&
+        Array.isArray(step.tenseCues) &&
+        step.tenseCues.length > 0 &&
+        Array.isArray(step.releaseCues) &&
+        step.releaseCues.length > 0
+      );
+      const phaseWordText = stepPhase === "tense"
+        ? (step.tenseLabel || chromeText("tense"))
+        : (step.releaseLabel || chromeText("release"));
+      phaseGuidance.textContent = runState === "paused"
+        ? chromeText("pausedGuidance")
+        : (hasCues ? phaseWordText : (stepPhase === "tense" ? (step.tenseCue || step.tenseLabel) : (step.releaseCue || step.releaseLabel)));
+      phaseCount.style.display = runState === "paused" ? "none" : "";
+      targetColor = stepPhase === "tense" ? PMR_TENSE_COLOR : PMR_RELEASE_COLOR;
+      currentPhaseCss = stepPhase === "tense" ? PMR_TENSE_CSS : PMR_RELEASE_CSS;
+      document.documentElement.style.setProperty("--session-phase-color", currentPhaseCss);
+      phaseWord.textContent = phaseWordText;
+      updateStepStates();
+      renderIllustration();
+      renderCues();
+      return;
+    }
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    const phase = pattern.phases[phaseIndex];
+    const presentation = phasePresentation(phase);
+    phaseName.textContent = runState === "paused" ? chromeText("paused") : presentation.name;
+    phaseGuidance.textContent = runState === "paused" ? chromeText("pausedGuidance") : presentation.guidance;
+    phaseCount.style.display = runState === "paused" ? "none" : "";
+    targetColor = presentation.color;
+    currentPhaseCss = PHASE_STYLE[phase.kind]?.css ?? "#7ab3ff";
+    document.documentElement.style.setProperty("--session-phase-color", currentPhaseCss);
+    updateStepStates();
+    renderIllustration();
+    renderCues();
+  };
+
+  const updateStepStates = () => {
+    const stepElements = steps.children;
+    const running = runState === "active" || runState === "paused";
+    if (descriptor?.kind === "pmr") {
+      const activeIdx = stepPhase === "tense" ? 0 : 1;
+      for (let index = 0; index < stepElements.length; index += 1) {
+        const step = stepElements[index];
+        step.classList.toggle("is-active", running && index === activeIdx);
+        step.classList.toggle("is-done", (running && index < activeIdx) || runState === "complete");
+      }
+      return;
+    }
+    for (let index = 0; index < stepElements.length; index += 1) {
+      const step = stepElements[index];
+      step.classList.toggle("is-active", running && index === phaseIndex);
+      step.classList.toggle("is-done", (running && index < phaseIndex) || runState === "complete");
+    }
+  };
+
+  // Control glyphs from better-icons/Iconify: lucide:pause, lucide:play,
+  // lucide:check, lucide:rotate-ccw. Pause/play are filled so the primary
+  // pill glyph stays solid at 13px.
+  const pauseSvg = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><rect width="5" height="18" x="14" y="3" rx="1"/><rect width="5" height="18" x="5" y="3" rx="1"/></svg>';
+  const playSvg = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>';
+  const doneSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+  const restartSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+
+  const escapeChromeText = (key, vars) => escapeHtml(chromeText(key, vars));
+
+  const primaryButtonContent = () => {
+    if (runState === "countdown") return `${playSvg}<span>${escapeChromeText("startNow")}</span>`;
+    if (runState === "active") return `${pauseSvg}<span>${escapeChromeText("pause")}</span>`;
+    if (runState === "paused") return `${playSvg}<span>${escapeChromeText("resume")}</span>`;
+    if (runState === "complete") return `${doneSvg}<span>${escapeChromeText("done")}</span>`;
+    return `${playSvg}<span>${escapeChromeText("start")}</span>`;
+  };
+
+  const petCompanionName = () => {
+    const name = document.documentElement.dataset.petDisplayName;
+    return typeof name === "string" && name.trim() ? name.trim() : "your pet";
+  };
+
+  const cycleSeconds = (pattern) => pattern.phases.reduce((sum, phase) => sum + phase.seconds, 0);
+
+  const formatClock = (totalSeconds) => {
+    const clamped = Math.max(0, Math.round(totalSeconds));
+    const minutes = Math.floor(clamped / 60);
+    const seconds = clamped % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
+  const formatPace = (pattern) => {
+    const seconds = cycleSeconds(pattern);
+    if (seconds <= 0) return "";
+    const perMinute = 60 / seconds;
+    const rounded = Math.round(perMinute * 10) / 10;
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)} / min`;
+  };
+
+  const maxCycleDots = 16;
+
+  const renderStepTrack = () => {
+    steps.textContent = "";
+    if (descriptor?.kind === "pmr") {
+      const step = descriptor.steps[stepIndex] ?? descriptor.steps[0];
+      if (step) {
+        const tenseStep = document.createElement("div");
+        tenseStep.className = "session-step";
+        tenseStep.style.flexGrow = String(Math.max(1, step.tenseSeconds));
+        const tenseBar = document.createElement("div");
+        tenseBar.className = "session-step-bar";
+        const tenseFill = document.createElement("div");
+        tenseFill.className = "session-step-fill";
+        tenseBar.appendChild(tenseFill);
+        const tenseLabel = document.createElement("div");
+        tenseLabel.className = "session-step-label";
+        tenseLabel.textContent = `${step.tenseLabel || chromeText("tense")} · ${formatSeconds(step.tenseSeconds)}`;
+        tenseStep.appendChild(tenseBar);
+        tenseStep.appendChild(tenseLabel);
+        steps.appendChild(tenseStep);
+
+        const releaseStep = document.createElement("div");
+        releaseStep.className = "session-step";
+        releaseStep.style.flexGrow = String(Math.max(1, step.releaseSeconds));
+        const releaseBar = document.createElement("div");
+        releaseBar.className = "session-step-bar";
+        const releaseFill = document.createElement("div");
+        releaseFill.className = "session-step-fill";
+        releaseBar.appendChild(releaseFill);
+        const releaseLabel = document.createElement("div");
+        releaseLabel.className = "session-step-label";
+        releaseLabel.textContent = `${step.releaseLabel || chromeText("release")} · ${formatSeconds(step.releaseSeconds)}`;
+        releaseStep.appendChild(releaseBar);
+        releaseStep.appendChild(releaseLabel);
+        steps.appendChild(releaseStep);
+      }
+      return;
+    }
+    const pattern = selectedPattern();
+    if (!descriptor || !pattern) return;
+    for (const phase of pattern.phases) {
+      const step = document.createElement("div");
+      step.className = "session-step";
+      step.style.flexGrow = String(Math.max(1, phase.seconds));
+      const bar = document.createElement("div");
+      bar.className = "session-step-bar";
+      const fill = document.createElement("div");
+      fill.className = "session-step-fill";
+      bar.appendChild(fill);
+      const label = document.createElement("div");
+      label.className = "session-step-label";
+      label.textContent = `${phasePresentation(phase).name} · ${formatSeconds(phase.seconds)}`;
+      step.appendChild(bar);
+      step.appendChild(label);
+      steps.appendChild(step);
+    }
+  };
+
+  const renderStatics = () => {
+    if (!descriptor) return;
+    const isPmr = descriptor.kind === "pmr";
+
+    if (isPmr) {
+      topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><circle cx="12" cy="5" r="1"/><path d="m9 20l3-6l3 6M6 8l6 2l6-2m-6 2v4"/></svg>';
+      lungsTile.style.flex = "1 1 0";
+      lungsIcon.style.display = "none";
+      phaseWord.style.display = "";
+      paceTile.style.display = "none";
+    } else {
+      topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>';
+      lungsTile.style.flex = "";
+      lungsIcon.style.display = "";
+      phaseWord.style.display = "none";
+      paceTile.style.display = "";
+    }
+
+    renderStepTrack();
+
+    // Cycle dots for short finite runs; a slim bar otherwise.
+    if (isPmr) {
+      dotsBox.style.display = "none";
+      dotsBar.style.display = "";
+    } else {
+      const pattern = selectedPattern();
+      const useDots = pattern && pattern.cycles !== null && pattern.cycles <= maxCycleDots;
+      dotsBox.style.display = useDots ? "" : "none";
+      dotsBar.style.display = useDots ? "none" : "";
+      if (useDots) {
+        dotsBox.textContent = "";
+        for (let index = 0; index < pattern.cycles; index += 1) {
+          const dot = document.createElement("span");
+          dot.className = "session-dot";
+          dotsBox.appendChild(dot);
+        }
+      }
+    }
+
+    if (!isPmr) {
+      const pattern = selectedPattern();
+      if (pattern) {
+        paceValue.textContent = formatPace(pattern);
+        paceLabel.textContent = chromeText("breathPace");
+      }
+    }
+
+    renderAudioButton();
+    closeBtn.setAttribute("aria-label", chromeText("close"));
+    closeBtn.setAttribute("title", `${chromeText("close")} (Esc)`);
+    infoBtn.setAttribute("aria-label", chromeText("about"));
+    infoBtn.setAttribute("title", chromeText("about"));
+    card.classList.toggle("is-complete", runState === "complete");
+    primaryBtn.innerHTML = primaryButtonContent();
+    restartBtn.innerHTML = `${restartSvg}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
+    restartBtn.style.display = runState === "idle" || runState === "countdown" ? "none" : "";
+    infoBtn.style.display = descriptor.info ? "" : "none";
+
+    if (runState === "idle" && descriptor.practices && descriptor.practices.length > 1) {
+      const currentId = descriptor.practiceId ?? (isPmr ? "pmr" : "breathing");
+      const currentIndex = descriptor.practices.findIndex((p) => p.id === currentId);
+      const nextPractice = descriptor.practices[(currentIndex + 1) % descriptor.practices.length];
+      if (nextPractice) {
+        switchPracticeBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg><span>${escapeHtml(nextPractice.name)}</span>`;
+        switchPracticeBtn.style.display = "";
+      } else {
+        switchPracticeBtn.style.display = "none";
+      }
+    } else {
+      switchPracticeBtn.style.display = "none";
+    }
+
+    renderProgressMeta();
+    renderPhaseText();
+    // Card contents can change its height across states, and the orb stack is
+    // anchored to the card — re-measure after this render settles.
+    scheduleSessionGeometry();
+  };
+
+  /** Cycle dots/bar state, the count label, and the paw footer line. */
+  const renderProgressMeta = () => {
+    if (!descriptor) return;
+    if (descriptor.kind === "pmr") {
+      const totalSteps = descriptor.steps.length;
+      dotsCount.innerHTML = "";
+      if (runState === "idle" || runState === "countdown") {
+        dotsCount.textContent = chromeText("groupProgress", { n: 1, total: totalSteps });
+      } else {
+        const displayStep = runState === "complete" ? totalSteps : Math.min(stepIndex + 1, totalSteps);
+        const current = document.createElement("span");
+        current.className = "count-current";
+        current.textContent = String(displayStep);
+        dotsCount.appendChild(current);
+        dotsCount.appendChild(document.createTextNode(` / ${totalSteps}`));
+      }
+
+      if (runState === "complete") footer.textContent = `🐾  ${chromeText("footerComplete")}  🐾`;
+      else if (runState === "idle" || runState === "countdown") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
+      else footer.textContent = `🐾  ${chromeText("footerRelaxing", { name: petCompanionName() })}  🐾`;
+      return;
+    }
+
+    const pattern = selectedPattern();
+    if (!pattern) return;
+
+    if (pattern.cycles !== null) {
+      dotsCount.innerHTML = "";
+      if (runState === "idle" || runState === "countdown") {
+        dotsCount.textContent = chromeText("cyclesCount", { count: pattern.cycles });
+      } else {
+        const displayCycle = runState === "complete" ? pattern.cycles : Math.min(cycleIndex + 1, pattern.cycles);
+        const current = document.createElement("span");
+        current.className = "count-current";
+        current.textContent = String(displayCycle);
+        dotsCount.appendChild(current);
+        dotsCount.appendChild(document.createTextNode(` / ${pattern.cycles}`));
+      }
+    } else {
+      dotsCount.textContent = runState === "idle" || runState === "countdown" ? chromeText("untilStopped") : chromeText("cycleN", { n: cycleIndex + 1 });
+    }
+
+    const dots = dotsBox.children;
+    for (let index = 0; index < dots.length; index += 1) {
+      const done = runState === "complete" || ((runState === "active" || runState === "paused") && index < cycleIndex);
+      const isCurrent = (runState === "active" || runState === "paused") && index === cycleIndex;
+      dots[index].classList.toggle("is-done", done);
+      dots[index].classList.toggle("is-current", isCurrent);
+    }
+
+    if (runState === "complete") footer.textContent = `🐾  ${chromeText("footerComplete")}  🐾`;
+    else if (runState === "idle" || runState === "countdown") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
+    else footer.textContent = `🐾  ${chromeText("footerBreathing", { name: petCompanionName() })}  🐾`;
+  };
+
+  const formatSeconds = (seconds) => {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}s`;
+  };
+
+  // --- Frame loop ----------------------------------------------------------
+
+  const frame = (now) => {
+    rafHandle = null;
+    if (!descriptor) return;
+    const nowSeconds = now / 1000;
+    const deltaMs = lastFrameAt > 0 ? Math.min(120, now - lastFrameAt) : 0;
+    lastFrameAt = now;
+
+    advanceClock(runState === "active" ? deltaMs : 0, nowSeconds);
+
+    // Lead-in countdown before the first inhale.
+    if (runState === "countdown") {
+      countdownRemainingMs -= deltaMs;
+      if (countdownRemainingMs <= 0) {
+        beginActiveRun();
+      } else {
+        const text = String(Math.max(1, Math.ceil(countdownRemainingMs / 1000)));
+        if (text !== lastCountdownText) {
+          lastCountdownText = text;
+          phaseCountValue.textContent = text;
+        }
+      }
+    }
+
+    const settlingToStart = runState === "countdown" && countdownRemainingMs < 1600;
+    let breathTarget = 0.25;
+
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex];
+      const phaseMs = step ? (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000 : 1;
+      const phaseProgress = step ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+      const eased = easeInOutSine(phaseProgress);
+      // Tense gathers the orb inward. Release lets it open, short of a full
+      // inhale balloon — the opposite of the breathing swell.
+      breathTarget = runState === "complete"
+        ? 0.3
+        : settlingToStart
+          ? 0.35
+          : runState === "idle" || runState === "countdown"
+            ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+            : stepPhase === "tense"
+              ? 0.45 - eased * (0.45 - 0.08)
+              : 0.08 + eased * (0.62 - 0.08);
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      const phaseMs = phase ? phase.seconds * 1000 : 1;
+      const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+      breathTarget = runState === "complete"
+        ? 0.3
+        : settlingToStart
+          ? 0.02
+          : runState === "idle" || runState === "countdown"
+            ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+            : breathTargetFor(phase, phaseProgress);
+    }
+
+    const smoothing = runState === "active" ? 0.16 : 0.05;
+    breathValue += (breathTarget - breathValue) * smoothing;
+
+    for (let channel = 0; channel < 3; channel += 1) {
+      const target = runState === "active" ? targetColor[channel] : IDLE_COLOR[channel];
+      currentColor[channel] += (target - currentColor[channel]) * 0.06;
+    }
+
+    // Countdown reflects the live phase clock.
+    if (descriptor.kind === "pmr") {
+      if (runState === "active") {
+        const step = descriptor.steps[stepIndex];
+        if (step) {
+          const phaseMs = (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000;
+          const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
+          const text = String(remaining);
+          if (text !== lastCountdownText) {
+            lastCountdownText = text;
+            phaseCountValue.textContent = text;
+          }
+        }
+      }
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      if (phase && runState === "active") {
+        const phaseMs = phase.seconds * 1000;
+        const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
+        const text = String(remaining);
+        if (text !== lastCountdownText) {
+          lastCountdownText = text;
+          phaseCountValue.textContent = text;
+        }
+      }
+    }
+
+    // Session timer tile (whole-session remaining, or elapsed when endless)
+    // plus the slim per-cycle/step bar.
+    if (descriptor.kind === "pmr") {
+      const totalSeconds = descriptor.steps.reduce((sum, s) => sum + s.tenseSeconds + s.releaseSeconds, 0);
+      let elapsedSeconds = 0;
+      for (let i = 0; i < stepIndex && i < descriptor.steps.length; i += 1) {
+        elapsedSeconds += descriptor.steps[i].tenseSeconds + descriptor.steps[i].releaseSeconds;
+      }
+      const currentStep = descriptor.steps[stepIndex];
+      if (currentStep && (runState === "active" || runState === "paused")) {
+        if (stepPhase === "tense") {
+          elapsedSeconds += phaseElapsedMs / 1000;
+        } else {
+          elapsedSeconds += currentStep.tenseSeconds + phaseElapsedMs / 1000;
+        }
+      }
+      const remainingSeconds = runState === "complete" ? 0 : Math.max(0, totalSeconds - elapsedSeconds);
+      const timerText = formatClock(remainingSeconds);
+      if (timerValue.textContent !== timerText) timerValue.textContent = timerText;
+      timerLabel.textContent = chromeText("remaining");
+
+      if (dotsBar.style.display !== "none") {
+        const progressFraction = runState === "complete"
+          ? 1
+          : runState === "idle" || runState === "countdown"
+            ? 0
+            : elapsedSeconds / Math.max(1, totalSeconds);
+        dotsBarFill.style.width = `${Math.min(100, Math.max(0, progressFraction * 100))}%`;
+      }
+    } else {
+      const pattern = selectedPattern();
+      if (pattern) {
+        const secondsPerCycle = cycleSeconds(pattern);
+        const phase = (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+        const phaseMs = phase ? phase.seconds * 1000 : 1;
+        const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+        const withinCycleSeconds = runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress) * secondsPerCycle;
+        const elapsedSeconds = cycleIndex * secondsPerCycle + withinCycleSeconds;
+        let timerText;
+        if (pattern.cycles !== null) {
+          const totalSeconds = pattern.cycles * secondsPerCycle;
+          timerText = formatClock(runState === "complete" ? 0 : totalSeconds - elapsedSeconds);
+          timerLabel.textContent = chromeText("remaining");
+        } else {
+          timerText = formatClock(elapsedSeconds);
+          timerLabel.textContent = chromeText("elapsed");
+        }
+        if (timerValue.textContent !== timerText) timerValue.textContent = timerText;
+        if (dotsBar.style.display !== "none") {
+          dotsBarFill.style.width = `${Math.min(100, (withinCycleSeconds / Math.max(1, secondsPerCycle)) * 100)}%`;
+        }
+      }
+    }
+
+    if (descriptor.kind === "breathing") {
+      lungsIcon.style.transform = `scale(${(0.88 + 0.24 * breathValue).toFixed(3)})`;
+      lungsIcon.style.color = runState === "active" ? currentPhaseCss : "";
+    }
+
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex];
+      const fills = steps.querySelectorAll(".session-step-fill");
+      if (step && fills.length >= 2) {
+        if (runState === "active" || runState === "paused") {
+          if (stepPhase === "tense") {
+            const progress = Math.min(1, phaseElapsedMs / (step.tenseSeconds * 1000));
+            fills[0].style.width = `${progress * 100}%`;
+            fills[1].style.width = "0%";
+          } else {
+            const progress = Math.min(1, phaseElapsedMs / (step.releaseSeconds * 1000));
+            fills[0].style.width = "100%";
+            fills[1].style.width = `${progress * 100}%`;
+          }
+        } else if (runState === "complete") {
+          fills[0].style.width = "100%";
+          fills[1].style.width = "100%";
+        } else {
+          fills[0].style.width = "0%";
+          fills[1].style.width = "0%";
+        }
+      }
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      if (phase) {
+        const phaseMs = phase.seconds * 1000;
+        const phaseProgress = Math.min(1, phaseElapsedMs / phaseMs);
+        const fills = steps.querySelectorAll(".session-step-fill");
+        const activeFill = fills[phaseIndex];
+        if (activeFill) activeFill.style.width = `${phaseProgress * 100}%`;
+      }
+    }
+
+    if (orbGl) {
+      const dpr = resizeOrbCanvas();
+      const { gl, uniforms } = orbGl;
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(uniforms.resolution, orbCanvas.width, orbCanvas.height);
+      gl.uniform1f(uniforms.radius, ORB_RADIUS * dpr);
+      gl.uniform1f(uniforms.time, nowSeconds);
+      gl.uniform1f(uniforms.breath, breathValue);
+      gl.uniform1f(uniforms.energy, runState === "paused" ? 0.55 : runState === "idle" ? 0.7 : runState === "countdown" ? 0.8 : 1.0);
+      gl.uniform1f(uniforms.pulse, pulseStartedAt);
+      gl.uniform3f(uniforms.tint, currentColor[0], currentColor[1], currentColor[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    rafHandle = requestAnimationFrame(frame);
+  };
+
+  const cycleProgressWithinCycle = (pattern, phaseProgress) => {
+    if (!pattern) return 0;
+    const total = pattern.phases.reduce((sum, phase) => sum + phase.seconds, 0);
+    let elapsed = 0;
+    for (let index = 0; index < phaseIndex; index += 1) elapsed += pattern.phases[index].seconds;
+    const current = pattern.phases[phaseIndex];
+    elapsed += (current ? current.seconds : 0) * phaseProgress;
+    return total > 0 ? Math.min(1, elapsed / total) : 0;
+  };
+
+  const startFrameLoop = () => {
+    if (rafHandle === null) {
+      lastFrameAt = 0;
+      rafHandle = requestAnimationFrame(frame);
+    }
+  };
+
+  const stopFrameLoop = () => {
+    if (rafHandle !== null) {
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+  };
+
+  // --- Run control ---------------------------------------------------------
+
+  const resetClock = () => {
+    phaseIndex = 0;
+    cycleIndex = 0;
+    stepIndex = 0;
+    stepPhase = "tense";
+    phaseElapsedMs = 0;
+    lastCountdownText = "";
+  };
+
+  const beginActiveRun = () => {
+    if (!descriptor) return;
+    resetClock();
+    breathValue = Math.min(breathValue, 0.05);
+    runState = "active";
+    triggerPulse(performance.now() / 1000);
+    renderStatics();
+    if (descriptor.kind === "breathing") {
+      const pattern = selectedPattern();
+      if (pattern) {
+        playPhaseCue(pattern.phases[0].kind);
+        sendSessionEvent({ type: "started", patternId: pattern.id });
+      }
+    } else if (descriptor.kind === "pmr") {
+      sendSessionEvent({ type: "started", patternId: "pmr" });
+    }
+  };
+
+  const startRun = () => {
+    if (!descriptor) return;
+    if (descriptor.kind === "breathing" && !selectedPattern()) return;
+    const countdownSeconds = Number(descriptor?.countdownSeconds);
+    if (Number.isFinite(countdownSeconds) && countdownSeconds > 0) {
+      resetClock();
+      runState = "countdown";
+      countdownRemainingMs = countdownSeconds * 1000;
+      lastCountdownText = "";
+      renderStatics();
+      return;
+    }
+    beginActiveRun();
+  };
+
+  const selectPattern = (patternId) => {
+    selectedPatternId = patternId;
+    resetClock();
+    const pattern = selectedPattern();
+    if (runState === "active") {
+      stopCuePlayback();
+      if (pattern && pattern.phases[0]) playPhaseCue(pattern.phases[0].kind);
+    }
+    renderStatics();
+    sendSessionEvent({ type: "patternChanged", patternId: pattern ? pattern.id : patternId });
+  };
+
+  const currentCycleNumber = () => cycleIndex + 1;
+
+  primaryBtn.addEventListener("click", () => {
+    if (!descriptor) return;
+    if (descriptor.kind === "pmr") {
+      if (runState === "active") {
+        runState = "paused";
+        sendSessionEvent({ type: "paused", patternId: "pmr", cycle: 1 });
+        renderStatics();
+      } else if (runState === "paused") {
+        runState = "active";
+        sendSessionEvent({ type: "resumed", patternId: "pmr", cycle: 1 });
+        renderStatics();
+      } else if (runState === "complete") {
+        dismissOverlay();
+      } else if (runState === "countdown") {
+        beginActiveRun();
+      } else {
+        startRun();
+      }
+      return;
+    }
+    const pattern = selectedPattern();
+    if (!pattern) return;
+    if (runState === "active") {
+      runState = "paused";
+      stopCuePlayback();
+      sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else if (runState === "paused") {
+      runState = "active";
+      sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
+      renderStatics();
+    } else if (runState === "complete") {
+      dismissOverlay();
+    } else if (runState === "countdown") {
+      beginActiveRun();
+    } else {
+      startRun();
+    }
+  });
+
+  restartBtn.addEventListener("click", () => {
+    if (!descriptor || runState === "idle") return;
+    if (descriptor.kind === "breathing" && !selectedPattern()) return;
+    startRun();
+  });
+
+  const renderAudioButton = () => {
+    const available = Boolean(audioCues && audioCues.allowed && (audioCues.inhaleEl || audioCues.exhaleEl));
+    audioBtn.style.display = available ? "" : "none";
+    if (!available) return;
+    const muted = !audioCues.enabled;
+    audioBtn.innerHTML = muted ? volumeOffSvg : volumeOnSvg;
+    audioBtn.setAttribute("aria-label", chromeText(muted ? "unmute" : "mute"));
+    audioBtn.setAttribute("title", chromeText(muted ? "unmute" : "mute"));
+    audioBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+  };
+
+  audioBtn.addEventListener("click", () => {
+    if (!audioCues) return;
+    audioCues.enabled = !audioCues.enabled;
+    if (!audioCues.enabled) stopCuePlayback();
+    renderAudioButton();
+    sendSessionEvent({ type: "audioToggled", enabled: audioCues.enabled });
+  });
+
+  infoBtn.addEventListener("click", () => {
+    if (!descriptor?.info) return;
+    // The host opens the dedicated Info window in response.
+    sendSessionEvent({ type: "infoOpened" });
+  });
+
+  const dismissOverlay = () => {
+    sendSessionEvent({ type: "dismissed" });
+  };
+
+  closeBtn.addEventListener("click", dismissOverlay);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !descriptor) return;
+    dismissOverlay();
+  });
+
+  // --- Descriptor intake ---------------------------------------------------
+
+  const applyPayload = (payload) => {
+    const next = payload && typeof payload === "object" ? payload.descriptor : null;
+    if (payload && typeof payload === "object" && payload.chrome && typeof payload.chrome === "object") {
+      chromeStrings = { ...chromeFallback, ...payload.chrome };
+    }
+    applyAudioPayload(payload && typeof payload === "object" ? payload.audio : null);
+    const previous = descriptor;
+    descriptor = next && typeof next === "object" ? next : null;
+    if (!descriptor) {
+      document.documentElement.dataset.sessionOpen = "false";
+      runState = "idle";
+      resetClock();
+      stopFrameLoop();
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+      }
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+      }
+      return;
+    }
+    document.documentElement.dataset.sessionOpen = "true";
+    const kindChanged = previous && (previous.kind !== descriptor.kind || previous.practiceId !== descriptor.practiceId);
+    const patternChanged = descriptor.kind === "breathing" && (selectedPatternId !== descriptor.patternId || !previous);
+    selectedPatternId = descriptor.kind === "breathing" ? descriptor.patternId : null;
+    if (!previous || kindChanged) {
+      lastRenderedCuesStep = null;
+      runState = "idle";
+      resetClock();
+      renderStatics();
+      startFrameLoop();
+      if (descriptor.autoStart) startRun();
+    } else if (patternChanged) {
+      selectPattern(descriptor.patternId);
+    } else {
+      renderStatics();
+    }
+  };
+
+  ipcRenderer.on("openpets:session-overlay", (_event, payload) => applyPayload(payload));
+
+  // Plugin-driven controls (pet menu commands relayed through the host).
+  ipcRenderer.on("openpets:session-overlay-control", (_event, action) => {
+    if (!descriptor) return;
+    const isPmr = descriptor.kind === "pmr";
+    const patternId = isPmr ? "pmr" : selectedPattern()?.id;
+    if (!patternId) return;
+    if (action === "pause" && runState === "active") {
+      runState = "paused";
+      stopCuePlayback();
+      sendSessionEvent({ type: "paused", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
+      renderStatics();
+    } else if (action === "resume" && runState === "paused") {
+      runState = "active";
+      sendSessionEvent({ type: "resumed", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
+      renderStatics();
+    } else if (action === "stop" && (runState === "active" || runState === "paused")) {
+      stopCuePlayback();
+      sendSessionEvent({ type: "stopped", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
+      runState = "idle";
+      resetClock();
+      renderStatics();
+    }
+  });
+
+  ipcRenderer
+    .invoke("openpets:session-overlay-get")
+    .then((existing) => {
+      if (existing && !descriptor) applyPayload(existing);
+    })
+    .catch(() => {});
+};
+
 const installMouseInterop = () => {
   lastInteractiveHit = null;
   dragging = false;
@@ -2306,6 +3981,7 @@ const installMouseInterop = () => {
   installPetSenses();
   installDefaultPetChat();
   installDefaultPetManagerCheckIn();
+  installDefaultPetSession();
   if (usesNativePetDrag()) installLayerShellContextMenu();
 
   let dragStartPoint = null;

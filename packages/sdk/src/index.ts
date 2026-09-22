@@ -50,6 +50,7 @@ export type OpenPetsPermission =
   | "ui:toast"
   | "ui:panel"
   | "ui:delivery"
+  | "ui:session"
   | "notify"
   | "bus"
   | "ai"
@@ -301,6 +302,242 @@ export interface OpenPetsDeliveryHandle {
   onDismiss(handler: (reason: OpenPetsDeliveryDismissReason) => void): void;
 }
 
+// ---------------------------------------------------------------------------
+// Practice session overlay (§7.4)
+// ---------------------------------------------------------------------------
+
+/** One timed phase of a breathing pattern. */
+export interface OpenPetsBreathPhase {
+  /** Breath direction: inhale, hold, or exhale. */
+  kind: "in" | "hold" | "out";
+  /** Phase duration in seconds (1–30; holds may be omitted entirely). */
+  seconds: number;
+  /** Short guidance line shown with the phase (e.g. "Breathe in slowly"). */
+  label?: string;
+}
+
+/** A named breathing pattern selectable inside the session overlay. */
+export interface OpenPetsBreathPattern {
+  /** Stable pattern id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Display name (e.g. "Calm 4-6"). */
+  name: string;
+  /** One-line hint shown with the pattern chip (e.g. "longer exhale"). */
+  hint?: string;
+  /** Ordered phases of one cycle (1–8 phases). */
+  phases: OpenPetsBreathPhase[];
+  /** Cycles per session (1–99), or null/omitted for until-stopped. */
+  cycles?: number | null;
+}
+
+/**
+ * Named host icons available on session Info cards:
+ * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
+ * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
+ * `sparkles`, `timer`.
+ */
+export type OpenPetsSessionInfoIcon =
+  | "activity"
+  | "wind"
+  | "trending-down"
+  | "heart-pulse"
+  | "shield-check"
+  | "brain"
+  | "person-standing"
+  | "armchair"
+  | "calendar-check"
+  | "leaf"
+  | "sparkles"
+  | "timer";
+
+/** A titled card inside an Info section (mechanism, research finding, tip). */
+export interface OpenPetsSessionInfoCard {
+  title: string;
+  body: string;
+  /** Optional https link (e.g. the study the card summarizes). */
+  url?: string;
+  /** Optional named host icon shown beside the title. */
+  icon?: OpenPetsSessionInfoIcon;
+}
+
+/**
+ * One structured section of the session Info window. At least one of `body`,
+ * `items`, or `cards` must be present; they may be combined (e.g. a lead
+ * paragraph followed by cards).
+ */
+export interface OpenPetsSessionInfoSection {
+  heading: string;
+  /** Plain-text body; blank lines separate paragraphs. */
+  body?: string;
+  /** Bullet list (rendered as a checklist), 1–8 entries. */
+  items?: string[];
+  /** Titled cards, 1–6 entries. */
+  cards?: OpenPetsSessionInfoCard[];
+}
+
+/** A citation listed at the end of the Info sheet. */
+export interface OpenPetsSessionCitation {
+  /** Human-readable reference (authors, year, journal). */
+  label: string;
+  /** Optional https link to the source. */
+  url?: string;
+}
+
+/**
+ * On-demand knowledge layer for the current technique, rendered by the host
+ * as a dedicated Info window (opened from the session overlay's Info button).
+ */
+export interface OpenPetsSessionInfo {
+  /** Short lead paragraph. */
+  intro?: string;
+  /** Structured sections (how it works, science, tips…), 1–8. */
+  sections: OpenPetsSessionInfoSection[];
+  citations?: OpenPetsSessionCitation[];
+  /** Clinical disclaimer line rendered distinctly. */
+  disclaimer?: string;
+  /** Product attribution link rendered as a real URL (https only). */
+  site?: { label: string; url: string };
+  /** Manifest-declared SVG shown centered in the Info window header. */
+  logo?: OpenPetsAssetRef;
+}
+
+/**
+ * Descriptor for the host-rendered practice session overlay. The overlay is
+ * drawn around the default pet inside the pet window (night-sky orb, bottom
+ * card, and dedicated Info window). The host owns rendering and the phase
+ * clock; the plugin supplies patterns or steps and knowledge content and
+ * receives lifecycle events.
+ */
+/**
+ * Phase audio cues played by the overlay at inhale/exhale transitions.
+ * Sounds are manifest-declared assets; the host gates playback behind the
+ * global plugin-audio setting and quiet hours, and the overlay shows a
+ * mute toggle that reports back as an `audioToggled` event.
+ */
+export interface OpenPetsSessionAudio {
+  /** Manifest-declared sound played when an inhale phase starts. */
+  inhale: OpenPetsAssetRef;
+  /** Manifest-declared sound played when an exhale phase starts. */
+  exhale: OpenPetsAssetRef;
+  /** Initial cue state (default true); the user can toggle it in the overlay. */
+  enabled?: boolean;
+}
+
+export interface OpenPetsPracticeChoice {
+  /** Stable practice id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Display name (1–40 chars). */
+  name: string;
+}
+
+export interface OpenPetsPmrStep {
+  /** Stable step id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Group name (1–60 chars). */
+  name: string;
+  /** Duration in seconds (1–30, quarter-second rounding). */
+  tenseSeconds: number;
+  /** Duration in seconds (1–30, quarter-second rounding). */
+  releaseSeconds: number;
+  /** Short phase label (1–24 chars, e.g. "Tense"). */
+  tenseLabel: string;
+  /** Short phase label (1–24 chars, e.g. "Release"). */
+  releaseLabel: string;
+  /** Guidance line (1–120 chars, single line). */
+  tenseCue: string;
+  /** Guidance line (1–120 chars, single line). */
+  releaseCue: string;
+  /** Optional bulleted tense cues (1–4 items, 1–80 chars each). */
+  tenseCues?: string[];
+  /** Optional bulleted release cues (1–4 items, 1–80 chars each). */
+  releaseCues?: string[];
+  /** Optional manifest-declared SVG illustration of the tense pose. */
+  tenseIllustration?: OpenPetsAssetRef;
+  /** Optional manifest-declared SVG illustration of the release pose. */
+  releaseIllustration?: OpenPetsAssetRef;
+}
+
+export interface OpenPetsPmrSessionOptions {
+  kind: "pmr";
+  /** Overlay title (e.g. "Muscle relaxation"). */
+  title: string;
+  /** Small line under the title (e.g. "Anxiety Aid Tools"). */
+  subtitle?: string;
+  /** Ordered muscle group steps (1–24 steps). */
+  steps: OpenPetsPmrStep[];
+  /** Start immediately (default true). */
+  autoStart?: boolean;
+  /**
+   * Lead-in countdown before the first step, in seconds (0–15, default 5).
+   */
+  countdownSeconds?: number;
+  /** Info sheet content for the current technique. */
+  info?: OpenPetsSessionInfo;
+  /** Practices offered by the switch control (1–6 entries). */
+  practices?: OpenPetsPracticeChoice[];
+  /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
+}
+
+export interface OpenPetsBreathingSessionOptions {
+  kind: "breathing";
+  /** Overlay title (e.g. "Breathing"). */
+  title: string;
+  /** Small line under the title (e.g. "Anxiety Aid Tools"). */
+  subtitle?: string;
+  /** Patterns offered by the picker (1–12). */
+  patterns: OpenPetsBreathPattern[];
+  /** Initially selected pattern id; defaults to the first pattern. */
+  patternId?: string;
+  /** Start the phase clock immediately (default true). */
+  autoStart?: boolean;
+  /**
+   * Calm lead-in before the first inhale of every run, in seconds (0–15,
+   * default 5). The overlay counts it down; 0 starts breathing immediately.
+   */
+  countdownSeconds?: number;
+  /** Info sheet content for the current technique. */
+  info?: OpenPetsSessionInfo;
+  /** Optional phase audio cues with an overlay mute toggle. */
+  audio?: OpenPetsSessionAudio;
+  /** Practices offered by the switch control (1–6 entries). */
+  practices?: OpenPetsPracticeChoice[];
+  /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
+}
+
+export type OpenPetsSessionOptions = OpenPetsBreathingSessionOptions | OpenPetsPmrSessionOptions;
+
+/** Lifecycle and interaction events emitted by the session overlay. */
+export type OpenPetsSessionEvent =
+  | { type: "started"; patternId: string }
+  | { type: "paused"; patternId: string; cycle: number }
+  | { type: "resumed"; patternId: string; cycle: number }
+  | { type: "patternChanged"; patternId: string }
+  | { type: "completed"; patternId: string; cycles: number }
+  | { type: "stopped"; reason: OpenPetsSessionStopReason; patternId: string; cycle: number }
+  | { type: "infoOpened" }
+  | { type: "audioToggled"; enabled: boolean }
+  | { type: "practiceSelected"; practiceId: string };
+
+export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin-stopped";
+
+/** Live handle to the session overlay. */
+export interface OpenPetsSessionHandle {
+  readonly id: string;
+  /** Replace the selected pattern, the pattern list, or the Info content. */
+  update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
+  /** Pause the running phase clock (no-op unless a run is active). */
+  pause(): Promise<void>;
+  /** Resume a paused run (no-op unless paused). */
+  resume(): Promise<void>;
+  /** End the current run and return the overlay to its idle state. */
+  stop(): Promise<void>;
+  /** Close the overlay (emits a final `stopped` event when a run was active). */
+  close(): Promise<void>;
+  onEvent(handler: (event: OpenPetsSessionEvent) => void): void;
+}
+
 /** Alert header indicator rendered above alert text. Custom art must be a manifest-declared asset. */
 export interface OpenPetsAlertIndicator {
   /** Visible/accessibility label shown next to the icon. */
@@ -351,6 +588,12 @@ export interface OpenPetsUiApi {
   panel(spec: OpenPetsPanelOptions): Promise<OpenPetsPanelHandle>;
   /** Show a host-owned delivery surface on the cursor display. Requires `ui:delivery`. */
   delivery(spec: OpenPetsDelivery): Promise<OpenPetsDeliveryHandle>;
+  /**
+   * Open the host-rendered practice session overlay around the default pet
+   * (§7.4). One session may be open at a time; opening another replaces it.
+   * Requires `ui:session`.
+   */
+  session(spec: OpenPetsSessionOptions): Promise<OpenPetsSessionHandle>;
   /** Fully dynamic context-menu section. Requires `commands`. */
   menu: OpenPetsMenuApi;
 }

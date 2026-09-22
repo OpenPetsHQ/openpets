@@ -798,6 +798,7 @@ function createTestCapabilities(): TestCapabilities {
     toast: async () => undefined,
     notify: async () => undefined,
     panels: { open: async () => ({ id: "panel", show: async () => undefined, hide: async () => undefined, postMessage: async () => undefined, close: async () => undefined }) },
+    session: { open: async () => ({ update: async () => undefined, pause: async () => undefined, resume: async () => undefined, stop: async () => undefined, close: async () => undefined }) },
     delivery: { teardowns: 0, async register(_pluginId, _descriptor) { let handler: ((reason: "click" | "manual" | "expired" | "plugin-stopped") => void) | undefined; this.dismiss = (reason) => handler?.(reason); return { dismiss: () => this.dismiss?.("manual"), onDismiss: (next) => { handler = next; } }; }, teardown() { this.teardowns += 1; } },
     secrets: { get: async () => undefined, set: async () => undefined, delete: async () => undefined, has: async () => false },
     ai: { available: async () => false, complete: async () => ({ text: "" }), stream: async () => ({ text: "" }) },

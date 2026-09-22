@@ -1,7 +1,7 @@
 export const pluginSdkPreloadAsyncRoutes = [
   "pet.speak", "pet.react", "pet.setAnimation", "pet.setScale", "pet.setStatusReaction", "pet.moveBy", "pet.wander", "pet.moveToHome", "pet.moveTo", "pet.followCursor", "pet.physics", "pet.onTick", "pet.offTick", "pet.getState", "pet.show", "pet.hide", "pet.close",
   "pets.list", "pets.spawn", "pets.onChange", "pets.offChange",
-  "ui.bubble", "ui.alert", "ui.bubbleUpdate", "ui.bubbleDismiss", "ui.bubblePin", "ui.bubbleUnpin", "ui.bubbleSubscribe", "ui.toast", "ui.panel", "ui.panelShow", "ui.panelHide", "ui.panelPost", "ui.panelClose", "ui.panelOnMessage", "ui.delivery", "ui.deliveryDismiss", "ui.deliverySubscribe", "ui.menuSetItems", "ui.menuOnSelect", "ui.menuOffSelect",
+  "ui.bubble", "ui.alert", "ui.bubbleUpdate", "ui.bubbleDismiss", "ui.bubblePin", "ui.bubbleUnpin", "ui.bubbleSubscribe", "ui.toast", "ui.panel", "ui.panelShow", "ui.panelHide", "ui.panelPost", "ui.panelClose", "ui.panelOnMessage", "ui.delivery", "ui.deliveryDismiss", "ui.deliverySubscribe", "ui.session", "ui.sessionUpdate", "ui.sessionPause", "ui.sessionResume", "ui.sessionStop", "ui.sessionClose", "ui.sessionSubscribe", "ui.menuSetItems", "ui.menuOnSelect", "ui.menuOffSelect",
   "audio.play", "audio.importUserSound", "audio.forgetUserSound", "audio.stop",
   "events.on", "events.off",
   "bus.publish", "bus.subscribe", "bus.unsubscribe",

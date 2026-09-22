@@ -88,6 +88,7 @@ function executePreload(source: string): {
     if (path === "pet.speak" || path === "ui.bubble" || path === "ui.alert") return { bubbleId: "bubble-1" };
     if (path === "ui.panel") return { panelId: "panel-1" };
     if (path === "ui.delivery") return { deliveryId: "delivery-1" };
+    if (path === "ui.session") return { sessionId: "session-1" };
     if (
       path.endsWith(".on") ||
       path.endsWith("Subscribe") ||
@@ -197,6 +198,51 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   });
   await delivery.dismiss();
   delivery.onDismiss(() => undefined);
+  const session = await sdk.ui.session({
+    kind: "breathing",
+    title: "Breathing",
+    patterns: [{ id: "calm", name: "Calm 4-6", phases: [{ kind: "in", seconds: 4 }, { kind: "out", seconds: 6 }], cycles: 12 }],
+  });
+  session.onEvent(() => undefined);
+  await session.update({ patternId: "calm" });
+  await session.pause();
+  await session.resume();
+  await session.stop();
+  await session.close();
+
+  const pmrSession = await sdk.ui.session({
+    kind: "pmr",
+    title: "Muscle relaxation",
+    steps: [
+      {
+        id: "step-1",
+        name: "Hands",
+        tenseSeconds: 10,
+        releaseSeconds: 10,
+        tenseLabel: "Tense",
+        releaseLabel: "Release",
+        tenseCue: "Clench fists.",
+        releaseCue: "Release fists.",
+        tenseIllustration: sdk.assets.svg("svg"),
+        releaseIllustration: sdk.assets.svg("svg"),
+      },
+      {
+        id: "step-2",
+        name: "Arms",
+        tenseSeconds: 10,
+        releaseSeconds: 10,
+        tenseLabel: "Tense",
+        releaseLabel: "Release",
+        tenseCue: "Flex biceps.",
+        releaseCue: "Lower arms.",
+      },
+    ],
+  });
+  pmrSession.onEvent(() => undefined);
+  await pmrSession.pause();
+  await pmrSession.resume();
+  await pmrSession.stop();
+  await pmrSession.close();
   await sdk.ui.menu.setItems([]);
   const menuDisposer = sdk.ui.menu.onSelect(() => undefined);
   menuDisposer();

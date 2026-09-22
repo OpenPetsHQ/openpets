@@ -1,7 +1,8 @@
-import type { OpenPetsJavascriptPluginManifest, PluginPermission } from "./plugin-manifest.js";
+import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermission } from "./plugin-manifest.js";
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
-import type { BubbleSlot, DeliverySlot, PluginRuntimeState } from "./plugin-sdk-state.js";
-import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginStatus } from "./plugin-sdk-bridge.js";
+import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
+import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -14,6 +15,7 @@ export function createPluginUiApi(options: {
   readonly guardCallback: <A extends unknown[]>(fn: (...args: A) => unknown) => ((...args: A) => void);
   readonly validateBubbleSpec: (spec: unknown, forUpdate?: boolean) => PluginBubbleDescriptor;
   readonly validatePetHandleId: (value: unknown) => string;
+  readonly resolveAssetRef: (ref: unknown, kinds: readonly PluginAssetKind[]) => { path: string };
   readonly resolvePanelPath: (name: string) => string;
   readonly normalizeJson: (value: unknown, maxBytes: number, label: string) => unknown;
   readonly validateMenuItems: (value: unknown) => PluginMenuItem[];
@@ -23,7 +25,7 @@ export function createPluginUiApi(options: {
   readonly onError: (reason: string) => void;
   readonly quotas: { petActionsPerMinute: number; activeBubbles: number; notifyPerMinute: number; toastPerMinute: number; activePanels: number; deliveriesPerMinute: number; busPayloadBytes: number };
 }) {
-  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
+  const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
 
   const showBubble = async (petHandleId: string, spec: unknown): Promise<{ bubbleId: string }> => {
     requirePermission("pet:speak");
@@ -92,6 +94,106 @@ export function createPluginUiApi(options: {
       try { slot.onDismiss?.(reason); } catch (error) { onError(safeError(error)); }
     });
     return { deliveryId };
+  };
+
+  /** Swap raw manifest asset refs for their resolved on-disk paths. */
+  const resolveSessionInfoLogo = <T extends { info?: PluginSessionInfo }>(validated: T): T => {
+    const info = validated.info;
+    if (!info?.logo) return validated;
+    const { logo, ...rest } = info;
+    const resolved = resolveAssetRef(logo, ["svgs"]);
+    return { ...validated, info: { ...rest, logoSvgPath: resolved.path } };
+  };
+
+  const resolveSessionAudio = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
+    if (validated.kind === "pmr" || !validated.audio) return validated;
+    const audio = validated.audio;
+    if (!audio.inhale || !audio.exhale) return validated;
+    const { inhale, exhale, ...rest } = audio;
+    return {
+      ...validated,
+      audio: {
+        ...rest,
+        inhaleSoundPath: resolveAssetRef(inhale, ["sounds"]).path,
+        exhaleSoundPath: resolveAssetRef(exhale, ["sounds"]).path,
+      },
+    };
+  };
+
+  const resolveSessionPmrIllustrations = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
+    if (validated.kind !== "pmr") return validated;
+    const steps = validated.steps.map((step) => {
+      if (!step.tenseIllustration || !step.releaseIllustration) return step;
+      const { tenseIllustration, releaseIllustration, ...rest } = step;
+      return {
+        ...rest,
+        tenseIllustrationPath: resolveAssetRef(tenseIllustration, ["svgs"]).path,
+        releaseIllustrationPath: resolveAssetRef(releaseIllustration, ["svgs"]).path,
+      };
+    });
+    return {
+      ...validated,
+      steps,
+    };
+  };
+
+  const maxEarlySessionEvents = 16;
+  const sessionEventBuffers = new WeakMap<SessionSlot, PluginSessionEvent[]>();
+
+  const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
+    requirePermission("ui:session");
+    state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    const descriptor = resolveSessionPmrIllustrations(
+      resolveSessionAudio(resolveSessionInfoLogo(validateSessionDescriptor(spec)))
+    );
+    const sessionId = opaqueId("session");
+    const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
+    sessionEventBuffers.set(slot, []);
+
+    try {
+      slot.host = await capabilities.session.open({
+        pluginId,
+        descriptor,
+        callbacks: {
+          onEvent: (event: PluginSessionEvent) => {
+            if (slot.closed) return;
+            if (slot.onEvent) {
+              try {
+                slot.onEvent(event);
+              } catch (error) {
+                onError(safeError(error));
+              }
+              return;
+            }
+            const buffer = sessionEventBuffers.get(slot);
+            if (buffer && buffer.length < maxEarlySessionEvents) {
+              buffer.push(event);
+            }
+          },
+          onClosed: () => {
+            slot.closed = true;
+            sessionEventBuffers.delete(slot);
+            state.sessions.delete(sessionId);
+          },
+        },
+      });
+    } catch (error) {
+      sessionEventBuffers.delete(slot);
+      throw error;
+    }
+
+    if (!slot.closed) {
+      state.sessions.set(sessionId, slot);
+    } else {
+      sessionEventBuffers.delete(slot);
+    }
+    return { sessionId };
+  };
+
+  const requireSession = (sessionId: unknown): SessionSlot => {
+    const slot = state.sessions.get(String(sessionId));
+    if (!slot || slot.closed) throw new Error("Plugin session overlay is no longer open.");
+    return slot;
   };
 
   const validateDelivery = (value: unknown): PluginDeliveryDescriptor => {
@@ -172,6 +274,51 @@ export function createPluginUiApi(options: {
       panelPost: async (panelId: unknown, msg: unknown) => { await requirePanel(state, panelId).postMessage(normalizeJson(msg, quotas.busPayloadBytes, "panel message")); },
       panelClose: async (panelId: unknown) => { const panel = state.panels.get(String(panelId)); if (panel) { await panel.close(); state.panels.delete(String(panelId)); } },
       panelOnMessage: (panelId: unknown, handler: (msg: unknown) => void) => { requirePanel(state, panelId).onMessage = guardCallback(handler); },
+      session: openSession,
+      sessionUpdate: async (sessionId: unknown, patch: unknown) => {
+        const slot = requireSession(sessionId);
+        await slot.host.update(resolveSessionInfoLogo(validateSessionUpdate(patch)));
+      },
+      sessionPause: async (sessionId: unknown) => { await requireSession(sessionId).host.pause(); },
+      sessionResume: async (sessionId: unknown) => { await requireSession(sessionId).host.resume(); },
+      sessionStop: async (sessionId: unknown) => { await requireSession(sessionId).host.stop(); },
+      sessionClose: async (sessionId: unknown) => {
+        const slot = state.sessions.get(String(sessionId));
+        if (slot) {
+          sessionEventBuffers.delete(slot);
+          if (!slot.closed) {
+            await slot.host.close().catch(() => undefined);
+          }
+        }
+        state.sessions.delete(String(sessionId));
+      },
+      sessionSubscribe: (sessionId: unknown, handler: (event: PluginSessionEvent) => void) => {
+        const slot = state.sessions.get(String(sessionId));
+        if (!slot || slot.closed) {
+          logger("debug", "plugin session subscribe skipped", {
+            id: manifest.id,
+            sessionId: String(sessionId),
+            reason: "not-live",
+          });
+          return { ok: false };
+        }
+        slot.onEvent = handler;
+        const buffered = sessionEventBuffers.get(slot);
+        sessionEventBuffers.delete(slot);
+        if (buffered && buffered.length > 0) {
+          for (const event of buffered) {
+            if (slot.closed) {
+              break;
+            }
+            try {
+              handler(event);
+            } catch (error) {
+              onError(safeError(error));
+            }
+          }
+        }
+        return { ok: true };
+      },
       delivery,
       deliveryDismiss: async (deliveryId: unknown) => { await Promise.resolve(state.deliveries.get(String(deliveryId))?.host?.dismiss()); },
       deliverySubscribe: (deliveryId: unknown, handler: (reason: PluginDeliveryDismissReason) => void) => {

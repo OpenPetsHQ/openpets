@@ -14,7 +14,7 @@ import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayl
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";
 import { calculatePetInteractiveShape } from "./pet-window-shape.js";
 import { toCollapsedPosition } from "./default-pet-chat-geometry.js";
-import { getActiveChatPanelHeight, isDefaultPetCarrierExpanded, isDefaultPetChatCompactOpen } from "./default-pet-chat.js";
+import { getActiveChatPanelHeight, isDefaultPetCarrierExpanded, isDefaultPetChatCompactOpen, isDefaultPetSessionOpen } from "./default-pet-chat.js";
 
 import type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
@@ -507,6 +507,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
+    isSessionOpen: isDefaultPetSessionOpen(),
     panelHeight: isExpanded ? getActiveChatPanelHeight() : undefined,
   });
 
@@ -554,6 +555,7 @@ export function applyLinuxPetWindowShapeWithExpansion(
     hudScale,
     isExpanded,
     isCompactOpen: !isExpanded && isCompactOpen,
+    isSessionOpen: isDefaultPetSessionOpen(),
     panelHeight,
   });
 

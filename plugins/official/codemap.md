@@ -32,6 +32,7 @@ First-party SDK v3 plugin product source. These plugins are the reviewed default
 | `openpets.day-routine` | Daily routine nudges and scheduled check-ins. | `schedule`, `storage`, `commands`, `pet.speak`, `config` |
 | `openpets.mood-check-in` | Mood logging/check-in companion with configurable prompts and command entry points. | `schedule`, `storage`, `commands`, `pet`, `config` |
 | `openpets.fortune-cookie` | Periodic or command-triggered fortune messages. | `schedule`, `storage`, `commands`, `pet.speak` |
+| `openpets.anxiety-aid-tools` | Calm-practice companion of anxietyaidtools.com; drives host-rendered Calm 4-6 breathing and progressive muscle relaxation (PMR) session overlays with tense/release pose illustrations around the pet, the science-backed Info window (AAT logo, linked studies), practice switching, and pause/resume/stop pet-menu controls. Fully localized (7 locales). | `ui.session`, `commands`, `ui.menu`, `assets`, `storage` |
 | `openpets.virtual-pet` | Tamagotchi-style companion state machine with hunger/energy/happiness/affection decay, pinned HUD, click handling, and action commands. | `events`, `schedule`, `storage`, `ui.bubble`, `commands`, `pet.react`, `assets`, `audio`, `config` |
 | `openpets.system-resources` | Integrated pinned HUD for host CPU, RAM, optional GPU and system-volume Disk metrics, with optional battery/network reporting and configurable alerts. | `system:metrics`, `schedule`, `storage`, `status`, `commands`, `pet.speak`, `pet.reaction`, `pet.pin`, `events`, `assets`, `config` |
 

@@ -24,6 +24,7 @@ import { PluginSecretsStore } from "./plugin-secrets.js";
 import { showPluginToast } from "./plugin-toast.js";
 import { cancelPluginVoiceListen, pluginVoiceListen, pluginVoiceSpeak, shutdownPluginVoice } from "./plugin-voice.js";
 import { registerDelivery, stopDeliverySystem, teardownPluginDeliveries } from "./plugin-delivery.js";
+import { closePluginSessionOverlaysForPlugin, installSessionOverlayIpcHandlers, openPluginSessionOverlay } from "./pet-session-overlay.js";
 import type { PluginHostCapabilities, PluginPickedFileHost } from "./plugin-sdk-bridge.js";
 import { maxUserSoundBytes, UserSoundStore, userSoundMimeByExtension } from "./plugin-user-sound-store.js";
 import { classifyPluginError } from "./plugin-diagnostics.js";
@@ -94,6 +95,7 @@ export function getPluginHostCapabilitiesForUi(): ElectronPluginHostCapabilities
 
 export function createElectronPluginHostCapabilities(userDataPath: string): ElectronPluginHostCapabilities {
   startPluginEventSources();
+  installSessionOverlayIpcHandlers();
   const secretsStore = new PluginSecretsStore(userDataPath);
   const providerService = new HostProviderService(secretsStore);
   const aiGateway = new PluginAiGateway(providerService);
@@ -200,6 +202,11 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
     },
     panels: {
       open: (opts) => openPluginPanel(opts),
+    },
+    session: {
+      async open({ pluginId, descriptor, callbacks }) {
+        return openPluginSessionOverlay({ pluginId, descriptor, callbacks });
+      },
     },
     delivery: {
       async register(pluginId, descriptor) {
@@ -313,6 +320,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       await cancelPluginVoiceListen(pluginId, "The plugin was stopped.").catch(() => undefined);
       if (!isCurrentGeneration()) return;
       try {
+        closePluginSessionOverlaysForPlugin(pluginId);
         teardownPluginDeliveries(pluginId);
         clearPluginPetsForPlugin(pluginId);
       } catch (error) {

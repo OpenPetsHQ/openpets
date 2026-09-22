@@ -22,6 +22,8 @@ export type PetInteractiveShapeOptions = {
   readonly hudScale?: number;
   readonly isExpanded?: boolean;
   readonly isCompactOpen?: boolean;
+  /** Practice session overlay: orb + card fill the carrier, so the whole window is interactive. */
+  readonly isSessionOpen?: boolean;
   readonly panelWidth?: number;
   readonly panelHeight?: number;
   readonly panelTop?: number;
@@ -75,6 +77,16 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   const scaledWidth = Math.ceil(options.spriteWidth * options.scale);
   const scaledHeight = Math.ceil(options.spriteHeight * options.scale);
   const pinnedLift = options.hasPinned ? Math.round(28 * (options.hudScale ?? 1)) : 0;
+
+  if (options.isSessionOpen) {
+    const fullWindow: PetShapeRectangle = { x: 0, y: 0, width: options.windowWidth, height: options.windowHeight };
+    return {
+      shape: [fullWindow],
+      petHitbox: fullWindow,
+      companionLauncher: { x: 0, y: 0, width: 0, height: 0 },
+    };
+  }
+
   const petHitbox: PetShapeRectangle = {
     x: Math.round((options.windowWidth - (scaledWidth + hitPadding * 2)) / 2),
     y: Math.round(options.windowHeight - Math.max(0, petBottom - hitPadding) - pinnedLift - (scaledHeight + hitPadding * 2)),
