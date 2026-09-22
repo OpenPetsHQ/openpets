@@ -11,6 +11,7 @@ import {
   buildMeditationDescriptor,
   buildMeditationInfo,
   buildMeditationTracks,
+  buildSoundScenes,
   buildVisualizationDescriptor,
   buildVisualizationTracks,
   MEDIA_ORIGIN,
@@ -29,6 +30,7 @@ import {
   SITE_URL,
   STORAGE_KEY_LAST_GUIDED_PATTERN,
   STORAGE_KEY_LAST_MEDITATION,
+  STORAGE_KEY_LAST_SOUNDSCAPE,
   STORAGE_KEY_LAST_VISUALIZATION,
 } from "./index.js";
 
@@ -238,6 +240,18 @@ for (const track of visualizationTracks) {
   });
 }
 
+// Relaxing sounds: AAT's eight soundscapes, each with at least one looping bed,
+// every layer file on the approved media origin, and a declared cover.
+const soundScenes = buildSoundScenes(t);
+assert.equal(soundScenes.length, 8);
+const soundManifest = JSON.parse(await readFile(new URL("./openpets.plugin.json", import.meta.url), "utf8"));
+for (const scene of soundScenes) {
+  assert.ok(scene.layers.some((layer) => layer.loop), `${scene.id} needs a looping bed`);
+  assert.ok(scene.layers.every((layer) => layer.loop || layer.interval), `${scene.id} layers must loop or repeat`);
+  assert.ok(scene.layers.every((layer) => layer.files.every((file) => file.startsWith(`${MEDIA_ORIGIN}/`))));
+  assert.ok(soundManifest.assets.images[scene.cover.name], `${scene.id} cover must be declared`);
+}
+
 // The practice picker lists every practice, each with an icon.
 const practices = buildPractices(t);
 assert.deepEqual(
@@ -249,6 +263,7 @@ assert.deepEqual(
     ["grounding", t("practice.grounding")],
     ["meditation", t("practice.meditation")],
     ["visualization", t("practice.visualization")],
+    ["sounds", t("practice.sounds")],
   ],
 );
 assert.ok(practices.every((choice) => typeof choice.icon === "string"));
@@ -268,6 +283,7 @@ assert.deepEqual(
     ["start-grounding", "$t:practice.grounding"],
     ["start-meditation", "$t:practice.meditation"],
     ["start-visualization", "$t:practice.visualization"],
+    ["start-sounds", "$t:practice.sounds"],
   ],
 );
 
@@ -441,6 +457,19 @@ latestEventHandler({ type: "patternChanged", patternId: "cozyRainyCabin" });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_VISUALIZATION), "cozyRainyCabin");
 assert.equal(buildVisualizationDescriptor(harness.ctx, false, "cozyRainyCabin").trackId, "cozyRainyCabin");
+
+// 6c. Relaxing sounds open the soundscape mixer and remember the scene.
+await harness.runCommand("start-sounds");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "soundscape");
+assert.equal(latestSpec.practiceId, "sounds");
+assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["sounds-pause", "sounds-stop"]);
+latestEventHandler({ type: "patternChanged", patternId: "fireplace" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_SOUNDSCAPE), "fireplace");
+await harness.runCommand("start-sounds");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.sceneId, "fireplace");
 
 // 7. Stop session
 await latestSession.stop();

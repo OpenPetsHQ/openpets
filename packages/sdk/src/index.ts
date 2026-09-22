@@ -342,7 +342,7 @@ export interface OpenPetsBreathPattern {
  * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
  * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
  * `sparkles`, `timer`, `square`, `moon`, `zap`, `anchor`, `eye`, `hand`,
- * `ear`, `flower`, `coffee`, `headphones`. The same names serve practice choices and
+ * `ear`, `flower`, `coffee`, `headphones`, `waves`. The same names serve practice choices and
  * grounding steps.
  */
 export type OpenPetsSessionInfoIcon =
@@ -367,7 +367,8 @@ export type OpenPetsSessionInfoIcon =
   | "ear"
   | "flower"
   | "coffee"
-  | "headphones";
+  | "headphones"
+  | "waves";
 
 /** A titled card inside an Info section (mechanism, research finding, tip). */
 export interface OpenPetsSessionInfoCard {
@@ -632,11 +633,71 @@ export interface OpenPetsPlayerSessionOptions {
   practiceId?: string;
 }
 
+/** Fixed value, or a range picked uniformly each time the value is used. */
+export type OpenPetsSessionRange = number | { min: number; max: number };
+
+/** One layer of a soundscape: a looping bed or an accent on an interval. */
+export interface OpenPetsSoundLayer {
+  /** 1–6 https files on approved `network.hosts`; accents pick one at random. */
+  files: string[];
+  /** 0–1. */
+  volume: OpenPetsSessionRange;
+  /** Looping bed (exactly one of `loop` or `interval`). */
+  loop?: boolean;
+  /** Seconds between accents (1–600); "wave" drifts min→max→min by `increment`. */
+  interval?: { type: "random" | "wave"; min: number; max: number; increment?: number };
+  /** Seconds (0–30). */
+  fadeIn?: number;
+  fadeOut?: number;
+  /** Loop crossfade at the loop boundary, seconds (0–30). */
+  crossfade?: number;
+  /** Accent play-length limit, seconds (1–600). */
+  duration?: number;
+  /** 0 = left, 0.5 = centre, 1 = right. */
+  pan?: OpenPetsSessionRange;
+  /** Playback-rate range for accents (0.5–2). */
+  pitch?: { min: number; max: number };
+}
+
+export interface OpenPetsSoundScene {
+  id: string;
+  /** 1–60 chars. */
+  title: string;
+  /** 1–80 chars. */
+  subtitle?: string;
+  cover?: OpenPetsAssetRef;
+  /** 1–12 layers, at least one looping. */
+  layers: OpenPetsSoundLayer[];
+}
+
+/**
+ * Layered ambient soundscape (relaxing sounds). Requires `network`; the host
+ * downloads each file once from approved hosts, caches it, and mixes the
+ * layers with an optional sleep timer. Events report the scene id as
+ * `patternId`; `completed` fires when the sleep timer ends the session.
+ */
+export interface OpenPetsSoundscapeSessionOptions {
+  kind: "soundscape";
+  title: string;
+  subtitle?: string;
+  /** Scenes offered by the scene picker (1–16). */
+  scenes: OpenPetsSoundScene[];
+  sceneId?: string;
+  autoStart?: boolean;
+  countdownSeconds?: number;
+  /** Sleep-timer choices in whole minutes (1–480, up to 6; default 15/30/60). */
+  timerMinutes?: number[];
+  info?: OpenPetsSessionInfo;
+  practices?: OpenPetsPracticeChoice[];
+  practiceId?: string;
+}
+
 export type OpenPetsSessionOptions =
   | OpenPetsBreathingSessionOptions
   | OpenPetsPmrSessionOptions
   | OpenPetsGroundingSessionOptions
-  | OpenPetsPlayerSessionOptions;
+  | OpenPetsPlayerSessionOptions
+  | OpenPetsSoundscapeSessionOptions;
 
 /** Lifecycle and interaction events emitted by the session overlay. */
 export type OpenPetsSessionEvent =

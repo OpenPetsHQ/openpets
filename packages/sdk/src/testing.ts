@@ -45,6 +45,7 @@ import type {
   OpenPetsScheduleHandler,
   OpenPetsStatus,
   OpenPetsSessionEvent,
+  OpenPetsSessionOptions,
   OpenPetsUserSoundRef,
 } from "./index.js";
 
@@ -318,6 +319,19 @@ export interface MockHarnessCore {
   panel: { sendToPlugin(msg: unknown): void };
 }
 
+function mockSessionSelectionId(spec: OpenPetsSessionOptions): string {
+  switch (spec.kind) {
+    case "breathing":
+      return spec.patternId ?? spec.patterns[0]?.id ?? "";
+    case "player":
+      return spec.trackId ?? spec.tracks[0]?.id ?? "";
+    case "soundscape":
+      return spec.sceneId ?? spec.scenes[0]?.id ?? "";
+    default:
+      return spec.kind;
+  }
+}
+
 export function createMockContext(optionsOrConfig: MockContextOptions | Record<string, unknown> = {}): {
   ctx: OpenPetsContext;
   calls: MockCalls;
@@ -522,13 +536,9 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       session: async (spec) => {
         requirePermission("ui:session");
         const id = newId("session");
-        // Match the host: breathing events carry the selected pattern, player
-        // events the selected track, other kinds the kind itself ("pmr", "grounding").
-        const patternId = spec.kind === "breathing"
-          ? spec.patternId ?? spec.patterns[0]?.id ?? ""
-          : spec.kind === "player"
-            ? spec.trackId ?? spec.tracks[0]?.id ?? ""
-            : spec.kind;
+        // Match the host: events carry the selected pattern, track or scene,
+        // and kinds without a selection carry the kind itself ("pmr", "grounding").
+        const patternId = mockSessionSelectionId(spec);
         let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
         // Auto-start delivers on subscription so plugins that attach their
         // handler right after `await ctx.ui.session(...)` never miss it.

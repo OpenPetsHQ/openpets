@@ -2,7 +2,7 @@ import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermissio
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
-import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionBreathPattern, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionAssetRef, type SessionBreathPattern, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -160,21 +160,25 @@ export function createPluginUiApi(options: {
    * on a host the user approved, and covers resolve to declared images.
    */
   const resolvePlayerMedia = (validated: PluginSessionDescriptor): { descriptor: PluginSessionDescriptor; mediaHosts?: ReadonlySet<string> } => {
-    if (validated.kind !== "player") return { descriptor: validated };
+    if (validated.kind !== "player" && validated.kind !== "soundscape") return { descriptor: validated };
     requirePermission("network");
     const hosts = allowedNetworkHosts();
-    for (const track of validated.tracks) {
-      for (const segment of track.segments) {
-        const host = new URL(segment.audioUrl).hostname.toLowerCase();
-        if (!hosts.has(host)) throw new Error(`Session media host "${host}" is not an approved network host.`);
-      }
+    const urls = validated.kind === "player"
+      ? validated.tracks.flatMap((track) => track.segments.map((segment) => segment.audioUrl))
+      : validated.scenes.flatMap((scene) => scene.layers.flatMap((layer) => layer.files));
+    for (const url of urls) {
+      const host = new URL(url).hostname.toLowerCase();
+      if (!hosts.has(host)) throw new Error(`Session media host "${host}" is not an approved network host.`);
     }
-    const tracks = validated.tracks.map((track) => {
-      if (!track.cover) return track;
-      const { cover, ...rest } = track;
+    const withCover = <T extends { cover?: SessionAssetRef }>(item: T): Omit<T, "cover"> & { coverPath?: string } => {
+      if (!item.cover) return item;
+      const { cover, ...rest } = item;
       return { ...rest, coverPath: resolveAssetRef(cover, ["images"]).path };
-    });
-    return { descriptor: { ...validated, tracks }, mediaHosts: hosts };
+    };
+    if (validated.kind === "player") {
+      return { descriptor: { ...validated, tracks: validated.tracks.map(withCover) }, mediaHosts: hosts };
+    }
+    return { descriptor: { ...validated, scenes: validated.scenes.map(withCover) }, mediaHosts: hosts };
   };
 
   const maxEarlySessionEvents = 16;

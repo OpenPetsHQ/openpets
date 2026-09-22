@@ -19,6 +19,7 @@ const { createBreathingPractice } = require("./breathing-practice.cjs");
 const { createPmrPractice } = require("./pmr-practice.cjs");
 const { createGroundingPractice } = require("./grounding-practice.cjs");
 const { createPlayerPractice } = require("./player-practice.cjs");
+const { createSoundscapePractice } = require("./soundscape-practice.cjs");
 
 const IDLE_COLOR = [0.45, 0.62, 0.98];
 const ORB_CARD_GAP = 10;
@@ -48,6 +49,9 @@ const chromeFallback = {
   previousPart: "Previous part", nextPart: "Next part", mediaLoading: "Loading audio…",
   mediaUnavailable: "Audio unavailable — follow the words at your own pace", chooseTrack: "Choose a session",
   muteAudio: "Mute", unmuteAudio: "Unmute",
+  noTimer: "No timer", minutesShort: "{n} min", sleepTimer: "Sleep timer", volume: "Volume",
+  preparingSounds: "Preparing sounds… {n} / {total}", soundsUnavailable: "Sounds unavailable — check your connection",
+  playingFor: "Playing for {time}", stopsIn: "Fades out in {time}",
 };
 
 // Icons from better-icons/Iconify. Pause/play are filled so the primary pill
@@ -770,6 +774,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     pmr: createPmrPractice(ui),
     grounding: createGroundingPractice(ui),
     player: createPlayerPractice(ui),
+    soundscape: createSoundscapePractice(ui),
   };
 
   const mountPractice = (next) => {

@@ -24,17 +24,21 @@ export const MENU_MEDITATION_STOP = "meditation-stop";
 export const MENU_VISUALIZATION_PAUSE = "visualization-pause";
 export const MENU_VISUALIZATION_RESUME = "visualization-resume";
 export const MENU_VISUALIZATION_STOP = "visualization-stop";
+export const MENU_SOUNDS_PAUSE = "sounds-pause";
+export const MENU_SOUNDS_RESUME = "sounds-resume";
+export const MENU_SOUNDS_STOP = "sounds-stop";
 
-const MENU_PAUSE_IDS = new Set([MENU_PAUSE, MENU_PMR_PAUSE, MENU_MEDITATION_PAUSE, MENU_VISUALIZATION_PAUSE]);
-const MENU_RESUME_IDS = new Set([MENU_RESUME, MENU_PMR_RESUME, MENU_MEDITATION_RESUME, MENU_VISUALIZATION_RESUME]);
-const MENU_STOP_IDS = new Set([MENU_STOP, MENU_PMR_STOP, MENU_GROUNDING_STOP, MENU_MEDITATION_STOP, MENU_VISUALIZATION_STOP]);
+const MENU_PAUSE_IDS = new Set([MENU_PAUSE, MENU_PMR_PAUSE, MENU_MEDITATION_PAUSE, MENU_VISUALIZATION_PAUSE, MENU_SOUNDS_PAUSE]);
+const MENU_RESUME_IDS = new Set([MENU_RESUME, MENU_PMR_RESUME, MENU_MEDITATION_RESUME, MENU_VISUALIZATION_RESUME, MENU_SOUNDS_RESUME]);
+const MENU_STOP_IDS = new Set([MENU_STOP, MENU_PMR_STOP, MENU_GROUNDING_STOP, MENU_MEDITATION_STOP, MENU_VISUALIZATION_STOP, MENU_SOUNDS_STOP]);
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
 export const STORAGE_KEY_LAST_MEDITATION = "lastMeditation";
 export const STORAGE_KEY_LAST_VISUALIZATION = "lastVisualization";
+export const STORAGE_KEY_LAST_SOUNDSCAPE = "lastSoundscape";
 
-export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding", "meditation", "visualization"];
+export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding", "meditation", "visualization", "sounds"];
 
 /** Narration lives on AAT's R2; the host downloads and caches each segment. */
 export const MEDIA_ORIGIN = "https://r2.anxietyaidtools.com";
@@ -70,6 +74,903 @@ const VISUALIZATION_STEPS = 7;
  * AAT records narration in en, es, pt, and zh (and languages OpenPets does not
  * ship). Other host locales hear English with translated captions.
  */
+// Relaxing sounds scenes, converted from Anxiety Aid Tools
+// data/environments/*.json: each layer is a looping bed or an accent on an
+// interval. Files stream from r2.anxietyaidtools.com through the host media
+// cache and the host mixes them (soundscape session kind). The plugin entry
+// loads as a single module, so the data lives here.
+export const SOUNDSCAPES = [
+  {
+    "id": "ocean-beach",
+    "categories": [
+      "anxiety",
+      "sleep"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/61773279-8067-45d4-af26-ef577830af64.mp3"
+        ],
+        "volume": 0.55,
+        "loop": true,
+        "fadeIn": 0.5,
+        "crossfade": 3
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/343315ce-1807-4bd9-a4e6-a07485538635.mp3"
+        ],
+        "volume": 0.4,
+        "loop": true,
+        "fadeIn": 1,
+        "crossfade": 2.5,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/ed5245b8-5809-4a0d-a4e5-0327ccf68e63.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "wave",
+          "min": 20,
+          "max": 60,
+          "increment": 5
+        },
+        "fadeIn": 1.5,
+        "fadeOut": 2,
+        "duration": 45,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/83c64d41-d43b-4957-9e32-aafc803bf85f.mp3"
+        ],
+        "volume": {
+          "min": 0.25,
+          "max": 0.45
+        },
+        "interval": {
+          "type": "random",
+          "min": 10,
+          "max": 35
+        },
+        "fadeIn": 0.3,
+        "fadeOut": 1,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.96,
+          "max": 1.04
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/ae7157eb-4b5a-40e2-baf3-69c00fcd3e70.mp3"
+        ],
+        "volume": {
+          "min": 0.3,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 45,
+          "max": 120
+        },
+        "fadeIn": 0.5,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.0,
+          "max": 1.0
+        },
+        "pitch": {
+          "min": 0.94,
+          "max": 1.06
+        }
+      }
+    ]
+  },
+  {
+    "id": "rain-on-tent",
+    "categories": [
+      "sleep",
+      "anxiety"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/a95fd9f6-7bf2-4078-bc93-19dd8ce8ea5a.mp3"
+        ],
+        "volume": 0.65,
+        "loop": true,
+        "fadeIn": 1.5,
+        "crossfade": 3
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/24a55bad-4663-46c4-a7ab-22353456d439.mp3"
+        ],
+        "volume": {
+          "min": 0.6,
+          "max": 0.8
+        },
+        "interval": {
+          "type": "random",
+          "min": 12,
+          "max": 35
+        },
+        "fadeIn": 1,
+        "fadeOut": 1,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/18ac8798-b9ca-4ac2-9165-b263bbc597bb.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.55
+        },
+        "interval": {
+          "type": "wave",
+          "min": 25,
+          "max": 80,
+          "increment": 10
+        },
+        "fadeIn": 3,
+        "fadeOut": 3,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/0ad7113c-893c-49ae-8165-7bcf937e2dac.mp3"
+        ],
+        "volume": {
+          "min": 0.5,
+          "max": 0.75
+        },
+        "interval": {
+          "type": "random",
+          "min": 35,
+          "max": 110
+        },
+        "fadeIn": 1.5,
+        "fadeOut": 2,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        }
+      }
+    ]
+  },
+  {
+    "id": "fireplace",
+    "categories": [
+      "anxiety",
+      "sleep"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/88d63480-9470-475f-b8b7-c915731a670d.mp3"
+        ],
+        "volume": 0.55,
+        "loop": true,
+        "fadeIn": 1.0,
+        "crossfade": 3
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/9d4244ef-6533-4d54-8729-e5f9814e39fd.mp3"
+        ],
+        "volume": {
+          "min": 0.6,
+          "max": 0.85
+        },
+        "interval": {
+          "type": "random",
+          "min": 8,
+          "max": 20
+        },
+        "fadeIn": 0.1,
+        "fadeOut": 0.5,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        },
+        "pitch": {
+          "min": 0.98,
+          "max": 1.05
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/07151291-9e4d-48e3-baf6-00ea1a9fe9fe.mp3"
+        ],
+        "volume": {
+          "min": 0.5,
+          "max": 0.75
+        },
+        "interval": {
+          "type": "random",
+          "min": 25,
+          "max": 60
+        },
+        "fadeIn": 0.2,
+        "fadeOut": 1.0,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/1dfd3741-48b4-49c9-b79d-d52f030e0386.mp3"
+        ],
+        "volume": {
+          "min": 0.45,
+          "max": 0.65
+        },
+        "interval": {
+          "type": "random",
+          "min": 45,
+          "max": 120
+        },
+        "fadeIn": 0.5,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/88d63480-9470-475f-b8b7-c915731a670d.mp3"
+        ],
+        "volume": 0.3,
+        "loop": true,
+        "fadeIn": 2.0,
+        "crossfade": 5,
+        "pan": {
+          "min": 0.0,
+          "max": 1.0
+        },
+        "pitch": {
+          "min": 0.9,
+          "max": 0.95
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/07151291-9e4d-48e3-baf6-00ea1a9fe9fe.mp3"
+        ],
+        "volume": {
+          "min": 0.3,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 60,
+          "max": 150
+        },
+        "fadeIn": 2.5,
+        "fadeOut": 2.5,
+        "duration": 40,
+        "pan": {
+          "min": 0.4,
+          "max": 0.6
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/9f6df7b3-db9c-4600-8024-5a942d93279b.mp3"
+        ],
+        "volume": {
+          "min": 0.45,
+          "max": 0.65
+        },
+        "interval": {
+          "type": "random",
+          "min": 20,
+          "max": 50
+        },
+        "fadeIn": 1.0,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        },
+        "pitch": {
+          "min": 0.95,
+          "max": 1.05
+        }
+      }
+    ]
+  },
+  {
+    "id": "japanese-garden",
+    "categories": [
+      "meditation",
+      "focus"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/21b167a7-f199-4557-bfb5-a2fa71414bc9.mp3"
+        ],
+        "volume": 0.45,
+        "loop": true,
+        "fadeIn": 1.5,
+        "crossfade": 4
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/0cba3d37-162a-4389-a9af-a76dd74a6b7b.mp3"
+        ],
+        "volume": 0.55,
+        "loop": true,
+        "fadeIn": 2,
+        "crossfade": 3,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/19a6d768-847a-49d5-bc1b-85f2d5722d28.mp3"
+        ],
+        "volume": {
+          "min": 0.3,
+          "max": 0.45
+        },
+        "interval": {
+          "type": "wave",
+          "min": 20,
+          "max": 60,
+          "increment": 5
+        },
+        "fadeIn": 3,
+        "fadeOut": 4,
+        "duration": 45,
+        "pan": {
+          "min": 0.15,
+          "max": 0.85
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/e3739f47-63fb-4f84-8341-5d3853bf7e15.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 8,
+          "max": 25
+        },
+        "fadeIn": 0.8,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        },
+        "pitch": {
+          "min": 0.98,
+          "max": 1.02
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/1d48e2af-f26f-46c2-b416-9ac975baead0.mp3"
+        ],
+        "volume": {
+          "min": 0.25,
+          "max": 0.4
+        },
+        "interval": {
+          "type": "random",
+          "min": 35,
+          "max": 90
+        },
+        "fadeIn": 0.5,
+        "fadeOut": 2,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.96,
+          "max": 1.04
+        }
+      }
+    ]
+  },
+  {
+    "id": "night-cricket-rain",
+    "categories": [
+      "sleep",
+      "meditation"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/a83bb1e2-bbcb-4796-bb3b-935bbbf0c071.mp3"
+        ],
+        "volume": 0.6,
+        "loop": true,
+        "crossfade": 6
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/44b24194-443d-4d19-982a-7bd372b0518c.mp3",
+          "https://r2.anxietyaidtools.com/custom/ba8211e0-c020-4601-8e0f-44994510f4e1.mp3"
+        ],
+        "volume": {
+          "min": 0.3,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 8,
+          "max": 35
+        },
+        "fadeIn": 0.3,
+        "fadeOut": 0.5,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        },
+        "pitch": {
+          "min": 0.95,
+          "max": 1.05
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/4aa6b9fc-1c49-4d4a-b66f-6a43460f1f76.mp3"
+        ],
+        "volume": {
+          "min": 0.45,
+          "max": 0.65
+        },
+        "interval": {
+          "type": "random",
+          "min": 25,
+          "max": 70
+        },
+        "fadeIn": 0.2,
+        "fadeOut": 0.4,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.97,
+          "max": 1.03
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/b69c51e3-4865-41f9-99a2-0ef7f1afde0c.mp3"
+        ],
+        "volume": {
+          "min": 0.3,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 45,
+          "max": 120
+        },
+        "fadeIn": 0.5,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.15,
+          "max": 0.85
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/ee807fb4-74b4-494c-8e9e-a0602b51d733.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 90,
+          "max": 200
+        },
+        "fadeIn": 0.3,
+        "fadeOut": 0.8,
+        "pan": {
+          "min": 0.0,
+          "max": 1.0
+        },
+        "pitch": {
+          "min": 0.96,
+          "max": 1.04
+        }
+      }
+    ]
+  },
+  {
+    "id": "rainy-cafe",
+    "categories": [
+      "focus",
+      "anxiety"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/353f3e21-5596-4bde-9395-5d7eff7cb8e3.mp3"
+        ],
+        "volume": 0.45,
+        "loop": true,
+        "fadeIn": 1,
+        "crossfade": 3
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/d42d6985-ed79-47c6-b332-880c0d50c266.mp3"
+        ],
+        "volume": 1.0,
+        "loop": true,
+        "fadeIn": 0.5,
+        "crossfade": 2.5
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/45b6f435-6de3-4f78-901d-3b8ed2fa44ab.mp3"
+        ],
+        "volume": {
+          "min": 0.5,
+          "max": 0.75
+        },
+        "interval": {
+          "type": "random",
+          "min": 15,
+          "max": 45
+        },
+        "fadeIn": 0.1,
+        "fadeOut": 0.3,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        },
+        "pitch": {
+          "min": 0.96,
+          "max": 1.04
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/9edeaadb-182a-481b-a66e-6cb07a114294.mp3",
+          "https://r2.anxietyaidtools.com/custom/597f0bdb-c0fc-41db-a433-bcb898489235.mp3"
+        ],
+        "volume": {
+          "min": 0.55,
+          "max": 0.8
+        },
+        "interval": {
+          "type": "random",
+          "min": 20,
+          "max": 60
+        },
+        "fadeIn": 0.05,
+        "fadeOut": 0.2,
+        "pan": {
+          "min": 0.15,
+          "max": 0.85
+        },
+        "pitch": {
+          "min": 0.97,
+          "max": 1.03
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/8c210a17-70c5-4aa1-8bf9-eb9bc5473f40.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.55
+        },
+        "interval": {
+          "type": "random",
+          "min": 25,
+          "max": 75
+        },
+        "fadeIn": 0.2,
+        "fadeOut": 0.5,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.98,
+          "max": 1.02
+        }
+      }
+    ]
+  },
+  {
+    "id": "thunderstorm",
+    "categories": [
+      "anxiety",
+      "sleep"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/RAIN_06/GENERAL/RAIN-LR_Thailand-Rain%2C%20General%2C%20Monsoon%2C%20Heavy%20Downpour%2C%20House%2C%20Exterior%2C%20Metallic%20Garage%20Roof%2C%20Concrete%2C%20Nighttime%2C%20Chiang%20Mai%2C%2005_FTUS_WOSB.mp3"
+        ],
+        "volume": 0.55,
+        "loop": true,
+        "fadeIn": 0.5,
+        "crossfade": 3
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/RAIN_02/CONCRETE/RAINConc-LR_Singapore-Rain%2C%20Concrete%2C%20Backyard%2C%2011th%20Floor%2C%20No%20Windows%20Rain%20Dripping_FTUS_WOSB.mp3"
+        ],
+        "volume": 0.4,
+        "loop": true,
+        "fadeIn": 0.8,
+        "crossfade": 2.5,
+        "pan": {
+          "min": 0.35,
+          "max": 0.65
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/RAIN_05/GENERAL/RAIN-LR_NewZealand-Rain%2C%20General%2C%20Rain%20Drops%2C%20Dripping%2C%20Trees%2C%20Leaves%2C%20Concrete%2C%20Wood%2C%20Birds%2C%20Residential%20Neighborhood%2C%20Auckland%2C%2004_FTUS_WOSB.mp3"
+        ],
+        "volume": {
+          "min": 0.25,
+          "max": 0.35
+        },
+        "interval": {
+          "type": "random",
+          "min": 40,
+          "max": 90
+        },
+        "fadeIn": 2,
+        "fadeOut": 3,
+        "duration": 60,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_Malaysia-Weather%2C%20Thunder%2C%20Clap%2C%20Rumble%2C%20Condominium%2C%20High%20Rise%2C%20Open%20Window%2C%20Rain%20Dripping%2C%20Room%20Tone%2C%2004_FTUS_WOSB.mp3",
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_Malaysia-Weather%2C%20Thunder%2C%20Clap%2C%20Rumble%2C%20Condominium%2C%20High%20Rise%2C%20Open%20Window%2C%20Rain%20Dripping%2C%20Room%20Tone%2C%2013_FTUS_WOSB.mp3",
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_Malaysia-Weather%2C%20Thunder%2C%20Clap%2C%20Rumble%2C%20Condominium%2C%20High%20Rise%2C%20Open%20Window%2C%20Rain%20Dripping%2C%20Room%20Tone%2C%2007_FTUS_WOSB.mp3"
+        ],
+        "volume": {
+          "min": 0.55,
+          "max": 0.75
+        },
+        "interval": {
+          "type": "random",
+          "min": 8,
+          "max": 25
+        },
+        "fadeIn": 0.1,
+        "fadeOut": 0.8,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.97,
+          "max": 1.03
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_Malaysia-Weather%2C%20Thunder%2C%20Clap%2C%20Rumble%2C%20Condominium%2C%20High%20Rise%2C%20Open%20Window%2C%20Rain%20Dripping%2C%20Room%20Tone%2C%2011_FTUS_WOSB.mp3",
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_Malaysia-Weather%2C%20Thunder%2C%20Clap%2C%20Rumble%2C%20Condominium%2C%20High%20Rise%2C%20Open%20Window%2C%20Rain%20Dripping%2C%20Room%20Tone%2C%20Distance%20Sirens_FTUS_WOSB.mp3"
+        ],
+        "volume": {
+          "min": 0.45,
+          "max": 0.65
+        },
+        "interval": {
+          "type": "random",
+          "min": 30,
+          "max": 70
+        },
+        "fadeIn": 0.3,
+        "fadeOut": 1.2,
+        "pan": {
+          "min": 0.15,
+          "max": 0.85
+        },
+        "pitch": {
+          "min": 0.95,
+          "max": 1.0
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/ambient/WEATHER_02/THUNDER/THUN-LR_USA-Weather%2C%20Thunder%2C%20Firefighter%2C%20Siren%20Background%2C%20Rain%2C%20Thunder%20Rolling%2C%20Lightning%20Strike%2C%20City%2C%20Wet%20Streets%2C%20Dripping%2C%20Apartment%20Complex%2C%20Denver_FTUS_WOSB.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 80,
+          "max": 180
+        },
+        "fadeIn": 2.5,
+        "fadeOut": 3,
+        "duration": 90,
+        "pan": {
+          "min": 0.0,
+          "max": 1.0
+        }
+      }
+    ]
+  },
+  {
+    "id": "ancient-vessel",
+    "categories": [
+      "meditation",
+      "sleep"
+    ],
+    "layers": [
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/a3ebe847-e28d-4411-a56c-d6bc30060891.mp3"
+        ],
+        "volume": 0.45,
+        "loop": true,
+        "fadeIn": 1.0,
+        "crossfade": 4.0
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/9f9664db-4c1d-4c84-aec1-9314a94e40b4.mp3"
+        ],
+        "volume": {
+          "min": 0.55,
+          "max": 0.75
+        },
+        "interval": {
+          "type": "random",
+          "min": 8,
+          "max": 18
+        },
+        "fadeIn": 0.5,
+        "fadeOut": 1.2,
+        "pan": {
+          "min": 0.3,
+          "max": 0.7
+        },
+        "pitch": {
+          "min": 0.98,
+          "max": 1.02
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/9f9664db-4c1d-4c84-aec1-9314a94e40b4.mp3"
+        ],
+        "volume": {
+          "min": 0.25,
+          "max": 0.4
+        },
+        "interval": {
+          "type": "random",
+          "min": 25,
+          "max": 65
+        },
+        "fadeIn": 1.5,
+        "fadeOut": 2.0,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        },
+        "pitch": {
+          "min": 0.9,
+          "max": 0.95
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/41193fc4-279e-46d1-a868-23deb8ba840d.mp3"
+        ],
+        "volume": {
+          "min": 0.35,
+          "max": 0.5
+        },
+        "interval": {
+          "type": "random",
+          "min": 20,
+          "max": 50
+        },
+        "fadeIn": 2.0,
+        "fadeOut": 2.5,
+        "pan": {
+          "min": 0.2,
+          "max": 0.8
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/83c64d41-d43b-4957-9e32-aafc803bf85f.mp3"
+        ],
+        "volume": {
+          "min": 0.25,
+          "max": 0.4
+        },
+        "interval": {
+          "type": "random",
+          "min": 45,
+          "max": 95
+        },
+        "fadeIn": 1.0,
+        "fadeOut": 2.0,
+        "pan": {
+          "min": 0.0,
+          "max": 1.0
+        },
+        "pitch": {
+          "min": 0.98,
+          "max": 1.05
+        }
+      },
+      {
+        "files": [
+          "https://r2.anxietyaidtools.com/custom/ae7157eb-4b5a-40e2-baf3-69c00fcd3e70.mp3"
+        ],
+        "volume": {
+          "min": 0.2,
+          "max": 0.35
+        },
+        "interval": {
+          "type": "random",
+          "min": 70,
+          "max": 160
+        },
+        "fadeIn": 0.8,
+        "fadeOut": 1.5,
+        "pan": {
+          "min": 0.1,
+          "max": 0.9
+        }
+      }
+    ]
+  }
+];
+
 export function narrationLanguage(locale) {
   const value = String(locale || "en").toLowerCase();
   if (value.startsWith("es")) return "es";
@@ -258,7 +1159,21 @@ export function buildPractices(t) {
     { id: "grounding", name: t("practice.grounding"), icon: "anchor" },
     { id: "meditation", name: t("practice.meditation"), icon: "headphones" },
     { id: "visualization", name: t("practice.visualization"), icon: "sparkles" },
+    { id: "sounds", name: t("practice.sounds"), icon: "waves" },
   ];
+}
+
+export const SOUNDSCAPE_IDS = SOUNDSCAPES.map((scene) => scene.id);
+
+export function buildSoundScenes(t, assets) {
+  const image = assets?.image ? (name) => assets.image(name) : (name) => ({ kind: "image", name });
+  return SOUNDSCAPES.map((scene) => ({
+    id: scene.id,
+    title: t(`sounds.${scene.id}.title`),
+    subtitle: scene.categories.map((category) => t(`sounds.category.${category}`)).join(" · "),
+    cover: image(`sounds-${scene.id}`),
+    layers: scene.layers,
+  }));
 }
 
 export function buildVisualizationTracks(t, locale) {
@@ -581,6 +1496,58 @@ export function buildVisualizationInfo(t, logo) {
   };
 }
 
+export const SOUNDS_CITATIONS = [
+  {
+    label: "Alvarsson J.J., Wiens S., Nilsson M.E. (2010). Stress recovery during exposure to nature sound and environmental noise. International Journal of Environmental Research and Public Health, 7(3):1036–1046.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC2872309/",
+  },
+  {
+    label: "Buxton R.T. et al. (2021). A synthesis of health benefits of natural sounds and their distribution in national parks. Proceedings of the National Academy of Sciences, 118(14):e2013097118.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8040792/",
+  },
+];
+
+export function buildSoundsInfo(t, logo) {
+  return {
+    intro: t("sounds.info.intro"),
+    sections: [
+      {
+        heading: t("info.how.heading"),
+        body: t("sounds.info.how.body"),
+        cards: [
+          { title: t("sounds.info.how.card1.title"), body: t("sounds.info.how.card1.body"), icon: "waves" },
+          { title: t("sounds.info.how.card2.title"), body: t("sounds.info.how.card2.body"), icon: "shield-check" },
+          { title: t("sounds.info.how.card3.title"), body: t("sounds.info.how.card3.body"), icon: "sparkles" },
+        ],
+      },
+      {
+        heading: t("info.science.heading"),
+        body: t("sounds.info.science.body"),
+        cards: [
+          { title: t("sounds.info.science.card1.title"), body: t("sounds.info.science.card1.body"), icon: "heart-pulse", url: SOUNDS_CITATIONS[0].url },
+          { title: t("sounds.info.science.card2.title"), body: t("sounds.info.science.card2.body"), icon: "brain", url: SOUNDS_CITATIONS[1].url },
+        ],
+      },
+      {
+        heading: t("info.when.heading"),
+        items: [t("sounds.info.when.item1"), t("sounds.info.when.item2"), t("sounds.info.when.item3"), t("sounds.info.when.item4")],
+      },
+      {
+        heading: t("info.tips.heading"),
+        cards: [
+          { title: t("sounds.info.tips.card1.title"), body: t("sounds.info.tips.card1.body"), icon: "headphones" },
+          { title: t("sounds.info.tips.card2.title"), body: t("sounds.info.tips.card2.body"), icon: "timer" },
+          { title: t("sounds.info.tips.card3.title"), body: t("sounds.info.tips.card3.body"), icon: "leaf" },
+        ],
+      },
+    ],
+    citations: SOUNDS_CITATIONS,
+    disclaimer: t("sounds.info.disclaimer"),
+    site: { label: t("info.site.label"), url: SITE_URL },
+    ...(logo ? { logo } : {}),
+  };
+}
+
 /** Meditation Info: the sessions (current one marked), then the shared knowledge. */
 export function buildMeditationInfo(t, logo, trackId) {
   const sessionCards = (group) => MEDITATION_SESSIONS
@@ -780,6 +1747,24 @@ export function buildVisualizationDescriptor(ctx, autoStart, trackId = VISUALIZA
   };
 }
 
+export function buildSoundsDescriptor(ctx, autoStart, sceneId = SOUNDSCAPE_IDS[0]) {
+  const t = (key) => ctx.t(key);
+  const selected = SOUNDSCAPE_IDS.includes(sceneId) ? sceneId : SOUNDSCAPE_IDS[0];
+  return {
+    kind: "soundscape",
+    title: t("sounds.session.title"),
+    subtitle: t("sounds.session.subtitle"),
+    scenes: buildSoundScenes(t, ctx.assets),
+    sceneId: selected,
+    autoStart,
+    countdownSeconds: 0,
+    timerMinutes: [15, 30, 60],
+    info: buildSoundsInfo(t, ctx.assets.svg("logo")),
+    practices: buildPractices(t),
+    practiceId: "sounds",
+  };
+}
+
 export function buildPmrDescriptor(ctx, autoStart) {
   const t = (key) => ctx.t(key);
   return {
@@ -811,6 +1796,9 @@ export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "
   if (practiceId === "visualization") {
     return buildVisualizationDescriptor(ctx, autoStart, guidedPatternId);
   }
+  if (practiceId === "sounds") {
+    return buildSoundsDescriptor(ctx, autoStart, guidedPatternId);
+  }
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
 
@@ -824,6 +1812,11 @@ function sessionMenuItems(ctx, mode, practiceId) {
     const stopItem = { id: MENU_MEDITATION_STOP, title: ctx.t("menu.meditation.stop") };
     if (mode === "paused") return [{ id: MENU_MEDITATION_RESUME, title: ctx.t("menu.meditation.resume") }, stopItem];
     return [{ id: MENU_MEDITATION_PAUSE, title: ctx.t("menu.meditation.pause") }, stopItem];
+  }
+  if (practiceId === "sounds") {
+    const stopItem = { id: MENU_SOUNDS_STOP, title: ctx.t("menu.sounds.stop") };
+    if (mode === "paused") return [{ id: MENU_SOUNDS_RESUME, title: ctx.t("menu.sounds.resume") }, stopItem];
+    return [{ id: MENU_SOUNDS_PAUSE, title: ctx.t("menu.sounds.pause") }, stopItem];
   }
   if (practiceId === "visualization") {
     const stopItem = { id: MENU_VISUALIZATION_STOP, title: ctx.t("menu.visualization.stop") };
@@ -876,6 +1869,7 @@ async function openSession(ctx, state, autoStart, practiceId) {
   if (practiceId === "guided-breathing") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN);
   else if (practiceId === "meditation") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_MEDITATION);
   else if (practiceId === "visualization") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_VISUALIZATION);
+  else if (practiceId === "sounds") guidedPatternId = await ctx.storage.get(STORAGE_KEY_LAST_SOUNDSCAPE);
   const descriptor = buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId, guidedPatternId);
 
   const session = await ctx.ui.session(descriptor);
@@ -896,6 +1890,8 @@ async function openSession(ctx, state, autoStart, practiceId) {
       void selectMeditation(ctx, session, event.patternId);
     } else if (event.type === "patternChanged" && practiceId === "visualization" && VISUALIZATION_SCENES.includes(event.patternId)) {
       void ctx.storage.set(STORAGE_KEY_LAST_VISUALIZATION, event.patternId).catch(() => undefined);
+    } else if (event.type === "patternChanged" && practiceId === "sounds" && SOUNDSCAPE_IDS.includes(event.patternId)) {
+      void ctx.storage.set(STORAGE_KEY_LAST_SOUNDSCAPE, event.patternId).catch(() => undefined);
     } else if (event.type === "audioToggled") {
       void ctx.storage.set(STORAGE_KEY_AUDIO_CUES, event.enabled).catch(() => undefined);
     } else if (event.type === "practiceSelected") {
@@ -960,6 +1956,14 @@ export function register(OpenPetsPlugin) {
           description: "$t:command.startVisualization.description",
         },
         () => openSession(ctx, state, true, "visualization"),
+      );
+      await ctx.commands.register(
+        {
+          id: "start-sounds",
+          title: "$t:practice.sounds",
+          description: "$t:command.startSounds.description",
+        },
+        () => openSession(ctx, state, true, "sounds"),
       );
       ctx.ui.menu.onSelect((id) => {
         const session = state.session;

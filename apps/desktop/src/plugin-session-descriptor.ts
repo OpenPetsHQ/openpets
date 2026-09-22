@@ -63,6 +63,7 @@ export const sessionInfoIconNames = new Set([
   "flower",
   "coffee",
   "headphones",
+  "waves",
 ]);
 
 export interface SessionInfoCard {
@@ -254,11 +255,66 @@ export interface PluginPlayerSessionDescriptor {
   readonly practiceId?: string;
 }
 
+/** A value that is either fixed or picked uniformly from a range each time it is used. */
+export type SessionRange = number | { readonly min: number; readonly max: number };
+
+/** One layer of a soundscape mix: a looping bed or an accent on an interval. */
+export interface SessionSoundLayer {
+  /** https files on approved hosts; accents pick one at random each time. */
+  readonly files: readonly string[];
+  readonly volume: SessionRange;
+  readonly loop: boolean;
+  /** Seconds between accents; "wave" drifts min→max→min by `increment`. */
+  readonly interval?: { readonly type: "random" | "wave"; readonly min: number; readonly max: number; readonly increment?: number };
+  readonly fadeIn?: number;
+  readonly fadeOut?: number;
+  /** Loop crossfade seconds at the loop boundary. */
+  readonly crossfade?: number;
+  /** Accent play length limit in seconds. */
+  readonly duration?: number;
+  /** 0 = left, 0.5 = centre, 1 = right. */
+  readonly pan?: SessionRange;
+  /** Playback-rate range for accents (pitch varies with it). */
+  readonly pitch?: { readonly min: number; readonly max: number };
+}
+
+export interface SessionSoundScene {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly cover?: SessionAssetRef;
+  readonly coverPath?: string;
+  /** Renderer-only: file URL for `coverPath`, attached by the session coordinator. */
+  readonly coverUrl?: string;
+  readonly layers: readonly SessionSoundLayer[];
+}
+
+/**
+ * Layered ambient soundscape (relaxing sounds). The host mixes the layers —
+ * loops plus randomly spaced accents with volume/pan/pitch variation — from
+ * files it downloads once and caches, with an optional sleep timer.
+ */
+export interface PluginSoundscapeSessionDescriptor {
+  readonly kind: "soundscape";
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly scenes: readonly SessionSoundScene[];
+  readonly sceneId: string;
+  readonly autoStart: boolean;
+  readonly countdownSeconds: number;
+  /** Sleep-timer choices in minutes (the overlay adds "no timer"). */
+  readonly timerMinutes: readonly number[];
+  readonly info?: SessionInfo;
+  readonly practices?: readonly SessionPracticeChoice[];
+  readonly practiceId?: string;
+}
+
 export type PluginSessionDescriptor =
   | PluginBreathingSessionDescriptor
   | PluginPmrSessionDescriptor
   | PluginGroundingSessionDescriptor
-  | PluginPlayerSessionDescriptor;
+  | PluginPlayerSessionDescriptor
+  | PluginSoundscapeSessionDescriptor;
 
 /** Patch accepted by `ui.sessionUpdate`. */
 export interface PluginSessionUpdate {
@@ -293,12 +349,14 @@ const maxGroundingSteps = 8;
 const maxGroundingItems = 6;
 const maxPlayerTracks = 24;
 const maxPlayerSegments = 40;
+const maxSoundScenes = 16;
+const maxSoundLayers = 12;
 
 export function validateSessionDescriptor(value: unknown): PluginSessionDescriptor {
   check(isRecord(value), "Invalid session descriptor.");
   check(
-    value.kind === "breathing" || value.kind === "pmr" || value.kind === "grounding" || value.kind === "player",
-    "Session kind must be \"breathing\", \"pmr\", \"grounding\", or \"player\".",
+    value.kind === "breathing" || value.kind === "pmr" || value.kind === "grounding" || value.kind === "player" || value.kind === "soundscape",
+    "Session kind must be \"breathing\", \"pmr\", \"grounding\", \"player\", or \"soundscape\".",
   );
 
   const title = validateLine(value.title, 1, 60, "session title");
@@ -332,6 +390,38 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
       countdownSeconds,
       ...(info === undefined ? {} : { info }),
       ...(audio === undefined ? {} : { audio }),
+      ...(practices === undefined ? {} : { practices }),
+      ...(practiceId === undefined ? {} : { practiceId }),
+    };
+  }
+
+  if (value.kind === "soundscape") {
+    checkKnownKeys(value, ["kind", "title", "subtitle", "scenes", "sceneId", "autoStart", "countdownSeconds", "timerMinutes", "info", "practices", "practiceId"], "soundscape session descriptor");
+    const scenes = validateSoundScenes(value.scenes);
+    let sceneId = scenes[0].id;
+    if (value.sceneId !== undefined) {
+      check(typeof value.sceneId === "string" && scenes.some((scene) => scene.id === value.sceneId), "Selected session scene id is not in the scene list.");
+      sceneId = value.sceneId;
+    }
+    let timerMinutes: readonly number[] = [15, 30, 60];
+    if (value.timerMinutes !== undefined) {
+      check(Array.isArray(value.timerMinutes) && value.timerMinutes.length <= 6, "Session timerMinutes must be an array of up to 6 entries.");
+      timerMinutes = value.timerMinutes.map((entry) => {
+        const minutes = Number(entry);
+        check(Number.isInteger(minutes) && minutes >= 1 && minutes <= 480, "Session timer minutes must be whole minutes (1–480).");
+        return minutes;
+      });
+    }
+    return {
+      kind: "soundscape",
+      title,
+      ...(subtitle === undefined ? {} : { subtitle }),
+      scenes,
+      sceneId,
+      autoStart,
+      countdownSeconds,
+      timerMinutes,
+      ...(info === undefined ? {} : { info }),
       ...(practices === undefined ? {} : { practices }),
       ...(practiceId === undefined ? {} : { practiceId }),
     };
@@ -487,6 +577,89 @@ function validatePlayerTracks(value: unknown): readonly SessionPlayerTrack[] {
       segments,
     };
   });
+}
+
+function validateSoundScenes(value: unknown): readonly SessionSoundScene[] {
+  check(Array.isArray(value), "Session scenes must be an array.");
+  check(value.length >= 1 && value.length <= maxSoundScenes, `Session scenes must contain 1–${maxSoundScenes} entries.`);
+  const seen = new Set<string>();
+  return value.map((entry): SessionSoundScene => {
+    check(isRecord(entry), "Invalid session scene.");
+    checkKnownKeys(entry, ["id", "title", "subtitle", "cover", "layers"], "session scene");
+    check(typeof entry.id === "string" && idPattern.test(entry.id), "Invalid session scene id.");
+    check(!seen.has(entry.id), `Duplicate session scene id "${entry.id}".`);
+    seen.add(entry.id);
+    check(Array.isArray(entry.layers), "Session scene layers must be an array.");
+    check(entry.layers.length >= 1 && entry.layers.length <= maxSoundLayers, `Session scene layers must contain 1–${maxSoundLayers} entries.`);
+    const layers = entry.layers.map((layer) => validateSoundLayer(layer));
+    check(layers.some((layer) => layer.loop), "Session scene needs at least one looping layer.");
+    const subtitle = entry.subtitle === undefined ? undefined : validateLine(entry.subtitle, 1, 80, "session scene subtitle");
+    const cover = entry.cover === undefined ? undefined : validateAssetRefShape(entry.cover, "session scene cover");
+    return {
+      id: entry.id,
+      title: validateLine(entry.title, 1, 60, "session scene title"),
+      ...(subtitle === undefined ? {} : { subtitle }),
+      ...(cover === undefined ? {} : { cover }),
+      layers,
+    };
+  });
+}
+
+function validateSoundLayer(value: unknown): SessionSoundLayer {
+  check(isRecord(value), "Invalid session sound layer.");
+  checkKnownKeys(value, ["files", "volume", "loop", "interval", "fadeIn", "fadeOut", "crossfade", "duration", "pan", "pitch"], "session sound layer");
+  check(Array.isArray(value.files) && value.files.length >= 1 && value.files.length <= 6, "Session sound layer files must contain 1–6 entries.");
+  const files = value.files.map((file) => validateHttpsUrl(file, "session sound layer file", 500));
+  const loop = value.loop === true;
+  let interval: SessionSoundLayer["interval"];
+  if (value.interval !== undefined) {
+    check(!loop, "A looping sound layer cannot have an interval.");
+    check(isRecord(value.interval), "Invalid session sound layer interval.");
+    checkKnownKeys(value.interval, ["type", "min", "max", "increment"], "session sound layer interval");
+    check(value.interval.type === "random" || value.interval.type === "wave", "Session sound layer interval type must be \"random\" or \"wave\".");
+    const min = boundedNumber(value.interval.min, 1, 600, "session sound layer interval min");
+    const max = boundedNumber(value.interval.max, min, 600, "session sound layer interval max");
+    const increment = value.interval.increment === undefined ? undefined : boundedNumber(value.interval.increment, 1, 600, "session sound layer interval increment");
+    interval = { type: value.interval.type, min, max, ...(increment === undefined ? {} : { increment }) };
+  }
+  check(loop || interval !== undefined, "A sound layer must loop or have an interval.");
+  const optional = (key: "fadeIn" | "fadeOut" | "crossfade" | "duration", min: number, max: number) => {
+    return value[key] === undefined ? {} : { [key]: boundedNumber(value[key], min, max, `session sound layer ${key}`) };
+  };
+  let pitch: SessionSoundLayer["pitch"];
+  if (value.pitch !== undefined) {
+    check(isRecord(value.pitch), "Invalid session sound layer pitch.");
+    checkKnownKeys(value.pitch, ["min", "max"], "session sound layer pitch");
+    const min = boundedNumber(value.pitch.min, 0.5, 2, "session sound layer pitch min");
+    pitch = { min, max: boundedNumber(value.pitch.max, min, 2, "session sound layer pitch max") };
+  }
+  return {
+    files,
+    volume: validateRange(value.volume, 0, 1, "session sound layer volume"),
+    loop,
+    ...(interval === undefined ? {} : { interval }),
+    ...optional("fadeIn", 0, 30),
+    ...optional("fadeOut", 0, 30),
+    ...optional("crossfade", 0, 30),
+    ...optional("duration", 1, 600),
+    ...(value.pan === undefined ? {} : { pan: validateRange(value.pan, 0, 1, "session sound layer pan") }),
+    ...(pitch === undefined ? {} : { pitch }),
+  };
+}
+
+function validateRange(value: unknown, min: number, max: number, label: string): SessionRange {
+  if (isRecord(value)) {
+    checkKnownKeys(value, ["min", "max"], label);
+    const low = boundedNumber(value.min, min, max, `${label} min`);
+    return { min: low, max: boundedNumber(value.max, low, max, `${label} max`) };
+  }
+  return boundedNumber(value, min, max, label);
+}
+
+function boundedNumber(value: unknown, min: number, max: number, label: string): number {
+  const number = Number(value);
+  check(Number.isFinite(number) && number >= min && number <= max, `Invalid ${label}.`);
+  return number;
 }
 
 function validateIconName(value: unknown, label: string): string {

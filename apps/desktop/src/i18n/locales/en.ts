@@ -109,6 +109,14 @@ export const en = {
   "session.chooseTrack": "Choose a session",
   "session.muteAudio": "Mute",
   "session.unmuteAudio": "Unmute",
+  "session.noTimer": "No timer",
+  "session.minutesShort": "{n} min",
+  "session.sleepTimer": "Sleep timer",
+  "session.volume": "Volume",
+  "session.preparingSounds": "Preparing sounds… {n} / {total}",
+  "session.soundsUnavailable": "Sounds unavailable — check your connection",
+  "session.playingFor": "Playing for {time}",
+  "session.stopsIn": "Fades out in {time}",
 
   // --- Confinement / Screen Recording permission (main process) ---
   "confinement.screenPermission.title": "Screen Recording permission needed",

@@ -82,6 +82,7 @@ pet-window.ts
 ├── ../pet-session/session-overlay-view.cjs (ui:session renderer shell: card on top with the orb around the resting pet below it, card chrome, header practice picker, run states + lead-in countdown, frame loop, cue audio, geometry, descriptor intake; practices may override primary/secondary buttons and opt out of pausing)
 ├── ../pet-session/breathing-practice.cjs / pmr-practice.cjs / grounding-practice.cjs (per-kind practice views: clock, own card rows, shared-row content, orb target; guided breathing's pattern chips live in the breathing view; grounding is self-paced with a sense checklist and a finished summary)
 ├── ../pet-session/player-practice.cjs (compact media player for narrated tracks: cover, captions, progress, controls, host-cached audio)
+├── ../pet-session/soundscape-practice.cjs (Web Audio soundscape mixer: crossfaded loops, randomized accents, volume, sleep timer)
 ├── ../pet-session/orb-renderer.cjs (WebGL night-sky orb)
 ├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)
 └── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, and draft derivation)

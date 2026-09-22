@@ -70,7 +70,15 @@
       "meditation-vagus-nerve-delta-descent": "assets/meditation/vagus-nerve-delta-descent.webp",
       "meditation-oceanic-consciousness-projection": "assets/meditation/oceanic-consciousness-projection.webp",
       "meditation-infinite-horizon-projection": "assets/meditation/infinite-horizon-projection.webp",
-      "meditation-metta-loving-kindness-protocol": "assets/meditation/metta-loving-kindness-protocol.webp"
+      "meditation-metta-loving-kindness-protocol": "assets/meditation/metta-loving-kindness-protocol.webp",
+      "sounds-ocean-beach": "assets/sounds/ocean-beach.webp",
+      "sounds-rain-on-tent": "assets/sounds/rain-on-tent.webp",
+      "sounds-fireplace": "assets/sounds/fireplace.webp",
+      "sounds-japanese-garden": "assets/sounds/japanese-garden.webp",
+      "sounds-night-cricket-rain": "assets/sounds/night-cricket-rain.webp",
+      "sounds-rainy-cafe": "assets/sounds/rainy-cafe.webp",
+      "sounds-thunderstorm": "assets/sounds/thunderstorm.webp",
+      "sounds-ancient-vessel": "assets/sounds/ancient-vessel.webp"
     }
   },
   "permissions": ["ui:session", "commands", "storage", "network"],

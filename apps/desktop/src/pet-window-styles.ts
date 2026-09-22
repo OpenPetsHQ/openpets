@@ -2108,6 +2108,67 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       width: 14px;
       height: 14px;
     }
+    .session-sound-status {
+      min-height: 17px;
+      margin: 0 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+      font-variant-numeric: tabular-nums;
+    }
+    .session-sound-status.is-warning {
+      color: #b45309;
+    }
+    .session-sound-timer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .session-sound-timer-icon,
+    .session-sound-volume-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #64748b;
+    }
+    .session-sound-timer-icon svg,
+    .session-sound-volume-icon svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+    }
+    .session-sound-timer-chips {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .session-sound-chip {
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(255, 255, 255, 0.72);
+      font-family: inherit;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #334155;
+      cursor: pointer;
+    }
+    .session-sound-chip.is-selected {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(37, 99, 235, 0.55);
+      color: #1d4ed8;
+    }
+    .session-sound-volume {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .session-sound-volume-input {
+      flex: 1 1 auto;
+      accent-color: #176df2;
+    }
     .session-grounding-list {
       list-style: none;
       margin: 0 0 11px;

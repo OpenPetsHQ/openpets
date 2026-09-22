@@ -1,7 +1,10 @@
 OpenPets × Anxiety Aid Tools — working design
 =============================================
 
-Status (2026-09-22): four practices run on the pet session surface —
+Status (2026-09-22): seven practices run on the pet session surface —
+guided meditation, peaceful visualization, and relaxing sounds joined
+on the shared media player / soundscape mixer (visualization covers
+pending: image quota). Earlier four:
 simple breathing (Calm 4-6), guided breathing (box, 4-7-8,
 energizing, quick reset, each with its own AAT audio), progressive
 muscle relaxation, and grounding 5-4-3-2-1. The HUD card sits on top
@@ -309,6 +312,26 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-22 — relaxing sounds (soundscape mixer).
+  New session kind "soundscape": scenes → layers (1–6 https files,
+  volume, loop | random/"wave" interval, fadeIn/fadeOut, crossfade,
+  duration, pan, pitch) + sleep-timer minutes. Same approved-host
+  rule and host media cache as the player (files resolve through
+  openpets-session-media:). Renderer pet-session/
+  soundscape-practice.cjs is a Web Audio port of AAT's
+  utils/ambientAudio.js: looping beds crossfaded at the loop boundary,
+  accents at random/wave intervals with per-play file/volume/pan/pitch,
+  pause = AudioContext.suspend (crossfade hand-offs keep their place),
+  master volume + mute, sleep timer 15/30/60 fades out over 8s and
+  completes. Verified in headless Chromium with the real ocean-beach
+  beds: both decoded and started, the 25s bed crossfaded into a new
+  instance on time.
+  Plugin: "Relaxing sounds" — AAT's 8 environments (43 layers)
+  converted into index.js (the entry loads as one module, no sibling
+  imports), covers assets/sounds/*.webp, names/categories ×7, honest
+  Info (Alvarsson 2010, Buxton 2021 — verified). R2 serves undici /
+  node / browser user agents (only Python-urllib is blocked).
 
 2026-09-22 — peaceful visualization on the player.
   AAT's 9 scenes × 7 narrated steps from R2 peaceful-visualization/

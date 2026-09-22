@@ -91,6 +91,14 @@ export function buildSessionChrome(): Record<string, string> {
     chooseTrack: t("session.chooseTrack"),
     muteAudio: t("session.muteAudio"),
     unmuteAudio: t("session.unmuteAudio"),
+    noTimer: t("session.noTimer"),
+    minutesShort: t("session.minutesShort"),
+    sleepTimer: t("session.sleepTimer"),
+    volume: t("session.volume"),
+    preparingSounds: t("session.preparingSounds"),
+    soundsUnavailable: t("session.soundsUnavailable"),
+    playingFor: t("session.playingFor"),
+    stopsIn: t("session.stopsIn"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),
@@ -281,12 +289,14 @@ export function openPluginSessionOverlay(options: {
 function initialSelectionId(descriptor: PluginSessionDescriptor): string {
   if (descriptor.kind === "breathing") return descriptor.patternId;
   if (descriptor.kind === "player") return descriptor.trackId;
+  if (descriptor.kind === "soundscape") return descriptor.sceneId;
   return descriptor.kind;
 }
 
 function selectableItemCount(descriptor: PluginSessionDescriptor): number {
   if (descriptor.kind === "breathing") return descriptor.patterns.length;
   if (descriptor.kind === "player") return descriptor.tracks.length;
+  if (descriptor.kind === "soundscape") return descriptor.scenes.length;
   return descriptor.steps.length;
 }
 
@@ -294,7 +304,7 @@ function selectableItemCount(descriptor: PluginSessionDescriptor): number {
 function estimatedCardHeight(descriptor: PluginSessionDescriptor): number {
   if (descriptor.kind === "pmr") return sessionPmrCardEstimatedHeight;
   if (descriptor.kind === "grounding") return sessionGroundingCardEstimatedHeight;
-  if (descriptor.kind === "player") return sessionPlayerCardEstimatedHeight;
+  if (descriptor.kind === "player" || descriptor.kind === "soundscape") return sessionPlayerCardEstimatedHeight;
   if (descriptor.patterns.length > 1) return sessionGuidedBreathingCardEstimatedHeight;
   return sessionBreathingCardEstimatedHeight;
 }
@@ -414,6 +424,14 @@ function buildRendererDescriptor(descriptor: PluginSessionDescriptor): PluginSes
   });
   const withPractices = practices ? { ...descriptor, practices } : descriptor;
 
+  if (withPractices.kind === "soundscape") {
+    return {
+      ...withPractices,
+      scenes: withPractices.scenes.map((scene) => {
+        return scene.coverPath ? { ...scene, coverUrl: pathToFileURL(scene.coverPath).href } : scene;
+      }),
+    };
+  }
   if (withPractices.kind === "player") {
     return {
       ...withPractices,
@@ -543,9 +561,8 @@ export function installSessionOverlayIpcHandlers(): void {
   ipcMain.handle("openpets:session-media-get", async (event: IpcMainInvokeEvent, rawUrl: unknown) => {
     if (!isAuthorizedSessionSender(event.sender.id)) return null;
     const session = activeSession;
-    if (!session || session.closed || session.descriptor.kind !== "player" || typeof rawUrl !== "string") return null;
-    const listed = session.descriptor.tracks.some((track) => track.segments.some((segment) => segment.audioUrl === rawUrl));
-    if (!listed) {
+    if (!session || session.closed || typeof rawUrl !== "string") return null;
+    if (!sessionMediaUrls(session.descriptor).has(rawUrl)) {
       warn("pet.session", "session media url rejected", { pluginId: session.pluginId });
       return null;
     }
@@ -603,6 +620,8 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
         session.descriptor = { ...session.descriptor, patternId };
       } else if (session.descriptor.kind === "player") {
         session.descriptor = { ...session.descriptor, trackId: patternId };
+      } else if (session.descriptor.kind === "soundscape") {
+        session.descriptor = { ...session.descriptor, sceneId: patternId };
       }
       return { kind: "event", event: { type: "patternChanged", patternId } };
     case "completed":
@@ -627,10 +646,25 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
   }
 }
 
+/** Every remote media URL the open descriptor may ask the host to resolve. */
+function sessionMediaUrls(descriptor: PluginSessionDescriptor): Set<string> {
+  const urls = new Set<string>();
+  if (descriptor.kind === "player") {
+    for (const track of descriptor.tracks) for (const segment of track.segments) urls.add(segment.audioUrl);
+  } else if (descriptor.kind === "soundscape") {
+    for (const scene of descriptor.scenes) for (const layer of scene.layers) for (const file of layer.files) urls.add(file);
+  }
+  return urls;
+}
+
 function resolvePatternId(value: unknown, session: ActiveSessionOverlay): string {
   const descriptor = session.descriptor;
   if (descriptor.kind === "player") {
     if (typeof value === "string" && descriptor.tracks.some((track) => track.id === value)) return value;
+    return session.lastPatternId;
+  }
+  if (descriptor.kind === "soundscape") {
+    if (typeof value === "string" && descriptor.scenes.some((scene) => scene.id === value)) return value;
     return session.lastPatternId;
   }
   if (descriptor.kind !== "breathing") return descriptor.kind;
