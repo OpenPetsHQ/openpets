@@ -76,7 +76,11 @@ export function showSessionInfoWindow(descriptor: PluginSessionDescriptor, chrom
 
 /** Re-render the open window after a descriptor update; no-op when closed. */
 export function refreshSessionInfoWindowIfOpen(descriptor: PluginSessionDescriptor, chrome: Record<string, string>): void {
-  if (!infoWindow || infoWindow.isDestroyed() || !descriptor.info) return;
+  if (!infoWindow || infoWindow.isDestroyed()) return;
+  if (!descriptor.info) {
+    closeSessionInfoWindow();
+    return;
+  }
   allowedUrls = collectAllowedUrls(descriptor.info);
   void renderInfoWindow(infoWindow, descriptor, chrome);
 }
@@ -126,7 +130,9 @@ async function renderInfoWindow(window: BrowserWindow, descriptor: PluginSession
 function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record<string, string>): string {
   const info = descriptor.info;
   if (!info) return "<!doctype html><html><body></body></html>";
-  const pattern = descriptor.patterns.find((candidate) => candidate.id === descriptor.patternId) ?? descriptor.patterns[0];
+  const pattern = descriptor.kind === "breathing"
+    ? (descriptor.patterns.find((candidate) => candidate.id === descriptor.patternId) ?? descriptor.patterns[0])
+    : null;
 
   const logoMarkup = readLogoSvg(info.logoSvgPath) ?? fallbackLogoMarkup();
   const introMarkup = info.intro ? `<p class="intro">${escapeHtml(info.intro)}</p>` : "";

@@ -1,9 +1,10 @@
 OpenPets × Anxiety Aid Tools — working design
 =============================================
 
-Status: direction, still not building.
-This file is the live plan. Update it when a decision changes.
-Do not write docs/*.md until breathing is real and Alvin has refined it.
+Status: Calm 4-6 breathing is tuned. PMR is now on the same pet
+session surface (no new window). Guided patterns and custom
+patterns are still later. Do not write docs/*.md until Alvin
+signs off what is running.
 
 Source of practice knowledge: ../anxiety-aid-tools-private/ (AAT).
 Public product: https://anxietyaidtools.com/
@@ -168,8 +169,10 @@ the pet menu are still open (see log).
 5. Breathing (the first thing we build)
 ---------------------------------------
 
-English only. This is the tuning loop. Do not add PMR until Alvin
-signs off that breathing is the right depth.
+English copy, translated in the seven host locales. Breathing
+stays the tuned baseline. PMR is the second practice in this
+plugin, on the same overlay. Do not start guided patterns or
+custom patterns until Alvin signs off what is running.
 
 Patterns:
 
@@ -295,6 +298,25 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-22 — PMR on the same pet session (Alvin asked to build it).
+  kind: "pmr" on ctx.ui.session. Same expanded-session carrier, orb,
+  card, and Info window. No new window. 19 AAT muscle groups, 10s
+  tense + 10s release, one pass. Orb contracts on tense and eases
+  open on release (not a breath swell). Idle card has a ghost switch
+  to the other practice; same-plugin replace does not collapse the
+  pet window. Start muscle relaxation is a pet command. Pause /
+  Resume / Stop while a run exists. Info is the AAT knowledge,
+  rewritten, with the four PMC studies. Neck cue is one move, not
+  chin-down plus push-back. Lower-back cue says stop if it hurts.
+  PMR disclaimer is not the breathing one. Last practice is stored.
+  Pose drawings from the AAT exercise (tense/release pair per group)
+  sit in the card under the header, fixed box, file URLs. Under the
+  figure, both cue lists sit in one row; the active phase is
+  highlighted. Breathing window height stays the tuned card estimate;
+  PMR grows for the figure and the cue row.
+  Guided patterns and custom patterns still not started.
+  docs/*.md still not written.
 
 2026-09-21 — Info window + full plugin realization (goal round).
   Scope per Alvin: ONLY simple breathing (Calm 4-6) fully realized; guided

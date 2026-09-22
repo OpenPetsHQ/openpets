@@ -2345,8 +2345,14 @@ const installDefaultPetSession = () => {
     close: "Close", about: "About this technique",
     mute: "Mute breathing cues", unmute: "Unmute breathing cues",
     getReady: "Get ready", getReadyGuidance: "Settle in — we begin in a moment", startNow: "Start now",
+    tense: "Tense", release: "Release", groupProgress: "{n} / {total}", footerRelaxing: "relaxing with {name}",
   };
   let chromeStrings = { ...chromeFallback };
+
+  const PMR_TENSE_COLOR = [0.90, 0.64, 0.42];
+  const PMR_TENSE_CSS = "#e6a36b";
+  const PMR_RELEASE_COLOR = [0.30, 0.86, 0.78];
+  const PMR_RELEASE_CSS = "#4fdcc5";
 
   const chromeText = (key, vars) => {
     let text = typeof chromeStrings[key] === "string" && chromeStrings[key] ? chromeStrings[key] : chromeFallback[key] ?? "";
@@ -2363,6 +2369,8 @@ const installDefaultPetSession = () => {
   let selectedPatternId = null;
   let phaseIndex = 0;
   let cycleIndex = 0;
+  let stepIndex = 0;
+  let stepPhase = "tense"; // "tense" | "release"
   let phaseElapsedMs = 0;
   let countdownRemainingMs = 0;
   let lastFrameAt = 0;
@@ -2373,6 +2381,10 @@ const installDefaultPetSession = () => {
   let targetColor = IDLE_COLOR.slice();
   let currentPhaseCss = "#7ab3ff";
   let lastCountdownText = "";
+  let currentIllustrationUrl = "";
+  let illustrationVisible = false;
+  let cuesVisible = false;
+  let lastRenderedCuesStep = null;
 
   // Phase audio cues (host-gated by the global plugin-audio setting and quiet
   // hours; user-toggled via the top-bar mute button).
@@ -2425,7 +2437,7 @@ const installDefaultPetSession = () => {
   };
 
   const selectedPattern = () => {
-    if (!descriptor) return null;
+    if (!descriptor || descriptor.kind !== "breathing") return null;
     return descriptor.patterns.find((pattern) => pattern.id === selectedPatternId) ?? descriptor.patterns[0];
   };
 
@@ -2495,6 +2507,56 @@ const installDefaultPetSession = () => {
   topbar.appendChild(closeBtn);
   card.appendChild(topbar);
 
+  // PMR pose illustration well: fixed height so tense/release swaps do not jump
+  // the card. Hidden when breathing or when the step has no declared pose image.
+  const illustrationWell = document.createElement("div");
+  illustrationWell.className = "session-illustration";
+  const illustrationImg = document.createElement("img");
+  illustrationImg.className = "session-illustration-img";
+  illustrationImg.alt = "";
+  illustrationImg.addEventListener("error", () => {
+    if (illustrationVisible) {
+      illustrationVisible = false;
+      illustrationWell.style.display = "none";
+      currentIllustrationUrl = "";
+      scheduleSessionGeometry();
+    }
+  });
+  illustrationWell.appendChild(illustrationImg);
+  card.appendChild(illustrationWell);
+
+  // PMR cue row: side-by-side exercise step bullets (tense & release)
+  const cuesRow = document.createElement("div");
+  cuesRow.className = "session-pmr-cues";
+
+  const tenseCol = document.createElement("div");
+  tenseCol.className = "session-cues-col is-tense";
+  const tenseHeader = document.createElement("div");
+  tenseHeader.className = "session-cues-header";
+  const tenseTitle = document.createElement("span");
+  tenseTitle.className = "session-cues-title";
+  tenseHeader.appendChild(tenseTitle);
+  const tenseList = document.createElement("ol");
+  tenseList.className = "session-cues-list";
+  tenseCol.appendChild(tenseHeader);
+  tenseCol.appendChild(tenseList);
+
+  const releaseCol = document.createElement("div");
+  releaseCol.className = "session-cues-col is-release";
+  const releaseHeader = document.createElement("div");
+  releaseHeader.className = "session-cues-header";
+  const releaseTitle = document.createElement("span");
+  releaseTitle.className = "session-cues-title";
+  releaseHeader.appendChild(releaseTitle);
+  const releaseList = document.createElement("ol");
+  releaseList.className = "session-cues-list";
+  releaseCol.appendChild(releaseHeader);
+  releaseCol.appendChild(releaseList);
+
+  cuesRow.appendChild(tenseCol);
+  cuesRow.appendChild(releaseCol);
+  card.appendChild(cuesRow);
+
   // Row 2: cycle dots (or a slim bar for long/until-stopped runs) + count.
   const dotsRow = document.createElement("div");
   dotsRow.className = "session-dots-row";
@@ -2543,7 +2605,11 @@ const installDefaultPetSession = () => {
   lungsIcon.setAttribute("aria-hidden", "true");
   // tabler:lungs (via better-icons/Iconify)
   lungsIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" aria-hidden="true"><path d="M6.081 20C7.693 20 9 18.665 9 17.02V7.257C9 6.563 8.448 6 7.768 6c-.205 0-.405.052-.584.15l-.13.083C5.594 7.292 4.622 8.88 3.65 12.057q-.63 2.055-.648 4.775c-.012 1.675 1.261 3.054 2.877 3.161zm11.839 0C16.307 20 15 18.665 15 17.02V7.257C15 6.563 15.552 6 16.233 6c.204 0 .405.052.584.15l.13.083c1.46 1.059 2.432 2.647 3.405 5.824q.63 2.055.648 4.775c.012 1.675-1.261 3.054-2.878 3.161zM9 12a3 3 0 0 0 3-3a3 3 0 0 0 3 3m-3-8v5"/></svg>';
+  const phaseWord = document.createElement("div");
+  phaseWord.className = "session-tile-value";
+  phaseWord.style.display = "none";
   lungsTile.appendChild(lungsIcon);
+  lungsTile.appendChild(phaseWord);
 
   const paceTile = makeTile("");
   const paceIcon = document.createElement("div");
@@ -2584,6 +2650,19 @@ const installDefaultPetSession = () => {
   infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>';
   const controlsSpacer = document.createElement("div");
   controlsSpacer.className = "session-controls-spacer";
+  const switchPracticeBtn = document.createElement("button");
+  switchPracticeBtn.type = "button";
+  switchPracticeBtn.className = "session-ghost-btn";
+  switchPracticeBtn.style.display = "none";
+  switchPracticeBtn.addEventListener("click", () => {
+    if (!descriptor?.practices || descriptor.practices.length <= 1) return;
+    const currentId = descriptor.practiceId ?? (descriptor.kind === "breathing" ? "breathing" : "pmr");
+    const currentIndex = descriptor.practices.findIndex((p) => p.id === currentId);
+    const nextPractice = descriptor.practices[(currentIndex + 1) % descriptor.practices.length];
+    if (nextPractice) {
+      sendSessionEvent({ type: "practiceSelected", practiceId: nextPractice.id });
+    }
+  });
   const restartBtn = document.createElement("button");
   restartBtn.type = "button";
   restartBtn.className = "session-ghost-btn";
@@ -2592,6 +2671,7 @@ const installDefaultPetSession = () => {
   primaryBtn.className = "session-primary-btn";
   controls.appendChild(infoBtn);
   controls.appendChild(controlsSpacer);
+  controls.appendChild(switchPracticeBtn);
   controls.appendChild(restartBtn);
   controls.appendChild(primaryBtn);
   card.appendChild(controls);
@@ -2900,7 +2980,42 @@ const installDefaultPetSession = () => {
     pulseStartedAt = nowSeconds;
   };
 
+  const advancePmrClock = (deltaMs, nowSeconds) => {
+    if (!descriptor || descriptor.kind !== "pmr" || runState !== "active") return;
+    phaseElapsedMs += deltaMs;
+    let guard = 0;
+    while (guard < 32) {
+      guard += 1;
+      const step = descriptor.steps[stepIndex];
+      if (!step) break;
+      const phaseMs = (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000;
+      if (phaseElapsedMs < phaseMs) break;
+      phaseElapsedMs -= phaseMs;
+      triggerPulse(nowSeconds);
+      if (stepPhase === "tense") {
+        stepPhase = "release";
+      } else {
+        stepPhase = "tense";
+        stepIndex += 1;
+        if (stepIndex >= descriptor.steps.length) {
+          runState = "complete";
+          phaseElapsedMs = 0;
+          sendSessionEvent({ type: "completed", patternId: "pmr", cycles: 1 });
+          renderStatics();
+          return;
+        }
+        renderStepTrack();
+        renderProgressMeta();
+      }
+      renderPhaseText();
+    }
+  };
+
   const advanceClock = (deltaMs, nowSeconds) => {
+    if (descriptor?.kind === "pmr") {
+      advancePmrClock(deltaMs, nowSeconds);
+      return;
+    }
     const pattern = selectedPattern();
     if (!pattern || runState !== "active") return;
     phaseElapsedMs += deltaMs;
@@ -2933,14 +3048,156 @@ const installDefaultPetSession = () => {
 
   // --- Rendering -----------------------------------------------------------
 
+  const renderIllustration = () => {
+    if (!descriptor || descriptor.kind !== "pmr") {
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+        scheduleSessionGeometry();
+      } else {
+        illustrationWell.style.display = "none";
+      }
+      return;
+    }
+
+    const stepsList = Array.isArray(descriptor.steps) ? descriptor.steps : [];
+    let targetUrl = null;
+    let activeStep = null;
+
+    if (runState === "idle" || runState === "countdown") {
+      activeStep = stepsList[0] ?? null;
+      targetUrl = activeStep?.tenseImageUrl ?? null;
+    } else if (runState === "complete") {
+      activeStep = stepsList[Math.max(0, stepsList.length - 1)] ?? null;
+      targetUrl = activeStep?.releaseImageUrl ?? activeStep?.tenseImageUrl ?? null;
+    } else {
+      activeStep = stepsList[stepIndex] ?? stepsList[0] ?? null;
+      targetUrl = (stepPhase === "tense" ? activeStep?.tenseImageUrl : activeStep?.releaseImageUrl) ?? null;
+    }
+
+    const hasUrl = typeof targetUrl === "string" && targetUrl.trim().length > 0;
+    if (!hasUrl) {
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+        scheduleSessionGeometry();
+      } else {
+        illustrationWell.style.display = "none";
+      }
+      return;
+    }
+
+    if (!illustrationVisible) {
+      illustrationVisible = true;
+      illustrationWell.style.display = "flex";
+      scheduleSessionGeometry();
+    }
+
+    if (currentIllustrationUrl !== targetUrl) {
+      currentIllustrationUrl = targetUrl;
+      illustrationImg.src = targetUrl;
+      illustrationImg.alt = activeStep?.name ? String(activeStep.name) : "";
+    }
+  };
+
+  const renderCues = () => {
+    if (!descriptor || descriptor.kind !== "pmr") {
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+        scheduleSessionGeometry();
+      } else {
+        cuesRow.style.display = "none";
+      }
+      return;
+    }
+
+    const stepsList = Array.isArray(descriptor.steps) ? descriptor.steps : [];
+    let activeStep = null;
+
+    if (runState === "idle" || runState === "countdown") {
+      activeStep = stepsList[0] ?? null;
+    } else if (runState === "complete") {
+      activeStep = stepsList[Math.max(0, stepsList.length - 1)] ?? null;
+    } else {
+      activeStep = stepsList[stepIndex] ?? stepsList[0] ?? null;
+    }
+
+    const hasCues = Boolean(
+      activeStep &&
+      Array.isArray(activeStep.tenseCues) &&
+      activeStep.tenseCues.length > 0 &&
+      Array.isArray(activeStep.releaseCues) &&
+      activeStep.releaseCues.length > 0
+    );
+
+    if (!hasCues) {
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+        scheduleSessionGeometry();
+      } else {
+        cuesRow.style.display = "none";
+      }
+      return;
+    }
+
+    if (!cuesVisible) {
+      cuesVisible = true;
+      cuesRow.style.display = "grid";
+      scheduleSessionGeometry();
+    }
+
+    tenseTitle.textContent = activeStep.tenseLabel || chromeText("tense");
+    releaseTitle.textContent = activeStep.releaseLabel || chromeText("release");
+
+    if (lastRenderedCuesStep !== activeStep) {
+      lastRenderedCuesStep = activeStep;
+
+      const populateList = (listEl, items) => {
+        listEl.textContent = "";
+        for (let i = 0; i < items.length; i += 1) {
+          const item = document.createElement("li");
+          item.className = "session-cue-item";
+          const badge = document.createElement("span");
+          badge.className = "session-cue-badge";
+          badge.textContent = String(i + 1);
+          const text = document.createElement("span");
+          text.className = "session-cue-text";
+          text.textContent = String(items[i]);
+          item.appendChild(badge);
+          item.appendChild(text);
+          listEl.appendChild(item);
+        }
+      };
+
+      populateList(tenseList, activeStep.tenseCues);
+      populateList(releaseList, activeStep.releaseCues);
+    }
+
+    const isTenseActive = (runState === "active" || runState === "paused") && stepPhase === "tense";
+    const isReleaseActive = ((runState === "active" || runState === "paused") && stepPhase === "release") || runState === "complete";
+
+    tenseCol.classList.toggle("is-active", isTenseActive);
+    releaseCol.classList.toggle("is-active", isReleaseActive);
+    cuesRow.classList.toggle("has-active", isTenseActive || isReleaseActive);
+  };
+
   const renderPhaseText = () => {
-    const pattern = selectedPattern();
-    if (!descriptor || !pattern) return;
+    if (!descriptor) return;
     if (runState === "complete") {
       phaseName.textContent = chromeText("complete");
       phaseGuidance.textContent = chromeText("completeGuidance");
       phaseCount.style.display = "none";
       updateStepStates();
+      renderIllustration();
+      renderCues();
       return;
     }
     if (runState === "countdown") {
@@ -2948,15 +3205,51 @@ const installDefaultPetSession = () => {
       phaseGuidance.textContent = chromeText("getReadyGuidance");
       phaseCount.style.display = "";
       updateStepStates();
+      renderIllustration();
+      renderCues();
       return;
     }
     if (runState === "idle") {
       phaseName.textContent = descriptor.title;
       phaseGuidance.textContent = descriptor.subtitle ?? chromeText("idleGuidance");
       phaseCount.style.display = "none";
+      if (descriptor.kind === "pmr") {
+        phaseWord.textContent = chromeText("tense");
+      }
       updateStepStates();
+      renderIllustration();
+      renderCues();
       return;
     }
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex] ?? descriptor.steps[0];
+      if (!step) return;
+      phaseName.textContent = runState === "paused" ? chromeText("paused") : step.name;
+      const hasCues = Boolean(
+        step &&
+        Array.isArray(step.tenseCues) &&
+        step.tenseCues.length > 0 &&
+        Array.isArray(step.releaseCues) &&
+        step.releaseCues.length > 0
+      );
+      const phaseWordText = stepPhase === "tense"
+        ? (step.tenseLabel || chromeText("tense"))
+        : (step.releaseLabel || chromeText("release"));
+      phaseGuidance.textContent = runState === "paused"
+        ? chromeText("pausedGuidance")
+        : (hasCues ? phaseWordText : (stepPhase === "tense" ? (step.tenseCue || step.tenseLabel) : (step.releaseCue || step.releaseLabel)));
+      phaseCount.style.display = runState === "paused" ? "none" : "";
+      targetColor = stepPhase === "tense" ? PMR_TENSE_COLOR : PMR_RELEASE_COLOR;
+      currentPhaseCss = stepPhase === "tense" ? PMR_TENSE_CSS : PMR_RELEASE_CSS;
+      document.documentElement.style.setProperty("--session-phase-color", currentPhaseCss);
+      phaseWord.textContent = phaseWordText;
+      updateStepStates();
+      renderIllustration();
+      renderCues();
+      return;
+    }
+    const pattern = selectedPattern();
+    if (!pattern) return;
     const phase = pattern.phases[phaseIndex];
     const presentation = phasePresentation(phase);
     phaseName.textContent = runState === "paused" ? chromeText("paused") : presentation.name;
@@ -2966,15 +3259,26 @@ const installDefaultPetSession = () => {
     currentPhaseCss = PHASE_STYLE[phase.kind]?.css ?? "#7ab3ff";
     document.documentElement.style.setProperty("--session-phase-color", currentPhaseCss);
     updateStepStates();
+    renderIllustration();
+    renderCues();
   };
 
   const updateStepStates = () => {
     const stepElements = steps.children;
+    const running = runState === "active" || runState === "paused";
+    if (descriptor?.kind === "pmr") {
+      const activeIdx = stepPhase === "tense" ? 0 : 1;
+      for (let index = 0; index < stepElements.length; index += 1) {
+        const step = stepElements[index];
+        step.classList.toggle("is-active", running && index === activeIdx);
+        step.classList.toggle("is-done", (running && index < activeIdx) || runState === "complete");
+      }
+      return;
+    }
     for (let index = 0; index < stepElements.length; index += 1) {
       const step = stepElements[index];
-      const running = runState === "active" || runState === "paused";
       step.classList.toggle("is-active", running && index === phaseIndex);
-      step.classList.toggle("is-done", running && index < phaseIndex);
+      step.classList.toggle("is-done", (running && index < phaseIndex) || runState === "complete");
     }
   };
 
@@ -3020,11 +3324,45 @@ const installDefaultPetSession = () => {
 
   const maxCycleDots = 16;
 
-  const renderStatics = () => {
+  const renderStepTrack = () => {
+    steps.textContent = "";
+    if (descriptor?.kind === "pmr") {
+      const step = descriptor.steps[stepIndex] ?? descriptor.steps[0];
+      if (step) {
+        const tenseStep = document.createElement("div");
+        tenseStep.className = "session-step";
+        tenseStep.style.flexGrow = String(Math.max(1, step.tenseSeconds));
+        const tenseBar = document.createElement("div");
+        tenseBar.className = "session-step-bar";
+        const tenseFill = document.createElement("div");
+        tenseFill.className = "session-step-fill";
+        tenseBar.appendChild(tenseFill);
+        const tenseLabel = document.createElement("div");
+        tenseLabel.className = "session-step-label";
+        tenseLabel.textContent = `${step.tenseLabel || chromeText("tense")} · ${formatSeconds(step.tenseSeconds)}`;
+        tenseStep.appendChild(tenseBar);
+        tenseStep.appendChild(tenseLabel);
+        steps.appendChild(tenseStep);
+
+        const releaseStep = document.createElement("div");
+        releaseStep.className = "session-step";
+        releaseStep.style.flexGrow = String(Math.max(1, step.releaseSeconds));
+        const releaseBar = document.createElement("div");
+        releaseBar.className = "session-step-bar";
+        const releaseFill = document.createElement("div");
+        releaseFill.className = "session-step-fill";
+        releaseBar.appendChild(releaseFill);
+        const releaseLabel = document.createElement("div");
+        releaseLabel.className = "session-step-label";
+        releaseLabel.textContent = `${step.releaseLabel || chromeText("release")} · ${formatSeconds(step.releaseSeconds)}`;
+        releaseStep.appendChild(releaseBar);
+        releaseStep.appendChild(releaseLabel);
+        steps.appendChild(releaseStep);
+      }
+      return;
+    }
     const pattern = selectedPattern();
     if (!descriptor || !pattern) return;
-
-    steps.textContent = "";
     for (const phase of pattern.phases) {
       const step = document.createElement("div");
       step.className = "session-step";
@@ -3041,22 +3379,55 @@ const installDefaultPetSession = () => {
       step.appendChild(label);
       steps.appendChild(step);
     }
+  };
+
+  const renderStatics = () => {
+    if (!descriptor) return;
+    const isPmr = descriptor.kind === "pmr";
+
+    if (isPmr) {
+      topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><circle cx="12" cy="5" r="1"/><path d="m9 20l3-6l3 6M6 8l6 2l6-2m-6 2v4"/></svg>';
+      lungsTile.style.flex = "1 1 0";
+      lungsIcon.style.display = "none";
+      phaseWord.style.display = "";
+      paceTile.style.display = "none";
+    } else {
+      topbarIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>';
+      lungsTile.style.flex = "";
+      lungsIcon.style.display = "";
+      phaseWord.style.display = "none";
+      paceTile.style.display = "";
+    }
+
+    renderStepTrack();
 
     // Cycle dots for short finite runs; a slim bar otherwise.
-    const useDots = pattern.cycles !== null && pattern.cycles <= maxCycleDots;
-    dotsBox.style.display = useDots ? "" : "none";
-    dotsBar.style.display = useDots ? "none" : "";
-    if (useDots) {
-      dotsBox.textContent = "";
-      for (let index = 0; index < pattern.cycles; index += 1) {
-        const dot = document.createElement("span");
-        dot.className = "session-dot";
-        dotsBox.appendChild(dot);
+    if (isPmr) {
+      dotsBox.style.display = "none";
+      dotsBar.style.display = "";
+    } else {
+      const pattern = selectedPattern();
+      const useDots = pattern && pattern.cycles !== null && pattern.cycles <= maxCycleDots;
+      dotsBox.style.display = useDots ? "" : "none";
+      dotsBar.style.display = useDots ? "none" : "";
+      if (useDots) {
+        dotsBox.textContent = "";
+        for (let index = 0; index < pattern.cycles; index += 1) {
+          const dot = document.createElement("span");
+          dot.className = "session-dot";
+          dotsBox.appendChild(dot);
+        }
       }
     }
 
-    paceValue.textContent = formatPace(pattern);
-    paceLabel.textContent = chromeText("breathPace");
+    if (!isPmr) {
+      const pattern = selectedPattern();
+      if (pattern) {
+        paceValue.textContent = formatPace(pattern);
+        paceLabel.textContent = chromeText("breathPace");
+      }
+    }
+
     renderAudioButton();
     closeBtn.setAttribute("aria-label", chromeText("close"));
     closeBtn.setAttribute("title", `${chromeText("close")} (Esc)`);
@@ -3067,6 +3438,21 @@ const installDefaultPetSession = () => {
     restartBtn.innerHTML = `${restartSvg}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
     restartBtn.style.display = runState === "idle" || runState === "countdown" ? "none" : "";
     infoBtn.style.display = descriptor.info ? "" : "none";
+
+    if (runState === "idle" && descriptor.practices && descriptor.practices.length > 1) {
+      const currentId = descriptor.practiceId ?? (isPmr ? "pmr" : "breathing");
+      const currentIndex = descriptor.practices.findIndex((p) => p.id === currentId);
+      const nextPractice = descriptor.practices[(currentIndex + 1) % descriptor.practices.length];
+      if (nextPractice) {
+        switchPracticeBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg><span>${escapeHtml(nextPractice.name)}</span>`;
+        switchPracticeBtn.style.display = "";
+      } else {
+        switchPracticeBtn.style.display = "none";
+      }
+    } else {
+      switchPracticeBtn.style.display = "none";
+    }
+
     renderProgressMeta();
     renderPhaseText();
     // Card contents can change its height across states, and the orb stack is
@@ -3076,6 +3462,27 @@ const installDefaultPetSession = () => {
 
   /** Cycle dots/bar state, the count label, and the paw footer line. */
   const renderProgressMeta = () => {
+    if (!descriptor) return;
+    if (descriptor.kind === "pmr") {
+      const totalSteps = descriptor.steps.length;
+      dotsCount.innerHTML = "";
+      if (runState === "idle" || runState === "countdown") {
+        dotsCount.textContent = chromeText("groupProgress", { n: 1, total: totalSteps });
+      } else {
+        const displayStep = runState === "complete" ? totalSteps : Math.min(stepIndex + 1, totalSteps);
+        const current = document.createElement("span");
+        current.className = "count-current";
+        current.textContent = String(displayStep);
+        dotsCount.appendChild(current);
+        dotsCount.appendChild(document.createTextNode(` / ${totalSteps}`));
+      }
+
+      if (runState === "complete") footer.textContent = `🐾  ${chromeText("footerComplete")}  🐾`;
+      else if (runState === "idle" || runState === "countdown") footer.textContent = `🐾  ${chromeText("footerReady")}  🐾`;
+      else footer.textContent = `🐾  ${chromeText("footerRelaxing", { name: petCompanionName() })}  🐾`;
+      return;
+    }
+
     const pattern = selectedPattern();
     if (!pattern) return;
 
@@ -3137,20 +3544,39 @@ const installDefaultPetSession = () => {
       }
     }
 
-    const pattern = selectedPattern();
-    const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
-    const phaseMs = phase ? phase.seconds * 1000 : 1;
-    const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
-
-    // Breath eases toward its target so pauses and pattern hops stay smooth.
     const settlingToStart = runState === "countdown" && countdownRemainingMs < 1600;
-    const breathTarget = runState === "complete"
-      ? 0.3
-      : settlingToStart
-        ? 0.02
-        : runState === "idle" || runState === "countdown"
-          ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
-          : breathTargetFor(phase, phaseProgress);
+    let breathTarget = 0.25;
+
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex];
+      const phaseMs = step ? (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000 : 1;
+      const phaseProgress = step ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+      const eased = easeInOutSine(phaseProgress);
+      // Tense gathers the orb inward. Release lets it open, short of a full
+      // inhale balloon — the opposite of the breathing swell.
+      breathTarget = runState === "complete"
+        ? 0.3
+        : settlingToStart
+          ? 0.35
+          : runState === "idle" || runState === "countdown"
+            ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+            : stepPhase === "tense"
+              ? 0.45 - eased * (0.45 - 0.08)
+              : 0.08 + eased * (0.62 - 0.08);
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      const phaseMs = phase ? phase.seconds * 1000 : 1;
+      const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+      breathTarget = runState === "complete"
+        ? 0.3
+        : settlingToStart
+          ? 0.02
+          : runState === "idle" || runState === "countdown"
+            ? 0.22 + 0.06 * Math.sin(nowSeconds * 0.8)
+            : breathTargetFor(phase, phaseProgress);
+    }
+
     const smoothing = runState === "active" ? 0.16 : 0.05;
     breathValue += (breathTarget - breathValue) * smoothing;
 
@@ -3160,44 +3586,124 @@ const installDefaultPetSession = () => {
     }
 
     // Countdown reflects the live phase clock.
-    if (phase && runState === "active") {
-      const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
-      const text = String(remaining);
-      if (text !== lastCountdownText) {
-        lastCountdownText = text;
-        phaseCountValue.textContent = text;
+    if (descriptor.kind === "pmr") {
+      if (runState === "active") {
+        const step = descriptor.steps[stepIndex];
+        if (step) {
+          const phaseMs = (stepPhase === "tense" ? step.tenseSeconds : step.releaseSeconds) * 1000;
+          const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
+          const text = String(remaining);
+          if (text !== lastCountdownText) {
+            lastCountdownText = text;
+            phaseCountValue.textContent = text;
+          }
+        }
+      }
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      if (phase && runState === "active") {
+        const phaseMs = phase.seconds * 1000;
+        const remaining = Math.max(0, Math.ceil((phaseMs - phaseElapsedMs) / 1000));
+        const text = String(remaining);
+        if (text !== lastCountdownText) {
+          lastCountdownText = text;
+          phaseCountValue.textContent = text;
+        }
       }
     }
 
     // Session timer tile (whole-session remaining, or elapsed when endless)
-    // plus the slim per-cycle bar used for long/until-stopped runs.
-    if (pattern) {
-      const secondsPerCycle = cycleSeconds(pattern);
-      const withinCycleSeconds = runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress) * secondsPerCycle;
-      const elapsedSeconds = cycleIndex * secondsPerCycle + withinCycleSeconds;
-      let timerText;
-      if (pattern.cycles !== null) {
-        const totalSeconds = pattern.cycles * secondsPerCycle;
-        timerText = formatClock(runState === "complete" ? 0 : totalSeconds - elapsedSeconds);
-        timerLabel.textContent = chromeText("remaining");
-      } else {
-        timerText = formatClock(elapsedSeconds);
-        timerLabel.textContent = chromeText("elapsed");
+    // plus the slim per-cycle/step bar.
+    if (descriptor.kind === "pmr") {
+      const totalSeconds = descriptor.steps.reduce((sum, s) => sum + s.tenseSeconds + s.releaseSeconds, 0);
+      let elapsedSeconds = 0;
+      for (let i = 0; i < stepIndex && i < descriptor.steps.length; i += 1) {
+        elapsedSeconds += descriptor.steps[i].tenseSeconds + descriptor.steps[i].releaseSeconds;
       }
+      const currentStep = descriptor.steps[stepIndex];
+      if (currentStep && (runState === "active" || runState === "paused")) {
+        if (stepPhase === "tense") {
+          elapsedSeconds += phaseElapsedMs / 1000;
+        } else {
+          elapsedSeconds += currentStep.tenseSeconds + phaseElapsedMs / 1000;
+        }
+      }
+      const remainingSeconds = runState === "complete" ? 0 : Math.max(0, totalSeconds - elapsedSeconds);
+      const timerText = formatClock(remainingSeconds);
       if (timerValue.textContent !== timerText) timerValue.textContent = timerText;
+      timerLabel.textContent = chromeText("remaining");
+
       if (dotsBar.style.display !== "none") {
-        dotsBarFill.style.width = `${Math.min(100, (withinCycleSeconds / Math.max(1, secondsPerCycle)) * 100)}%`;
+        const progressFraction = runState === "complete"
+          ? 1
+          : runState === "idle" || runState === "countdown"
+            ? 0
+            : elapsedSeconds / Math.max(1, totalSeconds);
+        dotsBarFill.style.width = `${Math.min(100, Math.max(0, progressFraction * 100))}%`;
+      }
+    } else {
+      const pattern = selectedPattern();
+      if (pattern) {
+        const secondsPerCycle = cycleSeconds(pattern);
+        const phase = (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+        const phaseMs = phase ? phase.seconds * 1000 : 1;
+        const phaseProgress = phase ? Math.min(1, phaseElapsedMs / phaseMs) : 0;
+        const withinCycleSeconds = runState === "idle" ? 0 : cycleProgressWithinCycle(pattern, phaseProgress) * secondsPerCycle;
+        const elapsedSeconds = cycleIndex * secondsPerCycle + withinCycleSeconds;
+        let timerText;
+        if (pattern.cycles !== null) {
+          const totalSeconds = pattern.cycles * secondsPerCycle;
+          timerText = formatClock(runState === "complete" ? 0 : totalSeconds - elapsedSeconds);
+          timerLabel.textContent = chromeText("remaining");
+        } else {
+          timerText = formatClock(elapsedSeconds);
+          timerLabel.textContent = chromeText("elapsed");
+        }
+        if (timerValue.textContent !== timerText) timerValue.textContent = timerText;
+        if (dotsBar.style.display !== "none") {
+          dotsBarFill.style.width = `${Math.min(100, (withinCycleSeconds / Math.max(1, secondsPerCycle)) * 100)}%`;
+        }
       }
     }
 
-    // The lungs tile breathes with the orb and takes the phase tint.
-    lungsIcon.style.transform = `scale(${(0.88 + 0.24 * breathValue).toFixed(3)})`;
-    lungsIcon.style.color = runState === "active" ? currentPhaseCss : "";
+    if (descriptor.kind === "breathing") {
+      lungsIcon.style.transform = `scale(${(0.88 + 0.24 * breathValue).toFixed(3)})`;
+      lungsIcon.style.color = runState === "active" ? currentPhaseCss : "";
+    }
 
-    if (phase) {
+    if (descriptor.kind === "pmr") {
+      const step = descriptor.steps[stepIndex];
       const fills = steps.querySelectorAll(".session-step-fill");
-      const activeFill = fills[phaseIndex];
-      if (activeFill) activeFill.style.width = `${phaseProgress * 100}%`;
+      if (step && fills.length >= 2) {
+        if (runState === "active" || runState === "paused") {
+          if (stepPhase === "tense") {
+            const progress = Math.min(1, phaseElapsedMs / (step.tenseSeconds * 1000));
+            fills[0].style.width = `${progress * 100}%`;
+            fills[1].style.width = "0%";
+          } else {
+            const progress = Math.min(1, phaseElapsedMs / (step.releaseSeconds * 1000));
+            fills[0].style.width = "100%";
+            fills[1].style.width = `${progress * 100}%`;
+          }
+        } else if (runState === "complete") {
+          fills[0].style.width = "100%";
+          fills[1].style.width = "100%";
+        } else {
+          fills[0].style.width = "0%";
+          fills[1].style.width = "0%";
+        }
+      }
+    } else {
+      const pattern = selectedPattern();
+      const phase = pattern && (runState === "active" || runState === "paused") ? pattern.phases[phaseIndex] : null;
+      if (phase) {
+        const phaseMs = phase.seconds * 1000;
+        const phaseProgress = Math.min(1, phaseElapsedMs / phaseMs);
+        const fills = steps.querySelectorAll(".session-step-fill");
+        const activeFill = fills[phaseIndex];
+        if (activeFill) activeFill.style.width = `${phaseProgress * 100}%`;
+      }
     }
 
     if (orbGl) {
@@ -3247,25 +3753,33 @@ const installDefaultPetSession = () => {
   const resetClock = () => {
     phaseIndex = 0;
     cycleIndex = 0;
+    stepIndex = 0;
+    stepPhase = "tense";
     phaseElapsedMs = 0;
     lastCountdownText = "";
   };
 
   const beginActiveRun = () => {
-    const pattern = selectedPattern();
-    if (!pattern) return;
+    if (!descriptor) return;
     resetClock();
     breathValue = Math.min(breathValue, 0.05);
     runState = "active";
     triggerPulse(performance.now() / 1000);
     renderStatics();
-    playPhaseCue(pattern.phases[0].kind);
-    sendSessionEvent({ type: "started", patternId: pattern.id });
+    if (descriptor.kind === "breathing") {
+      const pattern = selectedPattern();
+      if (pattern) {
+        playPhaseCue(pattern.phases[0].kind);
+        sendSessionEvent({ type: "started", patternId: pattern.id });
+      }
+    } else if (descriptor.kind === "pmr") {
+      sendSessionEvent({ type: "started", patternId: "pmr" });
+    }
   };
 
   const startRun = () => {
-    const pattern = selectedPattern();
-    if (!pattern) return;
+    if (!descriptor) return;
+    if (descriptor.kind === "breathing" && !selectedPattern()) return;
     const countdownSeconds = Number(descriptor?.countdownSeconds);
     if (Number.isFinite(countdownSeconds) && countdownSeconds > 0) {
       resetClock();
@@ -3289,6 +3803,25 @@ const installDefaultPetSession = () => {
   const currentCycleNumber = () => cycleIndex + 1;
 
   primaryBtn.addEventListener("click", () => {
+    if (!descriptor) return;
+    if (descriptor.kind === "pmr") {
+      if (runState === "active") {
+        runState = "paused";
+        sendSessionEvent({ type: "paused", patternId: "pmr", cycle: 1 });
+        renderStatics();
+      } else if (runState === "paused") {
+        runState = "active";
+        sendSessionEvent({ type: "resumed", patternId: "pmr", cycle: 1 });
+        renderStatics();
+      } else if (runState === "complete") {
+        dismissOverlay();
+      } else if (runState === "countdown") {
+        beginActiveRun();
+      } else {
+        startRun();
+      }
+      return;
+    }
     const pattern = selectedPattern();
     if (!pattern) return;
     if (runState === "active") {
@@ -3310,7 +3843,8 @@ const installDefaultPetSession = () => {
   });
 
   restartBtn.addEventListener("click", () => {
-    if (!selectedPattern() || runState === "idle") return;
+    if (!descriptor || runState === "idle") return;
+    if (descriptor.kind === "breathing" && !selectedPattern()) return;
     startRun();
   });
 
@@ -3365,12 +3899,25 @@ const installDefaultPetSession = () => {
       runState = "idle";
       resetClock();
       stopFrameLoop();
+      if (illustrationVisible) {
+        illustrationVisible = false;
+        illustrationWell.style.display = "none";
+        currentIllustrationUrl = "";
+        illustrationImg.removeAttribute("src");
+      }
+      if (cuesVisible) {
+        cuesVisible = false;
+        cuesRow.style.display = "none";
+        lastRenderedCuesStep = null;
+      }
       return;
     }
     document.documentElement.dataset.sessionOpen = "true";
-    const patternChanged = selectedPatternId !== descriptor.patternId || !previous;
-    selectedPatternId = descriptor.patternId;
-    if (!previous) {
+    const kindChanged = previous && (previous.kind !== descriptor.kind || previous.practiceId !== descriptor.practiceId);
+    const patternChanged = descriptor.kind === "breathing" && (selectedPatternId !== descriptor.patternId || !previous);
+    selectedPatternId = descriptor.kind === "breathing" ? descriptor.patternId : null;
+    if (!previous || kindChanged) {
+      lastRenderedCuesStep = null;
       runState = "idle";
       resetClock();
       renderStatics();
@@ -3387,20 +3934,22 @@ const installDefaultPetSession = () => {
 
   // Plugin-driven controls (pet menu commands relayed through the host).
   ipcRenderer.on("openpets:session-overlay-control", (_event, action) => {
-    const pattern = selectedPattern();
-    if (!descriptor || !pattern) return;
+    if (!descriptor) return;
+    const isPmr = descriptor.kind === "pmr";
+    const patternId = isPmr ? "pmr" : selectedPattern()?.id;
+    if (!patternId) return;
     if (action === "pause" && runState === "active") {
       runState = "paused";
       stopCuePlayback();
-      sendSessionEvent({ type: "paused", patternId: pattern.id, cycle: currentCycleNumber() });
+      sendSessionEvent({ type: "paused", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
       renderStatics();
     } else if (action === "resume" && runState === "paused") {
       runState = "active";
-      sendSessionEvent({ type: "resumed", patternId: pattern.id, cycle: currentCycleNumber() });
+      sendSessionEvent({ type: "resumed", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
       renderStatics();
     } else if (action === "stop" && (runState === "active" || runState === "paused")) {
       stopCuePlayback();
-      sendSessionEvent({ type: "stopped", patternId: pattern.id, cycle: currentCycleNumber() });
+      sendSessionEvent({ type: "stopped", patternId, cycle: isPmr ? 1 : currentCycleNumber() });
       runState = "idle";
       resetClock();
       renderStatics();

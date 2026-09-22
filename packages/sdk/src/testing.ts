@@ -522,7 +522,12 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       session: async (spec) => {
         requirePermission("ui:session");
         const id = newId("session");
-        const patternId = spec.patternId ?? spec.patterns[0]?.id ?? "";
+        const patternId =
+          spec.practiceId ??
+          ("patternId" in spec ? spec.patternId : undefined) ??
+          ("patterns" in spec ? spec.patterns[0]?.id : undefined) ??
+          ("steps" in spec ? spec.steps[0]?.id : undefined) ??
+          "";
         let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
         // Auto-start delivers on subscription so plugins that attach their
         // handler right after `await ctx.ui.session(...)` never miss it.

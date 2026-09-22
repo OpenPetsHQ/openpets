@@ -18,17 +18,21 @@ export const sessionOrbTopGap = 16;
 export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
   return Math.max(110, Math.min(240, Math.round(scaledSpriteHeight)));
 }
-export const sessionCardEstimatedHeight = 268;
+/** Breathing card. The CSS fallback uses this so a breath session does not open tall. */
+export const sessionBreathingCardEstimatedHeight = 268;
+/** PMR card, including the fixed pose-illustration well and cues row. */
+export const sessionPmrCardEstimatedHeight = 537;
+export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;
 export const sessionCardBottomInset = 14;
 export const sessionOrbCardGap = 10;
 
 
-export function calculateSessionWindowSize(scaledSpriteHeight: number): WindowSize {
+export function calculateSessionWindowSize(scaledSpriteHeight: number, cardEstimatedHeight = sessionCardEstimatedHeight): WindowSize {
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
   const height = sessionOrbTopGap
     + orbRadius * 2
     + sessionOrbCardGap
-    + sessionCardEstimatedHeight
+    + cardEstimatedHeight
     + sessionCardBottomInset;
   return { width: sessionPetWindowWidth, height };
 }

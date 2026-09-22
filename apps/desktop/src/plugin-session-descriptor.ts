@@ -92,7 +92,37 @@ export interface SessionAudio {
   readonly exhaleSoundPath?: string;
 }
 
-export interface PluginSessionDescriptor {
+export interface SessionPracticeChoice {
+  readonly id: string;
+  readonly name: string;
+}
+
+export interface SessionPmrStep {
+  readonly id: string;
+  readonly name: string;
+  readonly tenseSeconds: number;
+  readonly releaseSeconds: number;
+  readonly tenseLabel: string;
+  readonly releaseLabel: string;
+  readonly tenseCue: string;
+  readonly releaseCue: string;
+  readonly tenseCues?: readonly string[];
+  readonly releaseCues?: readonly string[];
+  /** Manifest-declared asset ref; the bridge resolves it into `tenseIllustrationPath`. */
+  readonly tenseIllustration?: SessionAssetRef;
+  /** Manifest-declared asset ref; the bridge resolves it into `releaseIllustrationPath`. */
+  readonly releaseIllustration?: SessionAssetRef;
+  /** Absolute path of the resolved, manifest-declared tense illustration SVG. */
+  readonly tenseIllustrationPath?: string;
+  /** Absolute path of the resolved, manifest-declared release illustration SVG. */
+  readonly releaseIllustrationPath?: string;
+  /** File URL for renderer display. */
+  readonly tenseImageUrl?: string;
+  /** File URL for renderer display. */
+  readonly releaseImageUrl?: string;
+}
+
+export interface PluginBreathingSessionDescriptor {
   readonly kind: "breathing";
   readonly title: string;
   readonly subtitle?: string;
@@ -103,7 +133,24 @@ export interface PluginSessionDescriptor {
   readonly countdownSeconds: number;
   readonly info?: SessionInfo;
   readonly audio?: SessionAudio;
+  readonly practices?: readonly SessionPracticeChoice[];
+  readonly practiceId?: string;
 }
+
+export interface PluginPmrSessionDescriptor {
+  readonly kind: "pmr";
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly steps: readonly SessionPmrStep[];
+  readonly autoStart: boolean;
+  /** Lead-in countdown before the first step (0–15 seconds). */
+  readonly countdownSeconds: number;
+  readonly info?: SessionInfo;
+  readonly practices?: readonly SessionPracticeChoice[];
+  readonly practiceId?: string;
+}
+
+export type PluginSessionDescriptor = PluginBreathingSessionDescriptor | PluginPmrSessionDescriptor;
 
 /** Patch accepted by `ui.sessionUpdate`. */
 export interface PluginSessionUpdate {
@@ -123,7 +170,8 @@ export type PluginSessionEvent =
   | { readonly type: "completed"; readonly patternId: string; readonly cycles: number }
   | { readonly type: "stopped"; readonly reason: SessionStopReason; readonly patternId: string; readonly cycle: number }
   | { readonly type: "infoOpened" }
-  | { readonly type: "audioToggled"; readonly enabled: boolean };
+  | { readonly type: "audioToggled"; readonly enabled: boolean }
+  | { readonly type: "practiceSelected"; readonly practiceId: string };
 
 const idPattern = /^[A-Za-z0-9._:-]{1,48}$/;
 const controlCharacters = /[\u0000-\u001f\u007f]/;
@@ -132,18 +180,14 @@ const maxPatterns = 12;
 const maxPhases = 8;
 const maxSections = 8;
 const maxCitations = 8;
+const maxSteps = 24;
 
 export function validateSessionDescriptor(value: unknown): PluginSessionDescriptor {
   check(isRecord(value), "Invalid session descriptor.");
-  check(value.kind === "breathing", "Session kind must be \"breathing\".");
-  checkKnownKeys(value, ["kind", "title", "subtitle", "patterns", "patternId", "autoStart", "countdownSeconds", "info", "audio"], "session descriptor");
+  check(value.kind === "breathing" || value.kind === "pmr", "Session kind must be \"breathing\" or \"pmr\".");
 
   const title = validateLine(value.title, 1, 60, "session title");
   const subtitle = value.subtitle === undefined ? undefined : validateLine(value.subtitle, 1, 80, "session subtitle");
-  const patterns = validatePatterns(value.patterns);
-  const patternId = value.patternId === undefined
-    ? patterns[0].id
-    : validateSelectedPatternId(value.patternId, patterns);
   const autoStart = value.autoStart === undefined ? true : value.autoStart === true;
   let countdownSeconds = 5;
   if (value.countdownSeconds !== undefined) {
@@ -152,19 +196,162 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
     countdownSeconds = Math.round(seconds);
   }
   const info = value.info === undefined ? undefined : validateSessionInfo(value.info);
-  const audio = value.audio === undefined ? undefined : validateSessionAudio(value.audio);
+  const practices = value.practices === undefined ? undefined : validatePractices(value.practices);
+  const practiceId = value.practiceId === undefined ? undefined : validatePracticeId(value.practiceId, practices);
+
+  if (value.kind === "breathing") {
+    checkKnownKeys(value, ["kind", "title", "subtitle", "patterns", "patternId", "autoStart", "countdownSeconds", "info", "audio", "practices", "practiceId"], "breathing session descriptor");
+    const patterns = validatePatterns(value.patterns);
+    const patternId = value.patternId === undefined
+      ? patterns[0].id
+      : validateSelectedPatternId(value.patternId, patterns);
+    const audio = value.audio === undefined ? undefined : validateSessionAudio(value.audio);
+
+    return {
+      kind: "breathing",
+      title,
+      ...(subtitle === undefined ? {} : { subtitle }),
+      patterns,
+      patternId,
+      autoStart,
+      countdownSeconds,
+      ...(info === undefined ? {} : { info }),
+      ...(audio === undefined ? {} : { audio }),
+      ...(practices === undefined ? {} : { practices }),
+      ...(practiceId === undefined ? {} : { practiceId }),
+    };
+  }
+
+  // PMR
+  checkKnownKeys(value, ["kind", "title", "subtitle", "steps", "autoStart", "countdownSeconds", "info", "practices", "practiceId"], "pmr session descriptor");
+  const steps = validatePmrSteps(value.steps);
 
   return {
-    kind: "breathing",
+    kind: "pmr",
     title,
     ...(subtitle === undefined ? {} : { subtitle }),
-    patterns,
-    patternId,
+    steps,
     autoStart,
     countdownSeconds,
     ...(info === undefined ? {} : { info }),
-    ...(audio === undefined ? {} : { audio }),
+    ...(practices === undefined ? {} : { practices }),
+    ...(practiceId === undefined ? {} : { practiceId }),
   };
+}
+
+function validatePractices(value: unknown): readonly SessionPracticeChoice[] {
+  check(Array.isArray(value), "Session practices must be an array.");
+  check(value.length >= 1 && value.length <= 6, "Session practices must contain 1–6 entries.");
+  const seen = new Set<string>();
+  const practices = value.map((entry) => {
+    check(isRecord(entry), "Invalid session practice choice.");
+    checkKnownKeys(entry, ["id", "name"], "session practice choice");
+    check(typeof entry.id === "string" && idPattern.test(entry.id), "Invalid session practice choice id.");
+    check(!seen.has(entry.id), `Duplicate session practice choice id "${entry.id}".`);
+    seen.add(entry.id);
+    const name = validateLine(entry.name, 1, 40, "session practice choice name");
+    return { id: entry.id, name };
+  });
+  return practices;
+}
+
+function validatePracticeId(value: unknown, practices: readonly SessionPracticeChoice[] | undefined): string {
+  check(typeof value === "string" && idPattern.test(value), "Invalid session practice id.");
+  check(practices !== undefined && practices.some((p) => p.id === value), "Selected session practice id is not in the practices list.");
+  return value;
+}
+
+function validatePmrSteps(value: unknown): readonly SessionPmrStep[] {
+  check(Array.isArray(value), "Session steps must be an array.");
+  check(value.length >= 1 && value.length <= maxSteps, `Session steps must contain 1–${maxSteps} entries.`);
+  const seen = new Set<string>();
+  const steps = value.map((entry) => validatePmrStep(entry));
+  for (const step of steps) {
+    check(!seen.has(step.id), `Duplicate session step id "${step.id}".`);
+    seen.add(step.id);
+  }
+  return steps;
+}
+
+function validatePmrStep(value: unknown): SessionPmrStep {
+  check(isRecord(value), "Invalid session step.");
+  checkKnownKeys(
+    value,
+    [
+      "id",
+      "name",
+      "tenseSeconds",
+      "releaseSeconds",
+      "tenseLabel",
+      "releaseLabel",
+      "tenseCue",
+      "releaseCue",
+      "tenseCues",
+      "releaseCues",
+      "tenseIllustration",
+      "releaseIllustration",
+    ],
+    "session step",
+  );
+  check(typeof value.id === "string" && idPattern.test(value.id), "Invalid session step id.");
+  const name = validateLine(value.name, 1, 60, "session step name");
+
+  const tenseSec = Number(value.tenseSeconds);
+  check(Number.isFinite(tenseSec) && tenseSec >= 1 && tenseSec <= 30, "Session step tenseSeconds must be 1–30.");
+  const tenseSeconds = Math.round(tenseSec * 4) / 4;
+
+  const releaseSec = Number(value.releaseSeconds);
+  check(Number.isFinite(releaseSec) && releaseSec >= 1 && releaseSec <= 30, "Session step releaseSeconds must be 1–30.");
+  const releaseSeconds = Math.round(releaseSec * 4) / 4;
+
+  const tenseLabel = validateLine(value.tenseLabel, 1, 24, "session step tenseLabel");
+  const releaseLabel = validateLine(value.releaseLabel, 1, 24, "session step releaseLabel");
+  const tenseCue = validateLine(value.tenseCue, 1, 120, "session step tenseCue");
+  const releaseCue = validateLine(value.releaseCue, 1, 120, "session step releaseCue");
+
+  const hasTenseCues = value.tenseCues !== undefined;
+  const hasReleaseCues = value.releaseCues !== undefined;
+  check(
+    (hasTenseCues && hasReleaseCues) || (!hasTenseCues && !hasReleaseCues),
+    "Session step cues must provide both tenseCues and releaseCues or neither.",
+  );
+  const tenseCues = hasTenseCues ? validateCues(value.tenseCues, "tenseCues") : undefined;
+  const releaseCues = hasReleaseCues ? validateCues(value.releaseCues, "releaseCues") : undefined;
+
+  const hasTense = value.tenseIllustration !== undefined;
+  const hasRelease = value.releaseIllustration !== undefined;
+  check(
+    (hasTense && hasRelease) || (!hasTense && !hasRelease),
+    "Session step illustrations must provide both tenseIllustration and releaseIllustration or neither.",
+  );
+
+  const tenseIllustration = hasTense
+    ? validateAssetRefShape(value.tenseIllustration, "session step tenseIllustration")
+    : undefined;
+  const releaseIllustration = hasRelease
+    ? validateAssetRefShape(value.releaseIllustration, "session step releaseIllustration")
+    : undefined;
+
+  return {
+    id: value.id,
+    name,
+    tenseSeconds,
+    releaseSeconds,
+    tenseLabel,
+    releaseLabel,
+    tenseCue,
+    releaseCue,
+    ...(tenseCues === undefined ? {} : { tenseCues }),
+    ...(releaseCues === undefined ? {} : { releaseCues }),
+    ...(tenseIllustration === undefined ? {} : { tenseIllustration }),
+    ...(releaseIllustration === undefined ? {} : { releaseIllustration }),
+  };
+}
+
+function validateCues(value: unknown, label: string): readonly string[] {
+  check(Array.isArray(value), `Session step ${label} must be an array.`);
+  check(value.length >= 1 && value.length <= 4, `Session step ${label} must contain 1–4 entries.`);
+  return value.map((entry, index) => validateLine(entry, 1, 80, `session step ${label}[${index}]`));
 }
 
 function validateSessionAudio(value: unknown): SessionAudio {

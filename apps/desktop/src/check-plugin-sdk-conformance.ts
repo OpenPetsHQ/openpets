@@ -209,6 +209,40 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   await session.resume();
   await session.stop();
   await session.close();
+
+  const pmrSession = await sdk.ui.session({
+    kind: "pmr",
+    title: "Muscle relaxation",
+    steps: [
+      {
+        id: "step-1",
+        name: "Hands",
+        tenseSeconds: 10,
+        releaseSeconds: 10,
+        tenseLabel: "Tense",
+        releaseLabel: "Release",
+        tenseCue: "Clench fists.",
+        releaseCue: "Release fists.",
+        tenseIllustration: sdk.assets.svg("svg"),
+        releaseIllustration: sdk.assets.svg("svg"),
+      },
+      {
+        id: "step-2",
+        name: "Arms",
+        tenseSeconds: 10,
+        releaseSeconds: 10,
+        tenseLabel: "Tense",
+        releaseLabel: "Release",
+        tenseCue: "Flex biceps.",
+        releaseCue: "Lower arms.",
+      },
+    ],
+  });
+  pmrSession.onEvent(() => undefined);
+  await pmrSession.pause();
+  await pmrSession.resume();
+  await pmrSession.stop();
+  await pmrSession.close();
   await sdk.ui.menu.setItems([]);
   const menuDisposer = sdk.ui.menu.onSelect(() => undefined);
   menuDisposer();

@@ -403,9 +403,9 @@ export interface OpenPetsSessionInfo {
 
 /**
  * Descriptor for the host-rendered practice session overlay. The overlay is
- * drawn around the default pet inside the pet window (breathing orb, phase
- * ring, step track, controls, Info sheet). The host owns rendering and the
- * phase clock; the plugin supplies patterns and knowledge content and
+ * drawn around the default pet inside the pet window (night-sky orb, bottom
+ * card, and dedicated Info window). The host owns rendering and the phase
+ * clock; the plugin supplies patterns or steps and knowledge content and
  * receives lifecycle events.
  */
 /**
@@ -421,6 +421,62 @@ export interface OpenPetsSessionAudio {
   exhale: OpenPetsAssetRef;
   /** Initial cue state (default true); the user can toggle it in the overlay. */
   enabled?: boolean;
+}
+
+export interface OpenPetsPracticeChoice {
+  /** Stable practice id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Display name (1–40 chars). */
+  name: string;
+}
+
+export interface OpenPetsPmrStep {
+  /** Stable step id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Group name (1–60 chars). */
+  name: string;
+  /** Duration in seconds (1–30, quarter-second rounding). */
+  tenseSeconds: number;
+  /** Duration in seconds (1–30, quarter-second rounding). */
+  releaseSeconds: number;
+  /** Short phase label (1–24 chars, e.g. "Tense"). */
+  tenseLabel: string;
+  /** Short phase label (1–24 chars, e.g. "Release"). */
+  releaseLabel: string;
+  /** Guidance line (1–120 chars, single line). */
+  tenseCue: string;
+  /** Guidance line (1–120 chars, single line). */
+  releaseCue: string;
+  /** Optional bulleted tense cues (1–4 items, 1–80 chars each). */
+  tenseCues?: string[];
+  /** Optional bulleted release cues (1–4 items, 1–80 chars each). */
+  releaseCues?: string[];
+  /** Optional manifest-declared SVG illustration of the tense pose. */
+  tenseIllustration?: OpenPetsAssetRef;
+  /** Optional manifest-declared SVG illustration of the release pose. */
+  releaseIllustration?: OpenPetsAssetRef;
+}
+
+export interface OpenPetsPmrSessionOptions {
+  kind: "pmr";
+  /** Overlay title (e.g. "Muscle relaxation"). */
+  title: string;
+  /** Small line under the title (e.g. "Anxiety Aid Tools"). */
+  subtitle?: string;
+  /** Ordered muscle group steps (1–24 steps). */
+  steps: OpenPetsPmrStep[];
+  /** Start immediately (default true). */
+  autoStart?: boolean;
+  /**
+   * Lead-in countdown before the first step, in seconds (0–15, default 5).
+   */
+  countdownSeconds?: number;
+  /** Info sheet content for the current technique. */
+  info?: OpenPetsSessionInfo;
+  /** Practices offered by the switch control (1–6 entries). */
+  practices?: OpenPetsPracticeChoice[];
+  /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
 }
 
 export interface OpenPetsBreathingSessionOptions {
@@ -444,7 +500,13 @@ export interface OpenPetsBreathingSessionOptions {
   info?: OpenPetsSessionInfo;
   /** Optional phase audio cues with an overlay mute toggle. */
   audio?: OpenPetsSessionAudio;
+  /** Practices offered by the switch control (1–6 entries). */
+  practices?: OpenPetsPracticeChoice[];
+  /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
 }
+
+export type OpenPetsSessionOptions = OpenPetsBreathingSessionOptions | OpenPetsPmrSessionOptions;
 
 /** Lifecycle and interaction events emitted by the session overlay. */
 export type OpenPetsSessionEvent =
@@ -455,7 +517,8 @@ export type OpenPetsSessionEvent =
   | { type: "completed"; patternId: string; cycles: number }
   | { type: "stopped"; reason: OpenPetsSessionStopReason; patternId: string; cycle: number }
   | { type: "infoOpened" }
-  | { type: "audioToggled"; enabled: boolean };
+  | { type: "audioToggled"; enabled: boolean }
+  | { type: "practiceSelected"; practiceId: string };
 
 export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin-stopped";
 
@@ -530,7 +593,7 @@ export interface OpenPetsUiApi {
    * (§7.4). One session may be open at a time; opening another replaces it.
    * Requires `ui:session`.
    */
-  session(spec: OpenPetsBreathingSessionOptions): Promise<OpenPetsSessionHandle>;
+  session(spec: OpenPetsSessionOptions): Promise<OpenPetsSessionHandle>;
   /** Fully dynamic context-menu section. Requires `commands`. */
   menu: OpenPetsMenuApi;
 }

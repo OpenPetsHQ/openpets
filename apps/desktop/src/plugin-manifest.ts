@@ -286,7 +286,7 @@ function validateAssets(value: unknown, errors: PluginManifestValidationError[])
     if (group === undefined) continue;
     if (!isRecord(group)) { addError(errors, `$.assets.${kind}`, "invalid_assets", `assets.${kind} must be an object.`); continue; }
     const entries = Object.entries(group);
-    if (entries.length > 32) addError(errors, `$.assets.${kind}`, "too_many_assets", `assets.${kind} may declare at most 32 entries.`);
+    if (entries.length > 64) addError(errors, `$.assets.${kind}`, "too_many_assets", `assets.${kind} may declare at most 64 entries.`);
     for (const [name, assetValue] of entries) {
       const path = `$.assets.${kind}.${name}`;
       if (!assetNamePattern.test(name)) addError(errors, path, "invalid_asset_name", "Asset names must be simple lowercase identifiers.");

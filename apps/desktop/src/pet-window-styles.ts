@@ -12,6 +12,7 @@ import {
   defaultPetChatPanelLayout,
   sessionCardBottomInset,
   sessionCardEstimatedHeight,
+  sessionOrbCardGap,
   sessionOrbTopGap,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
@@ -1529,7 +1530,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
   // the pet, the pet sits at the orb centre, and the orb rests on the card
   // for every pet asset and scale.
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
-  const orbCenterFromBottom = sessionCardBottomInset + sessionCardEstimatedHeight + sessionOrbTopGap + orbRadius;
+  const orbCenterFromBottom = sessionCardBottomInset + sessionCardEstimatedHeight + sessionOrbCardGap + orbRadius;
   const petBottom = 22;
   const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petBottom - scaledSpriteHeight / 2));
   const cardInsetX = 18;
@@ -1683,6 +1684,149 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     html[data-session-open="true"] .session-card {
       opacity: 1;
       transform: translateY(0);
+    }
+    .session-illustration {
+      display: none;
+      height: 124px;
+      margin-bottom: 11px;
+      padding: 6px 12px;
+      box-sizing: border-box;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.32);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .session-illustration-img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .session-pmr-cues {
+      display: none;
+      height: 124px;
+      margin-bottom: 11px;
+      box-sizing: border-box;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .session-cues-col {
+      height: 100%;
+      box-sizing: border-box;
+      padding: 7px 9px 6px;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      opacity: 0.75;
+      transition: background 250ms ease, border-color 250ms ease, box-shadow 250ms ease, opacity 250ms ease, transform 250ms ease;
+    }
+    .session-pmr-cues.has-active .session-cues-col:not(.is-active) {
+      opacity: 0.52;
+    }
+    .session-cues-col.is-active {
+      opacity: 1;
+      transform: translateY(-0.5px);
+    }
+    .session-cues-col.is-tense.is-active {
+      background: rgba(230, 163, 107, 0.14);
+      border-color: rgba(230, 163, 107, 0.55);
+      box-shadow: 0 2px 10px rgba(230, 163, 107, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    }
+    .session-cues-col.is-release.is-active {
+      background: rgba(79, 220, 197, 0.15);
+      border-color: rgba(79, 220, 197, 0.58);
+      box-shadow: 0 2px 10px rgba(79, 220, 197, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    }
+    .session-cues-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      flex-shrink: 0;
+      min-height: 12px;
+    }
+    .session-cues-title {
+      font-size: 9.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 240ms ease;
+    }
+    .session-cues-col.is-tense.is-active .session-cues-title {
+      color: #c26d24;
+    }
+    .session-cues-col.is-release.is-active .session-cues-title {
+      color: #0f766e;
+    }
+    .session-cues-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .session-cue-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 5.5px;
+      min-width: 0;
+    }
+    .session-cue-badge {
+      width: 13px;
+      height: 13px;
+      min-width: 13px;
+      border-radius: 50%;
+      background: rgba(148, 163, 184, 0.22);
+      color: #475569;
+      font-size: 8px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      display: grid;
+      place-items: center;
+      margin-top: 1px;
+      flex-shrink: 0;
+      transition: background 240ms ease, color 240ms ease, box-shadow 240ms ease;
+    }
+    .session-cues-col.is-tense.is-active .session-cue-badge {
+      background: #e6a36b;
+      color: #2b1402;
+      box-shadow: 0 1px 3px rgba(230, 163, 107, 0.4);
+    }
+    .session-cues-col.is-release.is-active .session-cue-badge {
+      background: #4fdcc5;
+      color: #042e2b;
+      box-shadow: 0 1px 3px rgba(79, 220, 197, 0.4);
+    }
+    .session-cue-text {
+      font-size: 9px;
+      line-height: 1.22;
+      font-weight: 600;
+      color: #475569;
+      word-break: break-word;
+      transition: color 240ms ease;
+    }
+    .session-cues-col.is-active .session-cue-text {
+      color: #0f172a;
     }
     .session-dots-row {
       display: flex;

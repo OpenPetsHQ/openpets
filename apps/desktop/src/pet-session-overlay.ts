@@ -1,6 +1,7 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { getDefaultPetWindowForPlugins } from "./default-pet-controller.js";
 import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
@@ -11,6 +12,7 @@ import {
   openDefaultPetSession,
   subscribeDefaultPetPanelState,
 } from "./default-pet-chat.js";
+import { sessionBreathingCardEstimatedHeight, sessionPmrCardEstimatedHeight } from "./default-pet-chat-geometry.js";
 import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
 import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
@@ -63,6 +65,10 @@ export function buildSessionChrome(): Record<string, string> {
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
+    tense: t("session.tense"),
+    release: t("session.release"),
+    groupProgress: t("session.groupProgress"),
+    footerRelaxing: t("session.footerRelaxing"),
   };
 }
 
@@ -121,18 +127,39 @@ export function openPluginSessionOverlay(options: {
 
   installSessionOverlayIpcHandlers();
 
-  if (activeSession && !activeSession.closed) {
+  const isSamePluginReplace = Boolean(
+    activeSession &&
+    !activeSession.closed &&
+    activeSession.pluginId === options.pluginId &&
+    isDefaultPetSessionOpen()
+  );
+
+  if (isSamePluginReplace && activeSession) {
+    const prev = activeSession;
+    prev.closed = true;
+    activeSession = null;
+    info("pet.session", "session overlay replaced in-place", { pluginId: prev.pluginId });
+    if (prev.runActive) {
+      emitToPlugin(prev, { type: "stopped", reason: "replaced", patternId: prev.lastPatternId, cycle: prev.lastCycle });
+    }
+    try {
+      prev.callbacks.onClosed?.("replaced");
+    } catch (error) {
+      warn("pet.session", "session close delivery failed", { pluginId: prev.pluginId, error: error instanceof Error ? error.message : String(error) });
+    }
+  } else if (activeSession && !activeSession.closed) {
     finishActiveSession("replaced");
   }
 
+  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : "pmr";
   const session: ActiveSessionOverlay = {
     pluginId: options.pluginId,
     descriptor: options.descriptor,
     callbacks: options.callbacks,
-    lastPatternId: options.descriptor.patternId,
+    lastPatternId: initialPatternId,
     lastCycle: 0,
     runActive: false,
-    audioEnabled: options.descriptor.audio?.enabled ?? true,
+    audioEnabled: options.descriptor.kind === "breathing" ? (options.descriptor.audio?.enabled ?? true) : false,
     closed: false,
   };
   activeSession = session;
@@ -150,28 +177,36 @@ export function openPluginSessionOverlay(options: {
 
   info("pet.session", "session overlay opened", {
     pluginId: options.pluginId,
-    patternId: options.descriptor.patternId,
-    patterns: options.descriptor.patterns.length,
+    kind: options.descriptor.kind,
+    patternId: initialPatternId,
+    items: options.descriptor.kind === "breathing" ? options.descriptor.patterns.length : options.descriptor.steps.length,
     autoStart: options.descriptor.autoStart,
   });
-  openDefaultPetSession();
+  openDefaultPetSession(options.descriptor.kind === "pmr" ? sessionPmrCardEstimatedHeight : sessionBreathingCardEstimatedHeight);
   sendDescriptorToRenderer();
+  if (isSamePluginReplace) {
+    refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
+  }
 
   return {
     async update(patch: PluginSessionUpdate): Promise<void> {
       if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
-      const patterns = patch.patterns ?? session.descriptor.patterns;
+      if (session.descriptor.kind !== "breathing") {
+        throw new Error("Session update is only supported for breathing sessions.");
+      }
+      const currentBreathing = session.descriptor;
+      const patterns = patch.patterns ?? currentBreathing.patterns;
       if (patch.patternId !== undefined && !patterns.some((pattern) => pattern.id === patch.patternId)) {
         throw new Error("Selected session pattern id is not in the pattern list.");
       }
-      const requestedPatternId = patch.patternId ?? session.descriptor.patternId;
+      const requestedPatternId = patch.patternId ?? currentBreathing.patternId;
       // A replaced pattern list may drop the current selection; fall back to
       // the first pattern of the new list.
       const patternId = patterns.some((pattern) => pattern.id === requestedPatternId)
         ? requestedPatternId
         : patterns[0].id;
       session.descriptor = {
-        ...session.descriptor,
+        ...currentBreathing,
         ...(patch.info === undefined ? {} : { info: patch.info }),
         patterns,
         patternId,
@@ -273,6 +308,7 @@ function soundDataUrl(path: string | undefined): string | undefined {
 }
 
 function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload | null {
+  if (session.descriptor.kind !== "breathing") return null;
   const audio = session.descriptor.audio;
   if (!audio) return null;
   const settings = getPluginPlatformSettings();
@@ -284,10 +320,30 @@ function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload
   };
 }
 
+function buildRendererDescriptor(descriptor: PluginSessionDescriptor): PluginSessionDescriptor {
+  if (descriptor.kind !== "pmr") return descriptor;
+  return {
+    ...descriptor,
+    steps: descriptor.steps.map((step) => {
+      const tenseImageUrl = step.tenseIllustrationPath
+        ? pathToFileURL(step.tenseIllustrationPath).href
+        : undefined;
+      const releaseImageUrl = step.releaseIllustrationPath
+        ? pathToFileURL(step.releaseIllustrationPath).href
+        : undefined;
+      return {
+        ...step,
+        ...(tenseImageUrl ? { tenseImageUrl } : {}),
+        ...(releaseImageUrl ? { releaseImageUrl } : {}),
+      };
+    }),
+  };
+}
+
 function currentRendererPayload(): { descriptor: PluginSessionDescriptor; chrome: Record<string, string>; audio: SessionAudioPayload | null } | null {
   if (!activeSession || activeSession.closed) return null;
   return {
-    descriptor: activeSession.descriptor,
+    descriptor: buildRendererDescriptor(activeSession.descriptor),
     chrome: buildSessionChrome(),
     audio: currentAudioPayload(activeSession),
   };
@@ -397,6 +453,10 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
       session.audioEnabled = enabled;
       return { kind: "event", event: { type: "audioToggled", enabled } };
     }
+    case "practiceSelected": {
+      if (typeof record.practiceId !== "string" || !record.practiceId) return null;
+      return { kind: "event", event: { type: "practiceSelected", practiceId: record.practiceId } };
+    }
     case "dismissed":
       return { kind: "dismissed" };
     default:
@@ -405,6 +465,7 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
 }
 
 function resolvePatternId(value: unknown, session: ActiveSessionOverlay): string {
+  if (session.descriptor.kind === "pmr") return "pmr";
   if (typeof value === "string" && session.descriptor.patterns.some((pattern) => pattern.id === value)) return value;
   return session.lastPatternId;
 }

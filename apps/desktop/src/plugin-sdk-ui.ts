@@ -2,7 +2,7 @@ import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermissio
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
-import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -105,9 +105,10 @@ export function createPluginUiApi(options: {
     return { ...validated, info: { ...rest, logoSvgPath: resolved.path } };
   };
 
-  const resolveSessionAudio = <T extends { audio?: PluginSessionAudio }>(validated: T): T => {
+  const resolveSessionAudio = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
+    if (validated.kind === "pmr" || !validated.audio) return validated;
     const audio = validated.audio;
-    if (!audio?.inhale || !audio.exhale) return validated;
+    if (!audio.inhale || !audio.exhale) return validated;
     const { inhale, exhale, ...rest } = audio;
     return {
       ...validated,
@@ -119,10 +120,29 @@ export function createPluginUiApi(options: {
     };
   };
 
+  const resolveSessionPmrIllustrations = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
+    if (validated.kind !== "pmr") return validated;
+    const steps = validated.steps.map((step) => {
+      if (!step.tenseIllustration || !step.releaseIllustration) return step;
+      const { tenseIllustration, releaseIllustration, ...rest } = step;
+      return {
+        ...rest,
+        tenseIllustrationPath: resolveAssetRef(tenseIllustration, ["svgs"]).path,
+        releaseIllustrationPath: resolveAssetRef(releaseIllustration, ["svgs"]).path,
+      };
+    });
+    return {
+      ...validated,
+      steps,
+    };
+  };
+
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
-    const descriptor = resolveSessionAudio(resolveSessionInfoLogo(validateSessionDescriptor(spec)));
+    const descriptor = resolveSessionPmrIllustrations(
+      resolveSessionAudio(resolveSessionInfoLogo(validateSessionDescriptor(spec)))
+    );
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
     slot.host = await capabilities.session.open({

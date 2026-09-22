@@ -20,6 +20,7 @@ import {
   calculateSessionWindowSize,
   defaultPetChatPanelLayout,
   expandedPetWindowSize,
+  sessionBreathingCardEstimatedHeight,
   toCollapsedPosition,
 } from "./default-pet-chat-geometry.js";
 import { getAppStateSnapshot } from "./app-state.js";
@@ -32,6 +33,7 @@ const defaultPetPanelStates = ["collapsed", "compact-chat", "expanded-chat", "ex
 export type DefaultPetPanelState = (typeof defaultPetPanelStates)[number];
 let carrierState: DefaultPetPanelState = "collapsed";
 let activeChatPanelHeight: number | undefined;
+let sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;
 let handlersInstalled = false;
 let conversationUnsubscribe: (() => void) | null = null;
 let voiceUnsubscribe: (() => void) | null = null;
@@ -130,9 +132,29 @@ export function isDefaultPetSessionOpen(): boolean {
 }
 
 /** Expand the carrier into the practice session overlay surface. */
-export function openDefaultPetSession(): void {
+export function openDefaultPetSession(cardEstimatedHeight = sessionBreathingCardEstimatedHeight): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  sessionCardEstimatedHeight = cardEstimatedHeight;
+  if (carrierState === "expanded-session") {
+    resizeExpandedSessionWindow(defaultPetWindowRef);
+    return;
+  }
   setCarrierMode(defaultPetWindowRef, "expanded-session");
+}
+
+function resizeExpandedSessionWindow(window: BrowserWindow): void {
+  if (window.isDestroyed() || carrierState !== "expanded-session") return;
+  const nextSize = expandedCarrierSizeFor("expanded-session");
+  if (!nextSize) return;
+  const currentBounds = window.getBounds();
+  if (nextSize.width === currentBounds.width && nextSize.height === currentBounds.height) return;
+  const currentPos: Point = { x: currentBounds.x, y: currentBounds.y };
+  const workArea = screen.getDisplayMatching(currentBounds)?.workArea;
+  const previousSize = { width: currentBounds.width, height: currentBounds.height };
+  const collapsedPos = toCollapsedPosition(currentPos, previousSize, defaultPetWindowSize);
+  const nextBounds = calculateExpandedCarrierBounds(collapsedPos, defaultPetWindowSize, nextSize, workArea);
+  debug("pet.chat", "resizing session carrier for practice", { currentPos, nextBounds, windowId: window.id });
+  window.setBounds(nextBounds, false);
 }
 
 /** Collapse the session overlay if it is the active carrier surface. */
@@ -178,7 +200,7 @@ function expandedCarrierSizeFor(state: DefaultPetPanelState): WindowSize | null 
   if (state === "expanded-chat" || state === "expanded-check-in") return expandedPetWindowSize;
   if (state === "expanded-session") {
     const scale = Number(getAppStateSnapshot().preferences.petScale) || 1;
-    return calculateSessionWindowSize(Math.ceil(defaultPetSprite.frameHeight * scale));
+    return calculateSessionWindowSize(Math.ceil(defaultPetSprite.frameHeight * scale), sessionCardEstimatedHeight);
   }
   return null;
 }
