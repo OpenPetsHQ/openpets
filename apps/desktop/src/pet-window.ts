@@ -367,7 +367,7 @@ async function buildPetContextMenuTemplate(action: { readonly label: string; rea
   const openControlCenter = (route: "dashboard" | "plugins"): void => {
     import("./windows.js").then(({ openControlCenterWindow }) => openControlCenterWindow(route)).catch((error) => logError("pet.window", "open control center failed", error));
   };
-  if (topLevel.length > 0) template.push(...topLevel.slice(0, 8), { type: "separator" });
+  if (topLevel.length > 0) template.push(...topLevel, { type: "separator" });
   if (plugins.size > 0) template.push(...[...plugins.values()].map((plugin) => ({ label: plugin.name, submenu: plugin.commands })), { type: "separator" });
   template.push(
     { label: t("tray.plugins"), click: () => openControlCenter("plugins") },

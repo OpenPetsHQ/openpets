@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 3,
+  "id": "openpets.simple-timer",
+  "name": "$t:plugin.name",
+  "description": "$t:plugin.description",
+  "version": "1.0.0",
+  "runtime": "javascript",
+  "icon": "timer",
+  "sdkVersion": "3.0.0",
+  "entry": "index.js",
+  "permissions": [
+    "pet:speak",
+    "pet:interact",
+    "pet:pin",
+    "audio",
+    "schedule",
+    "storage",
+    "commands",
+    "status",
+    "notify"
+  ],
+  "configSchema": {
+    "soundEnabled": {
+      "type": "boolean",
+      "default": true,
+      "label": "$t:config.soundEnabled.label",
+      "description": "$t:config.soundEnabled.description"
+    },
+    "osNotification": {
+      "type": "boolean",
+      "default": true,
+      "label": "$t:config.osNotification.label",
+      "description": "$t:config.osNotification.description"
+    },
+    "customSound": {
+      "type": "sound",
+      "label": "$t:config.customSound.label",
+      "description": "$t:config.customSound.description"
+    }
+  }
+}

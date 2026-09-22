@@ -584,7 +584,8 @@ function resolveCommandText(pluginId: string, command: PluginCommand): PluginCom
   };
 }
 
-export async function getDefaultPetPluginCommands(maxPlugins = 8, maxCommandsPerPlugin = 8): Promise<PluginCommandMenuItem[]> {
+/** The pet menu must expose every installed plugin; callers can still pass a cap for constrained surfaces. */
+export async function getDefaultPetPluginCommands(maxPlugins = Number.POSITIVE_INFINITY, maxCommandsPerPlugin = 8): Promise<PluginCommandMenuItem[]> {
   if (!appPluginService) return [];
   const snapshot = await appPluginService.getSnapshot();
   return snapshot.plugins.filter((plugin) => plugin.enabled && !plugin.brokenReason && plugin.commands && plugin.commands.length > 0)
@@ -592,7 +593,7 @@ export async function getDefaultPetPluginCommands(maxPlugins = 8, maxCommandsPer
     .flatMap((plugin) => [...(plugin.commands ?? [])].slice(0, maxCommandsPerPlugin).map((command) => ({ pluginId: plugin.id, pluginName: resolvePluginText(plugin.id, plugin.name) ?? plugin.id, commandId: command.id, commandTitle: command.title, form: command.form, placement: command.placement, priority: command.priority, featured: command.featured })));
 }
 
-export async function getDefaultPetPluginMenuItems(maxPlugins = 8, maxItemsPerPlugin = 8): Promise<PluginDynamicMenuItem[]> {
+export async function getDefaultPetPluginMenuItems(maxPlugins = Number.POSITIVE_INFINITY, maxItemsPerPlugin = 8): Promise<PluginDynamicMenuItem[]> {
   if (!appPluginService) return [];
   const snapshot = await appPluginService.getSnapshot();
   return snapshot.plugins.filter((plugin) => plugin.enabled && !plugin.brokenReason)

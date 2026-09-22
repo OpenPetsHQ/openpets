@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { OPENPETS_PLUGIN_MANIFEST_FILENAME, type OpenPetsDeclarativePluginManifest } from "../src/plugin-manifest.js";
-import { PluginService, executeDefaultPetPluginCommand, formatPermissionDialogDetail, getDefaultPetPluginCommands, setPluginServiceForTests, stopPluginService } from "../src/plugin-service.js";
+import { PluginService, executeDefaultPetPluginCommand, formatPermissionDialogDetail, getDefaultPetPluginCommands, getDefaultPetPluginMenuItems, setPluginServiceForTests, stopPluginService } from "../src/plugin-service.js";
 import { PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js";
 
 let lastRoot = "";
@@ -630,7 +630,7 @@ await scenario("disabled catalog returns no discover plugins", async ({ userData
   assert.deepEqual(snapshot.plugins, []);
 });
 
-await scenario("right-click command helper groups caps and ignores stale commands", async ({ runtime }) => {
+await scenario("right-click command helper keeps explicit caps while exposing every plugin by default", async ({ runtime }) => {
   setPluginServiceForTests({
     getSnapshot: async () => ({ plugins: [
       { id: "zeta", name: "Zeta", version: "1.0.0", source: "catalog", enabled: true, approvedPermissions: [], commands: [{ id: "b", title: "Beta" }, { id: "a", title: "Alpha" }, { id: "c", title: "Gamma" }] },
@@ -643,6 +643,20 @@ await scenario("right-click command helper groups caps and ignores stale command
   } as unknown as PluginService);
   const commands = await getDefaultPetPluginCommands(2, 2);
   assert.deepEqual(commands.map((command) => `${command.pluginId}:${command.commandId}`), ["alpha:run", "zeta:b", "zeta:a"]);
+  const manyPlugins = Array.from({ length: 9 }, (_, index) => {
+    const suffix = String(index + 1).padStart(2, "0");
+    return { id: `plugin-${suffix}`, name: `Plugin ${suffix}`, version: "1.0.0", source: "catalog", enabled: true, approvedPermissions: [], commands: [{ id: "run", title: "Run" }] };
+  });
+  setPluginServiceForTests({ getSnapshot: async () => ({ plugins: manyPlugins }), executeCommand: async () => undefined, stop() {} } as unknown as PluginService);
+  assert.deepEqual((await getDefaultPetPluginCommands()).map((command) => command.pluginId), manyPlugins.map((plugin) => plugin.id));
+  assert.deepEqual((await getDefaultPetPluginCommands(2)).map((command) => command.pluginId), ["plugin-01", "plugin-02"]);
+  setPluginServiceForTests({
+    getSnapshot: async () => ({ plugins: manyPlugins.map(({ commands: _commands, ...plugin }) => ({ ...plugin, commands: [] })) }),
+    runtime: { getPluginState: (pluginId: string) => ({ commands: [], menuItems: [{ id: "open", title: `${pluginId} action` }] }) },
+    stop() {},
+  } as unknown as PluginService);
+  assert.deepEqual((await getDefaultPetPluginMenuItems()).map((item) => item.pluginId), manyPlugins.map((plugin) => plugin.id));
+  assert.deepEqual((await getDefaultPetPluginMenuItems(2)).map((item) => item.pluginId), ["plugin-01", "plugin-02"]);
   setPluginServiceForTests({ getSnapshot: async () => ({ plugins: [{ id: "alpha", name: "Alpha", version: "1.0.0", source: "catalog", enabled: true, approvedPermissions: [], commands: [{ id: "run", title: "Run" }] }, { id: "zeta", name: "Zeta", version: "1.0.0", source: "catalog", enabled: true, approvedPermissions: [], commands: [] }] }), executeCommand: async (pluginId: string, commandId: string) => { runtime.executed.push({ pluginId, commandId }); }, stop() {} } as unknown as PluginService);
   assert.deepEqual((await getDefaultPetPluginCommands()).map((command) => command.pluginId), ["alpha"]);
   await executeDefaultPetPluginCommand("alpha", "run");
