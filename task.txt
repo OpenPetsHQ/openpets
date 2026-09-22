@@ -301,6 +301,16 @@ a first slice.
 
 Newest first.
 
+2026-09-22 — guided breathing uses AAT's per-pattern audio (Alvin).
+  AAT plays a cue pair recorded for each pattern (4-4-4-4, 4-7-8,
+  4-4-6, 3-3-3; the "in" file runs through the hold after the
+  inhale, the "out" file through the exhale and its hold). Copied to
+  assets/guided/*.mp3 (~1.9MB, each <1MB cap). SDK: breath patterns
+  take optional `cues {inhale, exhale}`; the bridge resolves them on
+  open and update, the coordinator ships them per pattern, and the
+  overlay plays the selected pattern's pair (default pair otherwise).
+  PMR cue lists: numbers now sit centred on the first text line.
+
 2026-09-22 — pet window zoom pinned to 1x; sizing diagnostics.
   Still a big card→orb gap in-app. Log: overlay reported 880 for
   grounding while the drawn card was ~0.75 of its measured size — the

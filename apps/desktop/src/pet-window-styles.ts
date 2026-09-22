@@ -2094,7 +2094,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     .session-cue-item {
       display: flex;
       align-items: flex-start;
-      gap: 5.5px;
+      gap: 6px;
       min-width: 0;
     }
     .session-cue-badge {
@@ -2109,7 +2109,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       font-variant-numeric: tabular-nums;
       display: grid;
       place-items: center;
-      margin-top: 1px;
+      line-height: 1;
       flex-shrink: 0;
       transition: background 240ms ease, color 240ms ease, box-shadow 240ms ease;
     }
@@ -2123,9 +2123,11 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       color: #042e2b;
       box-shadow: 0 1px 3px rgba(79, 220, 197, 0.4);
     }
+    /* One text line is exactly the badge height, so each number sits centred
+       on the first line of its cue (wrapped lines continue below). */
     .session-cue-text {
-      font-size: 9px;
-      line-height: 1.22;
+      font-size: 9.5px;
+      line-height: 13px;
       font-weight: 600;
       color: #475569;
       word-break: break-word;

@@ -177,13 +177,22 @@ function guidedPhase(t, step, seconds) {
   return { kind: "hold", seconds, label: t("guided.phase.holdEmpty") };
 }
 
-export function buildGuidedPatterns(t) {
+/**
+ * Guided patterns with the AAT cue pair timed to each: the inhale cue runs
+ * through the hold after it, the exhale cue through the hold after that.
+ */
+export function buildGuidedPatterns(t, assets) {
+  const sound = assets?.sound ? (name) => assets.sound(name) : (name) => ({ kind: "sound", name });
   return GUIDED_PATTERNS.map((pattern) => ({
     id: pattern.id,
     name: t(`guided.pattern.${pattern.id}.name`),
     hint: t(`guided.pattern.${pattern.id}.hint`),
     phases: pattern.phases.map(([step, seconds]) => guidedPhase(t, step, seconds)),
     cycles: pattern.cycles,
+    cues: {
+      inhale: sound(`guided-${pattern.id}-in`),
+      exhale: sound(`guided-${pattern.id}-out`),
+    },
   }));
 }
 
@@ -476,7 +485,7 @@ export function buildGuidedDescriptor(ctx, autoStart, audioCuesEnabled, patternI
     kind: "breathing",
     title: t("guided.session.title"),
     subtitle: t("guided.session.subtitle"),
-    patterns: buildGuidedPatterns(t),
+    patterns: buildGuidedPatterns(t, ctx.assets),
     patternId: selected,
     autoStart,
     info: buildGuidedInfo(t, ctx.assets.svg("logo"), selected),

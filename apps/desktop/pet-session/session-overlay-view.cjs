@@ -136,23 +136,40 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   // --- Phase audio cues ----------------------------------------------------
   // Host-gated by the global plugin-audio setting and quiet hours; toggled by
   // the header mute button.
-  let audioCues = null; // { enabled, allowed, inhaleEl, exhaleEl }
+  // audioCues: { enabled, allowed, pair: {inhaleEl, exhaleEl}, patterns: {id: pair} }
+  // Patterns with their own timed cues use them; others fall back to `pair`.
+  let audioCues = null;
+  const cueElementsByUrl = new Map();
+
+  const cueElementFor = (dataUrl) => {
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:audio/")) return null;
+    const cached = cueElementsByUrl.get(dataUrl);
+    if (cached) return cached;
+    const element = new Audio();
+    element.preload = "auto";
+    element.src = dataUrl;
+    cueElementsByUrl.set(dataUrl, element);
+    return element;
+  };
+
+  const cuePairFor = (raw) => ({
+    inhaleEl: cueElementFor(raw?.inhaleDataUrl),
+    exhaleEl: cueElementFor(raw?.exhaleDataUrl),
+  });
 
   const stopCuePlayback = () => {
-    if (!audioCues) return;
-    for (const element of [audioCues.inhaleEl, audioCues.exhaleEl]) {
-      if (element) {
-        element.pause();
-        element.currentTime = 0;
-      }
+    for (const element of cueElementsByUrl.values()) {
+      element.pause();
+      element.currentTime = 0;
     }
   };
 
-  const playPhaseCue = (phaseKind) => {
+  const playPhaseCue = (phaseKind, patternId) => {
     if (!audioCues || !audioCues.enabled || !audioCues.allowed || runState !== "active") return;
+    const pair = (patternId && audioCues.patterns[patternId]) || audioCues.pair;
     let element = null;
-    if (phaseKind === "in") element = audioCues.inhaleEl;
-    else if (phaseKind === "out") element = audioCues.exhaleEl;
+    if (phaseKind === "in") element = pair.inhaleEl;
+    else if (phaseKind === "out") element = pair.exhaleEl;
     if (!element) return;
     stopCuePlayback();
     element.volume = 0.9;
@@ -160,25 +177,30 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     void element.play().catch(() => undefined);
   };
 
+  const hasAnyCue = () => {
+    if (!audioCues) return false;
+    const pairs = [audioCues.pair, ...Object.values(audioCues.patterns)];
+    return pairs.some((pair) => pair.inhaleEl || pair.exhaleEl);
+  };
+
   const applyAudioPayload = (raw) => {
     if (!raw || typeof raw !== "object") {
       stopCuePlayback();
       audioCues = null;
+      cueElementsByUrl.clear();
       return;
     }
-    const makeCueElement = (dataUrl, existing) => {
-      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:audio/")) return null;
-      if (existing && existing.src === dataUrl) return existing;
-      const element = new Audio();
-      element.preload = "auto";
-      element.src = dataUrl;
-      return element;
-    };
+    const patterns = {};
+    if (raw.patterns && typeof raw.patterns === "object") {
+      for (const [patternId, pairRaw] of Object.entries(raw.patterns)) {
+        patterns[patternId] = cuePairFor(pairRaw);
+      }
+    }
     audioCues = {
       enabled: raw.enabled !== false,
       allowed: raw.allowed === true,
-      inhaleEl: makeCueElement(raw.inhaleDataUrl, audioCues?.inhaleEl),
-      exhaleEl: makeCueElement(raw.exhaleDataUrl, audioCues?.exhaleEl),
+      pair: cuePairFor(raw),
+      patterns,
     };
   };
 
@@ -541,7 +563,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   };
 
   const renderAudioButton = () => {
-    const available = Boolean(audioCues && audioCues.allowed && (audioCues.inhaleEl || audioCues.exhaleEl));
+    const available = Boolean(audioCues && audioCues.allowed && hasAnyCue());
     audioBtn.style.display = available ? "" : "none";
     if (!available) return;
     const muted = !audioCues.enabled;

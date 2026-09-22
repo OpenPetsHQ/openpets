@@ -157,6 +157,17 @@ for (const entry of guidedPatterns) {
 }
 assert.notEqual(guidedPatterns[0].phases[1].label, guidedPatterns[0].phases[3].label, "box holds must name full vs empty lungs");
 
+// Each guided pattern plays AAT's cue pair recorded for that timing, and the
+// manifest declares every one of those sounds.
+const manifest = JSON.parse(await readFile(new URL("./openpets.plugin.json", import.meta.url), "utf8"));
+for (const entry of guidedPatterns) {
+  assert.deepEqual(entry.cues, {
+    inhale: { kind: "sound", name: `guided-${entry.id}-in` },
+    exhale: { kind: "sound", name: `guided-${entry.id}-out` },
+  });
+  assert.ok(manifest.assets.sounds[entry.cues.inhale.name] && manifest.assets.sounds[entry.cues.exhale.name]);
+}
+
 // Guided Info covers every pattern, as AAT's guided breathing page does, and
 // marks the selected one; it keeps the linked science and site credit.
 const guidedInfo = buildGuidedInfo(t, { kind: "svg", name: "logo" }, "calming");

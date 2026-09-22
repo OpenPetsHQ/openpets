@@ -20,6 +20,14 @@ export interface SessionBreathPhase {
   readonly label?: string;
 }
 
+/** Pattern-specific inhale/exhale cue pair: raw manifest refs in, bridge-resolved paths out. */
+export interface SessionPatternCues {
+  readonly inhale?: SessionAssetRef;
+  readonly exhale?: SessionAssetRef;
+  readonly inhaleSoundPath?: string;
+  readonly exhaleSoundPath?: string;
+}
+
 export interface SessionBreathPattern {
   readonly id: string;
   readonly name: string;
@@ -27,6 +35,8 @@ export interface SessionBreathPattern {
   readonly phases: readonly SessionBreathPhase[];
   /** Cycles per run (1–99) or null for until-stopped. */
   readonly cycles: number | null;
+  /** Cues timed to this pattern; overrides the descriptor-level audio pair. */
+  readonly cues?: SessionPatternCues;
 }
 
 /** Named host icons for Info cards, practice choices, and grounding steps. */
@@ -524,7 +534,7 @@ function validatePatterns(value: unknown): readonly SessionBreathPattern[] {
 
 function validatePattern(value: unknown): SessionBreathPattern {
   check(isRecord(value), "Invalid session pattern.");
-  checkKnownKeys(value, ["id", "name", "hint", "phases", "cycles"], "session pattern");
+  checkKnownKeys(value, ["id", "name", "hint", "phases", "cycles", "cues"], "session pattern");
   check(typeof value.id === "string" && idPattern.test(value.id), "Invalid session pattern id.");
   const name = validateLine(value.name, 1, 40, "session pattern name");
   const hint = value.hint === undefined ? undefined : validateLine(value.hint, 1, 60, "session pattern hint");
@@ -541,12 +551,23 @@ function validatePattern(value: unknown): SessionBreathPattern {
     cycles = count;
   }
 
+  let cues: SessionPatternCues | undefined;
+  if (value.cues !== undefined) {
+    check(isRecord(value.cues), "Invalid session pattern cues.");
+    checkKnownKeys(value.cues, ["inhale", "exhale"], "session pattern cues");
+    cues = {
+      inhale: validateAssetRefShape(value.cues.inhale, "session pattern cues inhale"),
+      exhale: validateAssetRefShape(value.cues.exhale, "session pattern cues exhale"),
+    };
+  }
+
   return {
     id: value.id,
     name,
     ...(hint === undefined ? {} : { hint }),
     phases,
     cycles,
+    ...(cues === undefined ? {} : { cues }),
   };
 }
 

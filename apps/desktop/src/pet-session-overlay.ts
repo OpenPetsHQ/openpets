@@ -305,11 +305,16 @@ function emitToPlugin(session: ActiveSessionOverlay, event: PluginSessionEvent):
   }
 }
 
-interface SessionAudioPayload {
-  readonly enabled: boolean;
-  readonly allowed: boolean;
+interface SessionCuePairPayload {
   readonly inhaleDataUrl?: string;
   readonly exhaleDataUrl?: string;
+}
+
+interface SessionAudioPayload extends SessionCuePairPayload {
+  readonly enabled: boolean;
+  readonly allowed: boolean;
+  /** Cue pairs timed to specific patterns, keyed by pattern id. */
+  readonly patterns?: Readonly<Record<string, SessionCuePairPayload>>;
 }
 
 const soundDataUrlCache = new Map<string, string | null>();
@@ -340,11 +345,20 @@ function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload
   const audio = session.descriptor.audio;
   if (!audio) return null;
   const settings = getPluginPlatformSettings();
+  const patterns: Record<string, SessionCuePairPayload> = {};
+  for (const pattern of session.descriptor.patterns) {
+    if (!pattern.cues?.inhaleSoundPath && !pattern.cues?.exhaleSoundPath) continue;
+    patterns[pattern.id] = {
+      inhaleDataUrl: soundDataUrl(pattern.cues.inhaleSoundPath),
+      exhaleDataUrl: soundDataUrl(pattern.cues.exhaleSoundPath),
+    };
+  }
   return {
     enabled: session.audioEnabled,
     allowed: settings.allowPluginAudio && !isInQuietHours(),
     inhaleDataUrl: soundDataUrl(audio.inhaleSoundPath),
     exhaleDataUrl: soundDataUrl(audio.exhaleSoundPath),
+    ...(Object.keys(patterns).length > 0 ? { patterns } : {}),
   };
 }
 

@@ -328,6 +328,13 @@ export interface OpenPetsBreathPattern {
   phases: OpenPetsBreathPhase[];
   /** Cycles per session (1–99), or null/omitted for until-stopped. */
   cycles?: number | null;
+  /**
+   * Optional cue pair timed to this pattern (manifest-declared sounds). The
+   * inhale cue plays when an inhale starts, the exhale cue when an exhale
+   * starts; either may run through the hold that follows. Overrides the
+   * session-level `audio` pair while this pattern is selected.
+   */
+  cues?: { inhale: OpenPetsAssetRef; exhale: OpenPetsAssetRef };
 }
 
 /**
