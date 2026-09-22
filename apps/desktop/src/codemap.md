@@ -79,7 +79,7 @@ pet-window.ts
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
 ├── pet-preload.cjs (source renderer IPC entry; Vite bundles it with pet-chat-markdown.ts, pet-chat-view-state.ts, and ../pet-session/*.cjs into dist/pet-preload.cjs)
-├── ../pet-session/session-overlay-view.cjs (ui:session renderer shell: card chrome, header practice picker, run states + lead-in countdown, frame loop, cue audio, geometry, descriptor intake; practices may override primary/secondary buttons and opt out of pausing)
+├── ../pet-session/session-overlay-view.cjs (ui:session renderer shell: card on top with the orb around the resting pet below it, card chrome, header practice picker, run states + lead-in countdown, frame loop, cue audio, geometry, descriptor intake; practices may override primary/secondary buttons and opt out of pausing)
 ├── ../pet-session/breathing-practice.cjs / pmr-practice.cjs / grounding-practice.cjs (per-kind practice views: clock, own card rows, shared-row content, orb target; guided breathing's pattern chips live in the breathing view; grounding is self-paced with a sense checklist and a finished summary)
 ├── ../pet-session/orb-renderer.cjs (WebGL night-sky orb)
 ├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)

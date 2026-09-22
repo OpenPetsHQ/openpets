@@ -10,10 +10,9 @@ import {
   calculateSessionOrbRadius,
   calculateSessionWindowSize,
   defaultPetChatPanelLayout,
-  sessionCardBottomInset,
-  sessionCardEstimatedHeight,
+  sessionCardTopInset,
   sessionOrbCardGap,
-  sessionOrbTopGap,
+  sessionOrbBottomGap,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
@@ -1530,9 +1529,12 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
   // the pet, the pet sits at the orb centre, and the orb rests on the card
   // for every pet asset and scale.
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
-  const orbCenterFromBottom = sessionCardBottomInset + sessionCardEstimatedHeight + sessionOrbCardGap + orbRadius;
+  // Card on top, orb below it around the pet's resting spot: the pet only
+  // rises as far as the orb needs to keep its rim glow inside the window.
   const petBottom = 22;
-  const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petBottom - scaledSpriteHeight / 2));
+  const petRestCenterFromBottom = petBottom + scaledSpriteHeight / 2;
+  const orbCenterFromBottom = Math.max(Math.round(petRestCenterFromBottom), sessionOrbBottomGap + orbRadius);
+  const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petRestCenterFromBottom));
   const cardInsetX = 18;
 
   return `
@@ -1657,7 +1659,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     .session-practice-menu {
       position: absolute;
       left: 12px;
-      bottom: calc(100% + 8px);
+      top: 58px;
       min-width: 220px;
       display: none;
       flex-direction: column;
@@ -1784,7 +1786,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       position: absolute;
       left: ${cardInsetX}px;
       right: ${cardInsetX}px;
-      bottom: 14px;
+      top: ${sessionCardTopInset}px;
       z-index: 40;
       box-sizing: border-box;
       padding: 14px 16px 12px;
@@ -1796,7 +1798,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       -webkit-app-region: no-drag;
       user-select: none;
       opacity: 0;
-      transform: translateY(14px);
+      transform: translateY(-14px);
       transition: opacity 500ms ease 200ms, transform 550ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
     }
     html[data-session-open="true"] .session-card {

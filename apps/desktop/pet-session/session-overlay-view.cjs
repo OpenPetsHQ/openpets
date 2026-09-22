@@ -19,7 +19,9 @@ const { createGroundingPractice } = require("./grounding-practice.cjs");
 
 const IDLE_COLOR = [0.45, 0.62, 0.98];
 const ORB_CARD_GAP = 10;
-const CARD_BOTTOM_INSET = 14;
+const CARD_TOP_INSET = 14;
+/** Clearance below the orb for its rim glow. */
+const ORB_BOTTOM_RIM = 16;
 
 // Host-localized chrome strings arrive with the descriptor; English is the
 // in-place fallback so a missing key never renders blank.
@@ -316,8 +318,10 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   document.body.appendChild(root);
 
   // --- Runtime geometry ----------------------------------------------------
-  // Measures the real rendered sprite and card, then aligns orb and pet lift
-  // so the composition is exact for any pet asset and scale.
+  // The card sits at the top; the orb wraps the pet near its resting spot
+  // below it. Measures the real rendered sprite and card, then sizes the orb
+  // to the band under the card and lifts the pet only as far as the orb's
+  // rim needs, for any pet asset and scale.
 
   const parseCurrentPetLift = (hitbox) => {
     const transform = getComputedStyle(hitbox).transform;
@@ -343,15 +347,19 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     const currentLift = parseCurrentPetLift(hitbox);
     const restCenterY = spriteRect.top + spriteRect.height / 2 + currentLift;
 
-    // Keep the orb (rim glow included) inside the band above the card.
-    const rimReserved = 18;
-    const bandHeight = window.innerHeight - rimReserved - (CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP);
-    const maxRadius = Math.max(96, Math.floor((bandHeight - 40) / 2));
+    // Keep the orb (rim glow included) inside the band under the card.
+    const cardBottom = CARD_TOP_INSET + cardHeight + ORB_CARD_GAP;
+    const bandHeight = window.innerHeight - cardBottom - ORB_BOTTOM_RIM;
+    const maxRadius = Math.max(96, Math.floor(bandHeight / 2));
     orbRadius = Math.max(96, Math.min(Math.min(240, maxRadius), Math.round(spriteRect.height)));
 
-    const orbCenterBottom = CARD_BOTTOM_INSET + cardHeight + ORB_CARD_GAP + orbRadius;
-    const desiredCenterY = window.innerHeight - orbCenterBottom;
-    const petLift = Math.max(0, Math.round(restCenterY - desiredCenterY));
+    // Centre the orb on the resting pet when it fits; otherwise raise it just
+    // enough for the rim, and never into the card.
+    const restCenterFromBottom = window.innerHeight - restCenterY;
+    const lowestCenter = ORB_BOTTOM_RIM + orbRadius;
+    const highestCenter = window.innerHeight - cardBottom - orbRadius;
+    const orbCenterBottom = Math.round(Math.min(highestCenter, Math.max(lowestCenter, restCenterFromBottom)));
+    const petLift = Math.max(0, Math.round(orbCenterBottom - restCenterFromBottom));
 
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--session-orb-radius", String(orbRadius));

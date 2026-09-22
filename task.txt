@@ -301,6 +301,16 @@ a first slice.
 
 Newest first.
 
+2026-09-22 — HUD card on top of the pet, all practices (Alvin).
+  The session card now sits at the top of the carrier and the orb
+  wraps the pet near its resting spot below it (was: orb stacked
+  above a bottom card, pet lifted by the whole card height). The pet
+  now rises only ~50px so the orb's rim fits; the orb no longer jumps
+  when the card changes height. Practice picker drops down under the
+  header. Geometry constants renamed to the new order
+  (sessionCardTopInset, sessionOrbBottomGap); window height formula
+  unchanged in total.
+
 2026-09-22 — grounding 5-4-3-2-1 + practice picker (Alvin: "go").
   New descriptor kind "grounding" (SDK + validator + conformance):
   senses as steps (label/title/prompt/icon), 1–6 items each with
