@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { debug, error as logError, warn } from "./logger.js";
-import type { PluginSessionDescriptor, SessionInfo } from "./plugin-session-descriptor.js";
+import type { PluginSessionDescriptor, SessionInfo, SessionInfoSection } from "./plugin-session-descriptor.js";
 
 /**
  * The practice session Info window: a host-rendered, script-free page built
@@ -326,6 +326,33 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       color: #475569;
       margin: 0;
     }
+    .cards.is-two-up {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .card.is-highlighted {
+      border-color: rgba(37, 99, 235, 0.55);
+      background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(219, 234, 254, 0.7));
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.12);
+    }
+    .card-badge {
+      margin-left: auto;
+      flex-shrink: 0;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #176df2;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .card-detail {
+      margin: 8px 0 0;
+      font-size: 11.5px;
+      line-height: 1.5;
+      font-weight: 700;
+      color: #2563eb;
+    }
     .card-link {
       display: inline-block;
       margin-top: 9px;
@@ -460,6 +487,9 @@ const cardIconSvgs: Record<string, string> = {
   "leaf": '<path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/>',
   "sparkles": '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4"/><circle cx="4" cy="20" r="2"/>',
   "timer": '<path d="M10 2h4m-2 12l3-3"/><circle cx="12" cy="14" r="8"/>',
+  "square": '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+  "moon": '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>',
+  "zap": '<path d="M15.914 4a1.5 1.5 0 0 0-2.474-1.561l-9 9A1.5 1.5 0 0 0 5.5 14h4.002a.5.5 0 0 1 .471.666L8.086 20a1.5 1.5 0 0 0 2.475 1.56l9-9A1.5 1.5 0 0 0 18.5 10h-3.997a.5.5 0 0 1-.472-.667z"/>',
 };
 
 function cardIconMarkup(icon: string | undefined): string {
@@ -468,7 +498,7 @@ function cardIconMarkup(icon: string | undefined): string {
   return `<span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${paths}</svg></span>`;
 }
 
-function buildSectionMarkup(section: { heading: string; body?: string; items?: readonly string[]; cards?: readonly { title: string; body: string; url?: string; icon?: string }[] }, index: number, chrome: Record<string, string>): string {
+function buildSectionMarkup(section: SessionInfoSection, index: number, chrome: Record<string, string>): string {
   void index;
   const parts: string[] = [`<h2 class="section-heading">${escapeHtml(section.heading)}</h2>`];
   if (section.body) parts.push(`<p class="section-body">${escapeHtml(section.body)}</p>`);
@@ -483,10 +513,17 @@ function buildSectionMarkup(section: { heading: string; body?: string; items?: r
       const link = card.url
         ? `<a class="card-link" href="${escapeHtml(card.url)}">${escapeHtml(chrome.readStudy ?? "Read the study")} →</a>`
         : "";
-      const head = `<div class="card-head">${cardIconMarkup(card.icon)}<h3 class="card-title">${escapeHtml(card.title)}</h3></div>`;
-      return `<div class="card">${head}<p class="card-body">${escapeHtml(card.body)}</p>${link}</div>`;
+      const badge = card.highlighted
+        ? `<span class="card-badge">${escapeHtml(chrome.currentChoice ?? "Current")}</span>`
+        : "";
+      const head = `<div class="card-head">${cardIconMarkup(card.icon)}<h3 class="card-title">${escapeHtml(card.title)}</h3>${badge}</div>`;
+      const detail = card.detail ? `<p class="card-detail">${escapeHtml(card.detail)}</p>` : "";
+      const className = card.highlighted ? "card is-highlighted" : "card";
+      return `<div class="${className}">${head}<p class="card-body">${escapeHtml(card.body)}</p>${detail}${link}</div>`;
     }).join("");
-    parts.push(`<div class="cards">${cards}</div>`);
+    // Four cards read as a 2×2 grid instead of a 3 + 1 wrap.
+    const gridClass = section.cards.length === 4 ? "cards is-two-up" : "cards";
+    parts.push(`<div class="${gridClass}">${cards}</div>`);
   }
   return `<section class="section">${parts.join("")}</section>`;
 }

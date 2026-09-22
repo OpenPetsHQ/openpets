@@ -244,16 +244,27 @@ export function buildSessionInfo(t, logo) {
   };
 }
 
-/** Guided breathing Info: the selected pattern first, then the shared breathing knowledge. */
+const GUIDED_PATTERN_ICONS = { box: "square", calming: "moon", energizing: "zap", quick: "timer" };
+
+/**
+ * Guided breathing Info: every pattern as a card (the selected one marked, as
+ * on AAT's guided breathing page), then the shared breathing knowledge.
+ */
 export function buildGuidedInfo(t, logo, patternId) {
-  const key = `guided.pattern.${patternId}`;
+  const patternCards = GUIDED_PATTERN_IDS.map((id) => ({
+    title: t(`guided.pattern.${id}.heading`),
+    body: t(`guided.pattern.${id}.body`),
+    detail: t(`guided.pattern.${id}.detail`),
+    icon: GUIDED_PATTERN_ICONS[id],
+    ...(id === patternId ? { highlighted: true } : {}),
+  }));
   return {
     intro: t("guided.info.intro"),
     sections: [
       {
-        heading: t(`${key}.heading`),
-        body: t(`${key}.body`),
-        items: [t(`${key}.best1`), t(`${key}.best2`), t(`${key}.best3`)],
+        heading: t("guided.info.patterns.heading"),
+        body: t("guided.info.patterns.body"),
+        cards: patternCards,
       },
       {
         heading: t("info.how.heading"),
@@ -435,7 +446,7 @@ async function setSessionMenu(ctx, mode, practiceId = "breathing") {
   }
 }
 
-/** Remember the picked guided pattern and swap Info to match it. */
+/** Remember the picked guided pattern and mark it in Info. */
 async function selectGuidedPattern(ctx, session, patternId) {
   if (!GUIDED_PATTERN_IDS.includes(patternId)) return;
   await ctx.storage.set(STORAGE_KEY_LAST_GUIDED_PATTERN, patternId).catch(() => undefined);

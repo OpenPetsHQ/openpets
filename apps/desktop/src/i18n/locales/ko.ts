@@ -65,6 +65,7 @@ export const ko: Partial<Messages> = {
   "session.references": "참고 문헌",
   "session.readStudy": "연구 보기",
   "session.openStudy": "PMC",
+  "session.currentChoice": "선택됨",
 
   "pet.paused": "일시정지됨",
   "pet.status.thinking": "생각 중",

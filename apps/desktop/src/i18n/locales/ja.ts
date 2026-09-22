@@ -65,6 +65,7 @@ export const ja: Partial<Messages> = {
   "session.references": "参考文献",
   "session.readStudy": "論文を読む",
   "session.openStudy": "PMC",
+  "session.currentChoice": "選択中",
 
   "pet.paused": "一時停止中",
   "pet.status.thinking": "思考中",

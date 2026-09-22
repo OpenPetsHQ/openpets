@@ -42,13 +42,10 @@ function createBreathingPractice(ui) {
 
   const patternTiming = (pattern) => pattern.phases.map((phase) => formatCount(phase.seconds)).join("-");
 
-  const isRunLocked = () => {
-    const runState = ui.runState();
-    return runState === "countdown" || runState === "active" || runState === "paused";
-  };
-
+  // Patterns switch at any time: a live run restarts on the new pattern, a
+  // paused run moves to its start (still paused), and a finished run goes
+  // back to the idle card.
   const handleChipClick = (patternId) => {
-    if (isRunLocked()) return;
     if (ui.runState() === "complete") {
       ui.returnToIdle();
     } else if (patternId === selectedPatternId) {
@@ -93,13 +90,10 @@ function createBreathingPractice(ui) {
     }
 
     const current = selectedPattern();
-    const locked = isRunLocked();
-    chipsRow.classList.toggle("is-locked", locked);
     for (const chip of chipsRow.children) {
       const isSelected = Boolean(current && chip.dataset.patternId === current.id);
       chip.classList.toggle("is-selected", isSelected);
       chip.setAttribute("aria-pressed", isSelected ? "true" : "false");
-      chip.disabled = locked && !isSelected;
     }
   };
 
@@ -159,6 +153,7 @@ function createBreathingPractice(ui) {
     ui.resetClock();
     const pattern = selectedPattern();
     if (ui.runState() === "active") {
+      ui.triggerPulse(performance.now() / 1000);
       ui.stopCuePlayback();
       if (pattern && pattern.phases[0]) ui.playPhaseCue(pattern.phases[0].kind);
     }

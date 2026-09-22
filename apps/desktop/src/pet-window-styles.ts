@@ -1707,22 +1707,16 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       cursor: pointer;
       transition: background 160ms ease, border-color 160ms ease, opacity 200ms ease, transform 150ms ease;
     }
-    .session-pattern-chip:hover:not(:disabled) {
+    .session-pattern-chip:hover {
       background: rgba(255, 255, 255, 0.95);
       border-color: rgba(37, 99, 235, 0.4);
     }
-    .session-pattern-chip:active:not(:disabled) {
+    .session-pattern-chip:active {
       transform: scale(0.97);
     }
     .session-pattern-chip.is-selected {
       background: rgba(59, 130, 246, 0.1);
       border-color: rgba(37, 99, 235, 0.55);
-    }
-    .session-pattern-chips.is-locked .session-pattern-chip {
-      cursor: default;
-    }
-    .session-pattern-chip:disabled {
-      opacity: 0.45;
     }
     .session-chip-name {
       max-width: 100%;

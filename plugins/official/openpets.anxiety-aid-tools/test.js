@@ -154,11 +154,17 @@ for (const entry of guidedPatterns) {
 }
 assert.notEqual(guidedPatterns[0].phases[1].label, guidedPatterns[0].phases[3].label, "box holds must name full vs empty lungs");
 
-// Guided Info is specific to the selected pattern (box vs 4-7-8 are not the
-// same paragraph) and keeps the linked science and site credit.
-const guidedLeads = guidedPatterns.map((entry) => buildGuidedInfo(t, undefined, entry.id).sections[0]);
-assert.equal(new Set(guidedLeads.map((section) => section.body)).size, guidedPatterns.length);
+// Guided Info covers every pattern, as AAT's guided breathing page does, and
+// marks the selected one; it keeps the linked science and site credit.
 const guidedInfo = buildGuidedInfo(t, { kind: "svg", name: "logo" }, "calming");
+const patternSection = guidedInfo.sections[0];
+assert.equal(patternSection.cards.length, guidedPatterns.length);
+assert.equal(new Set(patternSection.cards.map((card) => card.body)).size, guidedPatterns.length);
+assert.ok(patternSection.cards.every((card) => card.detail.length > 0));
+assert.deepEqual(
+  patternSection.cards.map((card) => card.highlighted === true),
+  guidedPatterns.map((entry) => entry.id === "calming"),
+);
 assert.ok(guidedInfo.sections.some((section) => section.cards?.some((card) => card.url?.startsWith("https://pmc.ncbi.nlm.nih.gov/"))));
 assert.equal(guidedInfo.site.url, SITE_URL);
 
@@ -298,13 +304,13 @@ latestEventHandler({ type: "patternChanged", patternId: "calming" });
 await new Promise((resolve) => setTimeout(resolve, 0));
 const guidedUpdate = sessionUpdates.at(-1);
 assert.equal(guidedUpdate.patternId, "calming");
-assert.equal(guidedUpdate.info.sections[0].heading, t("guided.pattern.calming.heading"));
+assert.equal(guidedUpdate.info.sections[0].cards.find((card) => card.highlighted).title, t("guided.pattern.calming.heading"));
 assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN), "calming");
 
 await harness.runCommand("start-guided-breathing");
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.patternId, "calming");
-assert.equal(latestSpec.info.sections[0].heading, t("guided.pattern.calming.heading"));
+assert.equal(latestSpec.info.sections[0].cards.find((card) => card.highlighted).title, t("guided.pattern.calming.heading"));
 assert.equal(buildGuidedDescriptor(harness.ctx, false, true, "not-a-pattern").patternId, "box");
 
 // 5. Stop session

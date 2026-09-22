@@ -43,6 +43,9 @@ export const sessionInfoIconNames = new Set([
   "leaf",
   "sparkles",
   "timer",
+  "square",
+  "moon",
+  "zap",
 ]);
 
 export interface SessionInfoCard {
@@ -50,6 +53,10 @@ export interface SessionInfoCard {
   readonly body: string;
   readonly url?: string;
   readonly icon?: string;
+  /** Short accent line under the body (e.g. what a pattern is best for). */
+  readonly detail?: string;
+  /** Marks the card for the practice's current choice (e.g. the selected pattern). */
+  readonly highlighted?: boolean;
 }
 
 export interface SessionInfoSection {
@@ -516,18 +523,24 @@ function validateInfoSection(value: unknown): SessionInfoSection {
     check(value.cards.length >= 1 && value.cards.length <= 6, "Session info cards must contain 1–6 entries.");
     cards = value.cards.map((card): SessionInfoCard => {
       check(isRecord(card), "Invalid session info card.");
-      checkKnownKeys(card, ["title", "body", "url", "icon"], "session info card");
+      checkKnownKeys(card, ["title", "body", "url", "icon", "detail", "highlighted"], "session info card");
       const url = card.url === undefined ? undefined : validateHttpsUrl(card.url, "session info card url");
       let icon: string | undefined;
       if (card.icon !== undefined) {
         check(typeof card.icon === "string" && sessionInfoIconNames.has(card.icon), "Unknown session info card icon.");
         icon = card.icon;
       }
+      const detail = card.detail === undefined ? undefined : validateLine(card.detail, 1, 160, "session info card detail");
+      if (card.highlighted !== undefined) {
+        check(typeof card.highlighted === "boolean", "Invalid session info card highlighted flag.");
+      }
       return {
         title: validateLine(card.title, 1, 80, "session info card title"),
         body: validateText(card.body, 1, 600, "session info card body"),
         ...(url === undefined ? {} : { url }),
         ...(icon === undefined ? {} : { icon }),
+        ...(detail === undefined ? {} : { detail }),
+        ...(card.highlighted === true ? { highlighted: true } : {}),
       };
     });
   }

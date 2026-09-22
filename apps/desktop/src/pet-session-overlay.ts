@@ -69,6 +69,7 @@ export function buildSessionChrome(): Record<string, string> {
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
+    currentChoice: t("session.currentChoice"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),

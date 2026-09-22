@@ -65,6 +65,7 @@ export const ptBR: Partial<Messages> = {
   "session.references": "Referências",
   "session.readStudy": "Ler o estudo",
   "session.openStudy": "PMC",
+  "session.currentChoice": "Atual",
 
   "pet.paused": "Pausado",
   "pet.status.thinking": "Pensando",
