@@ -78,7 +78,10 @@ pet-window.ts
 │   ├── reaction-messages.ts (pickReactionMessage for bubbles)
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
-├── pet-preload.cjs (source renderer IPC entry; Vite bundles it with pet-chat-markdown.ts and pet-chat-view-state.ts into dist/pet-preload.cjs)
+├── pet-preload.cjs (source renderer IPC entry; Vite bundles it with pet-chat-markdown.ts, pet-chat-view-state.ts, and ../pet-session/*.cjs into dist/pet-preload.cjs)
+├── ../pet-session/session-overlay-view.cjs (ui:session renderer shell: card chrome, run states + lead-in countdown, frame loop, cue audio, geometry, descriptor intake)
+├── ../pet-session/breathing-practice.cjs / pmr-practice.cjs (per-kind practice views: clock, own card rows, shared-row content, orb target; guided breathing's pattern chips live in the breathing view)
+├── ../pet-session/orb-renderer.cjs (WebGL night-sky orb)
 ├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)
 └── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, and draft derivation)
 pet-window-interaction.ts
@@ -298,7 +301,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-window-shape.ts`: Pure Linux pet hit-shape calculation, including input masks for the compact carrier and the bottom-anchored expanded attached chat panel
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
 - `default-pet-chat-geometry.ts`: Bijective coordinate mappings and anchor-preserving window bounds for collapsed, expanded-chat (420x640), and pet-scale-derived session carrier states, plus bottom-relative panel positioning and session orb/window sizing calculations
-- `pet-session-overlay.ts`: Practice session overlay coordinator for the `ui:session` plugin surface — owns the single active session descriptor (breathing or PMR), host-localized chrome strings, plugin-driven pause/resume/stop controls, in-place same-plugin session replacement without carrier flicker, practice-switch event relay to the owning plugin, the Info window lifecycle, and carrier open/replace/displacement/close lifecycles
+- `pet-session-overlay.ts`: Practice session overlay coordinator for the `ui:session` plugin surface — owns the single active session descriptor (breathing or PMR; tracks the overlay's pattern pick as the live selection) and the per-practice carrier height hint, host-localized chrome strings, plugin-driven pause/resume/stop controls, in-place same-plugin session replacement without carrier flicker, practice-switch event relay to the owning plugin, the Info window lifecycle, and carrier open/replace/displacement/close lifecycles
 - `pet-session-info-window.ts`: Host-rendered, script-free session Info window (logo header, mechanism/science cards with allowlisted study links, checklists, citations, disclaimer, site attribution) built from the validated descriptor
 - `plugin-session-descriptor.ts`: Pure validation and types for the practice session overlay descriptor union (breathing patterns/phases vs PMR 10s tense/release steps and cues, practice-switching options, Info content with sections/items/cards, https-only links, manifest logo ref)
 - `window-tracker-latch.ts`: Re-entrancy latch helper (`createLatchedTick`) that prevents overlapping async ticks from stacking; used by the window-tracking poller

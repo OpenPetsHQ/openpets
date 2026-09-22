@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises";
 import {
   buildCalmPattern,
   buildDescriptor,
+  buildGuidedDescriptor,
+  buildGuidedInfo,
+  buildGuidedPatterns,
   buildPmrDescriptor,
   buildPmrInfo,
   buildPmrSteps,
@@ -13,6 +16,7 @@ import {
   PMR_GROUP_IDS,
   register,
   SITE_URL,
+  STORAGE_KEY_LAST_GUIDED_PATTERN,
   STORAGE_KEY_LAST_PRACTICE,
 } from "./index.js";
 
@@ -132,10 +136,37 @@ assert.ok(pmrInfo.disclaimer.length > 0);
 assert.equal(pmrInfo.site.url, SITE_URL);
 assert.deepEqual(pmrInfo.logo, { kind: "svg", name: "logo" });
 
-// Practices list exposes breathing and PMR
+// Guided breathing ships the AAT guided patterns with their documented
+// timings; every hold says whether the lungs are full or empty.
+const guidedPatterns = buildGuidedPatterns(t);
+assert.deepEqual(
+  guidedPatterns.map((entry) => [entry.id, entry.phases.map((phase) => `${phase.kind}${phase.seconds}`).join(" ")]),
+  [
+    ["box", "in4 hold4 out4 hold4"],
+    ["calming", "in4 hold7 out8"],
+    ["energizing", "in4 hold4 out6"],
+    ["quick", "in3 hold3 out3"],
+  ],
+);
+for (const entry of guidedPatterns) {
+  assert.ok(Number.isInteger(entry.cycles) && entry.cycles >= 1);
+  assert.ok(entry.phases.every((phase) => phase.label.length > 0));
+}
+assert.notEqual(guidedPatterns[0].phases[1].label, guidedPatterns[0].phases[3].label, "box holds must name full vs empty lungs");
+
+// Guided Info is specific to the selected pattern (box vs 4-7-8 are not the
+// same paragraph) and keeps the linked science and site credit.
+const guidedLeads = guidedPatterns.map((entry) => buildGuidedInfo(t, undefined, entry.id).sections[0]);
+assert.equal(new Set(guidedLeads.map((section) => section.body)).size, guidedPatterns.length);
+const guidedInfo = buildGuidedInfo(t, { kind: "svg", name: "logo" }, "calming");
+assert.ok(guidedInfo.sections.some((section) => section.cards?.some((card) => card.url?.startsWith("https://pmc.ncbi.nlm.nih.gov/"))));
+assert.equal(guidedInfo.site.url, SITE_URL);
+
+// Practices list exposes breathing, guided breathing, and PMR
 const practices = buildPractices(t);
 assert.deepEqual(practices, [
   { id: "breathing", name: t("practice.breathing") },
+  { id: "guided-breathing", name: t("practice.guided") },
   { id: "pmr", name: t("practice.pmr") },
 ]);
 
@@ -147,10 +178,16 @@ await harness.start();
 let latestSession = null;
 let latestSpec = null;
 let latestEventHandler = null;
+const sessionUpdates = [];
 const origSession = harness.ctx.ui.session;
 harness.ctx.ui.session = async (spec) => {
   latestSpec = spec;
   const handle = await origSession(spec);
+  const origUpdate = handle.update;
+  handle.update = async (patch) => {
+    sessionUpdates.push(patch);
+    return origUpdate(patch);
+  };
   const origOnEvent = handle.onEvent;
   handle.onEvent = (fn) => {
     latestEventHandler = fn;
@@ -247,17 +284,45 @@ assert.equal(latestSpec.practiceId, "pmr");
 assert.equal(latestSpec.autoStart, false);
 assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "pmr");
 
-// 4. Stop session
+// 4. Guided breathing: the command opens the pattern picker session; picking
+// a pattern swaps Info to that pattern and is remembered for next time.
+await harness.runCommand("start-guided-breathing");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "breathing");
+assert.equal(latestSpec.practiceId, "guided-breathing");
+assert.equal(latestSpec.patterns.length, 4);
+assert.equal(latestSpec.patternId, "box");
+assert.equal(harness.calls.menuItems[0].id, "breathing-pause");
+
+latestEventHandler({ type: "patternChanged", patternId: "calming" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+const guidedUpdate = sessionUpdates.at(-1);
+assert.equal(guidedUpdate.patternId, "calming");
+assert.equal(guidedUpdate.info.sections[0].heading, t("guided.pattern.calming.heading"));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN), "calming");
+
+await harness.runCommand("start-guided-breathing");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.patternId, "calming");
+assert.equal(latestSpec.info.sections[0].heading, t("guided.pattern.calming.heading"));
+assert.equal(buildGuidedDescriptor(harness.ctx, false, true, "not-a-pattern").patternId, "box");
+
+// 5. Stop session
 await latestSession.stop();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(harness.calls.menuItems, [], "stopping session must clear menu items");
 
-// 5. Open idle respects stored lastPractice
+// 6. Open idle respects stored lastPractice
 await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "pmr");
 await harness.runCommand("open-anxiety-aid-tools");
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "pmr");
 assert.equal(latestSpec.autoStart, false);
+
+await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "guided-breathing");
+await harness.runCommand("open-anxiety-aid-tools");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.practiceId, "guided-breathing");
 
 await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "breathing");
 await harness.runCommand("open-anxiety-aid-tools");

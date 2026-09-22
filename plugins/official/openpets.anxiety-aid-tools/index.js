@@ -1,7 +1,8 @@
 // Anxiety Aid Tools (openpets.anxiety-aid-tools) — SDK v3 calm practices.
 //
 // The OpenPets companion of https://anxietyaidtools.com/. Supports simple
-// breathing (Calm 4-6) and progressive muscle relaxation (PMR): the host
+// breathing (Calm 4-6), guided breathing (box, 4-7-8, energizing, quick
+// reset), and progressive muscle relaxation (PMR): the host
 // renders the session overlay (night-sky orb, step track, bottom card) around
 // the pet and a dedicated Info window from the declarative descriptor below;
 // this plugin owns patterns and steps, the localized knowledge layer (how it
@@ -19,6 +20,18 @@ export const MENU_PMR_STOP = "pmr-stop";
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_PRACTICE = "lastPractice";
+export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
+
+export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr"];
+
+/** Guided breathing patterns (AAT guided breathing). Holds say which way the lungs are. */
+export const GUIDED_PATTERNS = [
+  { id: "box", cycles: 8, phases: [["in", 4], ["hold-full", 4], ["out", 4], ["hold-empty", 4]] },
+  { id: "calming", cycles: 4, phases: [["in", 4], ["hold-full", 7], ["out-long", 8]] },
+  { id: "energizing", cycles: 8, phases: [["in", 4], ["hold-full", 4], ["out", 6]] },
+  { id: "quick", cycles: 6, phases: [["in", 3], ["hold-full", 3], ["out", 3]] },
+];
+export const GUIDED_PATTERN_IDS = GUIDED_PATTERNS.map((pattern) => pattern.id);
 
 export const PMR_GROUP_IDS = [
   "right-hand",
@@ -132,9 +145,28 @@ export function buildCalmPattern(t) {
   };
 }
 
+function guidedPhase(t, step, seconds) {
+  if (step === "in") return { kind: "in", seconds, label: t("phase.in.label") };
+  if (step === "out") return { kind: "out", seconds, label: t("phase.out.label") };
+  if (step === "out-long") return { kind: "out", seconds, label: t("guided.phase.outLong") };
+  if (step === "hold-full") return { kind: "hold", seconds, label: t("guided.phase.holdFull") };
+  return { kind: "hold", seconds, label: t("guided.phase.holdEmpty") };
+}
+
+export function buildGuidedPatterns(t) {
+  return GUIDED_PATTERNS.map((pattern) => ({
+    id: pattern.id,
+    name: t(`guided.pattern.${pattern.id}.name`),
+    hint: t(`guided.pattern.${pattern.id}.hint`),
+    phases: pattern.phases.map(([step, seconds]) => guidedPhase(t, step, seconds)),
+    cycles: pattern.cycles,
+  }));
+}
+
 export function buildPractices(t) {
   return [
     { id: "breathing", name: t("practice.breathing") },
+    { id: "guided-breathing", name: t("practice.guided") },
     { id: "pmr", name: t("practice.pmr") },
   ];
 }
@@ -212,6 +244,59 @@ export function buildSessionInfo(t, logo) {
   };
 }
 
+/** Guided breathing Info: the selected pattern first, then the shared breathing knowledge. */
+export function buildGuidedInfo(t, logo, patternId) {
+  const key = `guided.pattern.${patternId}`;
+  return {
+    intro: t("guided.info.intro"),
+    sections: [
+      {
+        heading: t(`${key}.heading`),
+        body: t(`${key}.body`),
+        items: [t(`${key}.best1`), t(`${key}.best2`), t(`${key}.best3`)],
+      },
+      {
+        heading: t("info.how.heading"),
+        body: t("guided.info.how.body"),
+        cards: [
+          { title: t("guided.info.how.card1.title"), body: t("guided.info.how.card1.body"), icon: "activity" },
+          { title: t("guided.info.how.card2.title"), body: t("guided.info.how.card2.body"), icon: "timer" },
+          { title: t("guided.info.how.card3.title"), body: t("guided.info.how.card3.body"), icon: "brain" },
+        ],
+      },
+      {
+        heading: t("info.science.heading"),
+        body: t("info.science.body"),
+        cards: [
+          { title: t("info.science.card1.title"), body: t("info.science.card1.body"), icon: "heart-pulse", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC11535222/" },
+          { title: t("info.science.card2.title"), body: t("info.science.card2.body"), icon: "shield-check", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9954474/" },
+          { title: t("info.science.card3.title"), body: t("info.science.card3.body"), icon: "brain", url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8989478/" },
+        ],
+      },
+      {
+        heading: t("info.when.heading"),
+        items: [t("guided.info.when.item1"), t("guided.info.when.item2"), t("guided.info.when.item3"), t("guided.info.when.item4")],
+      },
+      {
+        heading: t("info.notice.heading"),
+        items: [t("info.notice.item1"), t("info.notice.item2"), t("info.notice.item3"), t("info.notice.item4")],
+      },
+      {
+        heading: t("info.tips.heading"),
+        cards: [
+          { title: t("guided.info.tips.card1.title"), body: t("guided.info.tips.card1.body"), icon: "calendar-check" },
+          { title: t("guided.info.tips.card2.title"), body: t("guided.info.tips.card2.body"), icon: "armchair" },
+          { title: t("guided.info.tips.card3.title"), body: t("guided.info.tips.card3.body"), icon: "shield-check" },
+        ],
+      },
+    ],
+    citations: CITATIONS,
+    disclaimer: t("guided.info.disclaimer"),
+    site: { label: t("info.site.label"), url: SITE_URL },
+    ...(logo ? { logo } : {}),
+  };
+}
+
 export function buildPmrInfo(t, logo) {
   return {
     intro: t("pmr.info.intro"),
@@ -278,6 +363,27 @@ export function buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled) {
   };
 }
 
+export function buildGuidedDescriptor(ctx, autoStart, audioCuesEnabled, patternId = GUIDED_PATTERN_IDS[0]) {
+  const t = (key) => ctx.t(key);
+  const selected = GUIDED_PATTERN_IDS.includes(patternId) ? patternId : GUIDED_PATTERN_IDS[0];
+  return {
+    kind: "breathing",
+    title: t("guided.session.title"),
+    subtitle: t("guided.session.subtitle"),
+    patterns: buildGuidedPatterns(t),
+    patternId: selected,
+    autoStart,
+    info: buildGuidedInfo(t, ctx.assets.svg("logo"), selected),
+    audio: {
+      inhale: ctx.assets.sound("breath-in"),
+      exhale: ctx.assets.sound("breath-out"),
+      enabled: audioCuesEnabled !== false,
+    },
+    practices: buildPractices(t),
+    practiceId: "guided-breathing",
+  };
+}
+
 export function buildPmrDescriptor(ctx, autoStart) {
   const t = (key) => ctx.t(key);
   return {
@@ -292,9 +398,12 @@ export function buildPmrDescriptor(ctx, autoStart) {
   };
 }
 
-export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "breathing") {
+export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "breathing", guidedPatternId) {
   if (practiceId === "pmr") {
     return buildPmrDescriptor(ctx, autoStart);
+  }
+  if (practiceId === "guided-breathing") {
+    return buildGuidedDescriptor(ctx, autoStart, audioCuesEnabled, guidedPatternId);
   }
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
@@ -326,18 +435,31 @@ async function setSessionMenu(ctx, mode, practiceId = "breathing") {
   }
 }
 
+/** Remember the picked guided pattern and swap Info to match it. */
+async function selectGuidedPattern(ctx, session, patternId) {
+  if (!GUIDED_PATTERN_IDS.includes(patternId)) return;
+  await ctx.storage.set(STORAGE_KEY_LAST_GUIDED_PATTERN, patternId).catch(() => undefined);
+  const t = (key) => ctx.t(key);
+  try {
+    await session.update({ patternId, info: buildGuidedInfo(t, ctx.assets.svg("logo"), patternId) });
+  } catch (error) {
+    ctx.log.warn("guided pattern info update failed", { patternId, reason: String(error && error.message ? error.message : error) });
+  }
+}
+
 async function openSession(ctx, state, autoStart, requestedPracticeId) {
   let practiceId = requestedPracticeId;
   if (!practiceId) {
     const stored = await ctx.storage.get(STORAGE_KEY_LAST_PRACTICE);
-    practiceId = stored === "pmr" ? "pmr" : "breathing";
+    practiceId = PRACTICE_IDS.includes(stored) ? stored : "breathing";
   }
   await ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, practiceId).catch(() => undefined);
 
   const audioCuesEnabled = (await ctx.storage.get(STORAGE_KEY_AUDIO_CUES)) !== false;
-  const descriptor = practiceId === "pmr"
-    ? buildPmrDescriptor(ctx, autoStart)
-    : buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
+  const guidedPatternId = practiceId === "guided-breathing"
+    ? await ctx.storage.get(STORAGE_KEY_LAST_GUIDED_PATTERN)
+    : undefined;
+  const descriptor = buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId, guidedPatternId);
 
   const session = await ctx.ui.session(descriptor);
   state.session = session;
@@ -351,6 +473,8 @@ async function openSession(ctx, state, autoStart, requestedPracticeId) {
       void setSessionMenu(ctx, "paused", practiceId);
     } else if (event.type === "completed") {
       void setSessionMenu(ctx, "none");
+    } else if (event.type === "patternChanged" && practiceId === "guided-breathing") {
+      void selectGuidedPattern(ctx, session, event.patternId);
     } else if (event.type === "audioToggled") {
       void ctx.storage.set(STORAGE_KEY_AUDIO_CUES, event.enabled).catch(() => undefined);
     } else if (event.type === "practiceSelected") {
@@ -383,6 +507,14 @@ export function register(OpenPetsPlugin) {
           description: "$t:command.start.description",
         },
         () => openSession(ctx, state, true, "breathing"),
+      );
+      await ctx.commands.register(
+        {
+          id: "start-guided-breathing",
+          title: "$t:command.startGuided.title",
+          description: "$t:command.startGuided.description",
+        },
+        () => openSession(ctx, state, true, "guided-breathing"),
       );
       await ctx.commands.register(
         {
