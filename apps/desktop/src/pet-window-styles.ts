@@ -1602,11 +1602,129 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       width: 15px;
       height: 15px;
     }
+    .session-header-switch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: -4px 0 -4px -4px;
+      padding: 4px;
+      border: none;
+      border-radius: 12px;
+      background: transparent;
+      font-family: inherit;
+      text-align: left;
+      color: inherit;
+      cursor: default;
+      transition: background 140ms ease;
+    }
+    .session-header-switch.is-switchable {
+      cursor: pointer;
+    }
+    .session-header-switch.is-switchable:hover,
+    .session-card.is-practice-menu-open .session-header-switch {
+      background: rgba(37, 99, 235, 0.07);
+    }
     .session-header-titles {
       display: flex;
       flex-direction: column;
       min-width: 0;
       flex: 1 1 auto;
+    }
+    .session-header-title-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+    .session-header-chevron {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #64748b;
+      transition: transform 180ms ease;
+    }
+    .session-header-chevron svg {
+      width: 13px;
+      height: 13px;
+    }
+    .session-card.is-practice-menu-open .session-header-chevron {
+      transform: rotate(180deg);
+    }
+    .session-practice-menu {
+      position: absolute;
+      left: 12px;
+      bottom: calc(100% + 8px);
+      min-width: 220px;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      padding: 6px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      z-index: 60;
+    }
+    .session-card.is-practice-menu-open .session-practice-menu {
+      display: flex;
+    }
+    .session-practice-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 8px;
+      border: none;
+      border-radius: 11px;
+      background: transparent;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .session-practice-option:hover {
+      background: rgba(37, 99, 235, 0.07);
+    }
+    .session-practice-option.is-current {
+      background: rgba(59, 130, 246, 0.1);
+    }
+    .session-practice-option-icon {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: linear-gradient(to bottom right, #ffffff, #dbeafe);
+      border: 1px solid rgba(191, 219, 254, 0.6);
+      color: #176df2;
+    }
+    .session-practice-option-icon svg {
+      width: 15px;
+      height: 15px;
+    }
+    .session-practice-option-name {
+      flex: 1 1 auto;
+      font-size: 12.5px;
+      font-weight: 800;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+    .session-practice-option.is-current .session-practice-option-name {
+      color: #1d4ed8;
+    }
+    .session-practice-option-mark {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #176df2;
+    }
+    .session-practice-option-mark svg {
+      width: 14px;
+      height: 14px;
     }
     .session-header-title {
       font-size: 15px;
@@ -1737,6 +1855,141 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     .session-pattern-chip.is-selected .session-chip-name,
     .session-pattern-chip.is-selected .session-chip-timing {
       color: #1d4ed8;
+    }
+    .session-grounding-list {
+      list-style: none;
+      margin: 0 0 11px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .session-grounding-item {
+      width: 100%;
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 7px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, opacity 200ms ease, transform 150ms ease;
+    }
+    .session-grounding-item:hover {
+      background: rgba(255, 255, 255, 0.95);
+      border-color: rgba(37, 99, 235, 0.35);
+    }
+    .session-grounding-item:active {
+      transform: scale(0.99);
+    }
+    .session-grounding-list.is-inert .session-grounding-item {
+      cursor: default;
+      opacity: 0.72;
+    }
+    .session-grounding-list.is-inert .session-grounding-item:hover {
+      background: rgba(255, 255, 255, 0.72);
+      border-color: rgba(148, 163, 184, 0.3);
+    }
+    .session-grounding-check {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      border: 1.5px solid rgba(100, 116, 139, 0.45);
+      color: transparent;
+      transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+    }
+    .session-grounding-check svg {
+      width: 10px;
+      height: 10px;
+    }
+    .session-grounding-item.is-checked {
+      border-color: var(--session-phase-color, #176df2);
+      background: rgba(255, 255, 255, 0.95);
+    }
+    .session-grounding-item.is-checked .session-grounding-check {
+      background: var(--session-phase-color, #176df2);
+      border-color: var(--session-phase-color, #176df2);
+      color: #ffffff;
+    }
+    .session-grounding-texts {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .session-grounding-text {
+      font-size: 11.5px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #0f172a;
+    }
+    .session-grounding-guidance {
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 1.35;
+      color: #64748b;
+    }
+    .session-grounding-summary {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(255, 255, 255, 0.72);
+    }
+    .session-grounding-summary-icon {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--sense-color, #176df2);
+    }
+    .session-grounding-summary-icon svg {
+      width: 14px;
+      height: 14px;
+    }
+    .session-grounding-summary-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-grounding-summary-count {
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--sense-color, #176df2);
+      font-variant-numeric: tabular-nums;
+    }
+    .session-tile-value.is-icon {
+      width: 28px;
+      height: 28px;
+      color: #3b82f6;
+      transition: color 400ms ease;
+    }
+    .session-tile-value.is-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .session-step.is-sense-done .session-step-fill {
+      opacity: 0.55;
     }
     .session-illustration {
       display: none;

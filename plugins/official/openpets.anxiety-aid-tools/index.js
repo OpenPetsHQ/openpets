@@ -2,7 +2,7 @@
 //
 // The OpenPets companion of https://anxietyaidtools.com/. Supports simple
 // breathing (Calm 4-6), guided breathing (box, 4-7-8, energizing, quick
-// reset), and progressive muscle relaxation (PMR): the host
+// reset), progressive muscle relaxation (PMR), and 5-4-3-2-1 grounding: the host
 // renders the session overlay (night-sky orb, step track, bottom card) around
 // the pet and a dedicated Info window from the declarative descriptor below;
 // this plugin owns patterns and steps, the localized knowledge layer (how it
@@ -17,12 +17,22 @@ export const MENU_STOP = "breathing-stop";
 export const MENU_PMR_PAUSE = "pmr-pause";
 export const MENU_PMR_RESUME = "pmr-resume";
 export const MENU_PMR_STOP = "pmr-stop";
+export const MENU_GROUNDING_STOP = "grounding-stop";
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_PRACTICE = "lastPractice";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
 
-export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr"];
+export const PRACTICE_IDS = ["breathing", "guided-breathing", "pmr", "grounding"];
+
+/** 5-4-3-2-1 grounding senses (AAT grounding), in countdown order. */
+export const GROUNDING_SENSES = [
+  { id: "see", icon: "eye", items: 5 },
+  { id: "touch", icon: "hand", items: 4 },
+  { id: "hear", icon: "ear", items: 3 },
+  { id: "smell", icon: "flower", items: 2 },
+  { id: "taste", icon: "coffee", items: 1 },
+];
 
 /** Guided breathing patterns (AAT guided breathing). Holds say which way the lungs are. */
 export const GUIDED_PATTERNS = [
@@ -132,6 +142,21 @@ export const PMR_CITATIONS = [
   },
 ];
 
+export const GROUNDING_CITATIONS = [
+  {
+    label: "Li L. et al. (2025). Mindful energy balance exercise protocol as an adjunctive intervention for pediatric Tourette syndrome: a randomized controlled trial. Scientific Reports.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC12550066/",
+  },
+  {
+    label: "Palmer D.D.G. et al. (2023). Outcomes of an Integrated Multidisciplinary Clinic for People with Functional Neurological Disorder. Movement Disorders Clinical Practice.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10272915/",
+  },
+  {
+    label: "Myers L. et al. (2021). Using evidence-based psychotherapy to tailor treatment for patients with functional neurological disorders. Epilepsy & Behavior Reports.",
+    url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8515382/",
+  },
+];
+
 export function buildCalmPattern(t) {
   return {
     id: "calm",
@@ -165,10 +190,31 @@ export function buildGuidedPatterns(t) {
 
 export function buildPractices(t) {
   return [
-    { id: "breathing", name: t("practice.breathing") },
-    { id: "guided-breathing", name: t("practice.guided") },
-    { id: "pmr", name: t("practice.pmr") },
+    { id: "breathing", name: t("practice.breathing"), icon: "leaf" },
+    { id: "guided-breathing", name: t("practice.guided"), icon: "timer" },
+    { id: "pmr", name: t("practice.pmr"), icon: "person-standing" },
+    { id: "grounding", name: t("practice.grounding"), icon: "anchor" },
   ];
+}
+
+export function buildGroundingSteps(t) {
+  return GROUNDING_SENSES.map((sense) => {
+    const items = [];
+    for (let index = 1; index <= sense.items; index += 1) {
+      items.push({
+        text: t(`grounding.${sense.id}.item${index}.text`),
+        guidance: t(`grounding.${sense.id}.item${index}.guidance`),
+      });
+    }
+    return {
+      id: sense.id,
+      label: t(`grounding.${sense.id}.label`),
+      title: t(`grounding.${sense.id}.title`),
+      prompt: t(`grounding.${sense.id}.prompt`),
+      icon: sense.icon,
+      items,
+    };
+  });
 }
 
 export function buildPmrSteps(ctx) {
@@ -308,6 +354,56 @@ export function buildGuidedInfo(t, logo, patternId) {
   };
 }
 
+/**
+ * Grounding Info. The science section says plainly that the evidence covers
+ * sensory grounding inside wider programs, not 5-4-3-2-1 alone.
+ */
+export function buildGroundingInfo(t, logo) {
+  return {
+    intro: t("grounding.info.intro"),
+    sections: [
+      {
+        heading: t("info.how.heading"),
+        body: t("grounding.info.how.body"),
+        cards: [
+          { title: t("grounding.info.how.card1.title"), body: t("grounding.info.how.card1.body"), icon: "eye" },
+          { title: t("grounding.info.how.card2.title"), body: t("grounding.info.how.card2.body"), icon: "brain" },
+          { title: t("grounding.info.how.card3.title"), body: t("grounding.info.how.card3.body"), icon: "anchor" },
+        ],
+      },
+      {
+        heading: t("info.science.heading"),
+        body: t("grounding.info.science.body"),
+        cards: [
+          { title: t("grounding.info.science.card1.title"), body: t("grounding.info.science.card1.body"), icon: "heart-pulse", url: GROUNDING_CITATIONS[0].url },
+          { title: t("grounding.info.science.card2.title"), body: t("grounding.info.science.card2.body"), icon: "activity", url: GROUNDING_CITATIONS[1].url },
+          { title: t("grounding.info.science.card3.title"), body: t("grounding.info.science.card3.body"), icon: "shield-check", url: GROUNDING_CITATIONS[2].url },
+        ],
+      },
+      {
+        heading: t("info.when.heading"),
+        items: [t("grounding.info.when.item1"), t("grounding.info.when.item2"), t("grounding.info.when.item3"), t("grounding.info.when.item4")],
+      },
+      {
+        heading: t("info.notice.heading"),
+        items: [t("grounding.info.notice.item1"), t("grounding.info.notice.item2"), t("grounding.info.notice.item3"), t("grounding.info.notice.item4")],
+      },
+      {
+        heading: t("info.tips.heading"),
+        cards: [
+          { title: t("grounding.info.tips.card1.title"), body: t("grounding.info.tips.card1.body"), icon: "timer" },
+          { title: t("grounding.info.tips.card2.title"), body: t("grounding.info.tips.card2.body"), icon: "eye" },
+          { title: t("grounding.info.tips.card3.title"), body: t("grounding.info.tips.card3.body"), icon: "anchor" },
+        ],
+      },
+    ],
+    citations: GROUNDING_CITATIONS,
+    disclaimer: t("grounding.info.disclaimer"),
+    site: { label: t("info.site.label"), url: SITE_URL },
+    ...(logo ? { logo } : {}),
+  };
+}
+
 export function buildPmrInfo(t, logo) {
   return {
     intro: t("pmr.info.intro"),
@@ -395,6 +491,22 @@ export function buildGuidedDescriptor(ctx, autoStart, audioCuesEnabled, patternI
   };
 }
 
+export function buildGroundingDescriptor(ctx, autoStart) {
+  const t = (key) => ctx.t(key);
+  return {
+    kind: "grounding",
+    title: t("grounding.session.title"),
+    subtitle: t("grounding.session.subtitle"),
+    steps: buildGroundingSteps(t),
+    autoStart,
+    // Self-paced: the first sense is the calm start, no lead-in countdown.
+    countdownSeconds: 0,
+    info: buildGroundingInfo(t, ctx.assets.svg("logo")),
+    practices: buildPractices(t),
+    practiceId: "grounding",
+  };
+}
+
 export function buildPmrDescriptor(ctx, autoStart) {
   const t = (key) => ctx.t(key);
   return {
@@ -416,31 +528,29 @@ export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "
   if (practiceId === "guided-breathing") {
     return buildGuidedDescriptor(ctx, autoStart, audioCuesEnabled, guidedPatternId);
   }
+  if (practiceId === "grounding") {
+    return buildGroundingDescriptor(ctx, autoStart);
+  }
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
 
-async function setSessionMenu(ctx, mode, practiceId = "breathing") {
+/** Pet-menu items per practice. Grounding is self-paced, so it only offers Stop. */
+function sessionMenuItems(ctx, mode, practiceId) {
+  if (mode === "none") return [];
+  if (practiceId === "grounding") {
+    return [{ id: MENU_GROUNDING_STOP, title: ctx.t("menu.grounding.stop") }];
+  }
   const isPmr = practiceId === "pmr";
-  const pauseId = isPmr ? MENU_PMR_PAUSE : MENU_PAUSE;
-  const resumeId = isPmr ? MENU_PMR_RESUME : MENU_RESUME;
-  const stopId = isPmr ? MENU_PMR_STOP : MENU_STOP;
-  const pauseTitle = ctx.t(isPmr ? "menu.pmr.pause" : "menu.pause");
-  const resumeTitle = ctx.t(isPmr ? "menu.pmr.resume" : "menu.resume");
-  const stopTitle = ctx.t(isPmr ? "menu.pmr.stop" : "menu.stop");
+  const stop = { id: isPmr ? MENU_PMR_STOP : MENU_STOP, title: ctx.t(isPmr ? "menu.pmr.stop" : "menu.stop") };
+  if (mode === "paused") {
+    return [{ id: isPmr ? MENU_PMR_RESUME : MENU_RESUME, title: ctx.t(isPmr ? "menu.pmr.resume" : "menu.resume") }, stop];
+  }
+  return [{ id: isPmr ? MENU_PMR_PAUSE : MENU_PAUSE, title: ctx.t(isPmr ? "menu.pmr.pause" : "menu.pause") }, stop];
+}
 
-  const items = mode === "running"
-    ? [
-      { id: pauseId, title: pauseTitle },
-      { id: stopId, title: stopTitle },
-    ]
-    : mode === "paused"
-      ? [
-        { id: resumeId, title: resumeTitle },
-        { id: stopId, title: stopTitle },
-      ]
-      : [];
+async function setSessionMenu(ctx, mode, practiceId = "breathing") {
   try {
-    await ctx.ui.menu.setItems(items);
+    await ctx.ui.menu.setItems(sessionMenuItems(ctx, mode, practiceId));
   } catch (error) {
     ctx.log.warn("session menu update failed", { reason: String(error && error.message ? error.message : error) });
   }
@@ -535,12 +645,20 @@ export function register(OpenPetsPlugin) {
         },
         () => openSession(ctx, state, true, "pmr"),
       );
+      await ctx.commands.register(
+        {
+          id: "start-grounding",
+          title: "$t:command.startGrounding.title",
+          description: "$t:command.startGrounding.description",
+        },
+        () => openSession(ctx, state, true, "grounding"),
+      );
       ctx.ui.menu.onSelect((id) => {
         const session = state.session;
         if (!session) return;
         if (id === MENU_PAUSE || id === MENU_PMR_PAUSE) void session.pause().catch(() => undefined);
         else if (id === MENU_RESUME || id === MENU_PMR_RESUME) void session.resume().catch(() => undefined);
-        else if (id === MENU_STOP || id === MENU_PMR_STOP) void session.stop().catch(() => undefined);
+        else if (id === MENU_STOP || id === MENU_PMR_STOP || id === MENU_GROUNDING_STOP) void session.stop().catch(() => undefined);
       });
     },
     async stop() {},

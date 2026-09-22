@@ -106,7 +106,7 @@ export function createPluginUiApi(options: {
   };
 
   const resolveSessionAudio = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
-    if (validated.kind === "pmr" || !validated.audio) return validated;
+    if (validated.kind !== "breathing" || !validated.audio) return validated;
     const audio = validated.audio;
     if (!audio.inhale || !audio.exhale) return validated;
     const { inhale, exhale, ...rest } = audio;

@@ -14,12 +14,14 @@ import {
 } from "./default-pet-chat.js";
 import {
   sessionBreathingCardEstimatedHeight,
+  sessionGroundingCardEstimatedHeight,
   sessionGuidedBreathingCardEstimatedHeight,
   sessionPmrCardEstimatedHeight,
 } from "./default-pet-chat-geometry.js";
 import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
 import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
+import { sessionIconPaths } from "./session-icons.js";
 import type {
   PluginSessionDescriptor,
   PluginSessionEvent,
@@ -70,6 +72,12 @@ export function buildSessionChrome(): Record<string, string> {
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
     currentChoice: t("session.currentChoice"),
+    next: t("session.next"),
+    back: t("session.back"),
+    finish: t("session.finish"),
+    noticed: t("session.noticed"),
+    footerGrounding: t("session.footerGrounding"),
+    switchPractice: t("session.switchPractice"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),
@@ -156,7 +164,7 @@ export function openPluginSessionOverlay(options: {
     finishActiveSession("replaced");
   }
 
-  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : "pmr";
+  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : options.descriptor.kind;
   const session: ActiveSessionOverlay = {
     pluginId: options.pluginId,
     descriptor: options.descriptor,
@@ -239,9 +247,10 @@ export function openPluginSessionOverlay(options: {
   };
 }
 
-/** Carrier height hint: the card grows with PMR's pose well and guided breathing's pattern chips. */
+/** Carrier height hint: the card grows with PMR's pose well, grounding's checklist, and guided breathing's chips. */
 function estimatedCardHeight(descriptor: PluginSessionDescriptor): number {
   if (descriptor.kind === "pmr") return sessionPmrCardEstimatedHeight;
+  if (descriptor.kind === "grounding") return sessionGroundingCardEstimatedHeight;
   if (descriptor.patterns.length > 1) return sessionGuidedBreathingCardEstimatedHeight;
   return sessionBreathingCardEstimatedHeight;
 }
@@ -335,11 +344,31 @@ function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload
   };
 }
 
+/**
+ * Renderer copy of the descriptor: named icons become inline SVG paths (the
+ * pet window never sees icon names it would have to map itself) and PMR pose
+ * paths become file URLs.
+ */
 function buildRendererDescriptor(descriptor: PluginSessionDescriptor): PluginSessionDescriptor {
-  if (descriptor.kind !== "pmr") return descriptor;
+  const practices = descriptor.practices?.map((choice) => {
+    const iconPaths = sessionIconPaths(choice.icon);
+    return iconPaths ? { ...choice, iconPaths } : choice;
+  });
+  const withPractices = practices ? { ...descriptor, practices } : descriptor;
+
+  if (withPractices.kind === "grounding") {
+    return {
+      ...withPractices,
+      steps: withPractices.steps.map((step) => {
+        const iconPaths = sessionIconPaths(step.icon);
+        return iconPaths ? { ...step, iconPaths } : step;
+      }),
+    };
+  }
+  if (withPractices.kind !== "pmr") return withPractices;
   return {
-    ...descriptor,
-    steps: descriptor.steps.map((step) => {
+    ...withPractices,
+    steps: withPractices.steps.map((step) => {
       const tenseImageUrl = step.tenseIllustrationPath
         ? pathToFileURL(step.tenseIllustrationPath).href
         : undefined;
@@ -485,7 +514,7 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
 }
 
 function resolvePatternId(value: unknown, session: ActiveSessionOverlay): string {
-  if (session.descriptor.kind === "pmr") return "pmr";
+  if (session.descriptor.kind !== "breathing") return session.descriptor.kind;
   if (typeof value === "string" && session.descriptor.patterns.some((pattern) => pattern.id === value)) return value;
   return session.lastPatternId;
 }

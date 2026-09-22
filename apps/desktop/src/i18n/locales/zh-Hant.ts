@@ -66,6 +66,12 @@ export const zhHant: Partial<Messages> = {
   "session.readStudy": "閱讀研究",
   "session.openStudy": "PMC",
   "session.currentChoice": "目前",
+  "session.next": "下一步",
+  "session.back": "返回",
+  "session.finish": "完成",
+  "session.noticed": "已覺察",
+  "session.footerGrounding": "與{name}一起著陸當下",
+  "session.switchPractice": "切換練習",
 
   "pet.paused": "已暫停",
   "pet.status.thinking": "思考中",

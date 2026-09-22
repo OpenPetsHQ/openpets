@@ -5,13 +5,17 @@
 // shared progress rows, controls, footer), the run state machine and lead-in
 // countdown, the frame loop, phase audio cues, runtime geometry, and reports
 // control events back. Each descriptor kind has a practice view
-// (breathing-practice.cjs, pmr-practice.cjs) that owns its clock, its own
-// card rows, and what the shared rows and the orb show.
+// (breathing-practice.cjs, pmr-practice.cjs, grounding-practice.cjs) that
+// owns its clock, its own card rows, and what the shared rows and the orb
+// show. Practices may also override the primary/secondary buttons (grounding
+// uses Next/Back) and opt out of pausing. The header doubles as the practice
+// picker on the idle and completed card.
 // ---------------------------------------------------------------------------
 
 const { createSessionOrb } = require("./orb-renderer.cjs");
 const { createBreathingPractice } = require("./breathing-practice.cjs");
 const { createPmrPractice } = require("./pmr-practice.cjs");
+const { createGroundingPractice } = require("./grounding-practice.cjs");
 
 const IDLE_COLOR = [0.45, 0.62, 0.98];
 const ORB_CARD_GAP = 10;
@@ -33,6 +37,8 @@ const chromeFallback = {
   mute: "Mute breathing cues", unmute: "Unmute breathing cues",
   getReady: "Get ready", getReadyGuidance: "Settle in — we begin in a moment", startNow: "Start now",
   tense: "Tense", release: "Release", groupProgress: "{n} / {total}", footerRelaxing: "relaxing with {name}",
+  currentChoice: "Current", next: "Next", back: "Back", finish: "Finish", noticed: "noticed",
+  footerGrounding: "grounding with {name}", switchPractice: "Switch practice",
 };
 
 // Icons from better-icons/Iconify. Pause/play are filled so the primary pill
@@ -51,8 +57,11 @@ const icons = {
   waveform: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/></svg>',
   // lucide:info
   info: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>',
-  // lucide:arrow-left-right
-  switchPractice: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>',
+  // lucide:chevron-down, lucide:check
+  chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" aria-hidden="true"><path d="m6 9l6 6l6-6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>',
+  // lucide:leaf (fallback practice icon)
+  leaf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M11 20a10 10 0 0 0 10-10a25.9 25.9 0 0 0-1.04-7.281a1 1 0 0 0-1.755-.325C15.833 5.5 13 5.5 9.8 6.1A7 7 0 0 0 11 20"/><path d="M2 21a5 5 0 0 1 2.911-4.544C7.613 15.212 8.351 15.24 11 13"/></svg>',
   // lucide:pause, lucide:play, lucide:check, lucide:rotate-ccw
   pause: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><rect width="5" height="18" x="14" y="3" rx="1"/><rect width="5" height="18" x="5" y="3" rx="1"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>',
@@ -185,12 +194,24 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   // Row 1: the header. Idle shows the practice title; during a run it doubles
   // as the phase HUD (phase name, guidance, live countdown).
   const header = el("div", "session-card-header");
+  // Icon + titles form the practice picker trigger when switching is offered.
+  const headerSwitch = el("button", "session-header-switch");
+  headerSwitch.type = "button";
+  headerSwitch.setAttribute("aria-haspopup", "menu");
+  headerSwitch.setAttribute("aria-expanded", "false");
   const headerIcon = el("div", "session-header-icon");
   const headerTitles = el("div", "session-header-titles");
+  const phaseNameRow = el("div", "session-header-title-row");
   const phaseName = el("div", "session-header-title");
+  const headerChevron = el("span", "session-header-chevron");
+  headerChevron.innerHTML = icons.chevronDown;
+  phaseNameRow.appendChild(phaseName);
+  phaseNameRow.appendChild(headerChevron);
   const phaseGuidance = el("div", "session-header-subtitle");
-  headerTitles.appendChild(phaseName);
+  headerTitles.appendChild(phaseNameRow);
   headerTitles.appendChild(phaseGuidance);
+  headerSwitch.appendChild(headerIcon);
+  headerSwitch.appendChild(headerTitles);
   const phaseCount = el("div", "session-header-count");
   const phaseCountValue = el("span");
   const phaseCountUnit = el("span", "count-unit");
@@ -205,12 +226,16 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   closeBtn.setAttribute("aria-label", "Close session");
   closeBtn.setAttribute("title", "Close (Esc)");
   closeBtn.innerHTML = icons.close;
-  header.appendChild(headerIcon);
-  header.appendChild(headerTitles);
+  header.appendChild(headerSwitch);
   header.appendChild(phaseCount);
   header.appendChild(audioBtn);
   header.appendChild(closeBtn);
   card.appendChild(header);
+
+  // Practice picker: opens above the card from the header.
+  const practiceMenu = el("div", "session-practice-menu");
+  practiceMenu.setAttribute("role", "menu");
+  card.appendChild(practiceMenu);
 
   // Practice-owned rows (pose + cues for PMR, pattern chips for guided
   // breathing) mount here, between the header and the shared progress rows.
@@ -242,7 +267,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     content.appendChild(label);
     tile.appendChild(icon);
     tile.appendChild(content);
-    return { tile, value, label };
+    return { tile, icon, value, label };
   };
   const timerTile = makeLabeledTile(icons.timer);
   timerTile.label.textContent = "remaining";
@@ -265,7 +290,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   const steps = el("div", "session-steps");
   card.appendChild(steps);
 
-  // Controls: Info · switch practice · Restart · Pause/Resume/Done.
+  // Controls: Info · Restart (or a practice's secondary) · primary.
   const controls = el("div", "session-controls");
   const infoBtn = el("button", "session-info-btn");
   infoBtn.type = "button";
@@ -273,16 +298,12 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   infoBtn.setAttribute("title", "About this technique");
   infoBtn.innerHTML = icons.info;
   const controlsSpacer = el("div", "session-controls-spacer");
-  const switchPracticeBtn = el("button", "session-ghost-btn");
-  switchPracticeBtn.type = "button";
-  switchPracticeBtn.style.display = "none";
   const restartBtn = el("button", "session-ghost-btn");
   restartBtn.type = "button";
   const primaryBtn = el("button", "session-primary-btn");
   primaryBtn.type = "button";
   controls.appendChild(infoBtn);
   controls.appendChild(controlsSpacer);
-  controls.appendChild(switchPracticeBtn);
   controls.appendChild(restartBtn);
   controls.appendChild(primaryBtn);
   card.appendChild(controls);
@@ -421,6 +442,8 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   };
 
   const primaryButtonContent = () => {
+    const custom = practice.primaryContent?.(runState);
+    if (custom) return custom;
     if (runState === "countdown") return `${icons.play}<span>${escapeChromeText("startNow")}</span>`;
     if (runState === "active") return `${icons.pause}<span>${escapeChromeText("pause")}</span>`;
     if (runState === "paused") return `${icons.play}<span>${escapeChromeText("resume")}</span>`;
@@ -430,11 +453,60 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   const currentPracticeId = () => descriptor.practiceId ?? descriptor.kind;
 
-  const nextPracticeChoice = () => {
+  // --- Practice picker ---------------------------------------------------
+
+  let practiceMenuOpen = false;
+
+  const canSwitchPractice = () => {
     const practices = descriptor?.practices;
-    if (!practices || practices.length <= 1) return null;
-    const currentIndex = practices.findIndex((choice) => choice.id === currentPracticeId());
-    return practices[(currentIndex + 1) % practices.length] ?? null;
+    return Boolean(practices && practices.length > 1 && (runState === "idle" || runState === "complete"));
+  };
+
+  const setPracticeMenuOpen = (open) => {
+    practiceMenuOpen = open && canSwitchPractice();
+    card.classList.toggle("is-practice-menu-open", practiceMenuOpen);
+    headerSwitch.setAttribute("aria-expanded", practiceMenuOpen ? "true" : "false");
+    if (practiceMenuOpen) renderPracticeMenu();
+  };
+
+  const renderPracticeMenu = () => {
+    practiceMenu.textContent = "";
+    const currentId = currentPracticeId();
+    for (const choice of descriptor.practices ?? []) {
+      const option = el("button", "session-practice-option");
+      option.type = "button";
+      option.setAttribute("role", "menuitemradio");
+      const isCurrent = choice.id === currentId;
+      option.setAttribute("aria-checked", isCurrent ? "true" : "false");
+      option.classList.toggle("is-current", isCurrent);
+
+      const icon = el("span", "session-practice-option-icon");
+      icon.innerHTML = choice.iconPaths
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true">${choice.iconPaths}</svg>`
+        : icons.leaf;
+      const name = el("span", "session-practice-option-name");
+      name.textContent = choice.name;
+      const mark = el("span", "session-practice-option-mark");
+      if (isCurrent) mark.innerHTML = icons.check;
+
+      option.appendChild(icon);
+      option.appendChild(name);
+      option.appendChild(mark);
+      option.addEventListener("click", () => {
+        setPracticeMenuOpen(false);
+        if (!isCurrent) sendSessionEvent({ type: "practiceSelected", practiceId: choice.id });
+      });
+      practiceMenu.appendChild(option);
+    }
+  };
+
+  const renderPracticeSwitch = () => {
+    const switchable = canSwitchPractice();
+    headerSwitch.classList.toggle("is-switchable", switchable);
+    headerSwitch.tabIndex = switchable ? 0 : -1;
+    headerSwitch.setAttribute("aria-label", switchable ? chromeText("switchPractice") : "");
+    headerChevron.style.display = switchable ? "" : "none";
+    if (!switchable && practiceMenuOpen) setPracticeMenuOpen(false);
   };
 
   const renderAudioButton = () => {
@@ -459,17 +531,20 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     infoBtn.setAttribute("title", chromeText("about"));
     card.classList.toggle("is-complete", runState === "complete");
     primaryBtn.innerHTML = primaryButtonContent();
-    restartBtn.innerHTML = `${icons.restart}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
-    restartBtn.style.display = runState === "idle" || runState === "countdown" ? "none" : "";
-    infoBtn.style.display = descriptor.info ? "" : "none";
-
-    const nextPractice = runState === "idle" ? nextPracticeChoice() : null;
-    if (nextPractice) {
-      switchPracticeBtn.innerHTML = `${icons.switchPractice}<span>${escapeHtml(nextPractice.name)}</span>`;
-      switchPracticeBtn.style.display = "";
+    // A practice may replace Restart (grounding shows Back): undefined keeps
+    // the default, null hides the button, a string is the button content.
+    const secondary = practice.secondaryContent?.(runState);
+    if (secondary === undefined) {
+      restartBtn.innerHTML = `${icons.restart}<span>${escapeChromeText(runState === "complete" ? "again" : "restart")}</span>`;
+      restartBtn.style.display = runState === "idle" || runState === "countdown" ? "none" : "";
     } else {
-      switchPracticeBtn.style.display = "none";
+      restartBtn.innerHTML = secondary ?? "";
+      restartBtn.style.display = secondary ? "" : "none";
     }
+    infoBtn.style.display = descriptor.info ? "" : "none";
+    phaseCountUnit.textContent = practice.countUnit ?? "s";
+    paceTile.icon.innerHTML = practice.paceIconSvg ?? icons.waveform;
+    renderPracticeSwitch();
 
     renderProgressMeta();
     renderPhaseText();
@@ -519,6 +594,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   };
 
   const pauseRun = () => {
+    if (practice.pausable === false) return;
     runState = "paused";
     stopCuePlayback();
     const progress = eventProgress();
@@ -558,6 +634,8 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     descriptor: () => descriptor,
     runState: () => runState,
     chromeText,
+    escapeChromeText,
+    completeRun,
     send: sendSessionEvent,
     playPhaseCue,
     stopCuePlayback,
@@ -595,6 +673,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   const practiceViews = {
     breathing: createBreathingPractice(ui),
     pmr: createPmrPractice(ui),
+    grounding: createGroundingPractice(ui),
   };
 
   const mountPractice = (next) => {
@@ -674,6 +753,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   primaryBtn.addEventListener("click", () => {
     if (!descriptor || !practice) return;
+    if (practice.onPrimary?.(runState)) return;
     if (runState === "active") pauseRun();
     else if (runState === "paused") resumeRun();
     else if (runState === "complete") dismissOverlay();
@@ -682,13 +762,20 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   });
 
   restartBtn.addEventListener("click", () => {
-    if (!descriptor || runState === "idle") return;
+    if (!descriptor || !practice || runState === "idle") return;
+    if (practice.onSecondary?.(runState)) return;
     startRun();
   });
 
-  switchPracticeBtn.addEventListener("click", () => {
-    const nextPractice = descriptor ? nextPracticeChoice() : null;
-    if (nextPractice) sendSessionEvent({ type: "practiceSelected", practiceId: nextPractice.id });
+  headerSwitch.addEventListener("click", () => {
+    if (!descriptor || !canSwitchPractice()) return;
+    setPracticeMenuOpen(!practiceMenuOpen);
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    if (!practiceMenuOpen || !(event.target instanceof Element)) return;
+    if (practiceMenu.contains(event.target) || headerSwitch.contains(event.target)) return;
+    setPracticeMenuOpen(false);
   });
 
   audioBtn.addEventListener("click", () => {
@@ -709,6 +796,11 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !descriptor) return;
+    // Escape closes the practice picker first, then the overlay.
+    if (practiceMenuOpen) {
+      setPracticeMenuOpen(false);
+      return;
+    }
     dismissOverlay();
   });
 
@@ -740,6 +832,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
       previous && (previous.kind !== descriptor.kind || previous.practiceId !== descriptor.practiceId)
     );
     if (!previous || practiceChanged) {
+      setPracticeMenuOpen(false);
       mountPractice(nextPractice);
       practice.enter(descriptor);
       runState = "idle";

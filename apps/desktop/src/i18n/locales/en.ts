@@ -93,6 +93,12 @@ export const en = {
   "session.readStudy": "Read the study",
   "session.openStudy": "PMC",
   "session.currentChoice": "Current",
+  "session.next": "Next",
+  "session.back": "Back",
+  "session.finish": "Finish",
+  "session.noticed": "noticed",
+  "session.footerGrounding": "grounding with {name}",
+  "session.switchPractice": "Switch practice",
 
   // --- Confinement / Screen Recording permission (main process) ---
   "confinement.screenPermission.title": "Screen Recording permission needed",

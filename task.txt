@@ -3,8 +3,8 @@ OpenPets × Anxiety Aid Tools — working design
 
 Status: Calm 4-6 breathing is tuned. PMR and guided breathing
 (box, 4-7-8, energizing, quick reset) run on the same pet session
-surface (no new window). Next: grounding, then peaceful
-visualization, guided meditation, relaxing sounds (see log).
+surface (no new window), plus grounding 5-4-3-2-1. Next:
+peaceful visualization, guided meditation, relaxing sounds.
 Custom patterns still later. Do not write docs/*.md until Alvin
 signs off what is running.
 
@@ -300,6 +300,27 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-22 — grounding 5-4-3-2-1 + practice picker (Alvin: "go").
+  New descriptor kind "grounding" (SDK + validator + conformance):
+  senses as steps (label/title/prompt/icon), 1–6 items each with
+  optional guidance. Self-paced: no clock, no pause; Next (Finish on
+  the last sense) and Back replace Pause/Restart; checking items is
+  optional so Next never gates. Card: sense checklist, per-item dots,
+  elapsed · sense icon · "noticed" tiles, 5-4-3-2-1 track in sense
+  colors; orb brightens with each sense; finished card shows a
+  per-sense summary. Pet menu offers Stop only. Card estimate 534.
+  Practice picker: the header (icon + title + chevron) opens a menu
+  of all practices with icons on the idle/finished card; replaces the
+  cycle-to-next button. Practice choices take an allowlisted icon.
+  Icons moved to src/session-icons.ts (Info window + overlay share
+  it); new icons anchor/eye/hand/ear/flower/coffee; a desktop test
+  guards that every allowlisted name draws.
+  Grounding Info is honest: grounding is a standard CBT/DBT/trauma
+  skill, 5-4-3-2-1 alone has thin direct evidence; the three studies
+  (Li 2025 Sci Rep, Palmer 2023 MDCP, Myers 2021 E&B Reports) are
+  described as what they are. AAT's "meta-analysis, 82%" line was
+  wrong and is not repeated. Localized x7 (plugin + host chrome).
 
 2026-09-22 — session renderer split + guided breathing (Alvin asked).
   The ~1,660-line inline ui:session block in pet-preload.cjs is now

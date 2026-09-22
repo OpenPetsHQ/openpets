@@ -22,6 +22,8 @@ export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
 export const sessionBreathingCardEstimatedHeight = 268;
 /** Guided breathing card: the breathing card plus the pattern chip row. */
 export const sessionGuidedBreathingCardEstimatedHeight = 328;
+/** Grounding card: the shared rows plus the sense checklist (up to five items). */
+export const sessionGroundingCardEstimatedHeight = 534;
 /** PMR card, including the fixed pose-illustration well and cues row. */
 export const sessionPmrCardEstimatedHeight = 537;
 export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;

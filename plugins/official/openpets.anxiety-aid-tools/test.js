@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises";
 import {
   buildCalmPattern,
   buildDescriptor,
+  buildGroundingDescriptor,
+  buildGroundingInfo,
+  buildGroundingSteps,
   buildGuidedDescriptor,
   buildGuidedInfo,
   buildGuidedPatterns,
@@ -12,6 +15,7 @@ import {
   buildPmrSteps,
   buildPractices,
   buildSessionInfo,
+  GROUNDING_CITATIONS,
   PMR_CITATIONS,
   PMR_GROUP_IDS,
   register,
@@ -168,13 +172,34 @@ assert.deepEqual(
 assert.ok(guidedInfo.sections.some((section) => section.cards?.some((card) => card.url?.startsWith("https://pmc.ncbi.nlm.nih.gov/"))));
 assert.equal(guidedInfo.site.url, SITE_URL);
 
-// Practices list exposes breathing, guided breathing, and PMR
+// Grounding counts down the senses 5-4-3-2-1, every item has a hint, and
+// each sense carries its icon for the card.
+const groundingSteps = buildGroundingSteps(t);
+assert.deepEqual(
+  groundingSteps.map((step) => [step.id, step.items.length, step.icon]),
+  [["see", 5, "eye"], ["touch", 4, "hand"], ["hear", 3, "ear"], ["smell", 2, "flower"], ["taste", 1, "coffee"]],
+);
+assert.ok(groundingSteps.every((step) => step.items.every((item) => item.text && item.guidance)));
+
+// Grounding Info cites the real studies it describes and links each one.
+const groundingInfo = buildGroundingInfo(t, { kind: "svg", name: "logo" });
+const groundingScience = groundingInfo.sections.find((section) => section.cards?.some((card) => card.url));
+assert.deepEqual(groundingScience.cards.map((card) => card.url), GROUNDING_CITATIONS.map((citation) => citation.url));
+assert.ok(GROUNDING_CITATIONS.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
+assert.equal(groundingInfo.site.url, SITE_URL);
+
+// The practice picker lists all four practices, each with an icon.
 const practices = buildPractices(t);
-assert.deepEqual(practices, [
-  { id: "breathing", name: t("practice.breathing") },
-  { id: "guided-breathing", name: t("practice.guided") },
-  { id: "pmr", name: t("practice.pmr") },
-]);
+assert.deepEqual(
+  practices.map((choice) => [choice.id, choice.name]),
+  [
+    ["breathing", t("practice.breathing")],
+    ["guided-breathing", t("practice.guided")],
+    ["pmr", t("practice.pmr")],
+    ["grounding", t("practice.grounding")],
+  ],
+);
+assert.ok(practices.every((choice) => typeof choice.icon === "string"));
 
 // Starting from the pet menu opens an auto-starting session,
 // and once the run starts the pet menu gains the pause/stop controls.
@@ -313,12 +338,23 @@ assert.equal(latestSpec.patternId, "calming");
 assert.equal(latestSpec.info.sections[0].cards.find((card) => card.highlighted).title, t("guided.pattern.calming.heading"));
 assert.equal(buildGuidedDescriptor(harness.ctx, false, true, "not-a-pattern").patternId, "box");
 
-// 5. Stop session
+// 5. Grounding is self-paced: no lead-in countdown, and the pet menu only
+// offers Stop (there is no clock to pause).
+await harness.runCommand("start-grounding");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "grounding");
+assert.equal(latestSpec.practiceId, "grounding");
+assert.equal(latestSpec.countdownSeconds, 0);
+assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["grounding-stop"]);
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_PRACTICE), "grounding");
+assert.equal(buildGroundingDescriptor(harness.ctx, false).steps.length, 5);
+
+// 6. Stop session
 await latestSession.stop();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(harness.calls.menuItems, [], "stopping session must clear menu items");
 
-// 6. Open idle respects stored lastPractice
+// 7. Open idle respects stored lastPractice
 await harness.ctx.storage.set(STORAGE_KEY_LAST_PRACTICE, "pmr");
 await harness.runCommand("open-anxiety-aid-tools");
 await new Promise((resolve) => setTimeout(resolve, 0));
