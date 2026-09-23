@@ -147,7 +147,12 @@ jobs:
           $installer = Get-ChildItem -Path signed-release -Filter "OpenPets-*-win-x64-setup.exe" | Select-Object -First 1
           & 7z x $installer.FullName "-ovalidated-installer" -y | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "Could not extract the signed Windows installer." }
-          pnpm --dir apps/desktop exec node dist/check-packaging-contract.js --output --output-dir "$pwd\validated-installer" --platform win32 --arch x64
+          # NSIS embeds the app as a nested $PLUGINSDIR\app-64.7z; unpack it to reach resources\app.asar.
+          $appArchive = Get-ChildItem -Path validated-installer -Recurse -Filter "app-64.7z" | Select-Object -First 1
+          if (-not $appArchive) { throw "Signed Windows installer does not contain app-64.7z." }
+          & 7z x $appArchive.FullName "-ovalidated-installer\app" -y | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract the app archive from the signed Windows installer." }
+          pnpm --dir apps/desktop exec node dist/check-packaging-contract.js --output --output-dir "$pwd\validated-installer\app" --platform win32 --arch x64
 
       - name: Upload signed Windows release artifact
         uses: actions/upload-artifact@v4
