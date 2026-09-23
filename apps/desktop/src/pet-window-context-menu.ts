@@ -258,9 +258,6 @@ export async function buildPetContextMenuTemplate(
   }
 
   const commands = await getDefaultPetPluginCommands();
-  // Root-level plugin actions stay grouped per plugin, so live controls from
-  // two plugins (e.g. a timer and a focus session) never interleave.
-  const topLevel = new Map<string, Electron.MenuItemConstructorOptions[]>();
   const plugins = new Map<string, { name: string; commands: Electron.MenuItemConstructorOptions[] }>();
   const sorted = [...commands].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   for (const command of sorted) {
@@ -279,12 +276,6 @@ export async function buildPetContextMenuTemplate(
         });
       },
     };
-    if (command.placement === "top" || command.featured) {
-      const pluginTopLevel = topLevel.get(command.pluginId) ?? [];
-      pluginTopLevel.push(item);
-      topLevel.set(command.pluginId, pluginTopLevel);
-      continue;
-    }
     const group = plugins.get(command.pluginId) ?? { name: command.pluginName, commands: [] };
     group.commands.push(item);
     plugins.set(command.pluginId, group);
@@ -314,9 +305,6 @@ export async function buildPetContextMenuTemplate(
         logError("pet.window", "open control center failed", error);
       });
   };
-  for (const pluginTopLevel of topLevel.values()) {
-    template.push(...pluginTopLevel, { type: "separator" });
-  }
   if (plugins.size > 0) {
     template.push(
       ...[...plugins.values()].map((plugin) => ({

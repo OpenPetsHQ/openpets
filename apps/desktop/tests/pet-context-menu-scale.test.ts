@@ -139,9 +139,25 @@ try {
   assert.equal(getAppStateSnapshot().preferences.petScale, 1, "handlePetScaleChange updates global preference to Large");
   assert.equal(getAppStateSnapshot().preferences.hudScale, 1.4, "Large pet size uses the 1.4 HUD scale");
 
-  // 7. V4 pet menus expose every featured/top-level command; there is no
-  // implicit eight-item cap on the rendered context menu.
-  const manyTopLevelPlugins = Array.from({ length: 9 }, (_, index) => {
+  // 7. Featured/top-placement commands stay inside their plugin group,
+  // including forms and Stopwatch controls. There is no eight-plugin cap.
+  const timerPlugins = [
+    {
+      id: "openpets.simple-timer",
+      name: "Simple Timer",
+      commands: [
+        { id: "start-timer", title: "Start timer…", placement: "top", featured: true, form: { submitLabel: "Start", fields: [{ id: "minutes", type: "number", label: "Minutes" }] } },
+        { id: "start-stopwatch", title: "Start stopwatch…", placement: "top", featured: true, form: { submitLabel: "Start", fields: [{ id: "label", type: "text", label: "Label" }] } },
+        { id: "pause-resume-stopwatch", title: "Pause/resume stopwatch", placement: "top", featured: true },
+        { id: "reset-stopwatch", title: "Reset stopwatch", placement: "top", featured: true },
+        { id: "show-stopwatch", title: "Show stopwatch", placement: "top", featured: true },
+      ],
+    },
+    { id: "openpets.quick-reminders", name: "Quick Reminders", commands: [{ id: "add-reminder", title: "Add reminder", placement: "top", featured: true }] },
+    { id: "openpets.usage-buddy", name: "Usage Buddy", commands: [{ id: "show-usage", title: "Show usage", placement: "top", featured: true }] },
+    { id: "openpets.system-resources", name: "System Resources", commands: [{ id: "show-resources", title: "Show resources", placement: "top", featured: true }] },
+  ];
+  const manyPlugins = Array.from({ length: 5 }, (_, index) => {
     const suffix = String(index + 1).padStart(2, "0");
     return {
       id: `plugin-${suffix}`,
@@ -153,8 +169,15 @@ try {
       commands: [{ id: "run", title: `Plugin ${suffix} action`, placement: "top", featured: true }],
     };
   });
+  const allPlugins = [...timerPlugins, ...manyPlugins].map((plugin) => ({
+    version: "1.0.0",
+    source: "catalog",
+    enabled: true,
+    approvedPermissions: [],
+    ...plugin,
+  }));
   setPluginServiceForTests({
-    getSnapshot: async () => ({ plugins: manyTopLevelPlugins }),
+    getSnapshot: async () => ({ plugins: allPlugins }),
     runtime: { getPluginState: () => ({ commands: [], menuItems: [] }) },
     stop() {},
   } as never);
@@ -163,16 +186,34 @@ try {
     click: () => {},
     defaultPet: true,
   });
-  assert.deepEqual(
-    populatedDefaultMenu
-      .map((item) => item.label)
-      .filter((label): label is string => typeof label === "string" && label.startsWith("Plugin ")),
-    manyTopLevelPlugins.map((plugin) => `${plugin.name} action`),
-    "all nine top-level plugin commands remain accessible from the V4 pet menu",
+  const pluginMenuItems = populatedDefaultMenu.filter((item) =>
+    allPlugins.some((plugin) => plugin.name === item.label),
   );
+  assert.equal(pluginMenuItems.length, 9, "all nine plugin groups remain accessible");
+  for (const plugin of allPlugins) {
+    const group = populatedDefaultMenu.find((item) => item.label === plugin.name);
+    assert.ok(Array.isArray(group?.submenu), `${plugin.name} remains a submenu`);
+    for (const command of plugin.commands) {
+      assert.equal(
+        populatedDefaultMenu.filter((item) => item.label === command.title).length,
+        0,
+        `${command.title} must not appear at the pet menu root`,
+      );
+      const submenu = group.submenu as Electron.MenuItemConstructorOptions[];
+      const matches = submenu.filter((item) => item.label === command.title);
+      assert.equal(matches.length, 1, `${command.title} appears once in ${plugin.name}`);
+      assert.equal(typeof matches[0]?.click, "function", `${command.title} remains actionable`);
+    }
+  }
+  const timerGroup = populatedDefaultMenu.find((item) => item.label === "Simple Timer");
+  const timerSubmenu = timerGroup?.submenu as Electron.MenuItemConstructorOptions[];
+  assert.ok(timerSubmenu.find((item) => item.label === "Start timer…")?.click, "Start Timer form remains actionable");
+  assert.ok(populatedDefaultMenu.some((item) => item.label === "Plugins..."), "built-in Plugins action remains at the root");
+  assert.ok(populatedDefaultMenu.some((item) => item.label === "Size"), "built-in Size action remains at the root");
+  assert.ok(populatedDefaultMenu.some((item) => item.label === "Flip horizontally"), "built-in flip action remains at the root");
+  assert.ok(populatedDefaultMenu.some((item) => item.label === "Hide pet"), "built-in pet action remains at the root");
 
-  // 8. Live root-level actions stay grouped per plugin, with a divider between
-  // plugins, even when their priorities would interleave.
+  // 8. Priority ordering remains local to each plugin submenu.
   const livePlugins = [
     {
       id: "timer",
@@ -206,11 +247,19 @@ try {
     click: () => {},
     defaultPet: true,
   });
+  const timerMenu = liveMenu.find((item) => item.label === "Timer");
+  const focusMenu = liveMenu.find((item) => item.label === "Focus");
   assert.deepEqual(
-    liveMenu.slice(0, 5).map((item) => item.type === "separator" ? "---" : item.label),
-    ["Pause timer", "Cancel timer", "---", "End focus session", "---"],
-    "root actions are grouped per plugin and separated from the rest of the menu",
+    (timerMenu?.submenu as Electron.MenuItemConstructorOptions[]).map((item) => item.label),
+    ["Pause timer", "Cancel timer"],
+    "timer actions remain grouped and priority-ordered in their submenu",
   );
+  assert.deepEqual(
+    (focusMenu?.submenu as Electron.MenuItemConstructorOptions[]).map((item) => item.label),
+    ["End focus session"],
+    "focus actions remain inside their own submenu",
+  );
+  assert.equal(liveMenu.some((item) => ["Pause timer", "Cancel timer", "End focus session"].includes(String(item.label))), false);
 } finally {
   setPluginServiceForTests(null);
   releaseStartupInstallLock();
