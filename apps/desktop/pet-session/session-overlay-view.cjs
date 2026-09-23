@@ -16,7 +16,7 @@
 // tracks before the practices, and the controls become a centred transport.
 // ---------------------------------------------------------------------------
 
-const { createSessionOrb } = require("./orb-renderer.cjs");
+const { ORB_GLOW_REACH, createSessionOrb } = require("./orb-renderer.cjs");
 const { createBreathingPractice } = require("./breathing-practice.cjs");
 const { createPmrPractice } = require("./pmr-practice.cjs");
 const { createGroundingPractice } = require("./grounding-practice.cjs");
@@ -26,8 +26,7 @@ const { createSoundscapePractice } = require("./soundscape-practice.cjs");
 const IDLE_COLOR = [0.45, 0.62, 0.98];
 const ORB_CARD_GAP = 10;
 const CARD_TOP_INSET = 14;
-/** Clearance below the orb for its rim glow. */
-const ORB_BOTTOM_RIM = 16;
+
 
 // Host-localized chrome strings arrive with the descriptor; English is the
 // in-place fallback so a missing key never renders blank.
@@ -368,6 +367,9 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     return -translateY;
   };
 
+  // The orb and its whole glow must fit the window's width as well.
+  const maxOrbRadius = () => Math.min(240, Math.floor(window.innerWidth / 2) - ORB_GLOW_REACH);
+
   const applySessionGeometry = () => {
     if (!descriptor) return;
     const sprite = document.querySelector(".installed-sprite, .sprite");
@@ -384,14 +386,14 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
     // Keep the orb (rim glow included) inside the band under the card.
     const cardBottom = CARD_TOP_INSET + cardHeight + ORB_CARD_GAP;
-    const bandHeight = window.innerHeight - cardBottom - ORB_BOTTOM_RIM;
-    const maxRadius = Math.max(96, Math.floor(bandHeight / 2));
-    orbRadius = Math.max(96, Math.min(Math.min(240, maxRadius), Math.round(spriteRect.height)));
+    const bandHeight = window.innerHeight - cardBottom - ORB_GLOW_REACH;
+    const maxRadius = Math.max(96, Math.min(Math.floor(bandHeight / 2), maxOrbRadius()));
+    orbRadius = Math.max(96, Math.min(maxRadius, Math.round(spriteRect.height)));
 
     // Centre the orb on the resting pet when it fits; otherwise raise it just
     // enough for the rim, and never into the card.
     const restCenterFromBottom = window.innerHeight - restCenterY;
-    const lowestCenter = ORB_BOTTOM_RIM + orbRadius;
+    const lowestCenter = ORB_GLOW_REACH + orbRadius;
     const highestCenter = window.innerHeight - cardBottom - orbRadius;
     const orbCenterBottom = Math.round(Math.min(highestCenter, Math.max(lowestCenter, restCenterFromBottom)));
     const petLift = Math.max(0, Math.round(orbCenterBottom - restCenterFromBottom));
@@ -418,8 +420,8 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   // the current window, so the report is stable once the window matches.
   let lastReportedHeight = 0;
   const reportContentHeight = (measure) => {
-    const neededRadius = Math.max(96, Math.min(240, Math.round(measure.spriteHeight)));
-    const needed = Math.round(CARD_TOP_INSET + measure.cardHeight + ORB_CARD_GAP + neededRadius * 2 + ORB_BOTTOM_RIM);
+    const neededRadius = Math.max(96, Math.min(maxOrbRadius(), Math.round(measure.spriteHeight)));
+    const needed = Math.round(CARD_TOP_INSET + measure.cardHeight + ORB_CARD_GAP + neededRadius * 2 + ORB_GLOW_REACH);
     if (Math.abs(needed - lastReportedHeight) < 2) return;
     lastReportedHeight = needed;
     ipcRenderer.send("openpets:session-overlay-content-height", { height: needed, ...measure });

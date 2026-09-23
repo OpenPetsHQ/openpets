@@ -1,0 +1,17 @@
+{
+  "plugins": [
+    "openpets.day-routine"
+  ],
+  "steps": [
+    {
+      "cmd": [
+        "openpets.day-routine",
+        "morning-now"
+      ]
+    },
+    {
+      "shot": "day-routine-morning",
+      "settleMs": 2000
+    }
+  ]
+}

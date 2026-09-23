@@ -47,6 +47,7 @@ runs).
 | `control-center <route> [--width px --height px]` | Open the Control Center on a route (e.g. `teams`) at a fixed content size (default 1180×800). |
 | `teams enroll` / `teams approve` / `teams sync` | Enroll into the Teams showcase organization, approve requested Team plugin permissions, sync Team Pack and check-ins (see below). |
 | `check-in` | Open the pet's check-in card. |
+| `delivery <courier> [--title t --detail d]` / `delivery clear` | Fly a Calendar Airmail courier (e.g. `courier-owl`) through the same host delivery capability the plugin uses, so no Google Calendar connection is needed; `shot --window delivery` captures it. |
 | `shot <name> [--window pet\|control-center] [--padding pt] [--settle ms] [--out dir]` | Capture. `--window control-center` shoots the opaque Control Center as-is (no padding); pet shots are trimmed with `--padding` points (default 24). `--settle` waits for renders and CSS transitions first (default 250 ms), `--out` overrides `web/lfs/captures/desktop/`. |
 | `run <scenario.json \| folder>` | Run a scripted scenario, or every scenario in a folder (below). |
 
@@ -63,6 +64,11 @@ plugin, each in its own fresh session so pinned HUDs never overlap:
 
 | Scenario | Shots |
 |----------|-------|
+| `calendar-airmail.json` | an owl courier delivering a calendar reminder |
+| `day-routine.json` | Morning & Evening Routine's morning greeting |
+| `magic-8-ball.json` | a Magic 8-Ball answer to a question |
+| `mood-check-in.json` | the mood check-in prompt |
+| `water-reminder.json` | the water break reminder |
 | `anxiety-aid-tools.json` | every practice: breathing, guided breathing, muscle relaxation, grounding, meditation, visualization, sounds |
 | `focus-buddy.json` | focus block running |
 | `fortune-cookie.json` | today's fortune card |
@@ -87,7 +93,8 @@ state a kept profile may or may not have), `{ "say": "…", "reaction": "…" }`
 `{ "chatSend": "…", "noWait"? }`, `{ "buttons": ["chat", "talk"] }`,
 `{ "providers": "auto" }`, `{ "pet": petId }`, `{ "click": selector }`,
 `{ "type": selector, "text": "…" }`, `{ "scroll": selector }`, `{ "teams": "enroll" | "approve" | "sync" }`,
-`{ "checkIn": true }`, `{ "controlCenter": route, "width"?, "height"? }`, or
+`{ "checkIn": true }`, `{ "controlCenter": route, "width"?, "height"? }`,
+`{ "delivery": { "courier", "title"?, "detail"? } }`, `{ "landDeliveries": true }`, or
 `{ "restart": true }`. Set `"keepProfile": true` to keep the profile across the
 scenario's restarts. The runner script's header documents the same shape.
 

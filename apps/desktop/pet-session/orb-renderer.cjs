@@ -21,6 +21,8 @@ function createOrbRenderer(canvas) {
     precision highp float;
     uniform vec2 u_resolution;
     uniform float u_radius;
+    // Halo reach beyond the rim, as a fraction of the radius.
+    uniform float u_haloReach;
     uniform float u_time;
     uniform float u_breath;
     uniform float u_energy;
@@ -130,8 +132,11 @@ function createOrbRenderer(canvas) {
       // Halo + crisp rim band. The halo is windowed to a hard outer edge so
       // the canvas never veils the desktop beyond the glow.
       float rim = exp(-abs(d - 1.0) * 26.0);
-      float haloWindow = 1.0 - smoothstep(1.02, 1.42, d);
-      float halo = d >= 1.0 ? exp(-(d - 1.0) * 4.2) * 0.28 * haloWindow : 0.0;
+      // The reach is a fixed pixel distance so the layout can reserve room
+      // for the whole glow; the falloff scales with it (reach 0.42 matches
+      // the original look).
+      float haloWindow = 1.0 - smoothstep(1.0 + u_haloReach * 0.05, 1.0 + u_haloReach, d);
+      float halo = d >= 1.0 ? exp(-(d - 1.0) / u_haloReach * 1.76) * 0.28 * haloWindow : 0.0;
       color += tint * (rim * 0.85 + halo);
       alpha = clamp(alpha + rim * 0.75 + halo, 0.0, 1.0);
 
@@ -191,6 +196,7 @@ function createOrbRenderer(canvas) {
     uniforms: {
       resolution: gl.getUniformLocation(program, "u_resolution"),
       radius: gl.getUniformLocation(program, "u_radius"),
+      haloReach: gl.getUniformLocation(program, "u_haloReach"),
       time: gl.getUniformLocation(program, "u_time"),
       breath: gl.getUniformLocation(program, "u_breath"),
       energy: gl.getUniformLocation(program, "u_energy"),
@@ -205,6 +211,9 @@ function createOrbRenderer(canvas) {
  * the current device pixel ratio and paints one frame; without WebGL the
  * canvas keeps a static gradient fallback and `draw` is a no-op.
  */
+/** How far the halo extends beyond the rim, in CSS pixels. */
+const ORB_GLOW_REACH = 40;
+
 function createSessionOrb(canvas) {
   const renderer = createOrbRenderer(canvas);
 
@@ -228,6 +237,7 @@ function createSessionOrb(canvas) {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
     gl.uniform1f(uniforms.radius, frame.radius * dpr);
+    gl.uniform1f(uniforms.haloReach, ORB_GLOW_REACH / Math.max(1, frame.radius));
     gl.uniform1f(uniforms.time, frame.time);
     gl.uniform1f(uniforms.breath, frame.breath);
     gl.uniform1f(uniforms.energy, frame.energy);
@@ -239,4 +249,4 @@ function createSessionOrb(canvas) {
   return { draw };
 }
 
-module.exports = { createSessionOrb };
+module.exports = { ORB_GLOW_REACH, createSessionOrb };

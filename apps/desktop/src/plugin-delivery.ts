@@ -1,3 +1,4 @@
+import type { BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getDisplayKey } from "./display.js";
@@ -370,6 +371,11 @@ export class AirmailQueueManager {
 
 let activeWindows = new Map<string, any>();
 export const testActiveWindows = activeWindows;
+
+/** Courier windows currently on screen (one per display); used by the dev capture session. */
+export function getActiveDeliveryWindows(): BrowserWindow[] {
+  return [...activeWindows.values()].filter((window) => window && !window.isDestroyed());
+}
 const windowGenerations = new WeakMap<any, { generationId: string; pluginId: string; key: string }>();
 let activeWindowAnimations = new Map<string, NodeJS.Timeout>();
 let expiryInterval: NodeJS.Timeout | null = null;

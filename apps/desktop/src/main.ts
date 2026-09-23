@@ -380,7 +380,7 @@ if (!gotSingleInstanceLock) {
     })();
     pluginStartup.catch((error) => logError("app", "plugin service startup failed", error));
     if (captureSessionDir) {
-      startCaptureSession({ sessionDir: captureSessionDir, pluginService, pluginStartup });
+      startCaptureSession({ sessionDir: captureSessionDir, pluginService, pluginCapabilities, pluginStartup });
     }
     void checkForGitHubReleaseUpdate().then(() => refreshTrayMenu());
     info("app", "startup complete", { logFile: getLogFilePath(), openDefaultPetOnLaunch: shouldOpenDefaultPetOnLaunch() });

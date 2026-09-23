@@ -29,6 +29,7 @@ const defaultShotsDir = join(repoRoot, "web", "lfs", "captures", "desktop");
 const teamsDir = join(repoRoot, "teams");
 const teamsShowcaseStatePath = join(teamsDir, "local", "showcase", "showcase.json");
 
+const airmailPluginId = "openpets.calendar-airmail";
 const startTimeoutMs = 90_000;
 const stopTimeoutMs = 10_000;
 const requestTimeoutMs = 30_000;
@@ -59,6 +60,8 @@ Teams (needs the Teams showcase: cd teams && bun run dev:showcase; start with --
   teams sync                                      sync the Team Pack and check-ins now
   check-in                                        open the pet's check-in card
   control-center <route> [--width px --height px] open the Control Center (e.g. teams)
+  delivery <courier> [--title t --detail d]       fly a Calendar Airmail courier (courier-owl, courier-dragon, …)
+  delivery clear                                  land every courier
   pet select <petId>                              make an installed pet the default pet
   ui click <selector> [--window pet|control-center]
   ui type <selector> <text> [--window ...]        drive renderer UI for staged shots
@@ -66,7 +69,7 @@ Teams (needs the Teams showcase: cd teams && bun run dev:showcase; start with --
   wait <ms>                                       sleep (useful in shell chains)
 
 Capture
-  shot <name> [--window pet|control-center] [--padding pt] [--settle ms] [--out dir]
+  shot <name> [--window pet|control-center|delivery] [--padding pt] [--settle ms] [--out dir]
   run <scenario.json | folder>                    run a scripted scenario (or every one in a folder)
 
 Shots land in web/lfs/captures/desktop/ unless --out (or a scenario "out") says otherwise.`;
@@ -113,6 +116,19 @@ async function main() {
       return;
     case "ui":
       await runUiCommand(positional, flags);
+      return;
+    case "delivery":
+      if (positional[0] === "clear") {
+        await request("delivery.clear", { pluginId: typeof flags.plugin === "string" ? flags.plugin : airmailPluginId });
+        console.log("deliveries cleared");
+        return;
+      }
+      await showDelivery({
+        courier: required(positional[0], "courier (e.g. courier-owl) or clear"),
+        title: typeof flags.title === "string" ? flags.title : undefined,
+        detail: typeof flags.detail === "string" ? flags.detail : undefined,
+        pluginId: typeof flags.plugin === "string" ? flags.plugin : undefined,
+      });
       return;
     case "check-in":
       printJson(await request("check-in.open"));
@@ -354,6 +370,16 @@ async function enrollInShowcaseTeam() {
   printJson(await request("teams.sync", {}, { timeoutMs: 60_000 }));
 }
 
+async function showDelivery({ courier, title, detail, pluginId }) {
+  await request("delivery.show", {
+    pluginId: pluginId ?? airmailPluginId,
+    courier,
+    title: title ?? "Design review in 10 minutes",
+    detail: detail ?? "Room 4B · Harbor Studio",
+  });
+  console.log(`delivery ${courier}`);
+}
+
 async function runUiCommand(positional, flags) {
   const [action, selector, text] = positional;
   const window = typeof flags.window === "string" ? { window: flags.window } : {};
@@ -439,6 +465,9 @@ async function runScenarios(path) {
  *     { "teams": "enroll" },                   // enroll | approve | sync (scenario needs "teamsApi")
  *     { "checkIn": true },
  *     { "pet": "luna-techbot" },               // make an installed pet the default
+ *     { "delivery": { "courier": "courier-owl", "title": "Standup in 5 min", "detail": "Zoom" } },
+ *     { "landDeliveries": true },              // or a plugin id
+ *     { "shot": "airmail-owl", "window": "delivery" },
  *     { "click": ".check-in-feeling-btn[data-code=good]" },
  *     { "type": ".check-in-textarea", "text": "Great sprint!" },  // "window" picks pet | control-center
  *     { "scroll": "[data-team-pets]", "window": "control-center" },
@@ -493,6 +522,10 @@ async function runScenario(scenarioPath) {
       await sendChat(step.chatSend, { wait: step.noWait !== true });
     } else if (step.teams) {
       await runTeamsCommand(step.teams);
+    } else if (step.delivery) {
+      await showDelivery(step.delivery);
+    } else if (step.landDeliveries) {
+      await request("delivery.clear", { pluginId: step.landDeliveries === true ? airmailPluginId : step.landDeliveries });
     } else if (step.pet) {
       await request("pet.select", { petId: step.pet });
     } else if (step.click) {

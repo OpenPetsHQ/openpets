@@ -14,11 +14,16 @@ export const expandedPetWindowSize: WindowSize = {
  * of pet scale.
  */
 export const sessionPetWindowWidth = 460;
-/** Clearance below the orb for its rim glow. */
-export const sessionOrbBottomGap = 16;
+/**
+ * How far the orb's halo reaches beyond its rim, in CSS pixels; the carrier
+ * reserves it below and beside the orb so the glow is never clipped. Mirrors
+ * ORB_GLOW_REACH in pet-session/orb-renderer.cjs.
+ */
+export const sessionOrbGlowReach = 40;
+const sessionOrbMaxRadius = Math.min(240, sessionPetWindowWidth / 2 - sessionOrbGlowReach);
 
 export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
-  return Math.max(110, Math.min(240, Math.round(scaledSpriteHeight)));
+  return Math.max(110, Math.min(sessionOrbMaxRadius, Math.round(scaledSpriteHeight)));
 }
 /**
  * Card height estimates size only the first frame of a session; the overlay
@@ -45,7 +50,7 @@ export function calculateSessionWindowSize(scaledSpriteHeight: number, cardEstim
     + cardEstimatedHeight
     + sessionOrbCardGap
     + orbRadius * 2
-    + sessionOrbBottomGap;
+    + sessionOrbGlowReach;
   return { width: sessionPetWindowWidth, height };
 }
 
