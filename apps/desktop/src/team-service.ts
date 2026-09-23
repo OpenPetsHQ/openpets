@@ -14,6 +14,7 @@ import type {
   PluginStateStore,
   TeamPluginOwnership,
 } from "./plugin-state.js";
+import { canonicalizePluginPermissions } from "./plugin-manifest.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
 import {
   TeamApiClient,
@@ -371,7 +372,8 @@ export class TeamService {
       });
       const networkHosts = "network" in manifest ? manifest.network?.hosts ?? [] : [];
       if (
-        !sameStringArray(record.teamPendingApproval.permissions, manifest.permissions)
+        // Pending permissions are stored canonically ordered; compare like with like.
+        !sameStringArray(record.teamPendingApproval.permissions, canonicalizePluginPermissions(manifest.permissions))
         || !sameStringArray(record.teamPendingApproval.networkHosts, networkHosts)
       ) throw new Error("Team plugin approval is stale.");
       const policy = resolveTeamPluginPolicy(
@@ -567,6 +569,12 @@ export class TeamService {
       });
       if (this.#leaveQueued || syncController.signal.aborted) return this.getSnapshot();
       if (!result.applied) {
+        this.#log("warn", "Team Pack reconcile failed", {
+          revision: pack.revision,
+          failedItemId: result.failedItemId,
+          failureCode: result.failureCode,
+          reason: result.failureReason,
+        });
         this.stateStore.setError(result.failureCode ?? "reconcile_failed");
         await this.apiClient.reportDeployment(
           credential,

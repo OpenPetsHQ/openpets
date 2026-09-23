@@ -32,6 +32,8 @@ export type TeamReconcileResult = {
   readonly pendingApproval?: boolean;
   readonly failedItemId?: string;
   readonly failureCode?: "stage_failed" | "apply_failed" | "remove_failed";
+  /** Diagnostic detail for logs; not shown to the user. */
+  readonly failureReason?: string;
   readonly removed: readonly string[];
 };
 
@@ -92,6 +94,7 @@ export async function reconcileTeamPack<TStage>(
         applied: false,
         failedItemId: item.id,
         failureCode: "stage_failed",
+        failureReason: "The item id is already used by personal content.",
         removed: [],
       };
     }
@@ -103,12 +106,13 @@ export async function reconcileTeamPack<TStage>(
           previous.type === "plugin"
           && await adapter.needsApply?.(item, previous) === true
         );
-    } catch {
+    } catch (error) {
       await discardStaged(staged, adapter);
       return {
         applied: false,
         failedItemId: item.id,
         failureCode: "stage_failed",
+        failureReason: describeFailure(error),
         removed: [],
       };
     }
@@ -116,12 +120,13 @@ export async function reconcileTeamPack<TStage>(
     applyKeys.add(`${item.type}:${item.id}`);
     try {
       staged.set(`${item.type}:${item.id}`, await adapter.stage(item));
-    } catch {
+    } catch (error) {
       await discardStaged(staged, adapter);
       return {
         applied: false,
         failedItemId: item.id,
         failureCode: "stage_failed",
+        failureReason: describeFailure(error),
         removed: [],
       };
     }
@@ -145,12 +150,13 @@ export async function reconcileTeamPack<TStage>(
     try {
       const result = await adapter.apply(item, staged.get(key)!);
       if (result?.pendingApproval) pendingApproval = true;
-    } catch {
+    } catch (error) {
       await discardStaged(staged, adapter);
       return {
         applied: false,
         failedItemId: item.id,
         failureCode: "apply_failed",
+        failureReason: describeFailure(error),
         removed: [],
       };
     }
@@ -165,11 +171,12 @@ export async function reconcileTeamPack<TStage>(
       try {
         await adapter.remove(item);
         removed.push(item.itemId);
-      } catch {
+      } catch (error) {
         return {
           applied: false,
           failedItemId: item.itemId,
           failureCode: "remove_failed",
+          failureReason: describeFailure(error),
           removed,
         };
       }
@@ -190,4 +197,8 @@ async function discardStaged<TStage>(
   await Promise.all(
     [...staged.values()].map((value) => adapter.discard!(value).catch(() => undefined)),
   );
+}
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

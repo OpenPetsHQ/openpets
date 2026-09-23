@@ -191,7 +191,7 @@ export class TeamApiClient {
     ) throw new Error("Team artifact request is invalid.");
     const capabilityResponse = await this.request(
       `/v1/device/artifacts/${encodeURIComponent(versionId)}/capability`,
-      { credential, signal },
+      { credential, method: "POST", signal },
     );
     const capability = requireString(capabilityResponse.body, "capability", 512);
     const artifact = await this.request(
