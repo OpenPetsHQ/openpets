@@ -17,6 +17,7 @@ First-party SDK v3 plugin product source. These plugins are the reviewed default
 2. The sandboxed plugin host loads `index.js` and calls the exported registration hook with the SDK context.
 3. Plugin startup registers commands, schedules recurring/one-shot jobs, reads config/storage, and initializes visible state such as statuses or pinned HUD bubbles.
 4. User actions from the pet context menu or bubble buttons call registered handlers, which update storage, schedule follow-up work, and ask the host to speak/react/alert.
+5. Stateful plugins (Simple Timer, Focus Buddy, Quick Reminders, System Resources) re-register their commands on each state change so the pet menu shows only what applies; live controls use `placement: "top"` for the menu root.
 5. Tests use `@open-pets/plugin-sdk/testing` to fake time/events and assert descriptor-level effects rather than pixels.
 
 ## Plugin Inventory
