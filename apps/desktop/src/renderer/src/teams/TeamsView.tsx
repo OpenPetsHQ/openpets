@@ -21,7 +21,8 @@ import {
   isTeamsSnapshot,
   validateDisplayName,
 } from "./teams-state.js";
-import type { TeamsSnapshot, TeamsViewProps } from "./teams-types.js";
+import type { TeamPluginPresentation, TeamsApi, TeamsSnapshot, TeamsViewProps } from "./teams-types.js";
+import type { PetSpriteLayout } from "../pet-preview-state.js";
 
 export function TeamsView({ api }: TeamsViewProps) {
   const [snapshot, setSnapshot] = useState<TeamsSnapshot>(() => emptyTeamsSnapshot());
@@ -34,6 +35,8 @@ export function TeamsView({ api }: TeamsViewProps) {
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [expandedPluginDetails, setExpandedPluginDetails] = useState<Record<string, boolean>>({});
+  const [petSpriteLayouts, setPetSpriteLayouts] = useState<ReadonlyMap<string, PetSpriteLayout>>(new Map());
+  const [pluginPresentations, setPluginPresentations] = useState<ReadonlyMap<string, TeamPluginPresentation>>(new Map());
 
   const loadSnapshot = useCallback(
     async (clearErrors = false) => {
@@ -48,6 +51,9 @@ export function TeamsView({ api }: TeamsViewProps) {
         } else {
           throw new Error("Invalid Teams snapshot received.");
         }
+        const [spriteLayouts, presentations] = await Promise.all([loadPetSpriteLayouts(api), loadPluginPresentations(api)]);
+        setPetSpriteLayouts(spriteLayouts);
+        setPluginPresentations(presentations);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Failed to load Teams status.");
       } finally {
@@ -348,10 +354,11 @@ export function TeamsView({ api }: TeamsViewProps) {
             api={api}
           />
 
-          <TeamPetsSection pets={snapshot.teamPets} />
+          <TeamPetsSection pets={snapshot.teamPets} spriteLayouts={petSpriteLayouts} />
 
           <TeamPluginsSection
             plugins={snapshot.teamPlugins}
+            presentations={pluginPresentations}
             pendingApprovalsCount={pendingApprovalsCount}
             busy={busy}
             approvingPluginId={approvingPluginId}
@@ -397,4 +404,32 @@ export function TeamsView({ api }: TeamsViewProps) {
       />
     </div>
   );
+}
+
+// Team plugins show the same translated name and icon as the Plugins page;
+// without them the card falls back to the plugin id.
+async function loadPluginPresentations(api: TeamsApi): Promise<ReadonlyMap<string, TeamPluginPresentation>> {
+  if (!api.getPluginsSnapshot) return new Map();
+  try {
+    const snapshot = await api.getPluginsSnapshot();
+    return new Map(snapshot.plugins.map((plugin) => [plugin.id, { name: plugin.name, iconDataUrl: plugin.iconDataUrl }] as const));
+  } catch (error) {
+    console.error(`[ControlCenterTeams] ${JSON.stringify({ event: "plugin-presentations-failed", error: error instanceof Error ? error.message : String(error) })}`);
+    return new Map();
+  }
+}
+
+// Team pets render an animated frame like the Pets page; a missing layout only
+// costs the preview, never the Teams page.
+async function loadPetSpriteLayouts(api: TeamsApi): Promise<ReadonlyMap<string, PetSpriteLayout>> {
+  if (!api.getPetsState) return new Map();
+  try {
+    const state = await api.getPetsState();
+    return new Map(
+      state.pets.installed.flatMap((pet) => (pet.spriteLayout ? [[pet.id, pet.spriteLayout] as const] : [])),
+    );
+  } catch (error) {
+    console.error(`[ControlCenterTeams] ${JSON.stringify({ event: "pet-layouts-failed", error: error instanceof Error ? error.message : String(error) })}`);
+    return new Map();
+  }
 }

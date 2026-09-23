@@ -16,7 +16,7 @@ opencode.json
 .slim/worktrees/
 .slim/worktrees.json
 third-parties/
-teams
+/teams/
 .env
 
 # BEGIN oh-my-opencode-slim clonedeps

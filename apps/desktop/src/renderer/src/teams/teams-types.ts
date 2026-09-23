@@ -1,7 +1,14 @@
+import type { PetSpriteLayout } from "../pet-preview-state.js";
 export type TeamPetEntry = {
   readonly id: string;
   readonly displayName: string;
   readonly source: "team";
+};
+
+/** How an installed plugin presents itself: its translated name and icon. */
+export type TeamPluginPresentation = {
+  readonly name?: string;
+  readonly iconDataUrl?: string;
 };
 
 export type TeamPluginEntry = {
@@ -110,6 +117,8 @@ export type ManagerCheckInHistoryPage = {
 
 export type TeamsApi = {
   getTeamsSnapshot(): Promise<TeamsSnapshot>;
+  getPetsState?(): Promise<{ readonly pets: { readonly installed: readonly { readonly id: string; readonly spriteLayout?: PetSpriteLayout }[] } }>;
+  getPluginsSnapshot?(): Promise<{ readonly plugins: readonly { readonly id: string; readonly name?: string; readonly iconDataUrl?: string }[] }>;
   submitTeamsEnrollment(displayName: string): Promise<TeamsSnapshot>;
   syncTeamsNow(): Promise<TeamsSnapshot>;
   leaveTeams(): Promise<TeamsSnapshot>;
