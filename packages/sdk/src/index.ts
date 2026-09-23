@@ -342,7 +342,7 @@ export interface OpenPetsBreathPattern {
  * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
  * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
  * `sparkles`, `timer`, `square`, `moon`, `zap`, `anchor`, `eye`, `hand`,
- * `ear`, `flower`, `coffee`. The same names serve practice choices and
+ * `ear`, `flower`, `coffee`, `headphones`, `waves`. The same names serve practice choices and
  * grounding steps.
  */
 export type OpenPetsSessionInfoIcon =
@@ -366,7 +366,9 @@ export type OpenPetsSessionInfoIcon =
   | "hand"
   | "ear"
   | "flower"
-  | "coffee";
+  | "coffee"
+  | "headphones"
+  | "waves";
 
 /** A titled card inside an Info section (mechanism, research finding, tip). */
 export interface OpenPetsSessionInfoCard {
@@ -498,7 +500,7 @@ export interface OpenPetsGroundingSessionOptions {
   countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
@@ -547,7 +549,7 @@ export interface OpenPetsPmrSessionOptions {
   countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
@@ -574,16 +576,141 @@ export interface OpenPetsBreathingSessionOptions {
   info?: OpenPetsSessionInfo;
   /** Optional phase audio cues with an overlay mute toggle. */
   audio?: OpenPetsSessionAudio;
-  /** Practices offered by the practice picker (1–6 entries). */
+  /** Practices offered by the practice picker (1–8 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
+}
+
+/** One narrated piece of a player track. */
+export interface OpenPetsPlayerSegment {
+  /** https URL on one of the plugin's approved `network.hosts` (mp3/m4a/ogg/wav, ≤500 chars). */
+  audioUrl: string;
+  /** Transcript line shown while this segment plays (1–400 chars). */
+  caption?: string;
+}
+
+export interface OpenPetsPlayerTrack {
+  /** Stable track id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Track title (1–60 chars). */
+  title: string;
+  /** One-line description (1–80 chars). */
+  subtitle?: string;
+  /** Manifest-declared cover (`ctx.assets.image(...)` or `ctx.assets.svg(...)`). */
+  cover?: OpenPetsAssetRef;
+  /** Segments played in order (1–40). */
+  segments: OpenPetsPlayerSegment[];
+}
+
+/**
+ * Narrated media practice (e.g. guided meditation, visualization). The host
+ * downloads each segment once from the plugin's approved hosts (requires the
+ * `network` permission), caches it, and plays the track with a short gap
+ * between segments. Events report the selected track id as `patternId`;
+ * `patternChanged` fires when the user picks another track, and
+ * `paused`/`resumed`/`stopped` carry the 1-based segment as `cycle`.
+ */
+export interface OpenPetsPlayerSessionOptions {
+  kind: "player";
+  /** Overlay title (e.g. "Guided meditation"). */
+  title: string;
+  subtitle?: string;
+  /** Tracks offered by the track picker (1–24). */
+  tracks: OpenPetsPlayerTrack[];
+  /** Initially selected track id; defaults to the first track. */
+  trackId?: string;
+  /** Start playing immediately (default true). */
+  autoStart?: boolean;
+  /** Lead-in countdown in seconds (0–15, default 5). */
+  countdownSeconds?: number;
+  /** Silence between segments in seconds (0–10, default 2). */
+  segmentGapSeconds?: number;
+  /** Short note on the card, e.g. "Narration in English" (1–60 chars). */
+  narrationNote?: string;
+  info?: OpenPetsSessionInfo;
+  practices?: OpenPetsPracticeChoice[];
+  practiceId?: string;
+}
+
+/** Fixed value, or a range picked uniformly each time the value is used. */
+export type OpenPetsSessionRange = number | { min: number; max: number };
+
+/** Fields shared by looping beds and interval accents. */
+export interface OpenPetsSoundLayerBase {
+  /** 1–6 https files on approved `network.hosts`; accents pick one at random. */
+  files: string[];
+  /** 0–1. */
+  volume: OpenPetsSessionRange;
+  /** Seconds (0–30). */
+  fadeIn?: number;
+  fadeOut?: number;
+  /** Loop crossfade at the loop boundary, seconds (0–30). */
+  crossfade?: number;
+  /** Accent play-length limit, seconds (1–600). */
+  duration?: number;
+  /** 0 = left, 0.5 = centre, 1 = right. */
+  pan?: OpenPetsSessionRange;
+  /** Playback-rate range for accents (0.5–2). */
+  pitch?: { min: number; max: number };
+}
+
+/** A looping bed. */
+export interface OpenPetsLoopSoundLayer extends OpenPetsSoundLayerBase {
+  loop: true;
+  interval?: never;
+}
+
+/** An accent played on an interval. */
+export interface OpenPetsIntervalSoundLayer extends OpenPetsSoundLayerBase {
+  loop?: false;
+  /** Seconds between accents (1–600); "wave" drifts min→max→min by `increment`. */
+  interval: { type: "random" | "wave"; min: number; max: number; increment?: number };
+}
+
+/** One layer of a soundscape: a looping bed or an accent on an interval, never both. */
+export type OpenPetsSoundLayer = OpenPetsLoopSoundLayer | OpenPetsIntervalSoundLayer;
+
+export interface OpenPetsSoundScene {
+  id: string;
+  /** 1–60 chars. */
+  title: string;
+  /** 1–80 chars. */
+  subtitle?: string;
+  /** Manifest-declared cover (`ctx.assets.image(...)` or `ctx.assets.svg(...)`). */
+  cover?: OpenPetsAssetRef;
+  /** 1–12 layers, at least one looping. */
+  layers: OpenPetsSoundLayer[];
+}
+
+/**
+ * Layered ambient soundscape (relaxing sounds). Requires `network`; the host
+ * downloads each file once from approved hosts, caches it, and mixes the
+ * layers with an optional sleep timer. Events report the scene id as
+ * `patternId`; `completed` fires when the sleep timer ends the session.
+ */
+export interface OpenPetsSoundscapeSessionOptions {
+  kind: "soundscape";
+  title: string;
+  subtitle?: string;
+  /** Scenes offered by the scene picker (1–16). */
+  scenes: OpenPetsSoundScene[];
+  sceneId?: string;
+  autoStart?: boolean;
+  countdownSeconds?: number;
+  /** Sleep-timer choices in whole minutes (1–480, up to 6; default 15/30/60). */
+  timerMinutes?: number[];
+  info?: OpenPetsSessionInfo;
+  practices?: OpenPetsPracticeChoice[];
   practiceId?: string;
 }
 
 export type OpenPetsSessionOptions =
   | OpenPetsBreathingSessionOptions
   | OpenPetsPmrSessionOptions
-  | OpenPetsGroundingSessionOptions;
+  | OpenPetsGroundingSessionOptions
+  | OpenPetsPlayerSessionOptions
+  | OpenPetsSoundscapeSessionOptions;
 
 /** Lifecycle and interaction events emitted by the session overlay. */
 export type OpenPetsSessionEvent =
@@ -603,9 +730,8 @@ export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin
 export interface OpenPetsSessionHandle {
   readonly id: string;
   /**
-   * Replace the selected pattern, the pattern list, or the Info content.
-   * `patternId` and `patterns` apply to breathing sessions only; PMR and
-   * grounding sessions accept an Info-only update.
+   * Replace the Info content (any session kind), or the selected pattern and
+   * pattern list (breathing sessions only).
    */
   update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
   /** Pause the running phase clock (no-op unless a run is active). */

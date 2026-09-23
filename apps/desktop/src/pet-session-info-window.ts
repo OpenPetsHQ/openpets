@@ -157,7 +157,8 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
     html, body {
       margin: 0;
       padding: 0;
-      background: linear-gradient(180deg, #f8faff 0%, #f2f5fe 55%, #eef1fc 100%);
+      min-height: 100%;
+      background: linear-gradient(180deg, #f8faff 0%, #f2f5fe 55%, #eef1fc 100%) fixed;
       color: #1e293b;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -280,12 +281,23 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       width: 10px;
       height: 10px;
     }
+    /* At most two columns: three across squeezes titles into one-word
+       lines. An odd last card takes the full row instead of a gap. */
     .cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .cards > .card:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+    }
+    @media (max-width: 520px) {
+      .cards {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
     .card {
+      min-width: 0;
       padding: 14px 15px;
       border-radius: 15px;
       background: rgba(255, 255, 255, 0.9);
@@ -294,7 +306,7 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
     }
     .card-head {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       margin: 0 0 7px;
     }
@@ -318,7 +330,11 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       font-weight: 800;
       color: #0f172a;
       margin: 0;
+      min-width: 0;
+      padding-top: 4px;
+      line-height: 1.35;
       letter-spacing: -0.01em;
+      overflow-wrap: break-word;
     }
     .card-body {
       font-size: 12px;
@@ -327,25 +343,10 @@ function buildInfoWindowHtml(descriptor: PluginSessionDescriptor, chrome: Record
       color: #475569;
       margin: 0;
     }
-    .cards.is-two-up {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
     .card.is-highlighted {
       border-color: rgba(37, 99, 235, 0.55);
       background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(219, 234, 254, 0.7));
       box-shadow: 0 4px 16px rgba(37, 99, 235, 0.12);
-    }
-    .card-badge {
-      margin-left: auto;
-      flex-shrink: 0;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: #176df2;
-      color: #ffffff;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
     }
     .card-detail {
       margin: 8px 0 0;
@@ -495,17 +496,14 @@ function buildSectionMarkup(section: SessionInfoSection, index: number, chrome: 
       const link = card.url
         ? `<a class="card-link" href="${escapeHtml(card.url)}">${escapeHtml(chrome.readStudy ?? "Read the study")} →</a>`
         : "";
-      const badge = card.highlighted
-        ? `<span class="card-badge">${escapeHtml(chrome.currentChoice ?? "Current")}</span>`
-        : "";
-      const head = `<div class="card-head">${cardIconMarkup(card.icon)}<h3 class="card-title">${escapeHtml(card.title)}</h3>${badge}</div>`;
+      const head = `<div class="card-head">${cardIconMarkup(card.icon)}<h3 class="card-title">${escapeHtml(card.title)}</h3></div>`;
       const detail = card.detail ? `<p class="card-detail">${escapeHtml(card.detail)}</p>` : "";
-      const className = card.highlighted ? "card is-highlighted" : "card";
-      return `<div class="${className}">${head}<p class="card-body">${escapeHtml(card.body)}</p>${detail}${link}</div>`;
+      // The highlight alone marks the current choice; a badge would crowd
+      // the title and wrap badly in longer languages.
+      const highlight = card.highlighted ? ' is-highlighted" aria-current="true' : "";
+      return `<div class="card${highlight}">${head}<p class="card-body">${escapeHtml(card.body)}</p>${detail}${link}</div>`;
     }).join("");
-    // Four cards read as a 2×2 grid instead of a 3 + 1 wrap.
-    const gridClass = section.cards.length === 4 ? "cards is-two-up" : "cards";
-    parts.push(`<div class="${gridClass}">${cards}</div>`);
+    parts.push(`<div class="cards">${cards}</div>`);
   }
   return `<section class="section">${parts.join("")}</section>`;
 }

@@ -30,6 +30,8 @@ export const sessionBreathingCardEstimatedHeight = 268;
 export const sessionGuidedBreathingCardEstimatedHeight = 328;
 /** Grounding card: the shared rows plus the sense checklist (up to five items). */
 export const sessionGroundingCardEstimatedHeight = 534;
+/** Player card (guided meditation, visualization): cover, captions, progress, controls. */
+export const sessionPlayerCardEstimatedHeight = 190;
 /** PMR card, including the fixed pose-illustration well and cues row. */
 export const sessionPmrCardEstimatedHeight = 400;
 export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;

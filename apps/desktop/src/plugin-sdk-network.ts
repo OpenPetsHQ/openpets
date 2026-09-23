@@ -350,19 +350,20 @@ function requestFetch(): NetworkFetch {
   return undiciFetch;
 }
 
-export async function safeHttpFetch(urlText: string, options: ValidatedNetOptions | unknown, allowedHosts: ReadonlySet<string>, allowLocal = false, diagnostics: NetworkDiagnostics | undefined, limits: NetworkReadLimits, lifecycleSignal?: AbortSignal): Promise<SimpleHttpResponse> {
-  const opts: ValidatedNetOptions = isValidatedNetOptions(options) ? options : { method: "GET", headers: undefined, timeoutMs: undefined };
+/** One guarded GET/HTTP request whose body is read into memory up to `cap` bytes. */
+async function fetchCapped(urlText: string, opts: ValidatedNetOptions, allowedHosts: ReadonlySet<string>, allowLocal: boolean, diagnostics: NetworkDiagnostics | undefined, cap: number, defaultRoute: string, lifecycleSignal?: AbortSignal): Promise<{ status: number; ok: boolean; headers: Record<string, string>; body: Buffer }> {
   const started = Date.now();
   const cancellation = composeRequestCancellation(lifecycleSignal);
   const controller = cancellation.controller;
   const timeout = startTimeout(controller, timeoutFor(opts, false));
   let host = "";
   try { host = new URL(urlText).hostname.toLowerCase(); } catch { host = "invalid"; }
-  const logFields = { diagnostics, route: "net.fetch", method: opts.method, host, started, dispatchStarted: false };
+  const route = diagnostics?.route ?? defaultRoute;
+  const logFields = { diagnostics, route: defaultRoute, method: opts.method, host, started, dispatchStarted: false };
   let agent: Agent | undefined;
   let completed = false;
   try {
-    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host, phase: "begin" });
+    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route, method: opts.method, host, phase: "begin" });
     const prepared = await prepareSafeRequest(urlText, opts, allowedHosts, allowLocal, controller);
     throwIfAborted(controller.signal);
     agent = (networkTestHook("createAgent") ?? createGuardedAgent)(prepared.url, prepared.addresses);
@@ -373,15 +374,13 @@ export async function safeHttpFetch(urlText: string, options: ValidatedNetOption
       await cancelResponse(response);
       throw new Error("Plugin HTTP redirects are not allowed.");
     }
-    const text = await readCapped(response, limits.responseBytes, controller.signal);
+    const body = await readCappedBytes(response, cap, controller.signal);
     const headers: Record<string, string> = {};
     for (const key of ["content-type", "etag", "last-modified", "retry-after", "x-ratelimit-remaining"]) { const value = response.headers.get(key); if (value) headers[key] = value; }
-    let json: unknown;
-    if ((headers["content-type"] ?? "").includes("application/json")) { try { json = JSON.parse(text); } catch { json = undefined; } }
     throwIfAborted(controller.signal);
-    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route: diagnostics?.route ?? "net.fetch", method: opts.method, host: prepared.url.hostname, phase: "success", status: response.status, sizeBytes: Buffer.byteLength(text), durationMs: Date.now() - started });
+    logPluginDiagnostic(diagnostics?.logger, "debug", "plugin network request", { pluginId: diagnostics?.pluginId, route, method: opts.method, host: prepared.url.hostname, phase: "success", status: response.status, sizeBytes: body.byteLength, durationMs: Date.now() - started });
     completed = true;
-    return { status: response.status, ok: response.ok, headers, text, ...(json === undefined ? {} : { json }) };
+    return { status: response.status, ok: response.ok, headers, body };
   } catch (error) {
     throw logNetworkFailure(logFields, error, cancellation.lifecycleCancelled());
   } finally {
@@ -389,6 +388,25 @@ export async function safeHttpFetch(urlText: string, options: ValidatedNetOption
     cancellation.dispose();
     clearTimeoutHandle(timeout);
   }
+}
+
+export async function safeHttpFetch(urlText: string, options: ValidatedNetOptions | unknown, allowedHosts: ReadonlySet<string>, allowLocal = false, diagnostics: NetworkDiagnostics | undefined, limits: NetworkReadLimits, lifecycleSignal?: AbortSignal): Promise<SimpleHttpResponse> {
+  const opts: ValidatedNetOptions = isValidatedNetOptions(options) ? options : { method: "GET", headers: undefined, timeoutMs: undefined };
+  const { status, ok, headers, body } = await fetchCapped(urlText, opts, allowedHosts, allowLocal, diagnostics, limits.responseBytes, "net.fetch", lifecycleSignal);
+  const text = body.toString("utf8");
+  let json: unknown;
+  if ((headers["content-type"] ?? "").includes("application/json")) { try { json = JSON.parse(text); } catch { json = undefined; } }
+  return { status, ok, headers, text, ...(json === undefined ? {} : { json }) };
+}
+
+/**
+ * Binary HTTPS GET under the same host approval, SSRF, and redirect rules as
+ * `ctx.net`, for host-owned downloads made on a plugin's behalf (session media).
+ */
+export async function safeHttpFetchBytes(urlText: string, allowedHosts: ReadonlySet<string>, diagnostics: NetworkDiagnostics | undefined, maxBytes: number, lifecycleSignal?: AbortSignal): Promise<{ status: number; ok: boolean; contentType: string | undefined; body: Buffer }> {
+  const opts: ValidatedNetOptions = { method: "GET", headers: undefined, timeoutMs: 60_000 };
+  const { status, ok, headers, body } = await fetchCapped(urlText, opts, allowedHosts, false, diagnostics, maxBytes, "session.media", lifecycleSignal);
+  return { status, ok, contentType: headers["content-type"], body };
 }
 
 export async function safeHttpStream(urlText: string, opts: ValidatedNetOptions, allowedHosts: ReadonlySet<string>, onChunk: (chunk: string) => unknown, allowLocal = false, diagnostics: NetworkDiagnostics | undefined, limits: NetworkReadLimits, lifecycleSignal?: AbortSignal): Promise<{ status: number; ok: boolean }> {
@@ -437,10 +455,10 @@ function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
   try { void Promise.resolve(reader.cancel()).catch(() => undefined); } catch { /* cleanup is best effort */ }
 }
 
-async function readCapped(response: UndiciResponse, cap: number, signal: AbortSignal): Promise<string> {
+async function readCappedBytes(response: UndiciResponse, cap: number, signal: AbortSignal): Promise<Buffer> {
   throwIfAborted(signal);
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return Buffer.alloc(0);
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -454,7 +472,7 @@ async function readCapped(response: UndiciResponse, cap: number, signal: AbortSi
       }
       chunks.push(value);
     }
-    return Buffer.concat(chunks).toString("utf8");
+    return Buffer.concat(chunks);
   } catch (error) {
     cancelReader(reader);
     throw error;

@@ -17,12 +17,14 @@ import {
   sessionBreathingCardEstimatedHeight,
   sessionGroundingCardEstimatedHeight,
   sessionGuidedBreathingCardEstimatedHeight,
+  sessionPlayerCardEstimatedHeight,
   sessionPmrCardEstimatedHeight,
 } from "./default-pet-chat-geometry.js";
 import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
 import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
 import { sessionIconPaths } from "./session-icons.js";
+import { resolveSessionMedia } from "./session-media-cache.js";
 import type {
   PluginSessionDescriptor,
   PluginSessionEvent,
@@ -72,13 +74,30 @@ export function buildSessionChrome(): Record<string, string> {
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
-    currentChoice: t("session.currentChoice"),
     next: t("session.next"),
     back: t("session.back"),
     finish: t("session.finish"),
     noticed: t("session.noticed"),
     footerGrounding: t("session.footerGrounding"),
     switchPractice: t("session.switchPractice"),
+    footerListening: t("session.footerListening"),
+    partOf: t("session.partOf"),
+    rewind: t("session.rewind"),
+    previousPart: t("session.previousPart"),
+    nextPart: t("session.nextPart"),
+    mediaLoading: t("session.mediaLoading"),
+    mediaUnavailable: t("session.mediaUnavailable"),
+    chooseTrack: t("session.chooseTrack"),
+    muteAudio: t("session.muteAudio"),
+    unmuteAudio: t("session.unmuteAudio"),
+    noTimer: t("session.noTimer"),
+    minutesShort: t("session.minutesShort"),
+    sleepTimer: t("session.sleepTimer"),
+    volume: t("session.volume"),
+    preparingSounds: t("session.preparingSounds"),
+    soundsUnavailable: t("session.soundsUnavailable"),
+    playingFor: t("session.playingFor"),
+    stopsIn: t("session.stopsIn"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),
@@ -120,6 +139,8 @@ interface ActiveSessionOverlay {
   runActive: boolean;
   /** Live cue state; starts from the descriptor and follows overlay toggles. */
   audioEnabled: boolean;
+  /** Approved network hosts the session's media may be downloaded from. */
+  readonly mediaHosts: ReadonlySet<string>;
   closed: boolean;
 }
 
@@ -136,6 +157,8 @@ export function openPluginSessionOverlay(options: {
   readonly pluginId: string;
   readonly descriptor: PluginSessionDescriptor;
   readonly callbacks: SessionOverlayCallbacks;
+  /** The plugin's approved network hosts (player media only). */
+  readonly mediaHosts?: ReadonlySet<string>;
 }): SessionOverlayHostHandle {
   const window = getDefaultPetWindowForPlugins();
   if (!window || window.isDestroyed()) {
@@ -168,7 +191,7 @@ export function openPluginSessionOverlay(options: {
     finishActiveSession("replaced");
   }
 
-  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : options.descriptor.kind;
+  const initialPatternId = initialSelectionId(options.descriptor);
   const session: ActiveSessionOverlay = {
     pluginId: options.pluginId,
     descriptor: options.descriptor,
@@ -177,6 +200,7 @@ export function openPluginSessionOverlay(options: {
     lastCycle: 0,
     runActive: false,
     audioEnabled: options.descriptor.kind === "breathing" ? (options.descriptor.audio?.enabled ?? true) : false,
+    mediaHosts: options.mediaHosts ?? new Set<string>(),
     closed: false,
   };
   activeSession = session;
@@ -196,7 +220,7 @@ export function openPluginSessionOverlay(options: {
     pluginId: options.pluginId,
     kind: options.descriptor.kind,
     patternId: initialPatternId,
-    items: options.descriptor.kind === "breathing" ? options.descriptor.patterns.length : options.descriptor.steps.length,
+    items: selectableItemCount(options.descriptor),
     autoStart: options.descriptor.autoStart,
   });
   openDefaultPetSession(estimatedCardHeight(options.descriptor));
@@ -209,13 +233,13 @@ export function openPluginSessionOverlay(options: {
     async update(patch: PluginSessionUpdate): Promise<void> {
       if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
       if (session.descriptor.kind !== "breathing") {
-        // PMR and grounding have no patterns; only their Info can change.
         if (patch.patterns !== undefined || patch.patternId !== undefined) {
           throw new Error("Session patterns can only be updated on breathing sessions.");
         }
+        // Info lives in the host-owned Info window, so an info-only update
+        // never remounts the running practice in the pet window.
         if (patch.info !== undefined) {
           session.descriptor = { ...session.descriptor, info: patch.info };
-          sendDescriptorToRenderer();
           refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
         }
         return;
@@ -260,10 +284,26 @@ export function openPluginSessionOverlay(options: {
   };
 }
 
+/** The id events report as `patternId`: pattern, track, or the practice kind. */
+function initialSelectionId(descriptor: PluginSessionDescriptor): string {
+  if (descriptor.kind === "breathing") return descriptor.patternId;
+  if (descriptor.kind === "player") return descriptor.trackId;
+  if (descriptor.kind === "soundscape") return descriptor.sceneId;
+  return descriptor.kind;
+}
+
+function selectableItemCount(descriptor: PluginSessionDescriptor): number {
+  if (descriptor.kind === "breathing") return descriptor.patterns.length;
+  if (descriptor.kind === "player") return descriptor.tracks.length;
+  if (descriptor.kind === "soundscape") return descriptor.scenes.length;
+  return descriptor.steps.length;
+}
+
 /** Carrier height hint: the card grows with PMR's pose well, grounding's checklist, and guided breathing's chips. */
 function estimatedCardHeight(descriptor: PluginSessionDescriptor): number {
   if (descriptor.kind === "pmr") return sessionPmrCardEstimatedHeight;
   if (descriptor.kind === "grounding") return sessionGroundingCardEstimatedHeight;
+  if (descriptor.kind === "player" || descriptor.kind === "soundscape") return sessionPlayerCardEstimatedHeight;
   if (descriptor.patterns.length > 1) return sessionGuidedBreathingCardEstimatedHeight;
   return sessionBreathingCardEstimatedHeight;
 }
@@ -383,6 +423,22 @@ function buildRendererDescriptor(descriptor: PluginSessionDescriptor): PluginSes
   });
   const withPractices = practices ? { ...descriptor, practices } : descriptor;
 
+  if (withPractices.kind === "soundscape") {
+    return {
+      ...withPractices,
+      scenes: withPractices.scenes.map((scene) => {
+        return scene.coverPath ? { ...scene, coverUrl: pathToFileURL(scene.coverPath).href } : scene;
+      }),
+    };
+  }
+  if (withPractices.kind === "player") {
+    return {
+      ...withPractices,
+      tracks: withPractices.tracks.map((track) => {
+        return track.coverPath ? { ...track, coverUrl: pathToFileURL(track.coverPath).href } : track;
+      }),
+    };
+  }
   if (withPractices.kind === "grounding") {
     return {
       ...withPractices,
@@ -499,6 +555,24 @@ export function installSessionOverlayIpcHandlers(): void {
     setDefaultPetSessionMeasuredHeight(clamped);
   });
 
+  // Player media: resolve a segment URL from the open descriptor to a local
+  // cached file (downloaded once from the plugin's approved hosts).
+  ipcMain.handle("openpets:session-media-get", async (event: IpcMainInvokeEvent, rawUrl: unknown) => {
+    if (!isAuthorizedSessionSender(event.sender.id)) return null;
+    const session = activeSession;
+    if (!session || session.closed || typeof rawUrl !== "string") return null;
+    if (!sessionMediaUrls(session.descriptor).has(rawUrl)) {
+      warn("pet.session", "session media url rejected", { pluginId: session.pluginId });
+      return null;
+    }
+    try {
+      return await resolveSessionMedia(rawUrl, session.mediaHosts, { pluginId: session.pluginId, route: "session.media" });
+    } catch (error) {
+      warn("pet.session", "session media unavailable", { pluginId: session.pluginId, error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  });
+
   ipcMain.on("openpets:session-overlay-open-url", (event: IpcMainEvent, rawUrl: unknown) => {
     if (!isAuthorizedSessionSender(event.sender.id)) return;
     const session = activeSession;
@@ -543,6 +617,10 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
       // that only swaps Info must not revert it.
       if (session.descriptor.kind === "breathing") {
         session.descriptor = { ...session.descriptor, patternId };
+      } else if (session.descriptor.kind === "player") {
+        session.descriptor = { ...session.descriptor, trackId: patternId };
+      } else if (session.descriptor.kind === "soundscape") {
+        session.descriptor = { ...session.descriptor, sceneId: patternId };
       }
       return { kind: "event", event: { type: "patternChanged", patternId } };
     case "completed":
@@ -567,9 +645,29 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
   }
 }
 
+/** Every remote media URL the open descriptor may ask the host to resolve. */
+function sessionMediaUrls(descriptor: PluginSessionDescriptor): Set<string> {
+  const urls = new Set<string>();
+  if (descriptor.kind === "player") {
+    for (const track of descriptor.tracks) for (const segment of track.segments) urls.add(segment.audioUrl);
+  } else if (descriptor.kind === "soundscape") {
+    for (const scene of descriptor.scenes) for (const layer of scene.layers) for (const file of layer.files) urls.add(file);
+  }
+  return urls;
+}
+
 function resolvePatternId(value: unknown, session: ActiveSessionOverlay): string {
-  if (session.descriptor.kind !== "breathing") return session.descriptor.kind;
-  if (typeof value === "string" && session.descriptor.patterns.some((pattern) => pattern.id === value)) return value;
+  const descriptor = session.descriptor;
+  if (descriptor.kind === "player") {
+    if (typeof value === "string" && descriptor.tracks.some((track) => track.id === value)) return value;
+    return session.lastPatternId;
+  }
+  if (descriptor.kind === "soundscape") {
+    if (typeof value === "string" && descriptor.scenes.some((scene) => scene.id === value)) return value;
+    return session.lastPatternId;
+  }
+  if (descriptor.kind !== "breathing") return descriptor.kind;
+  if (typeof value === "string" && descriptor.patterns.some((pattern) => pattern.id === value)) return value;
   return session.lastPatternId;
 }
 

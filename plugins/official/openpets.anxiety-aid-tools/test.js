@@ -8,6 +8,14 @@ import {
   buildGroundingInfo,
   buildGroundingSteps,
   buildGuidedDescriptor,
+  buildMeditationDescriptor,
+  buildMeditationInfo,
+  buildMeditationTracks,
+  buildSoundScenes,
+  buildVisualizationDescriptor,
+  buildVisualizationTracks,
+  MEDIA_ORIGIN,
+  narrationLanguage,
   buildGuidedInfo,
   buildGuidedPatterns,
   buildPmrDescriptor,
@@ -21,6 +29,9 @@ import {
   register,
   SITE_URL,
   STORAGE_KEY_LAST_GUIDED_PATTERN,
+  STORAGE_KEY_LAST_MEDITATION,
+  STORAGE_KEY_LAST_SOUNDSCAPE,
+  STORAGE_KEY_LAST_VISUALIZATION,
 } from "./index.js";
 
 let createTestHarness;
@@ -198,7 +209,53 @@ assert.deepEqual(groundingScience.cards.map((card) => card.url), GROUNDING_CITAT
 assert.ok(GROUNDING_CITATIONS.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
 assert.equal(groundingInfo.site.url, SITE_URL);
 
-// The practice picker lists all four practices, each with an icon.
+// Guided meditation: AAT's eight sessions with the segment counts recorded on
+// R2, one narrated URL per segment in the narration language, a caption each.
+assert.deepEqual(
+  [["en", "en"], ["es-419", "es"], ["pt-BR", "pt"], ["zh-Hans", "zh"], ["zh-Hant", "zh"], ["ja", "en"], ["ko", "en"]].map(([locale]) => narrationLanguage(locale)),
+  ["en", "es", "pt", "zh", "zh", "en", "en"],
+);
+const meditationTracks = buildMeditationTracks(t, "es-419");
+assert.deepEqual(meditationTracks.map((track) => track.segments.length), [7, 13, 14, 10, 13, 12, 11, 12]);
+for (const track of meditationTracks) {
+  assert.deepEqual(track.cover, { kind: "image", name: `meditation-${track.id}` });
+  track.segments.forEach((segment, index) => {
+    assert.equal(segment.audioUrl, `${MEDIA_ORIGIN}/guided-meditation/es/${track.id}/${String(index + 1).padStart(2, "0")}.mp3`);
+    assert.ok(segment.caption.length > 0);
+  });
+}
+const meditationInfo = buildMeditationInfo(t, undefined, "metta-loving-kindness-protocol");
+const highlightedMeditation = meditationInfo.sections.flatMap((section) => section.cards ?? []).filter((card) => card.highlighted);
+assert.deepEqual(highlightedMeditation.map((card) => card.title), [t("meditation.metta-loving-kindness-protocol.title")]);
+assert.ok(meditationInfo.citations.every((citation) => citation.url.startsWith("https://pmc.ncbi.nlm.nih.gov/")));
+
+// Peaceful visualization: AAT's nine scenes, seven narrated steps each, and a
+// declared cover.
+const visualizationManifest = JSON.parse(await readFile(new URL("./openpets.plugin.json", import.meta.url), "utf8"));
+const visualizationTracks = buildVisualizationTracks(t, "pt-BR");
+assert.equal(visualizationTracks.length, 9);
+for (const track of visualizationTracks) {
+  assert.ok(visualizationManifest.assets.svgs[track.cover.name], `${track.id} cover must be declared`);
+  assert.equal(track.segments.length, 7);
+  track.segments.forEach((segment, index) => {
+    assert.equal(segment.audioUrl, `${MEDIA_ORIGIN}/peaceful-visualization/pt/${track.id}/0${index + 1}.mp3`);
+    assert.ok(segment.caption.length > 0);
+  });
+}
+
+// Relaxing sounds: AAT's eight soundscapes, each with at least one looping bed,
+// every layer file on the approved media origin, and a declared cover.
+const soundScenes = buildSoundScenes(t);
+assert.equal(soundScenes.length, 8);
+const soundManifest = JSON.parse(await readFile(new URL("./openpets.plugin.json", import.meta.url), "utf8"));
+for (const scene of soundScenes) {
+  assert.ok(scene.layers.some((layer) => layer.loop), `${scene.id} needs a looping bed`);
+  assert.ok(scene.layers.every((layer) => layer.loop || layer.interval), `${scene.id} layers must loop or repeat`);
+  assert.ok(scene.layers.every((layer) => layer.files.every((file) => file.startsWith(`${MEDIA_ORIGIN}/`))));
+  assert.ok(soundManifest.assets.images[scene.cover.name], `${scene.id} cover must be declared`);
+}
+
+// The practice picker lists every practice, each with an icon.
 const practices = buildPractices(t);
 assert.deepEqual(
   practices.map((choice) => [choice.id, choice.name]),
@@ -207,12 +264,14 @@ assert.deepEqual(
     ["guided-breathing", t("practice.guided")],
     ["pmr", t("practice.pmr")],
     ["grounding", t("practice.grounding")],
+    ["meditation", t("practice.meditation")],
+    ["visualization", t("practice.visualization")],
+    ["sounds", t("practice.sounds")],
   ],
 );
 assert.ok(practices.every((choice) => typeof choice.icon === "string"));
 
-// Starting from the pet menu opens an auto-starting session,
-// and once the run starts the pet menu gains the pause/stop controls.
+// Starting from the pet menu opens an auto-starting session.
 const harness = createTestHarness(register, { permissions: ["ui:session", "commands", "storage"], locales: { en } });
 await harness.start();
 
@@ -224,6 +283,9 @@ assert.deepEqual(
     ["start-guided-breathing", "$t:practice.guided"],
     ["start-pmr", "$t:practice.pmr"],
     ["start-grounding", "$t:practice.grounding"],
+    ["start-meditation", "$t:practice.meditation"],
+    ["start-visualization", "$t:practice.visualization"],
+    ["start-sounds", "$t:practice.sounds"],
   ],
 );
 
@@ -283,40 +345,12 @@ assert.equal(pmrDescFromGeneric.steps.length, 19);
 await harness.runCommand("start-breathing");
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "breathing");
-assert.equal(harness.calls.menuItems.length, 2, "running session must expose pause + stop menu items");
-assert.equal(harness.calls.menuItems[0].id, "breathing-pause");
-assert.equal(harness.calls.menuItems[1].id, "breathing-stop");
-
-// Pause breathing
-await latestSession.pause();
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(harness.calls.menuItems[0].id, "breathing-resume");
-assert.equal(harness.calls.menuItems[1].id, "breathing-stop");
-
-// Resume breathing
-await latestSession.resume();
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(harness.calls.menuItems[0].id, "breathing-pause");
 
 // 2. Run start-pmr command
 await harness.runCommand("start-pmr");
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "pmr");
 assert.equal(latestSpec.steps.length, 19);
-assert.equal(harness.calls.menuItems.length, 2, "running PMR must expose PMR pause + stop menu items");
-assert.equal(harness.calls.menuItems[0].id, "pmr-pause");
-assert.equal(harness.calls.menuItems[1].id, "pmr-stop");
-
-// Pause PMR
-await latestSession.pause();
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(harness.calls.menuItems[0].id, "pmr-resume");
-assert.equal(harness.calls.menuItems[1].id, "pmr-stop");
-
-// Resume PMR
-await latestSession.resume();
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(harness.calls.menuItems[0].id, "pmr-pause");
 
 // 3. Switch practice via practiceSelected event
 latestEventHandler({ type: "practiceSelected", practiceId: "breathing" });
@@ -340,7 +374,6 @@ assert.equal(latestSpec.kind, "breathing");
 assert.equal(latestSpec.practiceId, "guided-breathing");
 assert.equal(latestSpec.patterns.length, 4);
 assert.equal(latestSpec.patternId, "box");
-assert.equal(harness.calls.menuItems[0].id, "breathing-pause");
 
 latestEventHandler({ type: "patternChanged", patternId: "calming" });
 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -355,20 +388,62 @@ assert.equal(latestSpec.patternId, "calming");
 assert.equal(latestSpec.info.sections[0].cards.find((card) => card.highlighted).title, t("guided.pattern.calming.heading"));
 assert.equal(buildGuidedDescriptor(harness.ctx, false, true, "not-a-pattern").patternId, "box");
 
-// 5. Grounding is self-paced: no lead-in countdown, and the pet menu only
-// offers Stop (there is no clock to pause).
+// 5. Grounding is self-paced: no lead-in countdown.
 await harness.runCommand("start-grounding");
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(latestSpec.kind, "grounding");
 assert.equal(latestSpec.practiceId, "grounding");
 assert.equal(latestSpec.countdownSeconds, 0);
-assert.deepEqual(harness.calls.menuItems.map((item) => item.id), ["grounding-stop"]);
 assert.equal(buildGroundingDescriptor(harness.ctx, false).steps.length, 5);
 
-// 6. Stop session
+// 6. Guided meditation plays through the host player; Japanese hears English
+// narration with a note, English does not show one.
+await harness.runCommand("start-meditation");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "player");
+assert.equal(latestSpec.practiceId, "meditation");
+assert.equal(latestSpec.tracks.length, 8);
+assert.equal(latestSpec.narrationNote, undefined);
+latestEventHandler({ type: "patternChanged", patternId: "vagus-nerve-delta-descent" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_MEDITATION), "vagus-nerve-delta-descent");
+const meditationUpdate = sessionUpdates.at(-1);
+assert.equal(meditationUpdate.info.sections.flatMap((section) => section.cards ?? []).find((card) => card.highlighted).title, t("meditation.vagus-nerve-delta-descent.title"));
+await harness.runCommand("start-meditation");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.trackId, "vagus-nerve-delta-descent");
+const jaCtx = { ...harness.ctx, locale: "ja", t: (key) => harness.ctx.t(key), assets: harness.ctx.assets };
+const jaMeditation = buildMeditationDescriptor(jaCtx, false);
+assert.equal(jaMeditation.narrationNote, t("meditation.narrationNote"));
+assert.ok(jaMeditation.tracks[0].segments[0].audioUrl.includes("/guided-meditation/en/"));
+
+// 6b. Visualization uses the same player and remembers the last scene.
+await harness.runCommand("start-visualization");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "player");
+assert.equal(latestSpec.practiceId, "visualization");
+latestEventHandler({ type: "patternChanged", patternId: "cozyRainyCabin" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_VISUALIZATION), "cozyRainyCabin");
+assert.equal(buildVisualizationDescriptor(harness.ctx, false, "cozyRainyCabin").trackId, "cozyRainyCabin");
+
+// 6c. Relaxing sounds open the soundscape mixer and remember the scene.
+await harness.runCommand("start-sounds");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.kind, "soundscape");
+assert.equal(latestSpec.practiceId, "sounds");
+latestEventHandler({ type: "patternChanged", patternId: "fireplace" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(await harness.ctx.storage.get(STORAGE_KEY_LAST_SOUNDSCAPE), "fireplace");
+await harness.runCommand("start-sounds");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(latestSpec.sceneId, "fireplace");
+
+// 7. Session controls live on the session card; the pet menu never gains
+// pause/resume/stop items.
 await latestSession.stop();
 await new Promise((resolve) => setTimeout(resolve, 0));
-assert.deepEqual(harness.calls.menuItems, [], "stopping session must clear menu items");
+assert.deepEqual(harness.calls.menuItems, []);
 
 await harness.stop();
 console.log("openpets.anxiety-aid-tools golden test passed");

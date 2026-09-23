@@ -48,7 +48,16 @@
       "pmr-right-foot-tense": "assets/pmr/right-foot-tense.svg",
       "pmr-right-foot-release": "assets/pmr/right-foot-release.svg",
       "pmr-left-foot-tense": "assets/pmr/left-foot-tense.svg",
-      "pmr-left-foot-release": "assets/pmr/left-foot-release.svg"
+      "pmr-left-foot-release": "assets/pmr/left-foot-release.svg",
+      "visualization-mountain-peak-sunrise": "assets/visualization/mountain-peak-sunrise.svg",
+      "visualization-tranquil-forest-grove": "assets/visualization/tranquil-forest-grove.svg",
+      "visualization-peaceful-ocean-beach": "assets/visualization/peaceful-ocean-beach.svg",
+      "visualization-serene-garden-paradise": "assets/visualization/serene-garden-paradise.svg",
+      "visualization-starlit-meadow-night": "assets/visualization/starlit-meadow-night.svg",
+      "visualization-cozy-rainy-cabin": "assets/visualization/cozy-rainy-cabin.svg",
+      "visualization-misty-lakeside-dawn": "assets/visualization/misty-lakeside-dawn.svg",
+      "visualization-sunlit-desert-oasis": "assets/visualization/sunlit-desert-oasis.svg",
+      "visualization-floating-cloud-sanctuary": "assets/visualization/floating-cloud-sanctuary.svg"
     },
     "sounds": {
       "breath-in": "assets/breath-in.mp3",
@@ -61,7 +70,26 @@
       "guided-energizing-out": "assets/guided/energizing-out.mp3",
       "guided-quick-in": "assets/guided/quick-in.mp3",
       "guided-quick-out": "assets/guided/quick-out.mp3"
+    },
+    "images": {
+      "meditation-physiological-sigh-reset": "assets/meditation/physiological-sigh-reset.webp",
+      "meditation-structural-realignment-protocol": "assets/meditation/structural-realignment-protocol.webp",
+      "meditation-kinetic-grounding-sequence": "assets/meditation/kinetic-grounding-sequence.webp",
+      "meditation-hypnagogic-induction-sequence": "assets/meditation/hypnagogic-induction-sequence.webp",
+      "meditation-vagus-nerve-delta-descent": "assets/meditation/vagus-nerve-delta-descent.webp",
+      "meditation-oceanic-consciousness-projection": "assets/meditation/oceanic-consciousness-projection.webp",
+      "meditation-infinite-horizon-projection": "assets/meditation/infinite-horizon-projection.webp",
+      "meditation-metta-loving-kindness-protocol": "assets/meditation/metta-loving-kindness-protocol.webp",
+      "sounds-ocean-beach": "assets/sounds/ocean-beach.webp",
+      "sounds-rain-on-tent": "assets/sounds/rain-on-tent.webp",
+      "sounds-fireplace": "assets/sounds/fireplace.webp",
+      "sounds-japanese-garden": "assets/sounds/japanese-garden.webp",
+      "sounds-night-cricket-rain": "assets/sounds/night-cricket-rain.webp",
+      "sounds-rainy-cafe": "assets/sounds/rainy-cafe.webp",
+      "sounds-thunderstorm": "assets/sounds/thunderstorm.webp",
+      "sounds-ancient-vessel": "assets/sounds/ancient-vessel.webp"
     }
   },
-  "permissions": ["ui:session", "commands", "storage"]
+  "permissions": ["ui:session", "commands", "storage", "network"],
+  "network": { "hosts": ["r2.anxietyaidtools.com"] }
 }

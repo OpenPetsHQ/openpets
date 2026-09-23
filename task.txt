@@ -1,7 +1,9 @@
 OpenPets × Anxiety Aid Tools — working design
 =============================================
 
-Status (2026-09-22): four practices run on the pet session surface —
+Status (2026-09-22): seven practices run on the pet session surface —
+guided meditation, peaceful visualization, and relaxing sounds joined
+on the shared media player / soundscape mixer. Earlier four:
 simple breathing (Calm 4-6), guided breathing (box, 4-7-8,
 energizing, quick reset, each with its own AAT audio), progressive
 muscle relaxation, and grounding 5-4-3-2-1. The HUD card sits on top
@@ -133,10 +135,9 @@ Start in one click
   there, but a stressed person does not hunt.
 
 The pet
-  Right-click lists the practices themselves: Breathing / Guided
-  breathing / Muscle relaxation / Grounding. While a run is live the
-  menu adds Pause / Resume / Stop (grounding: Stop only, it has no
-  clock). The pet is not a replacement for the visual. Closing the
+  Right-click lists the seven practices under the Anxiety Aid Tools
+  submenu. No Pause / Resume / Stop items: session controls live on
+  the card only. The pet is not a replacement for the visual. Closing the
   overlay stops honestly; it does not leave a ghost session.
 
 
@@ -213,8 +214,7 @@ No pre-session lecture. First run can show a one-line disclaimer in
 Info and a small first-run note, then get out of the way.
 
 The host overlay owns the clock (not ctx.schedule); sleep/restart
-reconciliation is still open. Pause / Resume / Stop work from both
-the card and the pet menu.
+reconciliation is still open. Pause / Resume / Stop are on the card.
 
 Info for breathing ships the AAT knowledge, rewritten for this UI,
 pattern-aware where it matters, with real PMC/journal citations.
@@ -234,8 +234,9 @@ by default.
 
 Commands (as built): one per practice, titled with the practice name
 — start-breathing, start-guided-breathing, start-pmr,
-start-grounding. Dynamic menu items Pause / Resume / Stop while a run
-exists. Patterns never go in the pet menu; they live on the card.
+start-grounding, start-meditation, start-visualization, start-sounds,
+in the plugin's pet-menu submenu. Patterns never go in the pet menu;
+they live on the card.
 
 Storage (as built): audioCues (mute toggle), lastGuidedPattern.
 Later maybe: customPatterns, stats.
@@ -309,6 +310,109 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-23: fixes from Alvin's in-app pass.
+  - Triangle under the idle pet: a stray "}" at the end of the session
+    CSS made Chromium drop the next rule (the chat panel's display:
+    none), so the hidden panel's lavender tail showed. Removed; the
+    check-in UI test now asserts the pet CSS braces balance.
+  - Relaxing sounds were silent: the mixer fetch()es cached loops and
+    the pet CSP had no connect-src. Added connect-src
+    openpets-session-media:. Per-file media cap 25 → 48MB (the
+    night-cricket-rain bed is a 28MB, 15-minute loop).
+  - Info-only session.update now works for every kind (meditation
+    track switches refresh Info); patterns stay breathing-only.
+  - Pet menu: practices stay in the Anxiety Aid Tools submenu; no
+    Pause / Resume / Stop items while a practice runs.
+  - No em dashes in visible strings (plugin + host session copy).
+  - Visualization covers: SVG tiles from the website's own scene
+    icon (Phosphor) and colour pair; session covers may now be
+    declared svgs as well as images.
+  - Info window: no "Current" badge (the highlight alone marks the
+    choice); cards are two columns at most, an odd last card spans the
+    row, one column under 520px; background fills short pages. Checked
+    all 7 practices × 7 locales at 640 and 480px for overflow/cramped
+    titles. Meditation intro no longer promises "back 15 seconds".
+  - Language: narration follows the locale when a session opens; an
+    open session keeps its language until reopened (no locale-change
+    event in the SDK yet).
+
+2026-09-23 — compact media players (Alvin: "player is too big").
+  Meditation / visualization card 300 → ~199px, sounds → ~169px.
+  The shell header now carries the cover and track (practice hook
+  headerText + a cover in the header icon); its menu lists the
+  tracks/scenes first, then the practices (headerMenuItems; tracks
+  can be picked mid-run, practices only from idle/finished). Controls
+  are a centred transport: ⓘ · previous · round play/pause · next ·
+  mute (sounds: previous/next scene). Removed: separate player row,
+  back-15s, paw footer, sound status/timer/volume rows — sounds show
+  their status in the header subtitle and have one row with the
+  volume slider and a timer button cycling ∞ → 15 → 30 → 60.
+
+2026-09-22 — relaxing sounds (soundscape mixer).
+  New session kind "soundscape": scenes → layers (1–6 https files,
+  volume, loop | random/"wave" interval, fadeIn/fadeOut, crossfade,
+  duration, pan, pitch) + sleep-timer minutes. Same approved-host
+  rule and host media cache as the player (files resolve through
+  openpets-session-media:). Renderer pet-session/
+  soundscape-practice.cjs is a Web Audio port of AAT's
+  utils/ambientAudio.js: looping beds crossfaded at the loop boundary,
+  accents at random/wave intervals with per-play file/volume/pan/pitch,
+  pause = AudioContext.suspend (crossfade hand-offs keep their place),
+  master volume + mute, sleep timer 15/30/60 fades out over 8s and
+  completes. Verified in headless Chromium with the real ocean-beach
+  beds: both decoded and started, the 25s bed crossfaded into a new
+  instance on time.
+  Plugin: "Relaxing sounds" — AAT's 8 environments (43 layers)
+  converted into index.js (the entry loads as one module, no sibling
+  imports), covers assets/sounds/*.webp, names/categories ×7, honest
+  Info (Alvarsson 2010, Buxton 2021 — verified). R2 serves undici /
+  node / browser user agents (only Python-urllib is blocked).
+
+2026-09-22 — peaceful visualization on the player.
+  AAT's 9 scenes × 7 narrated steps from R2 peaceful-visualization/
+  {en|es|pt|zh}/…; captions ×7 (AAT transcripts, OpenCC zh-Hant,
+  ja/ko translated); subtitle = AAT "soundscape · atmosphere" (the
+  scene descriptions overflow 80 chars in es/pt). Honest Info: the
+  imagery evidence is mostly small medical-setting trials — Parizad
+  2021 RCT (COVID-19), Forward 2015 RCT (touch + imagery, joint
+  replacement), Kumari 2023 (small GAD study); AAT's "meta-analysis of
+  36 imagery trials" is really Chen 2012 on meditative therapies and
+  is not repeated. Covers: NOT yet — the image service hit its
+  subscription limit (resets ~2026-09-24); tracks show the placeholder
+  tile until the 9 covers are generated. Practice cap 6 → 8.
+
+2026-09-22 — media player platform + guided meditation (Alvin: do all 3).
+  Decisions (Alvin): one compact player HUD for meditation /
+  visualization / sounds with a cover THUMBNAIL in the card (orb
+  stays the galaxy); generate 9 visualization covers; ja/ko hear
+  English narration with translated captions + a "Narration in
+  English" note.
+  Host: new session kind "player" (tracks → narrated segments with
+  https audioUrl + caption, cover image, segmentGapSeconds,
+  narrationNote). Requires `network`; every segment host must be an
+  approved manifest host (bridge refuses otherwise; desktop test).
+  session-media-cache.ts downloads each segment once through
+  safeHttpFetchBytes (same SSRF/host/redirect guards as ctx.net),
+  keeps it under userData/session-media (1GB LRU, 48MB/file, atomic
+  writes, deduped in-flight) and serves it on the privileged
+  openpets-session-media: scheme (pet CSP media-src); the coordinator
+  only resolves URLs listed in the open descriptor. Plays offline
+  after first listen; if a segment cannot load, its caption stays up
+  ~9s and the track moves on (text-only fallback).
+  Renderer: pet-session/player-practice.cjs — cover + title +
+  category + narration note, track picker (cover thumbs), 3-line
+  fixed caption, part n/N + listened time, ⟲15 / ⏮ / ⏭ / mute,
+  primary play/pause; shared dots/tiles/track rows hidden. Shell got
+  hooks: hidesSharedRows, hidesCount, extraControls, onPause /
+  onResume / onStop, ui.resolveMedia.
+  Plugin: "Guided meditation" practice — AAT's 8 sessions (92
+  segments) streamed from r2.anxietyaidtools.com/guided-meditation/
+  {en|es|pt|zh}/…, covers in assets/meditation/*.webp, captions ×7
+  (en/es/pt/zh from AAT transcripts, zh-Hant via OpenCC, ja/ko
+  translated), own honest session one-liners + Info (Goyal 2014,
+  Hofmann 2010, Hofmann 2011 — verified), last session remembered,
+  pet menu Pause/Resume/Stop meditation. Gap 1.5s as on AAT.
 
 2026-09-22 — guided breathing uses AAT's per-pattern audio (Alvin).
   AAT plays a cue pair recorded for each pattern (4-4-4-4, 4-7-8,

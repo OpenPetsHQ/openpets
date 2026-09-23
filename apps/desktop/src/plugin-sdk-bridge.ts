@@ -185,7 +185,7 @@ export interface PluginHostCapabilities {
     teardown(pluginId: string): void;
   };
   session: {
-    open(opts: { pluginId: string; descriptor: PluginSessionDescriptor; callbacks: { onEvent: (event: PluginSessionEvent) => void; onClosed?: (reason: PluginSessionStopReason) => void } }): Promise<PluginSessionHostHandle>;
+    open(opts: { pluginId: string; descriptor: PluginSessionDescriptor; callbacks: { onEvent: (event: PluginSessionEvent) => void; onClosed?: (reason: PluginSessionStopReason) => void }; mediaHosts?: ReadonlySet<string> }): Promise<PluginSessionHostHandle>;
   };
   secrets: {
     get(pluginId: string, key: string): Promise<string | undefined>;
@@ -655,7 +655,7 @@ export class PluginSdkBridge {
     };
 
     const audio = createPluginAudioApi({ pluginId, state, capabilities: caps, requirePermission, audioPerMinute: quotas.audioPerMinute, resolveAssetRef });
-    const ui = createPluginUiApi({ pluginId, manifest, installPath: record.installPath, state, capabilities: caps, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, resolvePanelPath: (name) => resolveDeclaredPanelPath(manifest, record.installPath, name), normalizeJson, validateMenuItems, validateSayMessage, safeError, logger: this.#logger, onError: (reason) => this.#onError(pluginId, reason), quotas });
+    const ui = createPluginUiApi({ pluginId, manifest, installPath: record.installPath, state, capabilities: caps, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, allowedNetworkHosts: () => allowedNetworkHosts(record, manifest), resolvePanelPath: (name) => resolveDeclaredPanelPath(manifest, record.installPath, name), normalizeJson, validateMenuItems, validateSayMessage, safeError, logger: this.#logger, onError: (reason) => this.#onError(pluginId, reason), quotas });
     const storage = createPluginStorageApi({ pluginId, state, storage: this.#storage, requireActive, requirePermission, guardCallback, validateStorageKey, onError: (reason) => this.#onError(pluginId, reason), safeError, storageSubscriptionsQuota: quotas.storageSubscriptions });
     const config = createPluginConfigApi({ state, getConfig, requireActive });
     const events = createPluginEventsApi({ state, capabilities: caps, requireActive, requirePermission, guardCallback, allowedEventNames, eventSubscriptionsQuota: quotas.eventSubscriptions });
