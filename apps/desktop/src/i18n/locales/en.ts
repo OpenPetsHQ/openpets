@@ -92,7 +92,6 @@ export const en = {
   "session.references": "References",
   "session.readStudy": "Read the study",
   "session.openStudy": "PMC",
-  "session.currentChoice": "Current",
   "session.next": "Next",
   "session.back": "Back",
   "session.finish": "Finish",

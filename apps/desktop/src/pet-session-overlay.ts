@@ -74,7 +74,6 @@ export function buildSessionChrome(): Record<string, string> {
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
-    currentChoice: t("session.currentChoice"),
     next: t("session.next"),
     back: t("session.back"),
     finish: t("session.finish"),

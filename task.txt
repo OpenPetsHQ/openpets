@@ -328,6 +328,11 @@ Newest first.
   - Visualization covers: SVG tiles from the website's own scene
     icon (Phosphor) and colour pair; session covers may now be
     declared svgs as well as images.
+  - Info window: no "Current" badge (the highlight alone marks the
+    choice); cards are two columns at most, an odd last card spans the
+    row, one column under 520px; background fills short pages. Checked
+    all 7 practices × 7 locales at 640 and 480px for overflow/cramped
+    titles. Meditation intro no longer promises "back 15 seconds".
   - Language: narration follows the locale when a session opens; an
     open session keeps its language until reopened (no locale-change
     event in the SDK yet).

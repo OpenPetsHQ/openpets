@@ -65,7 +65,6 @@ export const es419: Partial<Messages> = {
   "session.references": "Referencias",
   "session.readStudy": "Leer el estudio",
   "session.openStudy": "PMC",
-  "session.currentChoice": "Actual",
   "session.next": "Siguiente",
   "session.back": "Atrás",
   "session.finish": "Terminar",
