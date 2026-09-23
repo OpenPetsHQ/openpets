@@ -18,7 +18,7 @@ function request(path, body = {}, headers = {}) {
   return new Request(`https://broker.example.test${path}`, {
     method: "POST",
     headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", "cf-connecting-ip": "203.0.113.4", ...headers },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ pluginId: "openpets.deadline-buddy", ...body }),
   });
 }
 
@@ -180,6 +180,8 @@ test("rejects arbitrary methods, operations, scopes, and excessive windows befor
   assert.equal(unsupportedProvider.status, 400);
   const excessiveRange = await handleRequest(request("/v1/calendar/events", { provider: "google", calendarId: "x", from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" }), CONFIG, { fetchImpl: upstream.fetchImpl });
   assert.equal(excessiveRange.status, 400);
+  const invalidPlugin = await handleRequest(request("/v1/calendar/status", { provider: "google", pluginId: "../other-plugin" }), CONFIG, { fetchImpl: upstream.fetchImpl });
+  assert.equal(invalidPlugin.status, 400);
   const oversizedBody = await handleRequest(request("/v1/calendar/status", { provider: "google", padding: "x".repeat(20_000) }), CONFIG, { fetchImpl: upstream.fetchImpl });
   assert.equal(oversizedBody.status, 413);
   const invalidTimeZone = await handleRequest(request("/v1/calendar/events", { provider: "google", calendarId: "x", from: "2026-01-01T00:00:00Z", to: "2026-01-02T00:00:00Z", calendarTimeZone: "Not/A_Timezone" }), CONFIG, { fetchImpl: upstream.fetchImpl });
@@ -203,4 +205,65 @@ test("ignores connected accounts with mismatched ownership or configured auth", 
   ] }));
   const response = await handleRequest(request("/v1/calendar/status", { provider: "google" }), CONFIG, { fetchImpl: upstream.fetchImpl });
   assert.equal((await payload(response)).state, "not_connected");
+});
+
+test("single Google all-day event fetch resolves the calendar timezone when the caller omits it", async () => {
+  const upstream = fakeComposio((url, init) => {
+    if (url.includes("/connected_accounts?")) return connectedAccount(url);
+    const endpoint = new URL(init.body.endpoint);
+    assert.equal(init.body.method, "GET");
+    if (endpoint.pathname === "/calendar/v3/users/me/calendarList/primary") {
+      assert.equal(endpoint.searchParams.get("fields"), "id,timeZone");
+      return { status: 200, data: { id: "primary", timeZone: "America/Los_Angeles" } };
+    }
+    if (endpoint.pathname === "/calendar/v3/calendars/primary/events/event-all-day") {
+      return { status: 200, data: {
+        id: "event-all-day", summary: "Workshop", status: "confirmed",
+        start: { date: "2026-03-08" }, end: { date: "2026-03-09" },
+      } };
+    }
+    throw new Error(`Unexpected provider URL ${endpoint}`);
+  });
+
+  const response = await handleRequest(request("/v1/calendar/event", {
+    provider: "google", calendarId: "primary", eventId: "event-all-day",
+  }), CONFIG, { fetchImpl: upstream.fetchImpl });
+  const result = await payload(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(result.timeZone, "America/Los_Angeles");
+  assert.equal(result.dueAt, "2026-03-09T06:59:59.999Z");
+  assert.equal(upstream.calls.filter((call) => call.url.endsWith("/tools/execute/proxy")).length, 2);
+});
+
+test("calendar account ownership and disconnect are isolated by plugin", async () => {
+  const accounts = [];
+  const removed = [];
+  const upstream = fakeComposio((url, init) => {
+    if (url.includes("/connected_accounts?")) return { items: accounts };
+    const accountId = /\/connected_accounts\/(ca_[^/?]+)/.exec(url)?.[1];
+    if (url.endsWith(`/${accountId}/revoke`)) { removed.push(accountId); return { revoked_tokens: [] }; }
+    if (url.includes(`/${accountId}?revoke_on_delete=true`)) { removed.push(accountId); return { deleted: true }; }
+    throw new Error(`Unexpected Composio URL ${url}`);
+  });
+
+  for (const pluginId of ["openpets.deadline-buddy", "openpets.other-calendar"]) {
+    const response = await handleRequest(request("/v1/calendar/status", { provider: "google", pluginId }), CONFIG, { fetchImpl: upstream.fetchImpl });
+    assert.equal(response.status, 200);
+  }
+  const userIds = upstream.calls
+    .filter((call) => call.url.includes("/connected_accounts?"))
+    .map((call) => new URL(call.url).searchParams.get("user_ids"));
+  assert.notEqual(userIds[0], userIds[1], "each plugin must have a distinct Composio owner id for one local profile");
+
+  accounts.push(
+    { id: "ca_plugin_a123", user_id: userIds[0], status: "ACTIVE", toolkit: { slug: "googlecalendar" }, auth_config: { id: "ac_google_read_only" }, experimental: { account_type: "PRIVATE" } },
+    { id: "ca_plugin_b123", user_id: userIds[1], status: "ACTIVE", toolkit: { slug: "googlecalendar" }, auth_config: { id: "ac_google_read_only" }, experimental: { account_type: "PRIVATE" } },
+  );
+  const disconnect = await handleRequest(request("/v1/calendar/disconnect", {
+    provider: "google", pluginId: "openpets.deadline-buddy",
+  }), CONFIG, { fetchImpl: upstream.fetchImpl });
+
+  assert.equal(disconnect.status, 200);
+  assert.deepEqual(removed, ["ca_plugin_a123", "ca_plugin_a123"]);
 });

@@ -728,14 +728,15 @@ await scenario("calendar connector is permission-gated, input-validated, and quo
   assert.ok(approvedRecord);
 
   let forwardedCalls = 0;
+  const forwardedPluginIds: string[] = [];
   let forwardedRange: { from: string; to: string; calendarTimeZone?: string } | undefined;
   capabilities.calendar = {
-    connect: async (_pluginId, provider) => { forwardedCalls += 1; return { state: provider === "google" ? "already_connected" : "pending" }; },
-    status: async (_pluginId, provider) => { forwardedCalls += 1; return { provider, state: "connected", checkedAt: "2026-09-23T12:00:00.000Z" }; },
-    disconnect: async () => { forwardedCalls += 1; },
-    listCalendars: async () => { forwardedCalls += 1; return { calendars: [], truncated: false }; },
-    listEvents: async (_pluginId, _provider, _calendarId, range) => { forwardedCalls += 1; forwardedRange = range; return { events: [], truncated: false }; },
-    getEvent: async (_pluginId, _provider, _calendarId, _eventId, calendarTimeZone) => { forwardedCalls += 1; assert.equal(calendarTimeZone, "Europe/London"); return null; },
+    connect: async (pluginId, provider) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; return { state: provider === "google" ? "already_connected" : "pending" }; },
+    status: async (pluginId, provider) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; return { provider, state: "connected", checkedAt: "2026-09-23T12:00:00.000Z" }; },
+    disconnect: async (pluginId) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; },
+    listCalendars: async (pluginId) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; return { calendars: [], truncated: false }; },
+    listEvents: async (pluginId, _provider, _calendarId, range) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; forwardedRange = range; return { events: [], truncated: false }; },
+    getEvent: async (pluginId, _provider, _calendarId, _eventId, calendarTimeZone) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; assert.equal(calendarTimeZone, "Europe/London"); return null; },
   };
   const calendarApi = bridge.createApi(approvedRecord, manifest({ permissions: [...manifest().permissions, "calendar:connect"] }));
 
@@ -746,6 +747,7 @@ await scenario("calendar connector is permission-gated, input-validated, and quo
   assert.deepEqual(forwardedRange, { from: "2026-09-23T12:00:00.000Z", to: "2026-09-24T12:00:00.000Z", calendarTimeZone: "Europe/London" });
   assert.equal(await calendarApi.calendar.getEvent("google", "primary", "event-1", "Europe/London"), null);
   await calendarApi.calendar.disconnect("google");
+  assert.deepEqual(forwardedPluginIds, Array(6).fill("plug"), "host calls retain the manifest plugin id needed for account isolation");
 
   await assert.rejects(() => Reflect.apply(calendarApi.calendar.connect, calendarApi.calendar, ["zoom"]), /Calendar provider is not supported/);
   await assert.rejects(() => calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00", to: "2026-09-24T12:00:00Z" }), /ISO UTC/);

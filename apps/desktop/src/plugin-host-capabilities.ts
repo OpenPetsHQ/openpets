@@ -246,12 +246,12 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       signOut: async (pluginId, provider) => { try { await oauthBroker.signOut(pluginId, provider); } catch (error) { warn("plugin", "oauth signout failed", { pluginId, provider, reason: error instanceof Error ? error.message : "unknown", errorCode: classifyPluginError(error) }); throw error; } },
     },
     calendar: {
-      connect: (_pluginId, provider, signal) => calendarBroker.connect(provider, signal),
-      status: (_pluginId, provider, signal) => calendarBroker.status(provider, signal),
-      disconnect: (_pluginId, provider, signal) => calendarBroker.disconnect(provider, signal),
-      listCalendars: (_pluginId, provider, signal) => calendarBroker.listCalendars(provider, signal),
-      listEvents: (_pluginId, provider, calendarId, range, signal) => calendarBroker.listEvents(provider, calendarId, range, signal),
-      getEvent: (_pluginId, provider, calendarId, eventId, calendarTimeZone, signal) => calendarBroker.getEvent(provider, calendarId, eventId, calendarTimeZone, signal),
+      connect: (pluginId, provider, signal) => calendarBroker.connect(pluginId, provider, signal),
+      status: (pluginId, provider, signal) => calendarBroker.status(pluginId, provider, signal),
+      disconnect: (pluginId, provider, signal) => calendarBroker.disconnect(pluginId, provider, signal),
+      listCalendars: (pluginId, provider, signal) => calendarBroker.listCalendars(pluginId, provider, signal),
+      listEvents: (pluginId, provider, calendarId, range, signal) => calendarBroker.listEvents(pluginId, provider, calendarId, range, signal),
+      getEvent: (pluginId, provider, calendarId, eventId, calendarTimeZone, signal) => calendarBroker.getEvent(pluginId, provider, calendarId, eventId, calendarTimeZone, signal),
     },
     files: {
       async pick(opts) {

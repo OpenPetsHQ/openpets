@@ -4,7 +4,9 @@ This Cloudflare Worker is the server-side Composio boundary used by the
 OpenPets SDK calendar capability. It is intentionally separate from plugin
 source. The worker accepts a host-only, OS-encrypted local-profile bearer,
 derives an opaque Composio user ID with HMAC, and proxies only allowlisted
-read-only Google Calendar and Microsoft Graph operations. Plugin code cannot
+read-only Google Calendar and Microsoft Graph operations. It derives a distinct
+Composio owner for each local-profile/plugin pair, so one plugin cannot revoke
+another plugin's calendar connection. Plugin code cannot
 call this worker directly through its general network API and never receives
 provider tokens, Composio account IDs, or raw provider payloads.
 
@@ -27,7 +29,7 @@ OpenPets maintainers need to:
    alerts/limits and abuse monitoring.
 4. Create a random HMAC key with at least 32 bytes of entropy. Keep it stable
    across deployments; rotating it changes all Composio user IDs and strands
-   existing local-profile connections unless they are migrated.
+   existing local-profile/plugin connections unless they are migrated.
 5. Review the Cloudflare rate-limit namespace IDs and limits against the
    target account and configure deployment monitoring.
 6. Approve the OAuth callback identity-verification strategy before public
@@ -61,16 +63,16 @@ available.
 ## Security boundaries and limits
 
 - Fixed routes and provider origins; only GET provider endpoints are executed.
-- Only connected accounts matching the local user ID, provider toolkit,
-  configured auth ID, and private ownership are accepted.
+- Only connected accounts matching the derived local-profile/plugin owner,
+  provider toolkit, configured auth ID, and private ownership are accepted.
 - The broker never supports arbitrary URLs, methods, tool names, or scopes.
 - Event results are minimized to ID, calendar ID, title, status, timestamps,
   all-day dates, and timezone; descriptions and attendees are discarded.
 - Request bodies are size-limited; event windows are capped at 92 days and
   pagination at 300 rows.
-- Per-profile, per-IP, and connect-link rate-limit bindings fail closed when
-  missing. Cloudflare documents these limits as approximate and local to a
-  data-center location, so they are not a strict usage/billing ceiling.
+- Per-profile/plugin, per-IP, and connect-link rate-limit bindings fail closed
+  when missing. Cloudflare documents these limits as approximate and local to
+  a data-center location, so they are not a strict usage/billing ceiling.
 
 See [Cloudflare Worker Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) for its current semantics, and check current [Composio pricing](https://composio.dev/pricing) before public rollout. Both services may change their plans or limits.
 

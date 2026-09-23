@@ -9,7 +9,7 @@ import type {
 
 const BROKER_ORIGIN = "https://calendar-broker.openpets.dev";
 const CONNECT_ORIGIN = "https://connect.composio.dev";
-const MAX_RESPONSE_CHARS = 512 * 1024;
+const MAX_RESPONSE_BYTES = 512 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export interface CalendarBrokerClientOptions {
@@ -37,8 +37,8 @@ export class CalendarBrokerClient {
     this.#origin = origin.origin;
   }
 
-  async connect(provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" }> {
-    const result = await this.#post("/v1/calendar/connect", { provider }, signal);
+  async connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" }> {
+    const result = await this.#post(pluginId, "/v1/calendar/connect", { provider }, signal);
     if (!isRecord(result)) {
       throw new Error("Calendar broker returned an invalid connection result.");
     }
@@ -55,9 +55,9 @@ export class CalendarBrokerClient {
     }
   }
 
-  async status(provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus> {
+  async status(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus> {
     try {
-      return validateStatus(await this.#post("/v1/calendar/status", { provider }, signal), provider);
+      return validateStatus(await this.#post(pluginId, "/v1/calendar/status", { provider }, signal), provider);
     } catch (error) {
       if (signal?.aborted) throw error;
       if (isTransportError(error)) return { provider, state: "offline", checkedAt: new Date().toISOString() };
@@ -65,24 +65,25 @@ export class CalendarBrokerClient {
     }
   }
 
-  async disconnect(provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<void> {
-    await this.#post("/v1/calendar/disconnect", { provider }, signal);
+  async disconnect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<void> {
+    await this.#post(pluginId, "/v1/calendar/disconnect", { provider }, signal);
   }
 
-  async listCalendars(provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarListResult> {
-    return validateCalendarList(await this.#post("/v1/calendar/calendars", { provider }, signal));
+  async listCalendars(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarListResult> {
+    return validateCalendarList(await this.#post(pluginId, "/v1/calendar/calendars", { provider }, signal));
   }
 
-  async listEvents(provider: OpenPetsCalendarProvider, calendarId: string, range: { from: string; to: string; calendarTimeZone?: string }, signal?: AbortSignal): Promise<OpenPetsCalendarEventListResult> {
-    return validateEventList(await this.#post("/v1/calendar/events", { provider, calendarId, ...range }, signal));
+  async listEvents(pluginId: string, provider: OpenPetsCalendarProvider, calendarId: string, range: { from: string; to: string; calendarTimeZone?: string }, signal?: AbortSignal): Promise<OpenPetsCalendarEventListResult> {
+    return validateEventList(await this.#post(pluginId, "/v1/calendar/events", { provider, calendarId, ...range }, signal));
   }
 
-  async getEvent(provider: OpenPetsCalendarProvider, calendarId: string, eventId: string, calendarTimeZone?: string, signal?: AbortSignal): Promise<OpenPetsCalendarEvent | null> {
-    const result = await this.#post("/v1/calendar/event", { provider, calendarId, eventId, ...(calendarTimeZone ? { calendarTimeZone } : {}) }, signal);
+  async getEvent(pluginId: string, provider: OpenPetsCalendarProvider, calendarId: string, eventId: string, calendarTimeZone?: string, signal?: AbortSignal): Promise<OpenPetsCalendarEvent | null> {
+    const result = await this.#post(pluginId, "/v1/calendar/event", { provider, calendarId, eventId, ...(calendarTimeZone ? { calendarTimeZone } : {}) }, signal);
     return result === null ? null : validateEvent(result);
   }
 
-  async #post(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  async #post(pluginId: string, path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    if (!/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(pluginId)) throw new Error("Calendar plugin id is invalid.");
     const credential = await this.#getCredential();
     if (!/^[A-Za-z0-9_-]{43}$/.test(credential)) throw new Error("Local calendar profile identity is invalid.");
     const controller = new AbortController();
@@ -93,15 +94,14 @@ export class CalendarBrokerClient {
       const response = await this.#fetch(`${this.#origin}${path}`, {
         method: "POST",
         headers: { authorization: `Bearer ${credential}`, "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, pluginId }),
         signal: controller.signal,
         redirect: "error",
         cache: "no-store",
         credentials: "omit",
       });
       if (!response.ok) throw new CalendarBrokerError(`Calendar broker returned HTTP ${response.status}.`, response.status);
-      const text = await response.text();
-      if (text.length > MAX_RESPONSE_CHARS) throw new Error("Calendar broker response is too large.");
+      const text = await readBoundedResponseText(response);
       try {
         const result: unknown = JSON.parse(text);
         return result;
@@ -116,6 +116,38 @@ export class CalendarBrokerClient {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
     }
+  }
+}
+
+async function readBoundedResponseText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (totalBytes + value.byteLength > MAX_RESPONSE_BYTES) {
+        try { await reader.cancel(); } catch { /* The stream may already have failed. */ }
+        throw new CalendarBrokerError("Calendar broker response is too large.", 502);
+      }
+      totalBytes += value.byteLength;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new CalendarBrokerError("Calendar broker returned invalid JSON.", 502);
   }
 }
 

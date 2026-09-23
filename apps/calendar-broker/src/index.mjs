@@ -27,7 +27,8 @@ export async function handleRequest(request, env, { fetchImpl = fetch, now = () 
     const token = parseBearer(request.headers.get("authorization"));
     const body = await readJsonBody(request);
     const provider = parseProvider(body.provider);
-    const userId = await deriveComposioUserId(token, env.COMPOSIO_IDENTITY_HMAC_KEY);
+    const pluginId = parsePluginId(body.pluginId);
+    const userId = await deriveComposioUserId(token, pluginId, env.COMPOSIO_IDENTITY_HMAC_KEY);
     await enforceRateLimits(env, request, userId, route);
     const context = { env, fetchImpl, provider, userId, now };
 
@@ -122,7 +123,10 @@ async function listEvents(context, body) {
       "$select": "id,subject,start,end,isAllDay,isCancelled,originalStartTimeZone,originalEndTimeZone",
     });
   const { rows, truncated, calendarTimeZone } = await listProviderPages(context, account, url, "events", calendarId);
-  const effectiveTimeZone = requestedTimeZone ?? calendarTimeZone;
+  let effectiveTimeZone = requestedTimeZone ?? calendarTimeZone;
+  if (context.provider === "google" && !effectiveTimeZone && rows.some(isGoogleAllDayEvent)) {
+    effectiveTimeZone = await fetchGoogleCalendarTimeZone(context, account, calendarId);
+  }
   const events = [];
   for (const row of rows) {
     const event = await normalizeEvent(context, account, calendarId, row, effectiveTimeZone);
@@ -139,7 +143,25 @@ async function getEvent(context, body) {
   const calendarTimeZone = parseOptionalTimeZone(body.calendarTimeZone);
   const row = await fetchProviderEvent(context, account, calendarId, eventId, calendarTimeZone);
   if (!row || row.status === "cancelled" || row.isCancelled === true) return null;
-  return normalizeEvent(context, account, calendarId, row, calendarTimeZone);
+  const effectiveTimeZone = context.provider === "google" && !calendarTimeZone && isGoogleAllDayEvent(row)
+    ? await fetchGoogleCalendarTimeZone(context, account, calendarId)
+    : calendarTimeZone;
+  return normalizeEvent(context, account, calendarId, row, effectiveTimeZone);
+}
+
+function isGoogleAllDayEvent(row) {
+  return typeof row?.start?.date === "string" && typeof row?.end?.date === "string";
+}
+
+async function fetchGoogleCalendarTimeZone(context, account, calendarId) {
+  const endpoint = googleUrl(`/calendar/v3/users/me/calendarList/${encodeURIComponent(calendarId)}`, { fields: "id,timeZone" });
+  const response = await proxyGet(context, account, endpoint);
+  if (response.status === 401 || response.status === 403) throw httpError(409, "reauth_required");
+  if (response.status < 200 || response.status >= 300) throw httpError(502, "calendar_provider_unavailable");
+  if (response.data?.id !== calendarId) throw httpError(502, "calendar_provider_invalid_response");
+  const timeZone = safeTimeZone(response.data?.timeZone);
+  if (!timeZone) throw httpError(502, "calendar_timezone_unavailable");
+  return timeZone;
 }
 
 async function fetchProviderEvent(context, account, calendarId, eventId, preferTimeZone) {
@@ -174,6 +196,7 @@ async function normalizeEvent(context, account, calendarId, row, calendarTimeZon
       // Google all-day dates are interpreted in the calendar's timezone; event-level
       // timezone fields have no significance for all-day events.
       const timeZone = calendarTimeZone ?? safeTimeZone(start.timeZone) ?? safeTimeZone(end.timeZone);
+      if (!timeZone) throw httpError(502, "calendar_timezone_unavailable");
       return {
         id, calendarId, title, status: row.status === "cancelled" ? "cancelled" : "confirmed",
         allDay: true, startDate, endDateExclusive,
@@ -334,7 +357,7 @@ function assertAllowedProviderUrl(provider, endpoint, calendarId, expectedPath) 
   const origin = provider === "google" ? GOOGLE_ORIGIN : OUTLOOK_ORIGIN;
   if (url.origin !== origin || url.username || url.password || url.hash) throw httpError(400, "invalid_provider_endpoint");
   const pathAllowed = provider === "google"
-    ? /^\/calendar\/v3\/(?:users\/me\/calendarList|calendars\/[^/]+\/events(?:\/[^/]+)?)$/.test(url.pathname)
+    ? /^\/calendar\/v3\/(?:users\/me\/calendarList(?:\/[^/]+)?|calendars\/[^/]+\/events(?:\/[^/]+)?)$/.test(url.pathname)
     : /^\/v1\.0\/me\/(?:calendars|calendars\/[^/]+\/(?:calendarView|events\/[^/]+))$/.test(url.pathname);
   if (!pathAllowed || (expectedPath && url.pathname !== expectedPath)) throw httpError(400, "invalid_provider_endpoint");
   if (calendarId) {
@@ -362,10 +385,11 @@ function parseBearer(value) {
   return match[1];
 }
 
-async function deriveComposioUserId(token, secret) {
+async function deriveComposioUserId(token, pluginId, secret) {
   if (typeof secret !== "string" || new TextEncoder().encode(secret).byteLength < 32) throw httpError(503, "broker_not_configured");
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(token)));
+  const ownerInput = `${pluginId}:${token}`;
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ownerInput)));
   return `openpets_local_${toHex(digest).slice(0, 48)}`;
 }
 
@@ -420,6 +444,11 @@ async function readJsonBody(request) {
 
 function parseProvider(value) {
   if (typeof value !== "string" || !ALLOWED_PROVIDER.has(value)) throw httpError(400, "unsupported_provider");
+  return value;
+}
+
+function parsePluginId(value) {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(value)) throw httpError(400, "invalid_plugin_id");
   return value;
 }
 
