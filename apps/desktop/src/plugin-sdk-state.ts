@@ -46,6 +46,7 @@ export type PluginRuntimeState = {
   petWindow: WindowCounter;
   logWindow: WindowCounter;
   httpWindow: WindowCounter;
+  calendarWindow: WindowCounter;
   busWindow: WindowCounter;
   audioWindow: WindowCounter;
   notifyWindow: WindowCounter;

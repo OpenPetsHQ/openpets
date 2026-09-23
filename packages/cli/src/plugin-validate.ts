@@ -19,7 +19,7 @@ const v3Permissions = [
   ...v2Permissions,
   "pet:interact", "pet:pin", "pet:animate", "pet:speak:dynamic", "pet:drop", "pets:read", "pets:manage",
   "audio", "events", "ui:toast", "ui:panel", "ui:delivery", "ui:session", "notify", "bus", "ai", "secrets", "voice:speak", "voice:listen",
-  "auth", "files", "system:openExternal", "system:metrics", "clipboard", "network:write", "network:local",
+  "auth", "calendar:connect", "files", "system:openExternal", "system:metrics", "clipboard", "network:write", "network:local",
 ];
 const configFieldTypesV2 = ["text", "textarea", "number", "boolean", "select", "time", "multiSelect", "list"];
 const configFieldTypesV3 = [...configFieldTypesV2, "date", "secret", "sound"];

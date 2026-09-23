@@ -213,6 +213,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "voice:speak": "Voice Output",
   "voice:listen": "Microphone",
   auth: "Authentication",
+  "calendar:connect": "Calendar Access",
   files: "File System",
   "system:openExternal": "Open Links",
   "system:metrics": "System Metrics",
@@ -252,6 +253,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "voice:speak": "Generates synthesized voice speech output",
   "voice:listen": "Listens to microphone audio for voice commands",
   auth: "Handles plugin sign-in and authentication tokens",
+  "calendar:connect": "Connects read-only calendar accounts and reads calendar events",
   files: "Reads or writes files on your file system",
   "system:openExternal": "Opens links in your default web browser",
   "system:metrics": "Reads local CPU and system performance metrics",
@@ -265,6 +267,7 @@ const SENSITIVE_PERMISSIONS = new Set<string>([
   "network:local",
   "files",
   "secrets",
+  "calendar:connect",
 ]);
 
 export function getPermissionLabel(permission: string, t?: (key: string) => string): string {

@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openpets-calendar-broker",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-23",
+  "workers_dev": true,
+  "ratelimits": [
+    {
+      "name": "PROFILE_RATE_LIMITER",
+      "namespace_id": "9020401",
+      "simple": { "limit": 100, "period": 60 }
+    },
+    {
+      "name": "IP_RATE_LIMITER",
+      "namespace_id": "9020402",
+      "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "LINK_RATE_LIMITER",
+      "namespace_id": "9020403",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ]
+}

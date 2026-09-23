@@ -264,6 +264,13 @@ export const sdkCallHandlers: Record<PluginSdkRoute, SdkCallHandler> = {
   "auth.oauth": (sdk, args) => sdk.auth.oauth(args[0]),
   "auth.refresh": (sdk, args) => sdk.auth.refresh(args[0]),
   "auth.signOut": (sdk, args) => sdk.auth.signOut(args[0]),
+  // Calendar.
+  "calendar.connect": (sdk, args) => sdk.calendar.connect(args[0]),
+  "calendar.status": (sdk, args) => sdk.calendar.status(args[0]),
+  "calendar.disconnect": (sdk, args) => sdk.calendar.disconnect(args[0]),
+  "calendar.listCalendars": (sdk, args) => sdk.calendar.listCalendars(args[0]),
+  "calendar.listEvents": (sdk, args) => sdk.calendar.listEvents(args[0], args[1], args[2]),
+  "calendar.getEvent": (sdk, args) => sdk.calendar.getEvent(args[0], args[1], args[2], args[3]),
   // Files.
   "files.pick": (sdk, args) => sdk.files.pick(args[0]),
   "files.read": (sdk, args) => sdk.files.read(args[0], args[1]),

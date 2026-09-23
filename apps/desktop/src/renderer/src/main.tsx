@@ -73,7 +73,7 @@ type PluginPermission =
   | "pet:speak" | "pet:reaction" | "pet:move" | "timer" | "schedule" | "storage" | "status" | "commands" | "network"
   | "pet:interact" | "pet:pin" | "pet:animate" | "pet:speak:dynamic" | "pet:drop" | "pets:read" | "pets:manage"
   | "audio" | "events" | "ui:toast" | "ui:panel" | "ui:delivery" | "notify" | "bus" | "ai" | "secrets" | "voice:speak" | "voice:listen"
-  | "auth" | "files" | "system:openExternal" | "system:metrics" | "clipboard" | "network:write" | "network:local";
+  | "auth" | "calendar:connect" | "files" | "system:openExternal" | "system:metrics" | "clipboard" | "network:write" | "network:local";
 type PluginInspectorState = { schedules: Array<{ id: string; type: string; nextRunMs: number }>; commands: PluginCommand[]; menuItems: Array<{ id: string; title: string }>; status?: PluginStatus; activeBubbles: number; activePanels: number; eventSubscriptions: number; lastError?: string; quotaCounters: Record<string, number> };
 type PluginIconName = "plugin" | "bell" | "timer" | "github" | "heart" | "sparkles" | "coffee" | "focus" | "droplet";
 type PluginConfigField = { type: "text" | "textarea" | "number" | "boolean" | "select" | "time" | "date" | "multiSelect" | "list" | "secret" | "sound"; label?: string; description?: string; default?: string | number | boolean | string[] | Array<Record<string, unknown>>; options?: Array<{ label: string; value: string; previewSprite?: string }>; presentation?: "sprite-grid" | string; min?: number; max?: number; step?: number; maxLength?: number; maxItems?: number; itemSchema?: Record<string, PluginConfigField> };
@@ -3121,6 +3121,7 @@ const pluginPermissionLabelKeys: Record<PluginPermission, string> = {
   "voice:speak": "plugins.permission.voice:speak",
   "voice:listen": "plugins.permission.voice:listen",
   auth: "plugins.permission.auth",
+  "calendar:connect": "plugins.permission.calendar:connect",
   files: "plugins.permission.files",
   "system:openExternal": "plugins.permission.system:openExternal",
   "system:metrics": "plugins.permission.system:metrics",
@@ -3128,7 +3129,7 @@ const pluginPermissionLabelKeys: Record<PluginPermission, string> = {
   "network:write": "plugins.permission.network:write",
   "network:local": "plugins.permission.network:local",
 };
-const sensitivePermissionSet = new Set<PluginPermission>(["voice:listen", "clipboard", "pet:speak:dynamic", "network:local"]);
+const sensitivePermissionSet = new Set<PluginPermission>(["voice:listen", "clipboard", "pet:speak:dynamic", "network:local", "calendar:connect"]);
 
 const pluginStatusTone: Record<NonNullable<PluginStatus["tone"]>, keyof typeof statusPillToneClass> = {
   info: "blue",

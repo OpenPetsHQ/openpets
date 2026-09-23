@@ -36,6 +36,7 @@ export type PluginPermission =
   | "voice:speak"
   | "voice:listen"
   | "auth"
+  | "calendar:connect"
   | "files"
   | "system:openExternal"
   | "system:metrics"
@@ -44,7 +45,7 @@ export type PluginPermission =
   | "network:local";
 export type PluginJavascriptPermission = Exclude<PluginPermission, "timer">;
 /** Permissions flagged sensitive in the UI (louder consent, global toggles). */
-export const sensitivePluginPermissions: ReadonlySet<PluginPermission> = new Set(["voice:listen", "clipboard", "pet:speak:dynamic", "network:local", "network:write"]);
+export const sensitivePluginPermissions: ReadonlySet<PluginPermission> = new Set(["voice:listen", "clipboard", "pet:speak:dynamic", "network:local", "network:write", "calendar:connect"]);
 export type PluginIcon = "plugin" | "bell" | "timer" | "github" | "heart" | "sparkles" | "coffee" | "focus" | "droplet";
 export type PluginConfigFieldType = "text" | "textarea" | "number" | "boolean" | "select" | "time" | "date" | "multiSelect" | "list" | "secret" | "sound";
 
@@ -152,6 +153,7 @@ export const pluginV3Permissions = [
   "voice:speak",
   "voice:listen",
   "auth",
+  "calendar:connect",
   "files",
   "system:openExternal",
   "system:metrics",

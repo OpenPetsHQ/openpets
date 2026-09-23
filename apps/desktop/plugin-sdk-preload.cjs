@@ -277,6 +277,14 @@ const sdk = {
     refresh: (provider) => call("auth.refresh", [provider]),
     signOut: (provider) => call("auth.signOut", [provider]),
   },
+  calendar: {
+    connect: (provider) => call("calendar.connect", [provider]),
+    status: (provider) => call("calendar.status", [provider]),
+    disconnect: (provider) => call("calendar.disconnect", [provider]),
+    listCalendars: (provider) => call("calendar.listCalendars", [provider]),
+    listEvents: (provider, calendarId, range) => call("calendar.listEvents", [provider, calendarId, range]),
+    getEvent: (provider, calendarId, eventId, calendarTimeZone) => call("calendar.getEvent", [provider, calendarId, eventId, calendarTimeZone]),
+  },
   files: {
     pick: (opts) => call("files.pick", [opts]).then((files) => (Array.isArray(files) ? files.map(wrapPickedFile) : [])),
     save: (opts) => call("files.save", [opts]),

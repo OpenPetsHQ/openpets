@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import { basename, extname, join } from "node:path";
 
-import { app, clipboard, dialog, nativeTheme, net, Notification, shell } from "electron";
+import { app, clipboard, dialog, nativeTheme, net, Notification, safeStorage, shell } from "electron";
 
 import { getDefaultPetWindowForPlugins } from "./default-pet-controller.js";
 import { getActiveLocaleLang } from "./i18n/index.js";
@@ -12,6 +12,8 @@ import { PluginAiGateway } from "./plugin-ai-gateway.js";
 import { HostProviderService } from "./provider-service.js";
 import { readDroppedFileText, startPluginEventSources, subscribePluginEvent } from "./plugin-events-source.js";
 import { PluginOauthBroker } from "./plugin-oauth.js";
+import { CalendarBrokerClient } from "./plugin-calendar-broker-client.js";
+import { CalendarProfileCredentialStore } from "./plugin-calendar-profile.js";
 import { openPluginPanel } from "./plugin-panels.js";
 import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
 import {
@@ -100,6 +102,11 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
   const providerService = new HostProviderService(secretsStore);
   const aiGateway = new PluginAiGateway(providerService);
   const oauthBroker = new PluginOauthBroker(secretsStore);
+  const calendarProfile = new CalendarProfileCredentialStore(userDataPath, safeStorage);
+  const calendarBroker = new CalendarBrokerClient({
+    getCredential: () => calendarProfile.getOrCreate(),
+    openExternal: (url) => shell.openExternal(url),
+  });
   const pickedFiles = new Map<string, PickedFileEntry>();
   const userSounds = new UserSoundStore(join(userDataPath, "plugin-user-sounds"));
   let nextPickedFileId = 0;
@@ -237,6 +244,14 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       oauth: async (pluginId, config) => { try { return await oauthBroker.oauth(pluginId, config); } catch (error) { warn("plugin", "oauth failed", { pluginId, provider: config.provider, reason: error instanceof Error ? error.message : "unknown", errorCode: classifyPluginError(error) }); throw error; } },
       refresh: async (pluginId, provider) => { try { return await oauthBroker.refresh(pluginId, provider); } catch (error) { warn("plugin", "oauth refresh failed", { pluginId, provider, reason: error instanceof Error ? error.message : "unknown", errorCode: classifyPluginError(error) }); throw error; } },
       signOut: async (pluginId, provider) => { try { await oauthBroker.signOut(pluginId, provider); } catch (error) { warn("plugin", "oauth signout failed", { pluginId, provider, reason: error instanceof Error ? error.message : "unknown", errorCode: classifyPluginError(error) }); throw error; } },
+    },
+    calendar: {
+      connect: (_pluginId, provider, signal) => calendarBroker.connect(provider, signal),
+      status: (_pluginId, provider, signal) => calendarBroker.status(provider, signal),
+      disconnect: (_pluginId, provider, signal) => calendarBroker.disconnect(provider, signal),
+      listCalendars: (_pluginId, provider, signal) => calendarBroker.listCalendars(provider, signal),
+      listEvents: (_pluginId, provider, calendarId, range, signal) => calendarBroker.listEvents(provider, calendarId, range, signal),
+      getEvent: (_pluginId, provider, calendarId, eventId, calendarTimeZone, signal) => calendarBroker.getEvent(provider, calendarId, eventId, calendarTimeZone, signal),
     },
     files: {
       async pick(opts) {

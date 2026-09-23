@@ -7,6 +7,7 @@ export const pluginSdkQuotas = {
   storageSubscriptions: 64,
   logsPerMinute: 200,
   httpPerMinute: 30,
+  calendarPerMinute: 30,
   httpResponseBytes: 4 * 1024 * 1024,
   httpRequestBodyBytes: 256 * 1024,
   streamResponseBytes: 10 * 1024 * 1024,

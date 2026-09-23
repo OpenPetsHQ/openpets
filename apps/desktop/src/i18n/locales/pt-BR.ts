@@ -689,6 +689,7 @@ export const ptBR: Partial<Messages> = {
   "plugins.permission.voice:speak": "Voz",
   "plugins.permission.voice:listen": "Microfone",
   "plugins.permission.auth": "Login",
+  "plugins.permission.calendar:connect": "Conectar e ler calendários",
   "plugins.permission.files": "Arquivos",
   "plugins.permission.system:openExternal": "Abrir links",
   "plugins.permission.system:metrics": "Métricas do sistema",

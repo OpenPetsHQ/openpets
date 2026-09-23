@@ -14,6 +14,7 @@ export const pluginSdkPreloadAsyncRoutes = [
   "secrets.get", "secrets.set", "secrets.delete", "secrets.has",
   "voice.speak", "voice.listen",
   "auth.oauth", "auth.refresh", "auth.signOut",
+  "calendar.connect", "calendar.status", "calendar.disconnect", "calendar.listCalendars", "calendar.listEvents", "calendar.getEvent",
   "files.pick", "files.read", "files.save",
   "system.info", "system.metrics", "system.openExternal", "system.readClipboardText", "system.writeClipboardText",
   "commands.register", "commands.unregister", "status.set", "status.clear", "http.fetch",

@@ -719,6 +719,42 @@ await scenario("assistant handler is not started after generation clear", async 
   assert.equal(calls, 0);
 });
 
+await scenario("calendar connector is permission-gated, input-validated, and quota-limited", async ({ api, bridge, store, capabilities }) => {
+  await assert.rejects(() => api.calendar.status("google"), /permission is not approved: calendar:connect/);
+  const current = store.getRecord("plug");
+  assert.ok(current);
+  store.upsertRecord({ ...current, approvedPermissions: [...current.approvedPermissions, "calendar:connect"] });
+  const approvedRecord = store.getRecord("plug");
+  assert.ok(approvedRecord);
+
+  let forwardedCalls = 0;
+  let forwardedRange: { from: string; to: string; calendarTimeZone?: string } | undefined;
+  capabilities.calendar = {
+    connect: async (_pluginId, provider) => { forwardedCalls += 1; return { state: provider === "google" ? "already_connected" : "pending" }; },
+    status: async (_pluginId, provider) => { forwardedCalls += 1; return { provider, state: "connected", checkedAt: "2026-09-23T12:00:00.000Z" }; },
+    disconnect: async () => { forwardedCalls += 1; },
+    listCalendars: async () => { forwardedCalls += 1; return { calendars: [], truncated: false }; },
+    listEvents: async (_pluginId, _provider, _calendarId, range) => { forwardedCalls += 1; forwardedRange = range; return { events: [], truncated: false }; },
+    getEvent: async (_pluginId, _provider, _calendarId, _eventId, calendarTimeZone) => { forwardedCalls += 1; assert.equal(calendarTimeZone, "Europe/London"); return null; },
+  };
+  const calendarApi = bridge.createApi(approvedRecord, manifest({ permissions: [...manifest().permissions, "calendar:connect"] }));
+
+  assert.deepEqual(await calendarApi.calendar.connect("google"), { state: "already_connected" });
+  assert.equal((await calendarApi.calendar.status("outlook")).state, "connected");
+  assert.deepEqual(await calendarApi.calendar.listCalendars("google"), { calendars: [], truncated: false });
+  assert.deepEqual(await calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00.000Z", to: "2026-09-24T12:00:00.000Z", calendarTimeZone: "Europe/London" }), { events: [], truncated: false });
+  assert.deepEqual(forwardedRange, { from: "2026-09-23T12:00:00.000Z", to: "2026-09-24T12:00:00.000Z", calendarTimeZone: "Europe/London" });
+  assert.equal(await calendarApi.calendar.getEvent("google", "primary", "event-1", "Europe/London"), null);
+  await calendarApi.calendar.disconnect("google");
+
+  await assert.rejects(() => Reflect.apply(calendarApi.calendar.connect, calendarApi.calendar, ["zoom"]), /Calendar provider is not supported/);
+  await assert.rejects(() => calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00", to: "2026-09-24T12:00:00Z" }), /ISO UTC/);
+  await assert.rejects(() => calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00Z", to: "2026-09-24T12:00:00Z", calendarTimeZone: "Not/A_Timezone" }), /Invalid calendar timezone/);
+  for (let index = 0; index < 21; index += 1) await calendarApi.calendar.status("google");
+  await assert.rejects(() => calendarApi.calendar.status("google"), /quota exceeded/);
+  assert.equal(forwardedCalls, 27, "malformed requests are rejected before host forwarding");
+});
+
 type ScenarioContext = {
   api: ReturnType<PluginSdkBridge["createApi"]>;
   bridge: PluginSdkBridge;

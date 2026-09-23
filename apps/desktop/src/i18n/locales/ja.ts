@@ -689,6 +689,7 @@ export const ja: Partial<Messages> = {
   "plugins.permission.voice:speak": "音声",
   "plugins.permission.voice:listen": "マイク",
   "plugins.permission.auth": "サインイン",
+  "plugins.permission.calendar:connect": "カレンダーへの接続と読み取り",
   "plugins.permission.files": "ファイル",
   "plugins.permission.system:openExternal": "リンクを開く",
   "plugins.permission.system:metrics": "システム指標",

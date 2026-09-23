@@ -689,6 +689,7 @@ export const zhHant: Partial<Messages> = {
   "plugins.permission.voice:speak": "語音",
   "plugins.permission.voice:listen": "麥克風",
   "plugins.permission.auth": "登入",
+  "plugins.permission.calendar:connect": "連線並讀取行事曆",
   "plugins.permission.files": "檔案",
   "plugins.permission.system:openExternal": "開啟連結",
   "plugins.permission.system:metrics": "系統指標",

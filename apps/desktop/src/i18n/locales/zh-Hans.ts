@@ -689,6 +689,7 @@ export const zhHans: Partial<Messages> = {
   "plugins.permission.voice:speak": "语音",
   "plugins.permission.voice:listen": "麦克风",
   "plugins.permission.auth": "登录",
+  "plugins.permission.calendar:connect": "连接并读取日历",
   "plugins.permission.files": "文件",
   "plugins.permission.system:openExternal": "打开链接",
   "plugins.permission.system:metrics": "系统指标",

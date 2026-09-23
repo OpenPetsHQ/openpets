@@ -778,6 +778,7 @@ export const en = {
   "plugins.permission.voice:speak": "Voice",
   "plugins.permission.voice:listen": "Microphone",
   "plugins.permission.auth": "Sign-in",
+  "plugins.permission.calendar:connect": "Connect and read calendars",
   "plugins.permission.files": "Files",
   "plugins.permission.system:openExternal": "Open links",
   "plugins.permission.system:metrics": "System metrics",

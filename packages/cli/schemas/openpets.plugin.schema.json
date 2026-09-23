@@ -24,7 +24,7 @@
           "pet:speak", "pet:reaction", "pet:move", "timer", "schedule", "storage", "status", "commands", "network",
           "pet:interact", "pet:pin", "pet:animate", "pet:speak:dynamic", "pet:drop", "pets:read", "pets:manage",
           "audio", "events", "ui:toast", "ui:panel", "ui:delivery", "notify", "bus", "ai", "secrets", "voice:speak", "voice:listen",
-          "auth", "files", "system:openExternal", "system:metrics", "clipboard", "network:write"
+          "auth", "calendar:connect", "files", "system:openExternal", "system:metrics", "clipboard", "network:write"
         ]
       }
     },

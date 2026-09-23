@@ -689,6 +689,7 @@ export const ko: Partial<Messages> = {
   "plugins.permission.voice:speak": "음성",
   "plugins.permission.voice:listen": "마이크",
   "plugins.permission.auth": "로그인",
+  "plugins.permission.calendar:connect": "캘린더 연결 및 읽기",
   "plugins.permission.files": "파일",
   "plugins.permission.system:openExternal": "링크 열기",
   "plugins.permission.system:metrics": "시스템 지표",

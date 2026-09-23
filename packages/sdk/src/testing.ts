@@ -22,6 +22,13 @@ import type {
   OpenPetsBubble,
   OpenPetsBubbleDismissReason,
   OpenPetsBubbleHandle,
+  OpenPetsCalendarApi,
+  OpenPetsCalendarConnectionStatus,
+  OpenPetsCalendarEvent,
+  OpenPetsCalendarEventListResult,
+  OpenPetsCalendarListResult,
+  OpenPetsCalendarProvider,
+  OpenPetsCalendarRange,
   OpenPetsAlert,
   OpenPetsAlertHandle,
   OpenPetsAssistantCapability,
@@ -131,6 +138,7 @@ export interface MockCalls {
   panelMessages: unknown[];
   savedFiles: Array<{ suggestedName: string; data: string | Uint8Array }>;
   secrets: Map<string, string>;
+  calendarCalls: Array<{ operation: string; provider: OpenPetsCalendarProvider; calendarId?: string; eventId?: string; calendarTimeZone?: string; range?: OpenPetsCalendarRange }>;
   errors: string[];
 }
 
@@ -310,6 +318,12 @@ export interface MockHarnessCore {
   ai: { mock(responder: (req: { system?: string; messages: Array<{ role: string; content: string }> }) => string): void };
   files: { provide(files: Array<{ name: string; text?: string; bytes?: Uint8Array }>): void };
   auth: { mock(tokens: { accessToken: string; refreshToken?: string; expiresAt?: number }): void };
+  calendar: {
+    mockStatus(provider: OpenPetsCalendarProvider, status: OpenPetsCalendarConnectionStatus): void;
+    mockCalendars(provider: OpenPetsCalendarProvider, result: OpenPetsCalendarListResult): void;
+    mockEvents(provider: OpenPetsCalendarProvider, calendarId: string, result: OpenPetsCalendarEventListResult): void;
+    mockEvent(provider: OpenPetsCalendarProvider, calendarId: string, eventId: string, event: OpenPetsCalendarEvent | null): void;
+  };
   voice: { mockListen(text: string): void };
   system: {
     set(info: Partial<{ platform: "mac" | "win" | "linux"; locale: string; timezone: string; theme: "light" | "dark"; online: boolean }>): void;
@@ -345,7 +359,7 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     speak: [], react: [], reactions: [], statusReactions: [], status: [], storage: new Map(), schedules: new Map(), commands: new Map(), menuItems: [],
     bubbles: [], alerts: [], deliveries: [], dismissedBubbles: [], toasts: [], notifications: [], sounds: [], importedUserSounds: [], forgottenUserSounds: [], busPublishes: [], netCalls: [],
     aiCalls: [], voiceSpeaks: [], openedExternal: [], clipboardWrites: [], spawnedPets: [], panelMessages: [], assistantCapabilities: new Map(),
-    savedFiles: [], secrets: new Map(), errors: [],
+    savedFiles: [], secrets: new Map(), calendarCalls: [], errors: [],
   };
   const clock = new FakeClock(options.nowMs ?? Date.now(), calls.schedules, (message) => calls.errors.push(message));
   const eventSubscribers = new Map<string, Set<EventHandler>>();
@@ -358,6 +372,11 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
   let aiResponder: ((req: { system?: string; messages: Array<{ role: string; content: string }> }) => string) | null = null;
   let pickableFiles: Array<{ name: string; text?: string; bytes?: Uint8Array }> = [];
   let authTokens: { accessToken: string; refreshToken?: string; expiresAt?: number } | null = null;
+  const calendarStatuses = new Map<OpenPetsCalendarProvider, OpenPetsCalendarConnectionStatus>();
+  const calendarLists = new Map<OpenPetsCalendarProvider, OpenPetsCalendarListResult>();
+  const calendarEventLists = new Map<string, OpenPetsCalendarEventListResult>();
+  const calendarEventsById = new Map<string, OpenPetsCalendarEvent | null>();
+  const calendarKey = (...parts: string[]) => JSON.stringify(parts);
   let listenText: string | null = null;
   let clipboardText = "";
   let systemInfo: { platform: "mac" | "win" | "linux"; locale: string; timezone: string; theme: "light" | "dark"; appVersion: string; online: boolean } = { platform: "mac", locale: "en-US", timezone: "UTC", theme: "light", appVersion: "0.0.0-test", online: true };
@@ -693,6 +712,39 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       refresh: async () => { requirePermission("auth"); if (!authTokens) throw new Error("No auth mock — call harness.auth.mock(...) first."); return { accessToken: authTokens.accessToken, expiresAt: authTokens.expiresAt }; },
       signOut: async () => { requirePermission("auth"); authTokens = null; },
     },
+    calendar: {
+      connect: async (provider) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "connect", provider });
+        calendarStatuses.set(provider, { provider, state: "connected", checkedAt: new Date(clock.now()).toISOString() });
+        return { state: "link_opened" };
+      },
+      status: async (provider) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "status", provider });
+        return calendarStatuses.get(provider) ?? { provider, state: "not_connected", checkedAt: new Date(clock.now()).toISOString() };
+      },
+      disconnect: async (provider) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "disconnect", provider });
+        calendarStatuses.set(provider, { provider, state: "not_connected", checkedAt: new Date(clock.now()).toISOString() });
+      },
+      listCalendars: async (provider) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "listCalendars", provider });
+        return calendarLists.get(provider) ?? { calendars: [], truncated: false };
+      },
+      listEvents: async (provider, calendarId, range) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "listEvents", provider, calendarId, range });
+        return calendarEventLists.get(calendarKey(provider, calendarId)) ?? { events: [], truncated: false };
+      },
+      getEvent: async (provider, calendarId, eventId, calendarTimeZone) => {
+        requirePermission("calendar:connect");
+        calls.calendarCalls.push({ operation: "getEvent", provider, calendarId, eventId, ...(calendarTimeZone ? { calendarTimeZone } : {}) });
+        return calendarEventsById.get(calendarKey(provider, calendarId, eventId)) ?? null;
+      },
+    } satisfies OpenPetsCalendarApi,
     files: {
       pick: async () => {
         requirePermission("files");
@@ -762,6 +814,12 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     ai: { mock: (responder) => { aiResponder = responder; } },
     files: { provide: (files) => { pickableFiles = files; } },
     auth: { mock: (tokens) => { authTokens = tokens; } },
+    calendar: {
+      mockStatus: (provider, status) => { calendarStatuses.set(provider, status); },
+      mockCalendars: (provider, result) => { calendarLists.set(provider, result); },
+      mockEvents: (provider, calendarId, result) => { calendarEventLists.set(calendarKey(provider, calendarId), result); },
+      mockEvent: (provider, calendarId, eventId, event) => { calendarEventsById.set(calendarKey(provider, calendarId, eventId), event); },
+    },
     voice: { mockListen: (text) => { listenText = text; } },
     system: {
       set: (info) => { systemInfo = { ...systemInfo, ...info }; },

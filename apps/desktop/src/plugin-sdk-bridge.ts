@@ -1,7 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { OpenPetsAssistantCapability, OpenPetsAssistantCapabilityHandler } from "@open-pets/plugin-sdk";
+import type {
+  OpenPetsAssistantCapability,
+  OpenPetsAssistantCapabilityHandler,
+  OpenPetsCalendar,
+  OpenPetsCalendarConnectionStatus,
+  OpenPetsCalendarEvent,
+  OpenPetsCalendarEventListResult,
+  OpenPetsCalendarListResult,
+  OpenPetsCalendarProvider,
+  OpenPetsCalendarRange,
+} from "@open-pets/plugin-sdk";
 import { getActiveLocaleLang } from "./i18n/index.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { validateReaction, validateSayMessage } from "./local-ipc-protocol.js";
@@ -207,6 +217,14 @@ export interface PluginHostCapabilities {
     refresh(pluginId: string, provider: string): Promise<{ accessToken: string; expiresAt?: number }>;
     signOut(pluginId: string, provider: string): Promise<void>;
   };
+  calendar?: {
+    connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" }>;
+    status(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus>;
+    disconnect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<void>;
+    listCalendars(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarListResult>;
+    listEvents(pluginId: string, provider: OpenPetsCalendarProvider, calendarId: string, range: OpenPetsCalendarRange, signal?: AbortSignal): Promise<OpenPetsCalendarEventListResult>;
+    getEvent(pluginId: string, provider: OpenPetsCalendarProvider, calendarId: string, eventId: string, calendarTimeZone?: string, signal?: AbortSignal): Promise<OpenPetsCalendarEvent | null>;
+  };
   files: {
     pick(opts: { accept?: string[]; multiple?: boolean }): Promise<PluginPickedFileHost[]>;
     read(fileId: string, encoding: "text" | "bytes"): Promise<string | Uint8Array>;
@@ -299,6 +317,14 @@ export function createDefaultPluginHostCapabilities(petApi: PluginPetApi): Plugi
     ai: { available: async () => false, complete: unavailable("ai.complete"), stream: unavailable("ai.stream") },
     voice: { speak: unavailable("voice.speak"), listen: unavailable("voice.listen") },
     auth: { oauth: unavailable("auth.oauth"), refresh: unavailable("auth.refresh"), signOut: async () => undefined },
+    calendar: {
+      connect: unavailable("calendar.connect"),
+      status: unavailable("calendar.status"),
+      disconnect: unavailable("calendar.disconnect"),
+      listCalendars: unavailable("calendar.listCalendars"),
+      listEvents: unavailable("calendar.listEvents"),
+      getEvent: unavailable("calendar.getEvent"),
+    },
     files: { pick: async () => [], read: unavailable("files.read"), save: unavailable("files.save") },
     system: {
       info: async () => ({ platform: process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : "linux", locale: "en-US", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC", theme: "light", appVersion: "0.0.0", online: true }),
@@ -460,6 +486,14 @@ export class PluginSdkBridge {
     const approved = new Set(record.approvedPermissions.filter((permission) => declared.has(permission)));
     const state = this.#pluginState(record.id);
     const caps = this.#capabilities;
+    const calendarCaps = caps.calendar ?? {
+      connect: async () => { throw new Error("Plugin host capability is unavailable: calendar.connect"); },
+      status: async () => { throw new Error("Plugin host capability is unavailable: calendar.status"); },
+      disconnect: async () => { throw new Error("Plugin host capability is unavailable: calendar.disconnect"); },
+      listCalendars: async () => { throw new Error("Plugin host capability is unavailable: calendar.listCalendars"); },
+      listEvents: async () => { throw new Error("Plugin host capability is unavailable: calendar.listEvents"); },
+      getEvent: async () => { throw new Error("Plugin host capability is unavailable: calendar.getEvent"); },
+    };
     const pluginId = record.id;
     const apiGeneration = this.#apiGenerations.get(pluginId) ?? 0;
     const requireActive = () => { if ((this.#apiGenerations.get(pluginId) ?? 0) !== apiGeneration) throw new Error(PLUGIN_INACTIVE_ERROR); };
@@ -840,6 +874,40 @@ export class PluginSdkBridge {
         refresh: async (provider: unknown) => { requirePermission("auth"); return caps.auth.refresh(pluginId, validateProviderName(provider)); },
         signOut: async (provider: unknown) => { requirePermission("auth"); await caps.auth.signOut(pluginId, validateProviderName(provider)); },
       },
+      calendar: {
+        connect: async (provider: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          return trackNetworkRequest((signal) => calendarCaps.connect(pluginId, validateCalendarProvider(provider), signal));
+        },
+        status: async (provider: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          return trackNetworkRequest((signal) => calendarCaps.status(pluginId, validateCalendarProvider(provider), signal));
+        },
+        disconnect: async (provider: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          await trackNetworkRequest((signal) => calendarCaps.disconnect(pluginId, validateCalendarProvider(provider), signal));
+        },
+        listCalendars: async (provider: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          return trackNetworkRequest((signal) => calendarCaps.listCalendars(pluginId, validateCalendarProvider(provider), signal));
+        },
+        listEvents: async (provider: unknown, calendarId: unknown, range: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          const validatedRange = validateCalendarRange(range);
+          return trackNetworkRequest((signal) => calendarCaps.listEvents(pluginId, validateCalendarProvider(provider), validateCalendarOpaqueId(calendarId, "calendar"), validatedRange, signal));
+        },
+        getEvent: async (provider: unknown, calendarId: unknown, eventId: unknown, calendarTimeZone?: unknown) => {
+          requirePermission("calendar:connect");
+          state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
+          const validatedTimeZone = calendarTimeZone === undefined ? undefined : validateCalendarTimeZone(calendarTimeZone);
+          return trackNetworkRequest((signal) => calendarCaps.getEvent(pluginId, validateCalendarProvider(provider), validateCalendarOpaqueId(calendarId, "calendar"), validateCalendarOpaqueId(eventId, "event"), validatedTimeZone, signal));
+        },
+      },
       files: {
         pick: async (opts?: unknown) => {
           requirePermission("files");
@@ -934,7 +1002,7 @@ export class PluginSdkBridge {
       activePanels: state.panels.size,
       eventSubscriptions: state.eventSubscriptions.size + state.busSubscriptions.size + state.tickSubscriptions.size,
       lastError: state.lastError,
-      quotaCounters: { petActions: state.petWindow.count, logs: state.logWindow.count, http: state.httpWindow.count, bus: state.busWindow.count, audio: state.audioWindow.count, notify: state.notifyWindow.count, toast: state.toastWindow.count, ai: state.aiWindow.count, voice: state.voiceWindow.count },
+      quotaCounters: { petActions: state.petWindow.count, logs: state.logWindow.count, http: state.httpWindow.count, calendar: state.calendarWindow.count, bus: state.busWindow.count, audio: state.audioWindow.count, notify: state.notifyWindow.count, toast: state.toastWindow.count, ai: state.aiWindow.count, voice: state.voiceWindow.count },
     };
   }
 
@@ -1101,7 +1169,7 @@ export class PluginSdkBridge {
     state.pickedFiles.clear();
     state.userCommandDepth = 0;
     state.lastError = undefined;
-    state.petWindow.reset(); state.logWindow.reset(); state.httpWindow.reset(); state.busWindow.reset(); state.audioWindow.reset(); state.notifyWindow.reset(); state.toastWindow.reset(); state.deliveryWindow.reset(); state.aiWindow.reset(); state.voiceWindow.reset();
+    state.petWindow.reset(); state.logWindow.reset(); state.httpWindow.reset(); state.calendarWindow.reset(); state.busWindow.reset(); state.audioWindow.reset(); state.notifyWindow.reset(); state.toastWindow.reset(); state.deliveryWindow.reset(); state.aiWindow.reset(); state.voiceWindow.reset();
     return drain;
   }
 
@@ -1112,7 +1180,7 @@ export class PluginSdkBridge {
         commands: new Map(), assistantCapabilities: new Map(), menuItems: [], menuHandlers: new Set(), schedules: new Map(), configListeners: new Set(),
         storageSubscriptions: new Map(), busSubscriptions: new Map(), eventSubscriptions: new Map(), tickSubscriptions: new Map(),
         bubbles: new Map(), deliveries: new Map(), panels: new Map(), sessions: new Map(), spawnedPets: new Set(), pickedFiles: new Set(), userCommandDepth: 0,
-        petWindow: new WindowCounter(), logWindow: new WindowCounter(), httpWindow: new WindowCounter(), busWindow: new WindowCounter(),
+        petWindow: new WindowCounter(), logWindow: new WindowCounter(), httpWindow: new WindowCounter(), calendarWindow: new WindowCounter(), busWindow: new WindowCounter(),
         audioWindow: new WindowCounter(), notifyWindow: new WindowCounter(), toastWindow: new WindowCounter(), deliveryWindow: new WindowCounter(), aiWindow: new WindowCounter(), voiceWindow: new WindowCounter(),
       };
       this.#states.set(id, state);
@@ -1349,6 +1417,39 @@ function validateOauthConfig(value: unknown): { provider: "google" | "spotify"; 
 }
 
 function validateProviderName(value: unknown): string { const provider = String(value); check(/^[a-z0-9][a-z0-9._-]{0,63}$/.test(provider), "Invalid OAuth provider name."); return provider; }
+
+function validateCalendarProvider(value: unknown): OpenPetsCalendarProvider {
+  if (value !== "google" && value !== "outlook") throw new Error("Calendar provider is not supported.");
+  return value;
+}
+
+function validateCalendarOpaqueId(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 512 || /[\0-\x1f\x7f]/.test(value)) throw new Error(`Invalid calendar ${label} ID.`);
+  return value;
+}
+
+function validateCalendarRange(value: unknown): OpenPetsCalendarRange {
+  if (!isRecord(value)) throw new Error("Invalid calendar range.");
+  const from = validateUtcTimestamp(value.from);
+  const to = validateUtcTimestamp(value.to);
+  const spanMs = Date.parse(to) - Date.parse(from);
+  check(spanMs > 0 && spanMs <= 92 * 24 * 60 * 60_000, "Calendar range must be between 0 and 92 days.");
+  return { from, to, ...(value.calendarTimeZone === undefined ? {} : { calendarTimeZone: validateCalendarTimeZone(value.calendarTimeZone) }) };
+}
+
+function validateCalendarTimeZone(value: unknown): string {
+  if (typeof value !== "string" || value.length > 100) throw new Error("Invalid calendar timezone.");
+  try { new Intl.DateTimeFormat("en", { timeZone: value }); }
+  catch { throw new Error("Invalid calendar timezone."); }
+  return value;
+}
+
+function validateUtcTimestamp(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) throw new Error("Calendar timestamps must be ISO UTC.");
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new Error("Invalid calendar timestamp.");
+  return new Date(timestamp).toISOString();
+}
 
 /** Clone-safe JSON normalization with a byte cap. */
 export function normalizeJson(value: unknown, maxBytes: number, label: string): unknown {

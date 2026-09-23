@@ -689,6 +689,7 @@ export const es419: Partial<Messages> = {
   "plugins.permission.voice:speak": "Voz",
   "plugins.permission.voice:listen": "Micrófono",
   "plugins.permission.auth": "Inicio de sesión",
+  "plugins.permission.calendar:connect": "Conectar y leer calendarios",
   "plugins.permission.files": "Archivos",
   "plugins.permission.system:openExternal": "Abrir enlaces",
   "plugins.permission.system:metrics": "Métricas del sistema",

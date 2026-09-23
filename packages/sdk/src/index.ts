@@ -58,6 +58,7 @@ export type OpenPetsPermission =
   | "voice:speak"
   | "voice:listen"
   | "auth"
+  | "calendar:connect"
   | "files"
   | "system:openExternal"
   | "system:metrics"
@@ -1302,6 +1303,73 @@ export interface OpenPetsAuthApi {
 }
 
 // ---------------------------------------------------------------------------
+// Read-only calendar connector (§14.5)
+// ---------------------------------------------------------------------------
+
+export type OpenPetsCalendarProvider = "google" | "outlook";
+export type OpenPetsCalendarConnectionState = "not_connected" | "pending" | "connected" | "reauth_required" | "offline";
+export interface OpenPetsCalendarConnectionStatus {
+  provider: OpenPetsCalendarProvider;
+  state: OpenPetsCalendarConnectionState;
+  checkedAt: string;
+}
+export interface OpenPetsCalendar {
+  id: string;
+  name: string;
+  timeZone?: string;
+  primary?: boolean;
+}
+interface OpenPetsCalendarEventBase {
+  id: string;
+  calendarId: string;
+  title: string;
+  status: "confirmed" | "cancelled";
+  updatedAt?: string;
+  timeZone?: string;
+}
+export interface OpenPetsTimedCalendarEvent extends OpenPetsCalendarEventBase {
+  allDay: false;
+  startAt: string;
+  endAt: string;
+}
+export interface OpenPetsAllDayCalendarEvent extends OpenPetsCalendarEventBase {
+  allDay: true;
+  startDate: string;
+  endDateExclusive: string;
+  /** Absolute instant immediately before the event's local end date begins. */
+  dueAt: string;
+}
+export type OpenPetsCalendarEvent = OpenPetsTimedCalendarEvent | OpenPetsAllDayCalendarEvent;
+export interface OpenPetsCalendarListResult {
+  calendars: readonly OpenPetsCalendar[];
+  truncated: boolean;
+}
+export interface OpenPetsCalendarRange {
+  from: string;
+  to: string;
+  /** IANA timezone of the selected calendar, used to resolve all-day events. */
+  calendarTimeZone?: string;
+}
+export interface OpenPetsCalendarEventListResult {
+  events: readonly OpenPetsCalendarEvent[];
+  truncated: boolean;
+}
+
+/**
+ * Host-mediated, read-only calendar access. OAuth and provider credentials stay
+ * in the host/broker; no provider token, Composio account ID, URL, or raw
+ * provider payload crosses this API. Requires `calendar:connect`.
+ */
+export interface OpenPetsCalendarApi {
+  connect(provider: OpenPetsCalendarProvider): Promise<{ state: "link_opened" | "already_connected" | "pending" }>;
+  status(provider: OpenPetsCalendarProvider): Promise<OpenPetsCalendarConnectionStatus>;
+  disconnect(provider: OpenPetsCalendarProvider): Promise<void>;
+  listCalendars(provider: OpenPetsCalendarProvider): Promise<OpenPetsCalendarListResult>;
+  listEvents(provider: OpenPetsCalendarProvider, calendarId: string, range: OpenPetsCalendarRange): Promise<OpenPetsCalendarEventListResult>;
+  getEvent(provider: OpenPetsCalendarProvider, calendarId: string, eventId: string, calendarTimeZone?: string): Promise<OpenPetsCalendarEvent | null>;
+}
+
+// ---------------------------------------------------------------------------
 // Files (§14.2)
 // ---------------------------------------------------------------------------
 
@@ -1453,6 +1521,7 @@ export interface OpenPetsContext {
   secrets: OpenPetsSecretsApi;
   voice: OpenPetsVoiceApi;
   auth: OpenPetsAuthApi;
+  calendar: OpenPetsCalendarApi;
   files: OpenPetsFilesApi;
   system: OpenPetsSystemApi;
   commands: OpenPetsCommandsApi;
