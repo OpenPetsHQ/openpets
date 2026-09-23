@@ -259,12 +259,23 @@ export function setPluginPetStatusReaction(petHandleId: string, reaction: OpenPe
   refreshSpawnedPet(pet);
 }
 
+// The move loop repositions a pet window via repeated setBounds() calls (see
+// pet-motion-engine.ts) without ever refreshing window content -- on Linux
+// this can leave the pet's shape/paint stale and effectively invisible until
+// something else happens to trigger a refresh. Force one after every move so
+// the pet actually stays visible once it stops.
+function refreshAfterMove(petHandleId: string): void {
+  const pet = spawnedPets.get(petHandleId);
+  if (pet) refreshSpawnedPet(pet);
+}
+
 export async function movePluginPetBy(petHandleId: string, opts: { x: number; y: number; durationMs?: number }): Promise<void> {
   const window = requireWindow(petHandleId);
   const [x, y] = window.getPosition();
   const distance = Math.min(Math.hypot(opts.x, opts.y), 160);
   const scale = distance > 0 ? distance / Math.hypot(opts.x, opts.y) : 0;
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), { x: x + opts.x * scale, y: y + opts.y * scale }, { durationMs: opts.durationMs ?? 700 });
+  refreshAfterMove(petHandleId);
 }
 
 export async function wanderPluginPet(petHandleId: string, opts: { distance?: number; durationMs?: number }): Promise<void> {
@@ -276,11 +287,13 @@ export async function wanderPluginPet(petHandleId: string, opts: { distance?: nu
 export async function movePluginPetToHome(petHandleId: string): Promise<void> {
   const home = getDefaultPetInitialPosition(defaultPetWindowSize);
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), home, { durationMs: 1_200 });
+  refreshAfterMove(petHandleId);
 }
 
 export async function movePluginPetTo(petHandleId: string, point: Point, opts: { durationMs?: number; easing?: string } = {}): Promise<void> {
   requireWindow(petHandleId);
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), point, opts);
+  refreshAfterMove(petHandleId);
 }
 
 export function setPluginPetFollowCursor(petHandleId: string, opts: { enabled: boolean; lag?: number }): void {
