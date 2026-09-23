@@ -4,6 +4,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { listPackage } from "@electron/asar";
+
 import { allowedReactions } from "./local-ipc-protocol.js";
 import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
 import { assertNoEscapingPackageOutputSymlinks, assertNoForbiddenPackageOutput } from "./packaging-output-contract.js";
@@ -108,6 +110,7 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   const appResourceDir = findPackagedAppResourceDir(outputDir);
   assert.ok(appResourceDir, "packaged app resources directory was not found.");
   assert.ok(existsSync(join(appResourceDir, "app.asar")), "packaged app.asar is missing.");
+  assertRendererBundled(join(appResourceDir, "app.asar"));
   assertBundledOfficialPlugins(appResourceDir, join(repoRoot, "plugins", "official"));
   const appContents = join(appResourceDir, "app.asar.unpacked");
   assert.ok(existsSync(appContents), "packaged app.asar.unpacked resources are missing.");
@@ -127,6 +130,19 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "claude", "dist", "cli.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js"));
   assertCommandSmoke(appContents);
+}
+
+// Only checking that app.asar exists (as the check above this call did, on
+// its own) does not catch a packaging step that produces a real but
+// incomplete archive -- this shipped in the v4.0.0 Linux AppImage and tar.gz
+// artifacts, which built a valid app.asar missing dist/renderer entirely
+// (Control Center/dashboard silently failed to load with ERR_FILE_NOT_FOUND).
+// List the archive contents directly instead of trusting that the file's
+// mere presence means it has what packaging was supposed to put in it.
+function assertRendererBundled(asarPath: string): void {
+  const entries = listPackage(asarPath, { isPack: false });
+  assert.ok(entries.includes("/dist/renderer/index.html"), `packaged app.asar is missing dist/renderer/index.html -- Control Center/dashboard will fail to load. Archive: ${asarPath}`);
+  assert.ok(entries.some((entry) => entry.startsWith("/dist/renderer/assets/") && entry.endsWith(".js")), `packaged app.asar is missing its renderer JS bundle under dist/renderer/assets/. Archive: ${asarPath}`);
 }
 
 function findPackagedAppResourceDir(outputDir: string): string | null {
