@@ -636,16 +636,12 @@ export interface OpenPetsPlayerSessionOptions {
 /** Fixed value, or a range picked uniformly each time the value is used. */
 export type OpenPetsSessionRange = number | { min: number; max: number };
 
-/** One layer of a soundscape: a looping bed or an accent on an interval. */
-export interface OpenPetsSoundLayer {
+/** Fields shared by looping beds and interval accents. */
+export interface OpenPetsSoundLayerBase {
   /** 1–6 https files on approved `network.hosts`; accents pick one at random. */
   files: string[];
   /** 0–1. */
   volume: OpenPetsSessionRange;
-  /** Looping bed (exactly one of `loop` or `interval`). */
-  loop?: boolean;
-  /** Seconds between accents (1–600); "wave" drifts min→max→min by `increment`. */
-  interval?: { type: "random" | "wave"; min: number; max: number; increment?: number };
   /** Seconds (0–30). */
   fadeIn?: number;
   fadeOut?: number;
@@ -658,6 +654,22 @@ export interface OpenPetsSoundLayer {
   /** Playback-rate range for accents (0.5–2). */
   pitch?: { min: number; max: number };
 }
+
+/** A looping bed. */
+export interface OpenPetsLoopSoundLayer extends OpenPetsSoundLayerBase {
+  loop: true;
+  interval?: never;
+}
+
+/** An accent played on an interval. */
+export interface OpenPetsIntervalSoundLayer extends OpenPetsSoundLayerBase {
+  loop?: false;
+  /** Seconds between accents (1–600); "wave" drifts min→max→min by `increment`. */
+  interval: { type: "random" | "wave"; min: number; max: number; increment?: number };
+}
+
+/** One layer of a soundscape: a looping bed or an accent on an interval, never both. */
+export type OpenPetsSoundLayer = OpenPetsLoopSoundLayer | OpenPetsIntervalSoundLayer;
 
 export interface OpenPetsSoundScene {
   id: string;

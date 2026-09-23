@@ -13,6 +13,7 @@ import type {
   OpenPetsPickedFile,
   OpenPetsPluginDefinition,
   OpenPetsSessionEvent,
+  OpenPetsSoundLayer,
   OpenPetsStatus,
 } from "./index.js";
 import { createMockContext, createTestHarness } from "./testing.js";
@@ -204,5 +205,15 @@ const breathingSession = await sessionMock.ctx.ui.session({
 const breathingEvents: OpenPetsSessionEvent[] = [];
 breathingSession.onEvent((event) => breathingEvents.push(event));
 assert.deepEqual(breathingEvents, [{ type: "started", patternId: "box" }], "breathing events carry the pattern id, not the practice id");
+
+// Sound layers are a looping bed or an interval accent, never both or neither,
+// matching the host validator.
+const loopLayer: OpenPetsSoundLayer = { files: ["https://example.com/bed.mp3"], volume: 0.5, loop: true };
+const accentLayer: OpenPetsSoundLayer = { files: ["https://example.com/bird.mp3"], volume: 0.4, interval: { type: "random", min: 5, max: 20 } };
+// @ts-expect-error a layer cannot both loop and have an interval
+const bothLayer: OpenPetsSoundLayer = { files: ["https://example.com/x.mp3"], volume: 1, loop: true, interval: { type: "random", min: 1, max: 2 } };
+// @ts-expect-error a layer must loop or have an interval
+const neitherLayer: OpenPetsSoundLayer = { files: ["https://example.com/x.mp3"], volume: 1 };
+void [loopLayer, accentLayer, bothLayer, neitherLayer];
 
 console.log("Plugin SDK contract tests passed.");

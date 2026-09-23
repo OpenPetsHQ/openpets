@@ -48,6 +48,8 @@ function createSoundscapePractice(ui) {
   let selectedSceneId = null;
   let timerMinutes = null; // null = no sleep timer
   let elapsedMs = 0;
+  // Run time when the sleep timer was last chosen; it counts from there.
+  let timerSetAtMs = 0;
   let volume = 0.8;
   let muted = false;
   let status = "idle"; // idle | preparing | playing | unavailable | ending
@@ -122,6 +124,10 @@ function createSoundscapePractice(ui) {
         return context.decodeAudioData(bytes);
       })().catch(() => null);
       buffers.set(url, pending);
+      // A failed load is not cached, so the next accent turn retries it.
+      void pending.then((buffer) => {
+        if (!buffer && buffers.get(url) === pending) buffers.delete(url);
+      });
     }
     return pending;
   };
@@ -232,6 +238,22 @@ function createSoundscapePractice(ui) {
     later(delay * 1000, fire);
   };
 
+  const maxLoopRetries = 3;
+
+  /** Retry a failed bed with a growing delay (5s, 10s, 20s) while its run lasts. */
+  const retryLoop = (layer, runGeneration, attempt) => {
+    later(5000 * 2 ** (attempt - 1), async () => {
+      if (runGeneration !== generation || !context) return;
+      const buffer = await loadBuffer(layer.files[0]);
+      if (runGeneration !== generation || !context) return;
+      if (buffer) {
+        startLoop(layer, buffer, runGeneration);
+        return;
+      }
+      if (attempt < maxLoopRetries) retryLoop(layer, runGeneration, attempt + 1);
+    });
+  };
+
   const startScene = async () => {
     const scene = selectedScene();
     if (!scene) return;
@@ -248,12 +270,16 @@ function createSoundscapePractice(ui) {
 
     // Beds first; accents load lazily on their first turn.
     let started = 0;
+    const failedLoops = [];
     await Promise.all(loops.map(async (layer) => {
       const buffer = await loadBuffer(layer.files[0]);
       if (runGeneration !== generation) return;
       preparedCount += 1;
       renderStatus();
-      if (!buffer) return;
+      if (!buffer) {
+        failedLoops.push(layer);
+        return;
+      }
       startLoop(layer, buffer, runGeneration);
       started += 1;
     }));
@@ -265,6 +291,8 @@ function createSoundscapePractice(ui) {
     }
     status = "playing";
     renderStatus();
+    // The scene plays; a bed that failed to load gets a few more tries.
+    for (const layer of failedLoops) retryLoop(layer, runGeneration, 1);
     for (const layer of accents) {
       const state = { current: layer.interval?.min ?? 10, direction: 1 };
       scheduleAccent(layer, runGeneration, state);
@@ -324,6 +352,7 @@ function createSoundscapePractice(ui) {
     const choices = [null, ...(descriptor()?.timerMinutes ?? [])];
     const index = choices.indexOf(timerMinutes);
     timerMinutes = choices[(index + 1) % choices.length];
+    timerSetAtMs = elapsedMs;
     renderTimer();
     ui.renderPhaseText();
   });
@@ -372,7 +401,11 @@ function createSoundscapePractice(ui) {
 
   // --- Rendering ------------------------------------------------------------
 
-  const remainingMs = () => (timerMinutes === null ? null : Math.max(0, timerMinutes * 60000 - elapsedMs));
+  const remainingMs = () => {
+    if (timerMinutes === null) return null;
+    const timerElapsedMs = elapsedMs - timerSetAtMs;
+    return Math.max(0, timerMinutes * 60000 - timerElapsedMs);
+  };
 
   const renderTimer = () => {
     timerButton.innerHTML = `${svgIcon(moonPaths)}<span>${timerMinutes === null ? "∞" : ui.escapeChromeText("minutesShort", { n: timerMinutes })}</span>`;
@@ -456,6 +489,7 @@ function createSoundscapePractice(ui) {
       generation += 1;
       closeContext();
       elapsedMs = 0;
+      timerSetAtMs = 0;
       lastStatusSecond = -1;
       status = "idle";
     },
