@@ -322,7 +322,15 @@ export function applyExternalPetWander(options: PetWanderOptions): Promise<{ rea
   };
   const target = getSafeDefaultPetPosition(rawTarget);
   return motionMoveTo("default", getDefaultPetWindowForPlugins, target, { durationMs })
-    .then(() => ({ moved: true } as const))
+    .then(() => {
+      // The move loop repositions the window via repeated setBounds() calls
+      // (see pet-motion-engine.ts) without ever refreshing window content --
+      // on Linux this can leave the pet's shape/paint stale and effectively
+      // invisible until something else happens to trigger a refresh. Force
+      // one here so every wander hop actually leaves the pet visible.
+      refreshDefaultPetContent();
+      return { moved: true } as const;
+    })
     .catch(() => ({ moved: false, reason: "engine-error" } as const));
 }
 
