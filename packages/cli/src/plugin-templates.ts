@@ -621,7 +621,7 @@ export function register(OpenPetsPlugin) {
         await applyMood(current);
       });
 
-      await ctx.commands.register({ id: "feed", title: "Feed", placement: "top", priority: 10 }, async () => {
+      await ctx.commands.register({ id: "feed", title: "Feed", priority: 10 }, async () => {
         const current = await loadStats();
         current.hunger = clamp(current.hunger + 30);
         await ctx.storage.set("stats", current);
@@ -630,7 +630,7 @@ export function register(OpenPetsPlugin) {
         await applyMood(current);
       });
 
-      await ctx.commands.register({ id: "play", title: "Play", placement: "top", priority: 9 }, async () => {
+      await ctx.commands.register({ id: "play", title: "Play", priority: 9 }, async () => {
         const current = await loadStats();
         current.affection = clamp(current.affection + 15);
         current.energy = clamp(current.energy - 10);

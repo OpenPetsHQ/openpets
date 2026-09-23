@@ -113,7 +113,7 @@ OpenPets plugins should feel like companion behaviors, not mini control panels.
   commands through the default pet right-click menu. Bubble buttons and pinned
   HUDs handle in-the-moment actions such as snooze, done, feed, or dismiss.
 - **The menu reflects the current state.** Commands appear only while they
-  apply, and live controls sit at the menu root. See the
+  apply and stay under their plugin name. See the
   [pet menu rules](/plugins#pet-menu-rules).
 - **State survives sleep and restart.** Reminders, routines, focus sessions, and
   virtual-pet stats persist through `ctx.storage` and reconcile after resume.
@@ -129,13 +129,13 @@ OpenPets plugins should feel like companion behaviors, not mini control panels.
 
 How the bundled plugins apply the [pet menu rules](/plugins#pet-menu-rules):
 
-| Plugin | Menu root (live controls) | Plugin submenu |
-| --- | --- | --- |
-| Simple Timer | Running/paused: Pause *or* Resume timer, Add 5 minutes, Cancel timer. Finished: Snooze 5 minutes, Dismiss timer. | Idle or finished: Start timer… and presets. Running/paused: Start a new timer…, Show timer. |
-| Focus Buddy | Focus: Pause *or* Resume focus session, Skip to break, End focus session. Break: Pause *or* Resume break, End break. | Idle: Start focus session. Session: Show status (plus Start focus session during a break). |
-| Quick Reminders | — | Set reminder…, presets, Test reminder; View/Clear reminders only while one is pending. |
-| System Resources | — | Hide resource HUD while it is on screen, otherwise Show resource HUD; Read resources. |
-| Anxiety Aid Tools, Virtual Pet, Daily Fortune Cookie, Launch Buddy | — | Unchanged: every command applies at any time. Practice sessions have their own on-screen pause/stop controls. |
+| Plugin | Commands in its submenu |
+| --- | --- |
+| Simple Timer | Idle: Start timer and presets. Running or paused: Pause or resume, Add 5 minutes, Cancel, Start a new timer, Show timer. Finished: Snooze, Dismiss, Start timer, and presets. |
+| Focus Buddy | Idle: Start focus session. Focus: Pause or resume, Skip to break, End session, Show status. Break: Pause or resume, End break, Start focus session, Show status. |
+| Quick Reminders | Set reminder, presets, and Test reminder. View or Clear reminders only while one is pending. |
+| System Resources | Hide the resource HUD while it is on screen. Otherwise, Show the resource HUD. Read resources. |
+| Anxiety Aid Tools, Virtual Pet, Daily Fortune Cookie, Launch Buddy | Every command applies at any time. Practice sessions have their own on-screen pause and stop controls. |
 
 ## Maintainer checklist
 

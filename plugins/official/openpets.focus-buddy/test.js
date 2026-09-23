@@ -387,26 +387,23 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   overdueBreak.expectSpoke(/Welcome back/);
 }
 
-// The pet menu offers only controls that apply: live session controls at the
-// root during a session, and only "Start focus session" while idle.
+// The plugin registers only controls that apply to the current session.
 {
   const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES, config: { focusLength: "25" }, nowMs: 1_000_000 });
   await h.start();
-  const rootTitles = () => [...h.calls.commands.values()]
-    .filter((entry) => entry.meta.placement === "top")
-    .map((entry) => h.ctx.t(entry.meta.title.slice(3)))
-    .sort();
+  const commandIds = () => [...h.calls.commands.keys()].sort();
   assert.deepEqual([...h.calls.commands.keys()], ["start-focus"]);
 
   await h.runCommand("start-focus");
-  assert.deepEqual(rootTitles(), ["End focus session", "Pause focus session", "Skip to break"]);
+  assert.deepEqual(commandIds(), ["end-session", "pause-resume", "show-status", "skip-to-break"]);
   assert.equal(h.calls.commands.has("start-focus"), false);
 
   await h.runCommand("pause-resume");
-  assert.ok(rootTitles().includes("Resume focus session"));
+  assert.equal(h.ctx.t(h.calls.commands.get("pause-resume").meta.title.slice(3)), "Resume focus session");
 
   await h.runCommand("skip-to-break");
-  assert.deepEqual(rootTitles(), ["End break", "Pause break"]);
+  assert.deepEqual(commandIds(), ["end-session", "pause-resume", "show-status", "start-focus"]);
+  assert.equal(h.ctx.t(h.calls.commands.get("pause-resume").meta.title.slice(3)), "Pause break");
   assert.equal(h.calls.commands.has("start-focus"), true);
 
   await h.runCommand("end-session");

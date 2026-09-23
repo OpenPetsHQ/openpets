@@ -135,10 +135,10 @@ audio, credentials, or any microphone UI handle.
 
 Commands are rebuilt into the pet menu on every right-click, so a plugin can
 register and unregister them as its state changes and offer only what applies.
-`placement: "top"` puts a command at the menu root, grouped with the same
-plugin's other root commands and ordered by `priority`. Keep the root for live
-controls of something running right now; see the
-[pet menu rules](/plugins#pet-menu-rules).
+The host always puts commands in the owning plugin submenu. Legacy
+`placement: "top"` and `featured: true` metadata remain accepted for
+compatibility, but they do not move commands to the menu root. Use `priority`
+to order commands within the submenu. See the [pet menu rules](/plugins#pet-menu-rules).
 
 Commands time out after five seconds by default. A command that deliberately
 waits for user interaction, such as host-mediated OAuth, may declare a bounded

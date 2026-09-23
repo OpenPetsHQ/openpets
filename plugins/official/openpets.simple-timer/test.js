@@ -269,27 +269,22 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   await h.stop();
 }
 
-// 7b) The pet menu offers only the controls that apply to the current timer:
-// live controls at the root while it runs, and only starters while idle.
+// 7b) The plugin registers only the controls that apply to the current timer.
 {
   const h = createTestHarness(register, options(Date.now()));
   await h.start();
-  const rootTitles = () => [...h.calls.commands.values()]
-    .filter((entry) => entry.meta.placement === "top")
-    .map((entry) => h.ctx.t(entry.meta.title.slice(3)));
-  assert.deepEqual(rootTitles(), []);
+  const commandIds = () => [...h.calls.commands.keys()].sort();
+  assert.deepEqual(commandIds(), ["start-timer", "timer-15", "timer-25", "timer-30", "timer-5", "timer-60"]);
   assert.equal(h.calls.commands.has("start-timer"), true);
 
   await h.runCommand("timer-5");
-  assert.deepEqual(rootTitles().sort(), ["Add 5 minutes to timer", "Cancel timer", "Pause timer"]);
-  assert.equal(h.calls.commands.has("timer-5"), false, "presets are hidden while a timer runs");
+  assert.deepEqual(commandIds(), ["add-five-minutes", "cancel-timer", "pause-resume-timer", "show-timer", "start-timer"]);
 
   await h.runCommand("pause-resume-timer");
-  assert.ok(rootTitles().includes("Resume timer"));
+  assert.equal(h.ctx.t(h.calls.commands.get("pause-resume-timer").meta.title.slice(3)), "Resume timer");
 
   await h.runCommand("cancel-timer");
-  assert.deepEqual(rootTitles(), []);
-  assert.equal(h.calls.commands.has("timer-5"), true);
+  assert.deepEqual(commandIds(), ["start-timer", "timer-15", "timer-25", "timer-30", "timer-5", "timer-60"]);
   h.expectNoErrors();
   await h.stop();
 }

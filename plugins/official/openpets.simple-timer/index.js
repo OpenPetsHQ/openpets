@@ -699,9 +699,7 @@ async function startFromValues(ctx, values = {}) {
   await startTimer(ctx, durationMs, values.label);
 }
 
-// The pet menu only offers what applies to the current timer: live controls
-// (pause/resume, +5, cancel, or snooze/dismiss once expired) sit at the menu
-// root, while starting a timer stays in the plugin submenu.
+// The pet menu shows only commands that apply to the current timer.
 function timerCommands(ctx, timer) {
   const icon = "timer";
   const start = {
@@ -729,7 +727,6 @@ function timerCommands(ctx, timer) {
         title: "$t:command.snooze.title",
         description: "$t:command.snooze.description",
         icon,
-        placement: "top",
         priority: 2,
         handler: () => snoozeCurrent(ctx),
       },
@@ -738,7 +735,6 @@ function timerCommands(ctx, timer) {
         title: "$t:command.dismiss.title",
         description: "$t:command.dismiss.description",
         icon,
-        placement: "top",
         priority: 1,
         handler: () => cancelTimer(ctx),
       },
@@ -754,7 +750,6 @@ function timerCommands(ctx, timer) {
       title: paused ? "$t:command.resume.title" : "$t:command.pause.title",
       description: paused ? "$t:command.resume.description" : "$t:command.pause.description",
       icon,
-      placement: "top",
       priority: 3,
       handler: () => pauseOrResume(ctx),
     },
@@ -763,7 +758,6 @@ function timerCommands(ctx, timer) {
       title: "$t:command.addFive.title",
       description: "$t:command.addFive.description",
       icon,
-      placement: "top",
       priority: 2,
       handler: () => addFiveMinutes(ctx),
     },
@@ -772,7 +766,6 @@ function timerCommands(ctx, timer) {
       title: "$t:command.cancel.title",
       description: "$t:command.cancel.description",
       icon,
-      placement: "top",
       priority: 1,
       handler: () => cancelTimer(ctx),
     },

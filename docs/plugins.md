@@ -507,26 +507,17 @@ moment. Every plugin, official or community, should follow these rules:
    title matches the current state ("Pause timer" while running, "Resume timer"
    while paused), not a generic "Pause or resume". Re-registering the same `id`
    replaces its title and handler.
-3. **Live controls go at the root; everything else goes in the submenu.**
-   Controls for something running right now (pause/resume, +5 min, cancel,
-   end session, snooze/dismiss a finished timer) use `placement: "top"`.
-   Starting something new, presets, status readouts, and settings-like
-   commands stay in the plugin's submenu (the default placement). Don't put
-   a command at the root just to make it more visible.
-4. **Root titles must read on their own.** Root items have no plugin name next
-   to them, so name the thing being acted on: "End focus session",
-   "Add 5 minutes to timer", not "End session" or "Add 5 minutes".
-5. **Order with `priority`.** Higher comes first within the plugin's own group.
+3. **Keep commands in the plugin submenu.** The host groups every command under
+   its plugin name, including live controls, forms, presets, and status actions.
+   Legacy `placement: "top"` and `featured: true` metadata remain accepted for
+   compatibility, but the host ignores them.
+4. **Order with `priority`.** Higher values come first within the plugin submenu.
    Registration order is not a reliable order once commands come and go.
 
 Layout the host renders:
 
 ```
-<plugin A root commands>        ← placement: "top", grouped per plugin
-──────────────
-<plugin B root commands>
-──────────────
-Plugin A  >                     ← submenu commands + ctx.ui.menu items
+Plugin A  >  Commands and ctx.ui.menu items
 Plugin B  >
 ──────────────
 Plugins / Open Control Center / Size / Flip

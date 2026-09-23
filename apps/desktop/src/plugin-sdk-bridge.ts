@@ -44,7 +44,19 @@ export type PluginCommandFormField = {
 export type PluginCommandForm = { fields: readonly PluginCommandFormField[]; submitLabel?: string };
 export type PluginIconAssetRef = { kind: "icon"; name: string };
 export type PluginCommandIcon = string | PluginIconAssetRef;
-export type PluginCommand = { id: string; title: string; description?: string; form?: PluginCommandForm; placement?: "top" | "submenu"; priority?: number; featured?: boolean; icon?: PluginCommandIcon; timeoutMs?: number };
+export type PluginCommand = {
+  id: string;
+  title: string;
+  description?: string;
+  form?: PluginCommandForm;
+  /** @deprecated Commands always stay in the owning plugin submenu. Accepted for compatibility and ignored. */
+  placement?: "top" | "submenu";
+  priority?: number;
+  /** @deprecated Commands stay in the owning plugin submenu, even when featured is true. */
+  featured?: boolean;
+  icon?: PluginCommandIcon;
+  timeoutMs?: number;
+};
 export type PluginMenuItem = { id: string; title: string; enabled?: boolean; checked?: boolean };
 export type PluginStatus = { text: string; tone?: "info" | "success" | "warning" | "error" };
 export type PluginRuntimePublicState = { commands: readonly PluginCommand[]; status?: PluginStatus; menuItems?: readonly PluginMenuItem[] };

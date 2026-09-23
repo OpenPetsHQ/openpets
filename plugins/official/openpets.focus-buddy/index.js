@@ -127,9 +127,7 @@ function shouldSound(cfg) {
 
 const COMMAND_IDS = ["start-focus", "pause-resume", "skip-to-break", "end-session", "show-status"];
 
-// The pet menu only offers what applies right now: live session controls sit
-// at the menu root, while starting a session and reading status stay in the
-// plugin submenu.
+// The pet menu shows only commands that apply to the current session.
 function focusCommands(ctx, session) {
   const icon = ctx.assets.icon("focus");
   const startFocusCommand = {
@@ -152,7 +150,6 @@ function focusCommands(ctx, session) {
       title: `$t:command.${pauseKey}.title`,
       description: `$t:command.${pauseKey}.description`,
       icon,
-      placement: "top",
       priority: 3,
       handler: () => pauseOrResume(ctx),
     },
@@ -163,7 +160,6 @@ function focusCommands(ctx, session) {
       title: "$t:command.skipToBreak.title",
       description: "$t:command.skipToBreak.description",
       icon,
-      placement: "top",
       priority: 2,
       handler: () => skipToBreak(ctx),
     });
@@ -173,7 +169,6 @@ function focusCommands(ctx, session) {
     title: `$t:command.${endKey}.title`,
     description: `$t:command.${endKey}.description`,
     icon,
-    placement: "top",
     priority: 1,
     handler: () => endSession(ctx),
   });

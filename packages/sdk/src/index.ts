@@ -1052,10 +1052,11 @@ export interface OpenPetsCommand {
   icon?: OpenPetsIconRef;
   /** When present, the host opens a dialog and passes validated values to the handler. */
   form?: OpenPetsCommandForm;
-  /** Top-level item vs grouped plugin submenu. Default "submenu". */
+  /** @deprecated Commands always stay in the owning plugin submenu. The host accepts this field for compatibility and ignores it. */
   placement?: "top" | "submenu";
   /** Ordering within its group (higher first). */
   priority?: number;
+  /** @deprecated Commands stay in the owning plugin submenu, even when featured is true. */
   featured?: boolean;
   /** Maximum time the host waits for this command (1 second to 5 minutes). Defaults to 5 seconds. */
   timeoutMs?: number;

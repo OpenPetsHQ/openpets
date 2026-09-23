@@ -600,7 +600,7 @@ export function initializePluginService(userDataPath: string, petApi: PluginPetA
   return appPluginService;
 }
 
-export type PluginCommandMenuItem = { readonly pluginId: string; readonly pluginName: string; readonly commandId: string; readonly commandTitle: string; readonly form?: PluginCommand["form"]; readonly placement?: "top" | "submenu"; readonly priority?: number; readonly featured?: boolean };
+export type PluginCommandMenuItem = { readonly pluginId: string; readonly pluginName: string; readonly commandId: string; readonly commandTitle: string; readonly form?: PluginCommand["form"]; readonly priority?: number };
 export type PluginDynamicMenuItem = { readonly pluginId: string; readonly pluginName: string; readonly itemId: string; readonly title: string; readonly enabled?: boolean; readonly checked?: boolean };
 
 /** Resolve `$t:` references in a command form's field labels and submit label against the owning plugin's catalogs. */
@@ -633,7 +633,7 @@ export async function getDefaultPetPluginCommands(maxPlugins = Number.POSITIVE_I
   const snapshot = await appPluginService.getSnapshot();
   return snapshot.plugins.filter((plugin) => plugin.enabled && !plugin.brokenReason && plugin.commands && plugin.commands.length > 0)
     .sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id) || a.id.localeCompare(b.id)).slice(0, maxPlugins)
-    .flatMap((plugin) => [...(plugin.commands ?? [])].slice(0, maxCommandsPerPlugin).map((command) => ({ pluginId: plugin.id, pluginName: resolvePluginText(plugin.id, plugin.name) ?? plugin.id, commandId: command.id, commandTitle: command.title, form: command.form, placement: command.placement, priority: command.priority, featured: command.featured })));
+    .flatMap((plugin) => [...(plugin.commands ?? [])].slice(0, maxCommandsPerPlugin).map((command) => ({ pluginId: plugin.id, pluginName: resolvePluginText(plugin.id, plugin.name) ?? plugin.id, commandId: command.id, commandTitle: command.title, form: command.form, priority: command.priority })));
 }
 
 export async function getDefaultPetPluginMenuItems(maxPlugins = Number.POSITIVE_INFINITY, maxItemsPerPlugin = 8): Promise<PluginDynamicMenuItem[]> {
