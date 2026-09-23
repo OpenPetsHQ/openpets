@@ -85,6 +85,8 @@ export type ElectronPluginHostCapabilities = PluginHostCapabilities & {
   readonly aiGateway: PluginAiGateway;
   /** Tear down everything a plugin owns on stop/reload. */
   clearPlugin(pluginId: string, isCurrentGeneration?: () => boolean): Promise<void>;
+  /** Redeem a verifier handoff using this host's encrypted local profile. */
+  handleCalendarVerificationTicket(ticket: string): Promise<void>;
   shutdown(): void;
 };
 
@@ -348,6 +350,9 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
     shutdown() {
       void shutdownPluginVoice().catch(() => undefined);
       shutdown();
+    },
+    async handleCalendarVerificationTicket(ticket: string) {
+      await calendarBroker.completeConnectTicket(ticket);
     },
   };
   // Prime the CPU sampler so the first metrics() call has a delta to use.

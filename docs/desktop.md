@@ -637,6 +637,19 @@ while reduced-motion users see a static first frame. It does not select, preview
 or validate installed pets; its bundled courier sprites remain available wherever
 the plugin is installed.
 
+The SDK calendar capability is brokered by the desktop host; plugin code never
+receives provider tokens or Composio account identifiers. Calendar Connect is
+fail-closed until the first-party broker's deferred-auth verifier and attempt
+store are configured. The callback hands a one-time ticket back to the desktop
+through the existing `openpets:` protocol; the host redeems it with its
+OS-encrypted local-profile identity and the broker verifies the attempt-bound
+Composio account before enabling reads. The broker's project-wide callback
+requires a dedicated Composio project and query-string redaction in all logs;
+host cancellation is bound to a per-invocation nonce and cannot cancel another
+profile/provider flow.
+See `apps/calendar-broker/README.md` for deployment prerequisites. This does
+not change Calendar Airmail's independent OAuth flow.
+
 ### Agent setup
 
 `agent-setup.ts` detects installed agents and runs configuration actions (MCP

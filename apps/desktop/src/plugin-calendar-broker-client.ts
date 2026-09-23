@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import type {
   OpenPetsCalendar,
   OpenPetsCalendarConnectionStatus,
@@ -37,22 +39,57 @@ export class CalendarBrokerClient {
     this.#origin = origin.origin;
   }
 
-  async connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" }> {
-    const result = await this.#post(pluginId, "/v1/calendar/connect", { provider }, signal);
+  async connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" | "busy" | "cancelled" }> {
+    const requestId = randomBytes(32).toString("base64url");
+    let result: unknown;
+    try {
+      result = await this.#post(pluginId, "/v1/calendar/connect", { provider, requestId }, signal);
+    } catch (error) {
+      if (signal?.aborted) {
+        await this.#cancelConnect(pluginId, provider, requestId);
+        throw new Error("Calendar connection was cancelled.");
+      }
+      throw error;
+    }
     if (!isRecord(result)) {
       throw new Error("Calendar broker returned an invalid connection result.");
     }
     switch (result.state) {
       case "already_connected": return { state: "already_connected" };
       case "pending": return { state: "pending" };
+      case "busy": return { state: "busy" };
+      case "cancelled": return { state: "cancelled" };
       case "link_opened": {
         const link = validateConnectLink(result.linkUrl);
-        if (signal?.aborted) throw new Error("Calendar connection was cancelled.");
-        await this.#openExternal(link);
+        if (signal?.aborted) {
+          await this.#cancelConnect(pluginId, provider, requestId);
+          throw new Error("Calendar connection was cancelled.");
+        }
+        try {
+          await this.#openExternal(link);
+        } catch (error) {
+          await this.#cancelConnect(pluginId, provider, requestId);
+          throw error;
+        }
+        if (signal?.aborted) {
+          await this.#cancelConnect(pluginId, provider, requestId);
+          throw new Error("Calendar connection was cancelled.");
+        }
         return { state: "link_opened" };
       }
       default: throw new Error("Calendar broker returned an invalid connection result.");
     }
+  }
+
+  /** Completes the one-time local-profile handoff; this API is host-only. */
+  async completeConnectTicket(ticket: string): Promise<void> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(ticket)) throw new Error("Calendar verification ticket is invalid.");
+    const result = await this.#postAuthenticated("/v1/calendar/connect/complete", { ticket });
+    if (!isRecord(result) || result.completed !== true) throw new Error("Calendar broker did not confirm connection verification.");
+  }
+
+  async #cancelConnect(pluginId: string, provider: OpenPetsCalendarProvider, requestId: string): Promise<void> {
+    await this.#post(pluginId, "/v1/calendar/connect/cancel", { provider, requestId }).catch(() => undefined);
   }
 
   async status(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus> {
@@ -84,6 +121,10 @@ export class CalendarBrokerClient {
 
   async #post(pluginId: string, path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     if (!/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(pluginId)) throw new Error("Calendar plugin id is invalid.");
+    return this.#postAuthenticated(path, { ...body, pluginId }, signal);
+  }
+
+  async #postAuthenticated(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const credential = await this.#getCredential();
     if (!/^[A-Za-z0-9_-]{43}$/.test(credential)) throw new Error("Local calendar profile identity is invalid.");
     const controller = new AbortController();
@@ -94,7 +135,7 @@ export class CalendarBrokerClient {
       const response = await this.#fetch(`${this.#origin}${path}`, {
         method: "POST",
         headers: { authorization: `Bearer ${credential}`, "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ ...body, pluginId }),
+        body: JSON.stringify(body),
         signal: controller.signal,
         redirect: "error",
         cache: "no-store",

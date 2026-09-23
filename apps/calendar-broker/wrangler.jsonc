@@ -4,6 +4,15 @@
   "main": "src/index.mjs",
   "compatibility_date": "2026-09-23",
   "workers_dev": true,
+  "observability": { "enabled": false },
+  "d1_databases": [
+    {
+      "binding": "CALENDAR_CONNECT_DB",
+      "database_name": "openpets-calendar-connect",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
   "ratelimits": [
     {
       "name": "PROFILE_RATE_LIMITER",

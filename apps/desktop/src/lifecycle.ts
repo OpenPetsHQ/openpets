@@ -10,6 +10,7 @@ import { stopPetAssistantHost } from "./pet-assistant-host.js";
 import { stopVoiceAssistantHost } from "./voice-assistant-host.js";
 import { shutdownPluginVoice } from "./plugin-voice.js";
 import { parseTeamEnrollmentLink, type TeamEnrollmentLink } from "./team-protocol.js";
+import { parseCalendarVerificationLink } from "./calendar-callback-protocol.js";
 import { focusOpenTaskWindows } from "./windows.js";
 import { shutdownVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 
@@ -20,6 +21,7 @@ let hardExitTimer: NodeJS.Timeout | null = null;
 
 export type AppLifecycleOptions = {
   readonly onTeamEnrollmentLink?: (link: TeamEnrollmentLink) => void;
+  readonly onCalendarVerificationTicket?: (ticket: string) => void;
   readonly stopManagerCheckIns?: () => Promise<void>;
   readonly stopTeams?: () => Promise<void>;
   readonly stopPetDisplayCoordinator?: () => void;
@@ -31,7 +33,10 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
     const link = parseTeamEnrollmentLink(url);
     if (link) {
       options.onTeamEnrollmentLink?.(link);
+      return;
     }
+    const ticket = parseCalendarVerificationLink(url);
+    if (ticket) options.onCalendarVerificationTicket?.(ticket);
   });
   app.on("second-instance", (_event, commandLine) => {
     info("app", "second instance requested");
@@ -42,7 +47,10 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
       .find((item): item is TeamEnrollmentLink => Boolean(item));
     if (value) {
       options.onTeamEnrollmentLink?.(value);
+      return;
     }
+    const ticket = commandLine.map((item) => parseCalendarVerificationLink(item)).find((item): item is string => Boolean(item));
+    if (ticket) options.onCalendarVerificationTicket?.(ticket);
   });
 
   app.on("window-all-closed", () => {

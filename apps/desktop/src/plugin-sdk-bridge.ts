@@ -218,7 +218,7 @@ export interface PluginHostCapabilities {
     signOut(pluginId: string, provider: string): Promise<void>;
   };
   calendar?: {
-    connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" }>;
+    connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" | "busy" | "cancelled" }>;
     status(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus>;
     disconnect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<void>;
     listCalendars(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarListResult>;

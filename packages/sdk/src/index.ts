@@ -1361,7 +1361,7 @@ export interface OpenPetsCalendarEventListResult {
  * provider payload crosses this API. Requires `calendar:connect`.
  */
 export interface OpenPetsCalendarApi {
-  connect(provider: OpenPetsCalendarProvider): Promise<{ state: "link_opened" | "already_connected" | "pending" }>;
+  connect(provider: OpenPetsCalendarProvider): Promise<{ state: "link_opened" | "already_connected" | "pending" | "busy" | "cancelled" }>;
   status(provider: OpenPetsCalendarProvider): Promise<OpenPetsCalendarConnectionStatus>;
   disconnect(provider: OpenPetsCalendarProvider): Promise<void>;
   listCalendars(provider: OpenPetsCalendarProvider): Promise<OpenPetsCalendarListResult>;

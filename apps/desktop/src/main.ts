@@ -37,6 +37,7 @@ import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
 import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
 import { findTeamEnrollmentLink } from "./team-protocol.js";
+import { findCalendarVerificationTicket } from "./calendar-callback-protocol.js";
 import { resolveDevControlCenterRoute } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
@@ -50,7 +51,20 @@ import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptur
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
 let pendingTeamEnrollmentLink: string | null = null;
+let pendingCalendarVerificationTicket: string | null = null;
+let handleCalendarVerificationTicket: ((ticket: string) => Promise<void>) | null = null;
 let petDisplayCoordinator: PetDisplayCoordinator<Display> | null = null;
+
+function receiveCalendarVerificationTicket(ticket: string): void {
+  if (!handleCalendarVerificationTicket) {
+    pendingCalendarVerificationTicket = ticket;
+    return;
+  }
+  void handleCalendarVerificationTicket(ticket).catch(() => {
+    // Callback tickets and Composio session material are never logged.
+    warn("provider", "connection verification could not be completed", { reason: "verification_rejected_or_unavailable" });
+  });
+}
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
 // real encryption backend. On Linux use the keyring so safeStorage can
@@ -153,6 +167,7 @@ if (!gotSingleInstanceLock) {
       teamService.handleDeepLink(value);
       openControlCenterWindow("teams");
     },
+    onCalendarVerificationTicket: receiveCalendarVerificationTicket,
     stopTeams: () =>
       teamService?.stop() ?? Promise.resolve(),
     stopManagerCheckIns: () => {
@@ -274,6 +289,13 @@ if (!gotSingleInstanceLock) {
     const devPluginMode = roots.length > 0 || paths.length > 0;
     initializePluginPlatformSettings(app.getPath("userData"));
     const pluginCapabilities = createElectronPluginHostCapabilities(app.getPath("userData"));
+    handleCalendarVerificationTicket = (ticket) => pluginCapabilities.handleCalendarVerificationTicket(ticket);
+    const startupCalendarTicket = findCalendarVerificationTicket(process.argv);
+    if (startupCalendarTicket) receiveCalendarVerificationTicket(startupCalendarTicket);
+    if (pendingCalendarVerificationTicket) {
+      receiveCalendarVerificationTicket(pendingCalendarVerificationTicket);
+      pendingCalendarVerificationTicket = null;
+    }
     let devPluginWatcher: ReturnType<typeof startDevPluginWatcher> | undefined;
     const pluginService = initializePluginService(app.getPath("userData"), defaultPluginPetApi, app.getVersion(), new ElectronPluginJsHost(), writePluginRuntimeLog, process.env.OPENPETS_DISABLE_PLUGIN_CATALOG === "1" || devPluginMode, resolveBundledOfficialPluginRoots(), !devPluginMode, pluginCapabilities, undefined, (sourcePath) => devPluginWatcher?.addPaths([sourcePath]), (sourcePath) => devPluginWatcher?.removePath(sourcePath));
     const teamsApiClient = new TeamApiClient({ production: app.isPackaged });

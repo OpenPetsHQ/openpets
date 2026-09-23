@@ -1,3 +1,5 @@
+import { createD1ConnectAttemptStore } from "./connect-attempt-store.mjs";
+
 const COMPOSIO_API = "https://backend.composio.dev/api/v3.1";
 const GOOGLE_ORIGIN = "https://www.googleapis.com";
 const OUTLOOK_ORIGIN = "https://graph.microsoft.com";
@@ -5,6 +7,10 @@ const CONNECT_ORIGIN = "https://connect.composio.dev";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_PROVIDER_PAGES = 3;
 const PAGE_SIZE = 100;
+const CONNECT_ATTEMPT_TTL_MS = 10 * 60_000;
+const VERIFY_REQUEST_GRACE_MS = 60_000;
+const MAX_SESSION_URI_LENGTH = 4_096;
+const MAX_CALLBACK_ATTEMPTS = 3;
 const ALLOWED_PROVIDER = new Set(["google", "outlook"]);
 const PROVIDERS = {
   google: { toolkit: "googlecalendar", authConfig: "COMPOSIO_GOOGLE_AUTH_CONFIG_ID" },
@@ -16,24 +22,37 @@ export default { fetch: handleRequest };
 export async function handleRequest(request, env, { fetchImpl = fetch, now = () => new Date() } = {}) {
   try {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/v1/calendar/connect/callback") {
+      return await receiveConnectCallback(request, env, { now });
+    }
     if (request.method !== "POST") throw httpError(405, "method_not_allowed");
     const route = url.pathname;
     const supportedRoutes = new Set([
-      "/v1/calendar/connect", "/v1/calendar/status", "/v1/calendar/disconnect",
+      "/v1/calendar/connect", "/v1/calendar/connect/complete", "/v1/calendar/connect/cancel", "/v1/calendar/status", "/v1/calendar/disconnect",
       "/v1/calendar/calendars", "/v1/calendar/events", "/v1/calendar/event",
     ]);
     if (!supportedRoutes.has(route)) throw httpError(404, "not_found");
 
     const token = parseBearer(request.headers.get("authorization"));
     const body = await readJsonBody(request);
+    const profileId = await deriveProfileId(token, env.COMPOSIO_IDENTITY_HMAC_KEY);
+    const store = getConnectAttemptStore(env);
+    if (route === "/v1/calendar/connect/complete") {
+      await enforceRateLimits(env, request, profileId, route);
+      return json(await completeConnect({ env, fetchImpl, profileId, store, now }, body));
+    }
     const provider = parseProvider(body.provider);
     const pluginId = parsePluginId(body.pluginId);
-    const userId = await deriveComposioUserId(token, pluginId, env.COMPOSIO_IDENTITY_HMAC_KEY);
-    await enforceRateLimits(env, request, userId, route);
-    const context = { env, fetchImpl, provider, userId, now };
+    const requestIdHash = route === "/v1/calendar/connect" || route === "/v1/calendar/connect/cancel"
+      ? await hashConnectRequestId(body.requestId)
+      : undefined;
+    const rateKey = `${profileId}:${pluginId}`;
+    await enforceRateLimits(env, request, rateKey, route);
+    const context = { env, fetchImpl, provider, profileId, pluginId, token, store, now };
 
     switch (route) {
-      case "/v1/calendar/connect": return json(await connect(context));
+      case "/v1/calendar/connect": return json(await connect(context, requestIdHash));
+      case "/v1/calendar/connect/cancel": return json(await cancelConnect(context, requestIdHash));
       case "/v1/calendar/status": return json(await status(context));
       case "/v1/calendar/disconnect": return json(await disconnect(context));
       case "/v1/calendar/calendars": return json(await listCalendars(context));
@@ -47,40 +66,360 @@ export async function handleRequest(request, env, { fetchImpl = fetch, now = () 
   }
 }
 
-async function connect(context) {
-  const { provider, userId, env } = context;
-  const accounts = await listOwnedAccounts(context);
-  const active = accounts.find((account) => account.status === "ACTIVE");
-  if (active) return { state: "already_connected" };
-  if (accounts.some((account) => account.status === "INITIALIZING")) return { state: "pending" };
-  for (const account of accounts) await removeOwnedAccount(context, account);
+async function connect(context, requestIdHash) {
+  assertVerifierConfigured(context.env);
+  const existing = await context.store.getLatest(context.profileId, context.pluginId, context.provider);
+  if (existing && existing.expires_at <= context.now().getTime() && existing.state !== "verified") {
+    await context.store.setState(existing.attempt_id, "expired", context.now().getTime());
+    await removeAttemptAccount(context, existing).catch(() => undefined);
+  } else if (existing?.state === "verified") {
+    const account = await findAttemptAccount(context, existing);
+    if (account?.status === "ACTIVE") return { state: "already_connected" };
+    await context.store.setState(existing.attempt_id, "failed", context.now().getTime());
+    await removeAttemptAccount(context, existing).catch(() => undefined);
+  } else if (existing?.state === "verifying") {
+    if (context.now().getTime() - existing.updated_at < VERIFY_REQUEST_GRACE_MS) return { state: "pending" };
+    await context.store.setState(existing.attempt_id, "failed", context.now().getTime());
+    await removeAttemptAccount(context, existing).catch(() => undefined);
+  } else if (existing?.state === "completion_unknown") {
+    const recovered = await recoverAttempt(context, existing);
+    if (recovered) return { state: "already_connected" };
+    const latest = await context.store.getLatest(context.profileId, context.pluginId, context.provider);
+    if (latest && isActiveAttemptState(latest.state)) return { state: "pending" };
+  } else if (existing && isActiveAttemptState(existing.state)) {
+    const account = await findAttemptAccount(context, existing);
+    if (account?.status === "ACTIVE") {
+      await context.store.setState(existing.attempt_id, "failed", context.now().getTime());
+      await removeAttemptAccount(context, existing).catch(() => undefined);
+    } else {
+      return { state: "pending" };
+    }
+  } else if (existing && ["cancelled", "expired", "failed"].includes(existing.state)) {
+    await removeAttemptAccount(context, existing).catch(() => undefined);
+  }
 
-  const result = await composioRequest(context, "POST", "/connected_accounts/link", {
-    auth_config_id: requiredConfig(env[PROVIDERS[provider].authConfig]),
-    user_id: userId,
-    alias: `openpets-deadline-buddy-${provider}`,
-    experimental: { account_type: "PRIVATE" },
-  });
-  const linkUrl = validateConnectUrl(result?.redirect_url);
-  return { state: "link_opened", linkUrl };
+  const now = context.now().getTime();
+  const attemptId = randomBase64Url(18);
+  const userId = await deriveConnectUserId(context.token, context.pluginId, attemptId, context.env.COMPOSIO_IDENTITY_HMAC_KEY);
+  const attempt = {
+    attemptId,
+    requestIdHash,
+    profileId: context.profileId,
+    pluginId: context.pluginId,
+    provider: context.provider,
+    userId,
+    expiresAt: now + CONNECT_ATTEMPT_TTL_MS,
+  };
+  if (!await context.store.create(attempt, now)) {
+    const cancelled = await context.store.isRequestCancelled(requestIdHash, context.profileId, context.pluginId, context.provider, context.now().getTime());
+    return { state: cancelled ? "cancelled" : "busy" };
+  }
+
+  let connectedAccountId;
+  try {
+    // Hold the project callback slot before cleanup so a flow that loses a
+    // race cannot delete legacy accounts and then report busy.
+    await removeLegacyAccounts(context);
+    const result = await composioRequest(context, "POST", "/connected_accounts/link", {
+      auth_config_id: requiredConfig(context.env[PROVIDERS[context.provider].authConfig]),
+      user_id: userId,
+      alias: `openpets-${context.pluginId}-${context.provider}-${attemptId.slice(0, 8)}`,
+      experimental: { account_type: "PRIVATE" },
+    });
+    const linkUrl = validateConnectUrl(result?.redirect_url);
+    if (!safeAccountId(result?.connected_account_id)) throw httpError(502, "composio_invalid_response");
+    connectedAccountId = result.connected_account_id;
+    const apiExpiry = Date.parse(result?.expires_at);
+    const expiresAt = Number.isFinite(apiExpiry) ? Math.min(attempt.expiresAt, apiExpiry) : attempt.expiresAt;
+    if (expiresAt <= now || !await context.store.setLink(attemptId, result.connected_account_id, expiresAt, now)) {
+      throw httpError(502, "connection_attempt_unavailable");
+    }
+    return { state: "link_opened", linkUrl };
+  } catch (error) {
+    await context.store.setState(attemptId, "failed", context.now().getTime()).catch(() => undefined);
+    if (safeAccountId(connectedAccountId)) await removeAccountById(context, connectedAccountId, "INITIALIZING").catch(() => undefined);
+    const orphanedAccounts = await listOwnedAccounts(context, userId).catch(() => []);
+    for (const account of orphanedAccounts) await removeOwnedAccount(context, account).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function status(context) {
-  const accounts = await listOwnedAccounts(context);
-  const state = accounts.some((account) => account.status === "ACTIVE")
-    ? "connected"
-    : accounts.some((account) => account.status === "INITIALIZING")
-      ? "pending"
-      : accounts.length > 0
-        ? "reauth_required"
-        : "not_connected";
+  const now = context.now().getTime();
+  let attempt = await context.store.getLatest(context.profileId, context.pluginId, context.provider);
+  if (attempt && attempt.expires_at <= now && attempt.state !== "verified") {
+    await context.store.setState(attempt.attempt_id, "expired", now);
+    await removeAttemptAccount(context, attempt).catch(() => undefined);
+    attempt = { ...attempt, state: "expired" };
+  }
+  let state = "not_connected";
+  if (attempt?.state === "verified") {
+    state = (await findAttemptAccount(context, attempt))?.status === "ACTIVE" ? "connected" : "reauth_required";
+  } else if (attempt && isActiveAttemptState(attempt.state)) {
+    if (attempt.state === "completion_unknown") {
+      if (await recoverAttempt(context, attempt)) state = "connected";
+      else {
+        const latest = await context.store.getLatest(context.profileId, context.pluginId, context.provider);
+        state = latest && isActiveAttemptState(latest.state) ? "pending" : "not_connected";
+      }
+    } else if (attempt.state === "verifying") {
+      if (now - attempt.updated_at < VERIFY_REQUEST_GRACE_MS) state = "pending";
+      else {
+        await context.store.setState(attempt.attempt_id, "failed", now);
+        await removeAttemptAccount(context, attempt).catch(() => undefined);
+        state = "not_connected";
+      }
+    } else if (attempt.state === "link_opened" || attempt.state === "callback_ready") {
+      const account = await findAttemptAccount(context, attempt);
+      if (account?.status === "ACTIVE") {
+        await context.store.setState(attempt.attempt_id, "failed", now);
+        await removeAttemptAccount(context, attempt).catch(() => undefined);
+        state = "not_connected";
+      } else {
+        state = "pending";
+      }
+    } else {
+      state = "pending";
+    }
+  } else if ((await listLegacyAccounts(context)).length > 0) {
+    state = "reauth_required";
+  }
   return { provider: context.provider, state, checkedAt: context.now().toISOString() };
 }
 
+async function cancelConnect(context, requestIdHash) {
+  const now = context.now().getTime();
+  const request = {
+    requestIdHash,
+    profileId: context.profileId,
+    pluginId: context.pluginId,
+    provider: context.provider,
+  };
+  const cancelled = await context.store.cancelRequest(request, now, now + CONNECT_ATTEMPT_TTL_MS, now - VERIFY_REQUEST_GRACE_MS);
+  if (cancelled) {
+    const cancelledAttempt = await context.store.getByRequestIdHash(requestIdHash, context.profileId, context.pluginId, context.provider);
+    if (cancelledAttempt?.state === "cancelled") await removeAttemptAccount(context, cancelledAttempt);
+  }
+  return { cancelled };
+}
+
 async function disconnect(context) {
-  const accounts = await listOwnedAccounts(context);
-  for (const account of accounts) await removeOwnedAccount(context, account);
+  const now = context.now().getTime();
+  const attempts = await context.store.listForProfile(context.profileId, context.pluginId, context.provider);
+  if (attempts.some((attempt) => attempt.state === "verifying" && now - attempt.updated_at < VERIFY_REQUEST_GRACE_MS)) {
+    throw httpError(409, "connection_verification_in_progress");
+  }
+  for (const attempt of attempts) {
+    if (attempt.state !== "cancelled") await context.store.setState(attempt.attempt_id, "cancelled", now);
+    await removeAttemptAccount(context, attempt);
+  }
+  for (const account of await listLegacyAccounts(context)) await removeOwnedAccount(context, account);
   return { disconnected: true };
+}
+
+async function receiveConnectCallback(request, env, { now }) {
+  const headers = {
+    "cache-control": "no-store, max-age=0",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+  };
+  try {
+    assertVerifierConfigured(env);
+    await enforceCallbackRateLimit(env, request);
+    const url = new URL(request.url);
+    const keys = [...url.searchParams.keys()];
+    const sessionUri = url.searchParams.get("session_uri");
+    if (keys.length !== 1 || keys[0] !== "session_uri" || !isSafeSessionUri(sessionUri)) {
+      throw httpError(400, "invalid_callback");
+    }
+    const store = getConnectAttemptStore(env);
+    const timestamp = now().getTime();
+    const attempt = await store.getCurrent(timestamp);
+    if (!attempt || attempt.state !== "link_opened") throw httpError(410, "connect_attempt_unavailable");
+    const ticket = randomBase64Url(32);
+    const ticketHash = await sha256Hex(ticket);
+    const sessionCipher = await encryptSessionUri(sessionUri, env.COMPOSIO_CALLBACK_ENCRYPTION_KEY);
+    if (!await store.storeCallback(attempt.attempt_id, sessionCipher, ticketHash, timestamp)) {
+      throw httpError(410, "connect_attempt_unavailable");
+    }
+    const handoff = new URL("openpets://calendar/verify");
+    handoff.searchParams.set("ticket", ticket);
+    return new Response(null, { status: 303, headers: { ...headers, location: handoff.toString() } });
+  } catch (error) {
+    const status = error instanceof BrokerError ? error.status : 502;
+    return new Response("Calendar verification could not be completed. Return to OpenPets and start a new connection if needed.", {
+      status,
+      headers: { ...headers, "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+}
+
+async function completeConnect(context, body) {
+  assertVerifierConfigured(context.env);
+  if (typeof body.ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.ticket)) throw httpError(400, "invalid_callback_ticket");
+  const ticketHash = await sha256Hex(body.ticket);
+  const timestamp = context.now().getTime();
+  const attempt = await context.store.getByTicketHash(ticketHash);
+  if (!attempt) throw httpError(409, "callback_ticket_replayed_or_unknown");
+  if (attempt.profile_id !== context.profileId) throw httpError(403, "callback_profile_mismatch");
+  if (attempt.expires_at <= timestamp) {
+    await context.store.setState(attempt.attempt_id, "expired", timestamp);
+    const expiredContext = { ...context, provider: attempt.provider, pluginId: attempt.plugin_id };
+    await removeAttemptAccount(expiredContext, attempt).catch(() => undefined);
+    throw httpError(410, "connect_attempt_expired");
+  }
+  if (!await context.store.claimTicket(attempt.attempt_id, context.profileId, ticketHash, timestamp)) {
+    throw httpError(409, "callback_ticket_replayed_or_unknown");
+  }
+
+  const attemptContext = { ...context, provider: attempt.provider, pluginId: attempt.plugin_id };
+  let sessionUri;
+  let completionRequestDispatched = false;
+  try {
+    sessionUri = await decryptSessionUri(attempt.session_cipher, context.env.COMPOSIO_CALLBACK_ENCRYPTION_KEY);
+    const completed = await composioRequest(attemptContext, "POST", "/connected_accounts/complete_auth", {
+      session_uri: sessionUri,
+      user_id: attempt.user_id,
+    }, { onDispatch: () => { completionRequestDispatched = true; } });
+    if (completed?.connected_account_id !== attempt.connected_account_id || completed?.toolkit_slug !== PROVIDERS[attempt.provider].toolkit) {
+      if (safeAccountId(completed?.connected_account_id) && completed.connected_account_id !== attempt.connected_account_id) {
+        await removeAccountIfAttemptOwned(attemptContext, attempt, completed.connected_account_id).catch(() => undefined);
+      }
+      const mismatchAt = context.now().getTime();
+      await restoreOrFailRejectedCallback(attemptContext, attempt, mismatchAt);
+      throw httpError(502, "connection_identity_mismatch");
+    }
+    const recordedCompletion = await context.store.setState(attempt.attempt_id, "completion_unknown", context.now().getTime());
+    if (!recordedCompletion) throw httpError(502, "connection_verification_pending");
+  } catch (error) {
+    const timestampAfterFailure = context.now().getTime();
+    if (error instanceof UpstreamError && [400, 404].includes(error.status)) {
+      const recovery = await restoreOrFailRejectedCallback(attemptContext, attempt, timestampAfterFailure);
+      if (recovery === "unknown") throw httpError(502, "connection_verification_pending");
+      throw httpError(409, recovery === "retry" ? "connection_verification_retry" : "connection_verification_failed");
+    }
+    if (error instanceof BrokerError && error.code === "connection_identity_mismatch") throw error;
+    if (completionRequestDispatched) {
+      await context.store.setState(attempt.attempt_id, "completion_unknown", timestampAfterFailure);
+    } else {
+      await context.store.setState(attempt.attempt_id, "failed", timestampAfterFailure);
+      await removeAttemptAccount(attemptContext, attempt).catch(() => undefined);
+    }
+    if (error instanceof BrokerError) throw error;
+    throw httpError(502, completionRequestDispatched ? "connection_verification_pending" : "connection_verification_failed");
+  } finally {
+    sessionUri = undefined;
+  }
+
+  let account;
+  try {
+    account = await getConnectedAccount(attemptContext, attempt.connected_account_id, attempt.provider, attempt.user_id);
+  } catch (error) {
+    if (!(error instanceof UpstreamError && error.status === 404)) {
+      await context.store.setState(attempt.attempt_id, "completion_unknown", context.now().getTime());
+      throw httpError(502, "connection_verification_pending");
+    }
+  }
+  if (!accountMatchesAttempt(attempt, account, context.env)) {
+    if (accountBelongsToAttempt(attempt, account)) {
+      await removeAccountById(attemptContext, attempt.connected_account_id, account.status).catch(() => undefined);
+    }
+    await context.store.setState(attempt.attempt_id, "failed", context.now().getTime());
+    throw httpError(409, "connection_identity_mismatch");
+  }
+  const verifiedAt = context.now().getTime();
+  if (!await context.store.verifyIfNotCancelled(attempt.attempt_id, verifiedAt)) {
+    if (await context.store.isRequestCancelled(attempt.request_id_hash, attempt.profile_id, attempt.plugin_id, attempt.provider, verifiedAt)) {
+      await context.store.setState(attempt.attempt_id, "cancelled", verifiedAt);
+      await removeAttemptAccount(attemptContext, attempt).catch(() => undefined);
+      throw httpError(409, "connection_verification_cancelled");
+    }
+    throw httpError(502, "connection_verification_pending");
+  }
+  return { completed: true };
+}
+
+async function recoverAttempt(context, attempt) {
+  const attemptContext = { ...context, provider: attempt.provider, pluginId: attempt.plugin_id };
+  const now = context.now().getTime();
+  if (await context.store.isRequestCancelled(attempt.request_id_hash, attempt.profile_id, attempt.plugin_id, attempt.provider, now)) {
+    await context.store.setState(attempt.attempt_id, "cancelled", now);
+    await removeAttemptAccount(attemptContext, attempt).catch(() => undefined);
+    return false;
+  }
+  let account;
+  try {
+    account = await getConnectedAccount(attemptContext, attempt.connected_account_id, attempt.provider, attempt.user_id);
+  } catch (error) {
+    if (error instanceof UpstreamError && error.status === 404) account = undefined;
+    else return false;
+  }
+  if (accountMatchesAttempt(attempt, account, context.env)) {
+    if (await context.store.verifyIfNotCancelled(attempt.attempt_id, now)) return true;
+    if (await context.store.isRequestCancelled(attempt.request_id_hash, attempt.profile_id, attempt.plugin_id, attempt.provider, now)) {
+      await context.store.setState(attempt.attempt_id, "cancelled", now);
+      await removeAttemptAccount(attemptContext, attempt).catch(() => undefined);
+    }
+    return false;
+  }
+  if (now - attempt.updated_at >= VERIFY_REQUEST_GRACE_MS) {
+    if (accountMatchesIdentity(attempt, account, context.env)) {
+      await removeAccountById(attemptContext, attempt.connected_account_id, account.status).catch(() => undefined);
+    }
+    await context.store.setState(attempt.attempt_id, "failed", context.now().getTime());
+  }
+  return false;
+}
+
+async function restoreOrFailRejectedCallback(context, attempt, now) {
+  let account;
+  try {
+    account = await getConnectedAccount(context, attempt.connected_account_id, attempt.provider, attempt.user_id);
+  } catch (error) {
+    if (error instanceof UpstreamError && error.status === 404) account = undefined;
+    else {
+      await context.store.setState(attempt.attempt_id, "completion_unknown", now);
+      return "unknown";
+    }
+  }
+  const canRetry = accountMatchesIdentity(attempt, account, context.env)
+    && ["INITIALIZING", "INITIATED"].includes(account.status)
+    && attempt.callback_count < MAX_CALLBACK_ATTEMPTS;
+  if (canRetry && await context.store.restoreLink(attempt.attempt_id, now)) return "retry";
+  await context.store.setState(attempt.attempt_id, "failed", now);
+  await removeAttemptAccount(context, attempt).catch(() => undefined);
+  return "failed";
+}
+
+async function getConnectedAccount(context, accountId, provider, userId) {
+  if (!safeAccountId(accountId)) return undefined;
+  const result = await composioRequest(context, "GET", `/connected_accounts/${encodeURIComponent(accountId)}`);
+  const account = result?.item ?? result;
+  if (account?.id !== accountId || account?.user_id !== userId || account?.toolkit?.slug !== PROVIDERS[provider].toolkit) {
+    return account;
+  }
+  return account;
+}
+
+function accountMatchesAttempt(attempt, account, env) {
+  return Boolean(accountMatchesIdentity(attempt, account, env) && account.status === "ACTIVE");
+}
+
+function accountMatchesIdentity(attempt, account, env) {
+  return Boolean(account && account.id === attempt.connected_account_id && account.user_id === attempt.user_id
+    && account.toolkit?.slug === PROVIDERS[attempt.provider].toolkit
+    && account.auth_config?.id === env[PROVIDERS[attempt.provider].authConfig]
+    && account.experimental?.account_type === "PRIVATE");
+}
+
+function accountBelongsToAttempt(attempt, account) {
+  // Attempt owners are unique, so cleanup may safely revoke a malformed
+  // account from this owner without touching another profile/plugin account.
+  return Boolean(account && account.id === attempt.connected_account_id && account.user_id === attempt.user_id);
+}
+
+async function removeLegacyAccounts(context) {
+  for (const account of await listLegacyAccounts(context)) await removeOwnedAccount(context, account);
 }
 
 async function listCalendars(context) {
@@ -158,7 +497,10 @@ async function fetchGoogleCalendarTimeZone(context, account, calendarId) {
   const response = await proxyGet(context, account, endpoint);
   if (response.status === 401 || response.status === 403) throw httpError(409, "reauth_required");
   if (response.status < 200 || response.status >= 300) throw httpError(502, "calendar_provider_unavailable");
-  if (response.data?.id !== calendarId) throw httpError(502, "calendar_provider_invalid_response");
+  const returnedCalendarId = response.data?.id;
+  if (!safeId(returnedCalendarId) || (returnedCalendarId !== calendarId && calendarId !== "primary")) {
+    throw httpError(502, "calendar_provider_invalid_response");
+  }
   const timeZone = safeTimeZone(response.data?.timeZone);
   if (!timeZone) throw httpError(502, "calendar_timezone_unavailable");
   return timeZone;
@@ -286,18 +628,20 @@ async function proxyGet(context, account, url, parameters = []) {
 }
 
 async function requireActiveAccount(context) {
-  const accounts = await listOwnedAccounts(context);
-  const active = accounts.find((account) => account.status === "ACTIVE");
-  if (active) return active;
-  if (accounts.some((account) => account.status === "INITIALIZING")) throw httpError(409, "connection_pending");
-  if (accounts.length) throw httpError(409, "reauth_required");
-  throw httpError(409, "calendar_not_connected");
+  const attempt = await context.store.getLatest(context.profileId, context.pluginId, context.provider);
+  if (!attempt || attempt.state !== "verified") {
+    if (attempt && isActiveAttemptState(attempt.state)) throw httpError(409, "connection_pending");
+    throw httpError(409, attempt?.state === "failed" ? "reauth_required" : "calendar_not_connected");
+  }
+  const account = await findAttemptAccount(context, attempt);
+  if (account?.status !== "ACTIVE") throw httpError(409, "reauth_required");
+  return account;
 }
 
-async function listOwnedAccounts(context) {
+async function listOwnedAccounts(context, userId) {
   const provider = PROVIDERS[context.provider];
   const params = new URLSearchParams();
-  params.append("user_ids", context.userId);
+  params.append("user_ids", userId);
   params.append("toolkit_slugs", provider.toolkit);
   params.append("auth_config_ids", requiredConfig(context.env[provider.authConfig]));
   params.set("account_type", "PRIVATE");
@@ -305,7 +649,7 @@ async function listOwnedAccounts(context) {
   const result = await composioRequest(context, "GET", `/connected_accounts?${params.toString()}`);
   if (!Array.isArray(result?.items)) throw httpError(502, "composio_invalid_response");
   return result.items.filter((account) =>
-    account?.user_id === context.userId &&
+    account?.user_id === userId &&
     account?.toolkit?.slug === provider.toolkit &&
     account?.auth_config?.id === requiredConfig(context.env[provider.authConfig]) &&
     account?.experimental?.account_type === "PRIVATE" &&
@@ -313,10 +657,45 @@ async function listOwnedAccounts(context) {
   );
 }
 
-async function removeOwnedAccount(context, account) {
-  const accountId = account.id;
+async function listLegacyAccounts(context) {
+  const userId = await deriveComposioUserId(context.token, context.pluginId, context.env.COMPOSIO_IDENTITY_HMAC_KEY);
+  return listOwnedAccounts(context, userId);
+}
+
+async function findAttemptAccount(context, attempt) {
+  if (!safeAccountId(attempt.connected_account_id)) return undefined;
+  const accounts = await listOwnedAccounts(context, attempt.user_id);
+  return accounts.find((account) => account.id === attempt.connected_account_id);
+}
+
+async function removeAttemptAccount(context, attempt) {
+  if (!safeAccountId(attempt.connected_account_id)) return;
+  const account = await findAttemptAccount(context, attempt);
+  if (account) await removeOwnedAccount(context, account);
+  else {
+    const details = await getConnectedAccount(context, attempt.connected_account_id, attempt.provider, attempt.user_id).catch((error) => {
+      if (error instanceof UpstreamError && error.status === 404) return undefined;
+      throw error;
+    });
+    if (accountBelongsToAttempt(attempt, details)) {
+      await removeAccountById(context, attempt.connected_account_id, details.status);
+    }
+  }
+}
+
+async function removeAccountIfAttemptOwned(context, attempt, accountId) {
+  const account = await getConnectedAccount(context, accountId, attempt.provider, attempt.user_id).catch((error) => {
+    if (error instanceof UpstreamError && error.status === 404) return undefined;
+    throw error;
+  });
+  if (account?.id === accountId && account.user_id === attempt.user_id) {
+    await removeAccountById(context, accountId, account.status);
+  }
+}
+
+async function removeAccountById(context, accountId, status) {
   if (!safeAccountId(accountId)) throw httpError(502, "composio_invalid_response");
-  if (account.status === "ACTIVE" || account.status === "EXPIRED" || account.status === "FAILED") {
+  if (status === "ACTIVE" || status === "EXPIRED" || status === "FAILED") {
     try {
       await composioRequest(context, "POST", `/connected_accounts/${encodeURIComponent(accountId)}/revoke`);
     } catch (error) {
@@ -330,10 +709,15 @@ async function removeOwnedAccount(context, account) {
   }
 }
 
-async function composioRequest(context, method, path, body) {
+async function removeOwnedAccount(context, account) {
+  await removeAccountById(context, account.id, account.status);
+}
+
+async function composioRequest(context, method, path, body, { onDispatch } = {}) {
   const apiKey = requiredConfig(context.env.COMPOSIO_API_KEY);
   let response;
   try {
+    onDispatch?.();
     response = await context.fetchImpl(`${COMPOSIO_API}${path}`, {
       method,
       headers: { "x-api-key": apiKey, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
@@ -386,11 +770,102 @@ function parseBearer(value) {
 }
 
 async function deriveComposioUserId(token, pluginId, secret) {
+  return deriveHmacIdentity(`legacy:${pluginId}:${token}`, secret, "openpets_local_");
+}
+
+async function deriveProfileId(token, secret) {
+  return deriveHmacIdentity(`profile:${token}`, secret, "openpets_profile_");
+}
+
+async function deriveConnectUserId(token, pluginId, attemptId, secret) {
+  return deriveHmacIdentity(`connect:${pluginId}:${attemptId}:${token}`, secret, "openpets_local_");
+}
+
+async function deriveHmacIdentity(value, secret, prefix) {
   if (typeof secret !== "string" || new TextEncoder().encode(secret).byteLength < 32) throw httpError(503, "broker_not_configured");
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const ownerInput = `${pluginId}:${token}`;
-  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ownerInput)));
-  return `openpets_local_${toHex(digest).slice(0, 48)}`;
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)));
+  return `${prefix}${toHex(digest).slice(0, 48)}`;
+}
+
+async function hashConnectRequestId(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value)) throw httpError(400, "invalid_connection_request");
+  return sha256Hex(value);
+}
+
+function getConnectAttemptStore(env) {
+  if (env.CONNECT_ATTEMPT_STORE) return env.CONNECT_ATTEMPT_STORE;
+  try { return createD1ConnectAttemptStore(env.CALENDAR_CONNECT_DB); }
+  catch { throw httpError(503, "connection_verification_not_configured"); }
+}
+
+function assertVerifierConfigured(env) {
+  if (env.COMPOSIO_CALLBACK_VERIFIER_ENABLED !== "1") throw httpError(503, "connection_verification_not_configured");
+  getConnectAttemptStore(env);
+  if (!isAesKey(env.COMPOSIO_CALLBACK_ENCRYPTION_KEY)) throw httpError(503, "connection_verification_not_configured");
+}
+
+async function enforceCallbackRateLimit(env, request) {
+  const ip = request.headers.get("cf-connecting-ip");
+  if (!ip || !env.IP_RATE_LIMITER || !env.LINK_RATE_LIMITER) throw httpError(503, "rate_limit_not_configured");
+  const [ipResult, callbackResult] = await Promise.all([
+    env.IP_RATE_LIMITER.limit({ key: ip }),
+    env.LINK_RATE_LIMITER.limit({ key: `callback:${ip}` }),
+  ]);
+  if (!ipResult.success || !callbackResult.success) throw httpError(429, "rate_limited");
+}
+
+function isAesKey(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value)) return false;
+  try { return base64UrlToBytes(value).byteLength === 32; }
+  catch { return false; }
+}
+
+function base64UrlToBytes(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64 + "=".repeat((4 - base64.length % 4) % 4));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function randomBase64Url(length) {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return bytesToBase64Url(bytes);
+}
+
+async function sha256Hex(value) {
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
+}
+
+async function encryptSessionUri(value, encodedKey) {
+  const key = await crypto.subtle.importKey("raw", base64UrlToBytes(encodedKey), "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value)));
+  return `${bytesToBase64Url(iv)}.${bytesToBase64Url(ciphertext)}`;
+}
+
+async function decryptSessionUri(value, encodedKey) {
+  if (typeof value !== "string") throw httpError(409, "connection_verification_failed");
+  const [ivText, cipherText, extra] = value.split(".");
+  if (!ivText || !cipherText || extra !== undefined) throw httpError(409, "connection_verification_failed");
+  try {
+    const key = await crypto.subtle.importKey("raw", base64UrlToBytes(encodedKey), "AES-GCM", false, ["decrypt"]);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64UrlToBytes(ivText) }, key, base64UrlToBytes(cipherText));
+    return new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
+  } catch { throw httpError(409, "connection_verification_failed"); }
+}
+
+function isSafeSessionUri(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_SESSION_URI_LENGTH && !/[\0-\x1f\x7f]/.test(value);
+}
+
+function isActiveAttemptState(state) {
+  return ["creating", "link_opened", "callback_ready", "verifying", "completion_unknown"].includes(state);
 }
 
 async function enforceRateLimits(env, request, userId, route) {

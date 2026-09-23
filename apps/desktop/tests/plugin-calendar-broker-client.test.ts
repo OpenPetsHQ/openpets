@@ -26,6 +26,8 @@ const fetchImpl: typeof fetch = async (input, init) => {
   switch (url.pathname) {
     case "/v1/calendar/connect":
       return Response.json({ state: "link_opened", linkUrl: "https://connect.composio.dev/link/session-1" });
+    case "/v1/calendar/connect/complete":
+      return Response.json({ completed: true });
     case "/v1/calendar/status":
       return Response.json({ provider: "google", state: "connected", checkedAt });
     case "/v1/calendar/disconnect":
@@ -63,12 +65,15 @@ assert.deepEqual(await client.getEvent(pluginId, "google", "primary", "event-1")
   allDay: false, startAt: "2026-09-24T10:00:00.000Z", endAt: "2026-09-24T11:00:00.000Z",
 });
 await client.disconnect(pluginId, "google");
+await client.completeConnectTicket("T".repeat(43));
+await assert.rejects(() => client.completeConnectTicket("bad-ticket"), /ticket is invalid/);
 assert.ok(calls.every(({ url, init }) => url.origin === "https://broker.example.test" && init?.method === "POST"));
 assert.ok(calls.every(({ init }) => new Headers(init?.headers).get("authorization") === `Bearer ${profileIdentity}`));
-assert.ok(calls.every(({ body }) => body?.pluginId === pluginId), "the host must scope every broker call to the calling plugin");
+assert.ok(calls.filter(({ url }) => url.pathname !== "/v1/calendar/connect/complete").every(({ body }) => body?.pluginId === pluginId), "plugin broker calls are scoped to the calling plugin");
+assert.equal(calls.find(({ url }) => url.pathname === "/v1/calendar/connect/complete")?.body?.ticket, "T".repeat(43));
 assert.ok(calls.every(({ body }) => !body || !("token" in body) && !("apiKey" in body) && !("connected_account_id" in body)));
 assert.ok(calls.every(({ url }) => [
-  "/v1/calendar/connect", "/v1/calendar/status", "/v1/calendar/disconnect", "/v1/calendar/calendars", "/v1/calendar/events", "/v1/calendar/event",
+  "/v1/calendar/connect", "/v1/calendar/connect/complete", "/v1/calendar/connect/cancel", "/v1/calendar/status", "/v1/calendar/disconnect", "/v1/calendar/calendars", "/v1/calendar/events", "/v1/calendar/event",
 ].includes(url.pathname)));
 
 await assert.rejects(
@@ -81,6 +86,79 @@ await assert.rejects(
   /outside the approved Composio origin/,
 );
 assert.equal(opened.length, 1, "untrusted Connect Link origins never open in the system browser");
+
+const cancelledConnectController = new AbortController();
+const cancellationPaths: string[] = [];
+let cancelledRequestId: string | undefined;
+let cancellationRequestId: string | undefined;
+const cancelledConnectClient = new CalendarBrokerClient({
+  brokerOrigin: "https://broker.example.test",
+  getCredential: async () => profileIdentity,
+  openExternal: async () => { throw new Error("the cancelled browser should not open"); },
+  fetchImpl: async (input, init) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    const body = JSON.parse(String(init?.body ?? "{}")) as { requestId?: string };
+    cancellationPaths.push(path);
+    if (path === "/v1/calendar/connect") {
+      cancelledRequestId = body.requestId;
+      cancelledConnectController.abort();
+      return Response.json({ state: "link_opened", linkUrl: "https://connect.composio.dev/link/cancel-me" });
+    }
+    cancellationRequestId = body.requestId;
+    return Response.json({ cancelled: true });
+  },
+});
+await assert.rejects(
+  () => cancelledConnectClient.connect(pluginId, "google", cancelledConnectController.signal),
+  /connection was cancelled/,
+);
+assert.deepEqual(cancellationPaths, ["/v1/calendar/connect", "/v1/calendar/connect/cancel"]);
+assert.match(cancelledRequestId ?? "", /^[A-Za-z0-9_-]{43}$/);
+assert.equal(cancellationRequestId, cancelledRequestId, "host cancellation is bound to the exact connect request");
+
+const abortedBeforeLinkController = new AbortController();
+const abortedBeforeLinkPaths: string[] = [];
+let abortedRequestId: string | undefined;
+let abortCancellationRequestId: string | undefined;
+const abortedBeforeLinkClient = new CalendarBrokerClient({
+  brokerOrigin: "https://broker.example.test",
+  getCredential: async () => profileIdentity,
+  openExternal: async () => { throw new Error("no browser should open"); },
+  fetchImpl: async (input, init) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    const body = JSON.parse(String(init?.body ?? "{}")) as { requestId?: string };
+    abortedBeforeLinkPaths.push(path);
+    if (path === "/v1/calendar/connect") {
+      abortedRequestId = body.requestId;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("request aborted")), { once: true });
+      });
+    }
+    abortCancellationRequestId = body.requestId;
+    return Response.json({ cancelled: true });
+  },
+});
+const pendingAbortedConnect = abortedBeforeLinkClient.connect(pluginId, "google", abortedBeforeLinkController.signal);
+setTimeout(() => abortedBeforeLinkController.abort(), 0);
+await assert.rejects(() => pendingAbortedConnect, /connection was cancelled/);
+assert.deepEqual(abortedBeforeLinkPaths, ["/v1/calendar/connect", "/v1/calendar/connect/cancel"]);
+assert.equal(abortCancellationRequestId, abortedRequestId, "aborted in-flight requests leave a tombstone for that exact attempt only");
+
+const busyClient = new CalendarBrokerClient({
+  brokerOrigin: "https://broker.example.test",
+  getCredential: async () => profileIdentity,
+  openExternal: async () => { throw new Error("a busy response must not open a browser"); },
+  fetchImpl: async () => Response.json({ state: "busy" }),
+});
+assert.deepEqual(await busyClient.connect(pluginId, "google"), { state: "busy" });
+
+const cancelledClient = new CalendarBrokerClient({
+  brokerOrigin: "https://broker.example.test",
+  getCredential: async () => profileIdentity,
+  openExternal: async () => { throw new Error("a cancelled response must not open a browser"); },
+  fetchImpl: async () => Response.json({ state: "cancelled" }),
+});
+assert.deepEqual(await cancelledClient.connect(pluginId, "google"), { state: "cancelled" });
 
 const offlineClient = new CalendarBrokerClient({
   brokerOrigin: "https://broker.example.test",
