@@ -69,6 +69,9 @@ importers:
       7zip-bin:
         specifier: 5.2.0
         version: 5.2.0
+      '@electron/asar':
+        specifier: ^3.4.1
+        version: 3.4.1
       '@open-pets/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
