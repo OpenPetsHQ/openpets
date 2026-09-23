@@ -12,7 +12,7 @@ import {
   defaultPetChatPanelLayout,
   sessionCardTopInset,
   sessionOrbCardGap,
-  sessionOrbBottomGap,
+  sessionOrbGlowReach,
 } from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
@@ -1534,7 +1534,7 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
   // rises as far as the orb needs to keep its rim glow inside the window.
   const petBottom = 22;
   const petRestCenterFromBottom = petBottom + scaledSpriteHeight / 2;
-  const orbCenterFromBottom = Math.max(Math.round(petRestCenterFromBottom), sessionOrbBottomGap + orbRadius);
+  const orbCenterFromBottom = Math.max(Math.round(petRestCenterFromBottom), sessionOrbGlowReach + orbRadius);
   const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petRestCenterFromBottom));
   const cardInsetX = 18;
 
