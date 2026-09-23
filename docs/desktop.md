@@ -638,17 +638,16 @@ or validate installed pets; its bundled courier sprites remain available whereve
 the plugin is installed.
 
 The SDK calendar capability is brokered by the desktop host; plugin code never
-receives provider tokens or Composio account identifiers. Calendar Connect is
-fail-closed until the first-party broker's deferred-auth verifier and attempt
-store are configured. The callback hands a one-time ticket back to the desktop
-through the existing `openpets:` protocol; the host redeems it with its
-OS-encrypted local-profile identity and the broker verifies the attempt-bound
-Composio account before enabling reads. The broker's project-wide callback
-requires a dedicated Composio project and query-string redaction in all logs;
-host cancellation is bound to a per-invocation nonce and cannot cancel another
-profile/provider flow.
-See `apps/calendar-broker/README.md` for deployment prerequisites. This does
-not change Calendar Airmail's independent OAuth flow.
+receives provider tokens or Composio account identifiers. Calendar Connect,
+status, and reads currently fail closed: Composio's deferred-auth verifier
+provides a `session_uri`, while `complete_auth` accepts the application's
+already-selected owner ID. The host's OS-encrypted local-profile credential
+identifies the initiating profile but does not authenticate the person who
+completed OAuth in the browser. The broker therefore does not activate or
+serve calendar connections until an independent identity-verification flow is
+available and reviewed. Profile/plugin-scoped disconnect remains available for
+cleanup. See `apps/calendar-broker/README.md` for deployment prerequisites.
+This does not change Calendar Airmail's independent OAuth flow.
 
 ### Agent setup
 

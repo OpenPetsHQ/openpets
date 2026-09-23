@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import { createHmac } from "node:crypto";
 
-import { handleRequest } from "../src/index.mjs";
+import worker, { handleRequest as workerHandleRequest } from "../src/index.mjs";
 
 const TOKEN = "a".repeat(43);
 const OTHER_TOKEN = "b".repeat(43);
@@ -27,6 +27,13 @@ beforeEach(() => {
   requestSequence = 0;
   lastConnectRequestId = null;
 });
+
+// Provider and lifecycle tests exercise the broker's internal protocol through
+// the named handler. The deployed Worker entrypoint never supplies this option;
+// security tests below call it without the test seam to prove production fails closed.
+function handleRequest(request, env, options = {}) {
+  return workerHandleRequest(request, env, { allowCalendarProtocolForTests: true, ...options });
+}
 
 function request(path, body = {}, headers = {}) {
   const requestBody = { pluginId: "openpets.deadline-buddy", ...body };
@@ -737,6 +744,27 @@ test("calendar Connect fails closed until verifier and encrypted attempt storage
   assert.equal(disabled.status, 503);
   assert.deepEqual(await payload(disabled), { error: "connection_verification_not_configured" });
   assert.equal(upstream.calls.length, 0);
+});
+
+test("deployed Worker rejects connection, callback, status, and calendar reads without independent browser identity", async () => {
+  const upstream = fakeComposio(() => { throw new Error("Composio must not be contacted"); });
+  const storeBefore = CONFIG.CONNECT_ATTEMPT_STORE.attempts.size;
+  const connect = await worker.fetch(request("/v1/calendar/connect", { provider: "google" }), CONFIG);
+  assert.equal(connect.status, 503);
+  assert.deepEqual(await payload(connect), { error: "calendar_identity_verification_unavailable" });
+
+  const callback = await worker.fetch(callbackRequest("https://session.composio.dev/deferred/intercepted"), CONFIG);
+  assert.equal(callback.status, 503);
+  assert.equal(callback.headers.get("location"), null);
+
+  for (const route of ["/v1/calendar/connect/complete", "/v1/calendar/status", "/v1/calendar/calendars", "/v1/calendar/events", "/v1/calendar/event"]) {
+    const response = await worker.fetch(request(route, { provider: "google", ticket: "A".repeat(43) }), CONFIG);
+    assert.equal(response.status, 503, route);
+    assert.deepEqual(await payload(response), { error: "calendar_identity_verification_unavailable" }, route);
+  }
+
+  assert.equal(CONFIG.CONNECT_ATTEMPT_STORE.attempts.size, storeBefore, "blocked calls cannot create or verify an attempt");
+  assert.equal(upstream.calls.length, 0, "owner-ID equality and upstream ACTIVE status are not independent browser identity");
 });
 
 test("ignores connected accounts with mismatched ownership or configured auth", async () => {

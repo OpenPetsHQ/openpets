@@ -11,17 +11,33 @@ const CONNECT_ATTEMPT_TTL_MS = 10 * 60_000;
 const VERIFY_REQUEST_GRACE_MS = 60_000;
 const MAX_SESSION_URI_LENGTH = 4_096;
 const MAX_CALLBACK_ATTEMPTS = 3;
+const CALENDAR_ROUTES_BLOCKED_WITHOUT_BROWSER_IDENTITY = new Set([
+  "/v1/calendar/connect",
+  "/v1/calendar/connect/callback",
+  "/v1/calendar/connect/complete",
+  "/v1/calendar/status",
+  "/v1/calendar/calendars",
+  "/v1/calendar/events",
+  "/v1/calendar/event",
+]);
 const ALLOWED_PROVIDER = new Set(["google", "outlook"]);
 const PROVIDERS = {
   google: { toolkit: "googlecalendar", authConfig: "COMPOSIO_GOOGLE_AUTH_CONFIG_ID" },
   outlook: { toolkit: "outlook", authConfig: "COMPOSIO_OUTLOOK_AUTH_CONFIG_ID" },
 };
 
-export default { fetch: handleRequest };
+export default { fetch: (request, env) => handleRequest(request, env) };
 
-export async function handleRequest(request, env, { fetchImpl = fetch, now = () => new Date() } = {}) {
+export async function handleRequest(request, env, {
+  fetchImpl = fetch,
+  now = () => new Date(),
+  allowCalendarProtocolForTests = false,
+} = {}) {
   try {
     const url = new URL(request.url);
+    if (!allowCalendarProtocolForTests && CALENDAR_ROUTES_BLOCKED_WITHOUT_BROWSER_IDENTITY.has(url.pathname)) {
+      return json({ error: "calendar_identity_verification_unavailable" }, 503);
+    }
     if (request.method === "GET" && url.pathname === "/v1/calendar/connect/callback") {
       return await receiveConnectCallback(request, env, { now });
     }
