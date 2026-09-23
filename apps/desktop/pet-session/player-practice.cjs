@@ -2,27 +2,31 @@
 // guided meditation and peaceful visualization. Plays a track's narrated
 // segments in order with a short gap between them. Audio arrives through the
 // host media cache (openpets-session-media:), resolved one segment at a time
-// with the next one prefetched. The compact card shows the cover, title,
-// the current segment's caption, overall progress, and player controls; the
-// shared dots/tiles/track rows are hidden. If a segment cannot load (offline,
-// first listen), its caption stays up for a reading pause and the track moves
-// on, so the practice still works as a guided text.
+// with the next one prefetched. Compact card: the shell header carries the
+// cover and track (its menu lists the tracks), then a two-line caption, one
+// progress row, and a centred previous / play / next transport. If a segment
+// cannot load (offline, first listen), its caption stays up for a reading
+// pause and the track moves on, so the practice still works as a guided text.
 
 const TEXT_ONLY_SEGMENT_MS = 9000;
 
 const svgIcon = (paths, strokeWidth = 2) => {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="${strokeWidth}" aria-hidden="true">${paths}</svg>`;
 };
+const filledIcon = (paths) => {
+  return `<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true">${paths}</svg>`;
+};
 
-// lucide:headphones, rotate-ccw, skip-back, skip-forward, volume-2, volume-x, chevron-down, check
+// lucide:headphones, skip-back, skip-forward, volume-2, volume-x, play, pause, check, rotate-ccw
 const headphonesPaths = '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>';
-const rewindPaths = '<path d="M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>';
 const skipBackPaths = '<path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432zM3 20V4"/>';
 const skipForwardPaths = '<path d="M21 4v16M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"/>';
 const volumeOnPaths = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298zM16 9a5 5 0 0 1 0 6m3.364 3.364a9 9 0 0 0 0-12.728"/>';
 const volumeOffPaths = '<path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298zm5.5 9.798l5-5m-5 0l5 5"/>';
-const chevronDownPaths = '<path d="m6 9l6 6l6-6"/>';
+const playPaths = '<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>';
+const pausePaths = '<rect width="5" height="18" x="14" y="3" rx="1"/><rect width="5" height="18" x="5" y="3" rx="1"/>';
 const checkPaths = '<path d="M20 6L9 17l-5-5"/>';
+const restartPaths = '<path d="M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>';
 
 const el = (tag, className) => {
   const element = document.createElement(tag);
@@ -43,7 +47,6 @@ function createPlayerPractice(ui) {
   let textOnlyTimer = null;
   let segmentState = "idle"; // idle | loading | playing | gap | text-only
   let pendingPlay = false; // resume a segment that was paused while loading
-  let trackMenuOpen = false;
 
   const audio = new Audio();
   audio.preload = "auto";
@@ -61,53 +64,22 @@ function createPlayerPractice(ui) {
 
   // --- DOM ------------------------------------------------------------------
 
-  const row = el("div", "session-player");
-  const trackButton = el("button", "session-player-track");
-  trackButton.type = "button";
-  trackButton.setAttribute("aria-haspopup", "menu");
-  const cover = el("span", "session-player-cover");
-  const coverImg = el("img", "session-player-cover-img");
-  coverImg.alt = "";
-  coverImg.addEventListener("error", () => {
-    coverImg.removeAttribute("src");
-    cover.classList.add("is-empty");
-  });
-  cover.appendChild(coverImg);
-  const texts = el("span", "session-player-texts");
-  const titleRow = el("span", "session-player-title-row");
-  const trackTitle = el("span", "session-player-title");
-  const trackChevron = el("span", "session-player-chevron");
-  trackChevron.innerHTML = svgIcon(chevronDownPaths, 2.4);
-  titleRow.appendChild(trackTitle);
-  titleRow.appendChild(trackChevron);
-  const trackSubtitle = el("span", "session-player-subtitle");
-  texts.appendChild(titleRow);
-  texts.appendChild(trackSubtitle);
-  trackButton.appendChild(cover);
-  trackButton.appendChild(texts);
-  row.appendChild(trackButton);
-
   const caption = el("div", "session-player-caption");
   caption.setAttribute("aria-live", "polite");
 
   const progress = el("div", "session-player-progress");
+  const partLabel = el("span", "session-player-part");
   const bar = el("div", "session-player-bar");
   const barFill = el("div", "session-player-bar-fill");
   bar.appendChild(barFill);
-  const meta = el("div", "session-player-meta");
-  const metaLeft = el("span", "session-player-part");
-  const metaRight = el("span", "session-player-time");
-  meta.appendChild(metaLeft);
-  meta.appendChild(metaRight);
+  const timeLabel = el("span", "session-player-time");
+  progress.appendChild(partLabel);
   progress.appendChild(bar);
-  progress.appendChild(meta);
-
-  const trackMenu = el("div", "session-track-menu");
-  trackMenu.setAttribute("role", "menu");
+  progress.appendChild(timeLabel);
 
   const extraControls = el("div", "session-player-controls");
-  const makeControl = (paths, labelKey, onClick) => {
-    const button = el("button", "session-player-btn");
+  const makeControl = (paths, labelKey, position, onClick) => {
+    const button = el("button", `session-player-btn is-${position}`);
     button.type = "button";
     button.innerHTML = svgIcon(paths, 2.2);
     button.dataset.labelKey = labelKey;
@@ -215,21 +187,15 @@ function createPlayerPractice(ui) {
     }
   };
 
-  const rewindButton = makeControl(rewindPaths, "rewind", () => {
-    if (segmentState === "playing" && audio.currentTime > 1) {
-      audio.currentTime = Math.max(0, audio.currentTime - 15);
-      return;
-    }
-    skipTo(segmentIndex - 1);
-  });
-  const previousButton = makeControl(skipBackPaths, "previousPart", () => {
+  // Previous restarts the current part first, like a music player.
+  const previousButton = makeControl(skipBackPaths, "previousPart", "prev", () => {
     if (segmentState === "playing" && audio.currentTime > 3) {
       audio.currentTime = 0;
       return;
     }
     skipTo(segmentIndex - 1);
   });
-  const nextButton = makeControl(skipForwardPaths, "nextPart", () => {
+  const nextButton = makeControl(skipForwardPaths, "nextPart", "next", () => {
     const track = selectedTrack();
     if (!track) return;
     if (segmentIndex >= track.segments.length - 1) {
@@ -238,22 +204,11 @@ function createPlayerPractice(ui) {
     }
     skipTo(segmentIndex + 1);
   });
-  const muteButton = makeControl(volumeOnPaths, "muteAudio", () => {
+  const muteButton = makeControl(volumeOnPaths, "muteAudio", "mute", () => {
     muted = !muted;
     audio.muted = muted;
     renderControls();
   });
-
-  // --- Track picker ---------------------------------------------------------
-
-  const canPickTrack = () => (descriptor()?.tracks.length ?? 0) > 1;
-
-  const setTrackMenuOpen = (open) => {
-    trackMenuOpen = open && canPickTrack();
-    row.classList.toggle("is-menu-open", trackMenuOpen);
-    trackButton.setAttribute("aria-expanded", trackMenuOpen ? "true" : "false");
-    if (trackMenuOpen) renderTrackMenu();
-  };
 
   const selectTrack = (trackId) => {
     if (trackId === selectedTrackId && ui.runState() !== "complete") return;
@@ -265,54 +220,6 @@ function createPlayerPractice(ui) {
     ui.renderStatics();
     if (wasRunning && running()) void playSegment(0);
   };
-
-  const renderTrackMenu = () => {
-    trackMenu.textContent = "";
-    const current = selectedTrack();
-    for (const track of descriptor()?.tracks ?? []) {
-      const option = el("button", "session-track-option");
-      option.type = "button";
-      option.setAttribute("role", "menuitemradio");
-      const isCurrent = track.id === current?.id;
-      option.setAttribute("aria-checked", isCurrent ? "true" : "false");
-      option.classList.toggle("is-current", isCurrent);
-      const thumb = el("span", "session-track-thumb");
-      if (track.coverUrl) {
-        const img = el("img");
-        img.alt = "";
-        img.src = track.coverUrl;
-        thumb.appendChild(img);
-      } else {
-        thumb.innerHTML = svgIcon(headphonesPaths);
-      }
-      const name = el("span", "session-track-name");
-      name.textContent = track.title;
-      const mark = el("span", "session-track-mark");
-      if (isCurrent) mark.innerHTML = svgIcon(checkPaths, 2.6);
-      option.appendChild(thumb);
-      option.appendChild(name);
-      option.appendChild(mark);
-      option.addEventListener("click", () => {
-        setTrackMenuOpen(false);
-        selectTrack(track.id);
-      });
-      trackMenu.appendChild(option);
-    }
-  };
-
-  trackButton.addEventListener("click", () => setTrackMenuOpen(!trackMenuOpen));
-  document.addEventListener("mousedown", (event) => {
-    if (!trackMenuOpen || !(event.target instanceof Element)) return;
-    if (trackMenu.contains(event.target) || trackButton.contains(event.target)) return;
-    setTrackMenuOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && trackMenuOpen) {
-      event.stopImmediatePropagation();
-      setTrackMenuOpen(false);
-    }
-  }, true);
-  row.appendChild(trackMenu);
 
   // --- Rendering ------------------------------------------------------------
 
@@ -327,19 +234,20 @@ function createPlayerPractice(ui) {
     if (runState === "idle" || runState === "countdown") text = track.segments[0]?.caption ?? "";
     caption.textContent = text;
     caption.classList.toggle("is-loading", segmentState === "loading");
-    caption.dataset.status = segmentState === "text-only" ? ui.chromeText("mediaUnavailable") : segmentState === "loading" ? ui.chromeText("mediaLoading") : "";
-    metaLeft.textContent = ui.chromeText("partOf", {
-      n: runState === "complete" ? track.segments.length : segmentIndex + 1,
-      total: track.segments.length,
-    });
+    let status = "";
+    if (segmentState === "text-only") status = ui.chromeText("mediaUnavailable");
+    else if (segmentState === "loading") status = ui.chromeText("mediaLoading");
+    caption.dataset.status = status;
+    const shownPart = runState === "complete" ? track.segments.length : segmentIndex + 1;
+    partLabel.textContent = `${shownPart}/${track.segments.length}`;
+    partLabel.setAttribute("title", ui.chromeText("partOf", { n: shownPart, total: track.segments.length }));
   };
 
   const renderControls = () => {
     const runState = ui.runState();
     const live = runState === "active" || runState === "paused";
-    for (const button of [rewindButton, previousButton, nextButton]) {
-      button.disabled = !live;
-    }
+    previousButton.disabled = !live;
+    nextButton.disabled = !live;
     muteButton.innerHTML = svgIcon(muted ? volumeOffPaths : volumeOnPaths, 2.2);
     for (const button of extraControls.children) {
       const key = button === muteButton ? (muted ? "unmuteAudio" : "muteAudio") : button.dataset.labelKey;
@@ -348,36 +256,37 @@ function createPlayerPractice(ui) {
     }
   };
 
-  const renderTrack = () => {
-    const current = descriptor();
+  /** The header shows the track's cover (the practice icon when there is none). */
+  const renderCover = () => {
     const track = selectedTrack();
-    if (!track || !current) return;
-    trackTitle.textContent = track.title;
-    trackSubtitle.textContent = [track.subtitle, current.narrationNote].filter(Boolean).join(" · ");
-    trackChevron.style.display = canPickTrack() ? "" : "none";
-    trackButton.classList.toggle("is-pickable", canPickTrack());
-    trackButton.setAttribute("aria-label", ui.chromeText("chooseTrack"));
-    if (track.coverUrl) {
-      cover.classList.remove("is-empty");
-      if (coverImg.getAttribute("src") !== track.coverUrl) coverImg.src = track.coverUrl;
+    if (track?.coverUrl) {
+      widgets.topbarIcon.classList.add("has-cover");
+      widgets.topbarIcon.innerHTML = "";
+      const img = el("img");
+      img.alt = "";
+      img.src = track.coverUrl;
+      img.addEventListener("error", () => {
+        widgets.topbarIcon.classList.remove("has-cover");
+        widgets.topbarIcon.innerHTML = svgIcon(headphonesPaths);
+      });
+      widgets.topbarIcon.appendChild(img);
     } else {
-      coverImg.removeAttribute("src");
-      cover.classList.add("is-empty");
-      cover.dataset.icon = "headphones";
+      widgets.topbarIcon.classList.remove("has-cover");
+      widgets.topbarIcon.innerHTML = svgIcon(headphonesPaths);
     }
   };
 
   return {
     kind: "player",
-    topRows: [row, caption, progress],
+    topRows: [caption, progress],
     extraControls,
     footerActiveKey: "footerListening",
+    compact: true,
     hidesSharedRows: true,
     hidesCount: true,
 
     enter(next) {
       selectedTrackId = next.trackId;
-      setTrackMenuOpen(false);
     },
 
     update(next) {
@@ -429,14 +338,46 @@ function createPlayerPractice(ui) {
       return null;
     },
 
-    /** During a run a live segment's own play/pause is the source of truth. */
+    /** Round icon-only play/pause for the compact transport. */
+    primaryContent(runState) {
+      if (runState === "active") return filledIcon(pausePaths);
+      if (runState === "complete") return svgIcon(checkPaths, 2.8);
+      return filledIcon(playPaths);
+    },
+
+    /** No Restart while listening; "Again" becomes an icon once finished. */
     secondaryContent(runState) {
-      return runState === "active" || runState === "paused" ? null : undefined;
+      if (runState === "active" || runState === "paused") return null;
+      if (runState === "complete") return svgIcon(restartPaths, 2.2);
+      return undefined;
+    },
+
+    /** Header: the track, then practice · category (or the run status). */
+    headerText(runState) {
+      const current = descriptor();
+      const track = selectedTrack();
+      if (!current || !track) return null;
+      let status = [current.title, track.subtitle, current.narrationNote].filter(Boolean).join(" · ");
+      if (runState === "countdown") status = ui.chromeText("getReady");
+      else if (runState === "paused") status = ui.chromeText("paused");
+      else if (runState === "complete") status = ui.chromeText("complete");
+      return { title: track.title, subtitle: status };
+    },
+
+    headerMenuItems() {
+      const current = selectedTrack();
+      return (descriptor()?.tracks ?? []).map((track) => ({
+        label: track.title,
+        imageUrl: track.coverUrl,
+        iconSvg: svgIcon(headphonesPaths),
+        current: track.id === current?.id,
+        select: () => selectTrack(track.id),
+      }));
     },
 
     renderStatics() {
-      widgets.topbarIcon.innerHTML = svgIcon(headphonesPaths);
-      renderTrack();
+      ui.setPhaseColor([0.55, 0.62, 1.0], "#8c9eff");
+      renderCover();
       renderSegment();
       renderControls();
     },
@@ -449,11 +390,7 @@ function createPlayerPractice(ui) {
     renderIdle() {},
 
     runningPhase() {
-      const current = descriptor();
-      const track = selectedTrack();
-      if (!current || !track) return null;
-      ui.setPhaseColor([0.55, 0.62, 1.0], "#8c9eff");
-      return { name: current.title, guidance: track.title };
+      return null;
     },
 
     renderPhaseDetails() {
@@ -487,13 +424,13 @@ function createPlayerPractice(ui) {
 
       const currentMs = segmentState === "playing" ? audio.currentTime * 1000 : 0;
       const timeText = formatMs(listenedMs + currentMs);
-      if (metaRight.textContent !== timeText) metaRight.textContent = timeText;
+      if (timeLabel.textContent !== timeText) timeLabel.textContent = timeText;
     },
 
     deactivate() {
       generation += 1;
       stopAudio();
-      setTrackMenuOpen(false);
+      widgets.topbarIcon.classList.remove("has-cover");
     },
   };
 }

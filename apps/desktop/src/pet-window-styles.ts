@@ -1858,184 +1858,16 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
     .session-pattern-chip.is-selected .session-chip-timing {
       color: #1d4ed8;
     }
-    .session-player {
-      position: relative;
-      margin-bottom: 9px;
-    }
-    .session-player-track {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 11px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      font-family: inherit;
-      text-align: left;
-      color: inherit;
-      cursor: default;
-      border-radius: 14px;
-    }
-    .session-player-track.is-pickable {
-      cursor: pointer;
-    }
-    .session-player-cover {
-      width: 58px;
-      height: 58px;
-      flex-shrink: 0;
-      border-radius: 14px;
-      overflow: hidden;
-      background: linear-gradient(135deg, #312e81, #1e3a8a 55%, #0f172a);
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
-    }
-    .session-player-cover-img {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-    }
-    .session-player-cover.is-empty .session-player-cover-img {
-      display: none;
-    }
-    .session-player-texts {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-    .session-player-title-row {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      min-width: 0;
-    }
-    .session-player-title {
-      font-size: 13.5px;
-      font-weight: 800;
-      color: #0f172a;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .session-player-chevron {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-      display: grid;
-      place-items: center;
-      color: #64748b;
-      transition: transform 180ms ease;
-    }
-    .session-player-chevron svg {
-      width: 13px;
-      height: 13px;
-    }
-    .session-player.is-menu-open .session-player-chevron {
-      transform: rotate(180deg);
-    }
-    .session-player-subtitle {
-      font-size: 10.5px;
-      font-weight: 600;
-      color: #64748b;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .session-track-menu {
-      position: absolute;
-      left: 0;
-      top: calc(100% + 6px);
-      width: 100%;
-      max-height: 260px;
-      overflow-y: auto;
-      display: none;
-      flex-direction: column;
-      gap: 2px;
-      padding: 6px;
-      box-sizing: border-box;
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.99);
-      border: 1px solid rgba(148, 163, 184, 0.4);
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
-      z-index: 60;
-    }
-    .session-player.is-menu-open .session-track-menu {
-      display: flex;
-    }
-    .session-track-option {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 6px 8px;
-      border: none;
-      border-radius: 11px;
-      background: transparent;
-      font-family: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .session-track-option:hover {
-      background: rgba(37, 99, 235, 0.07);
-    }
-    .session-track-option.is-current {
-      background: rgba(59, 130, 246, 0.1);
-    }
-    .session-track-thumb {
-      width: 32px;
-      height: 32px;
-      flex-shrink: 0;
-      border-radius: 9px;
-      overflow: hidden;
-      display: grid;
-      place-items: center;
-      color: #176df2;
-      background: linear-gradient(135deg, #e0e7ff, #dbeafe);
-    }
-    .session-track-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .session-track-thumb svg {
-      width: 15px;
-      height: 15px;
-    }
-    .session-track-name {
-      flex: 1 1 auto;
-      min-width: 0;
-      font-size: 12px;
-      font-weight: 700;
-      color: #0f172a;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .session-track-option.is-current .session-track-name {
-      color: #1d4ed8;
-    }
-    .session-track-mark {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-      color: #176df2;
-    }
-    .session-track-mark svg {
-      width: 14px;
-      height: 14px;
-    }
-    /* Fixed three-line caption so a longer transcript line never resizes the carrier. */
+    /* Fixed two-line caption so a longer transcript line never resizes the carrier. */
     .session-player-caption {
-      height: 51px;
-      margin-bottom: 4px;
+      height: 34px;
+      margin-bottom: 6px;
       font-size: 12px;
       line-height: 17px;
       font-weight: 600;
       color: #334155;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
       transition: opacity 300ms ease;
@@ -2052,10 +1884,17 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       opacity: 0.55;
     }
     .session-player-progress {
-      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #64748b;
+      font-variant-numeric: tabular-nums;
     }
     .session-player-bar {
-      height: 5px;
+      flex: 1 1 auto;
+      height: 4px;
       border-radius: 999px;
       background: rgba(37, 99, 235, 0.12);
       overflow: hidden;
@@ -2065,15 +1904,6 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       width: 0%;
       border-radius: 999px;
       background: #176df2;
-    }
-    .session-player-meta {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 5px;
-      font-size: 10.5px;
-      font-weight: 700;
-      color: #64748b;
-      font-variant-numeric: tabular-nums;
     }
     .session-player-controls {
       display: flex;
@@ -2108,66 +1938,144 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       width: 14px;
       height: 14px;
     }
-    .session-sound-status {
-      min-height: 17px;
-      margin: 0 0 8px;
-      font-size: 11px;
-      font-weight: 700;
-      color: #475569;
-      font-variant-numeric: tabular-nums;
-    }
-    .session-sound-status.is-warning {
-      color: #b45309;
-    }
-    .session-sound-timer {
+    .session-sound-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 9px;
     }
-    .session-sound-timer-icon,
     .session-sound-volume-icon {
       width: 16px;
       height: 16px;
       flex-shrink: 0;
       color: #64748b;
     }
-    .session-sound-timer-icon svg,
     .session-sound-volume-icon svg {
       width: 16px;
       height: 16px;
       display: block;
     }
-    .session-sound-timer-chips {
-      display: flex;
-      gap: 5px;
-      flex-wrap: wrap;
+    .session-sound-volume-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      accent-color: #176df2;
     }
-    .session-sound-chip {
+    .session-sound-timer-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
       padding: 4px 9px;
       border-radius: 999px;
       border: 1px solid rgba(148, 163, 184, 0.35);
       background: rgba(255, 255, 255, 0.72);
       font-family: inherit;
       font-size: 10.5px;
-      font-weight: 700;
-      color: #334155;
+      font-weight: 800;
+      color: #475569;
       cursor: pointer;
     }
-    .session-sound-chip.is-selected {
+    .session-sound-timer-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+    .session-sound-timer-btn.is-set {
       background: rgba(59, 130, 246, 0.12);
-      border-color: rgba(37, 99, 235, 0.55);
+      border-color: rgba(37, 99, 235, 0.5);
       color: #1d4ed8;
     }
-    .session-sound-volume {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
+    /* Compact card (media players): cover in the header, centred transport. */
+    .session-card.is-compact {
+      padding: 12px 14px;
     }
-    .session-sound-volume-input {
-      flex: 1 1 auto;
-      accent-color: #176df2;
+    .session-card.is-compact .session-card-header {
+      padding-bottom: 9px;
+      margin-bottom: 9px;
+    }
+    .session-card.is-compact .session-header-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+    }
+    .session-header-icon.has-cover {
+      padding: 0;
+      overflow: hidden;
+      background: #1e293b;
+      border-color: rgba(148, 163, 184, 0.35);
+    }
+    .session-header-icon.has-cover img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .session-card.is-compact .session-footer {
+      display: none;
+    }
+    .session-card.is-compact .session-controls {
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    .session-card.is-compact .session-controls-spacer {
+      display: none;
+    }
+    .session-card.is-compact .session-player-controls {
+      display: contents;
+    }
+    .session-card.is-compact .session-info-btn { order: 1; }
+    .session-card.is-compact .session-player-btn.is-prev { order: 2; }
+    .session-card.is-compact .session-primary-btn { order: 3; }
+    .session-card.is-compact .session-player-btn.is-next { order: 4; }
+    .session-card.is-compact .session-ghost-btn { order: 5; }
+    .session-card.is-compact .session-player-btn.is-mute { order: 6; }
+    .session-card.is-compact .session-primary-btn {
+      min-width: 46px;
+      width: 46px;
+      height: 46px;
+      padding: 0;
+      border-radius: 50%;
+    }
+    .session-card.is-compact .session-primary-btn svg {
+      width: 17px;
+      height: 17px;
+    }
+    .session-card.is-compact .session-ghost-btn {
+      width: 32px;
+      min-width: 32px;
+      padding: 0;
+    }
+    .session-card.is-compact .session-ghost-btn + .session-primary-btn {
+      margin-left: 0;
+    }
+    .session-card.is-compact .session-player-btn.is-prev,
+    .session-card.is-compact .session-player-btn.is-next {
+      width: 38px;
+      height: 38px;
+      border: none;
+      background: transparent;
+    }
+    .session-card.is-compact .session-player-btn.is-prev svg,
+    .session-card.is-compact .session-player-btn.is-next svg {
+      width: 19px;
+      height: 19px;
+    }
+    .session-practice-menu-divider {
+      height: 1px;
+      margin: 4px 6px;
+      background: rgba(148, 163, 184, 0.3);
+    }
+    .session-practice-option-icon.has-image {
+      padding: 0;
+      overflow: hidden;
+    }
+    .session-practice-option-icon.has-image img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .session-practice-menu {
+      max-height: 320px;
+      overflow-y: auto;
     }
     .session-grounding-list {
       list-style: none;

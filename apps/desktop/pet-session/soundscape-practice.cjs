@@ -12,13 +12,21 @@ const svgIcon = (paths, strokeWidth = 2) => {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="${strokeWidth}" aria-hidden="true">${paths}</svg>`;
 };
 
-// lucide:waves, volume-2, volume-x, chevron-down, check, moon
+// lucide:waves, volume-2, volume-x, check, moon, skip-back, skip-forward, play, pause, rotate-ccw
 const wavesPaths = '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2c2.5 0 2.5-2 5-2c1.3 0 1.9.5 2.5 1M2 12c.6.5 1.2 1 2.5 1c2.5 0 2.5-2 5-2c2.6 0 2.4 2 5 2c2.5 0 2.5-2 5-2c1.3 0 1.9.5 2.5 1M2 18c.6.5 1.2 1 2.5 1c2.5 0 2.5-2 5-2c2.6 0 2.4 2 5 2c2.5 0 2.5-2 5-2c1.3 0 1.9.5 2.5 1"/>';
 const volumeOnPaths = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298zM16 9a5 5 0 0 1 0 6m3.364 3.364a9 9 0 0 0 0-12.728"/>';
 const volumeOffPaths = '<path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298zm5.5 9.798l5-5m-5 0l5 5"/>';
-const chevronDownPaths = '<path d="m6 9l6 6l6-6"/>';
+const skipBackPaths = '<path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432zM3 20V4"/>';
+const skipForwardPaths = '<path d="M21 4v16M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"/>';
+const playPaths = '<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>';
+const pausePaths = '<rect width="5" height="18" x="14" y="3" rx="1"/><rect width="5" height="18" x="5" y="3" rx="1"/>';
+const restartPaths = '<path d="M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>';
 const checkPaths = '<path d="M20 6L9 17l-5-5"/>';
 const moonPaths = '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>';
+
+const filledIcon = (paths) => {
+  return `<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true">${paths}</svg>`;
+};
 
 const el = (tag, className) => {
   const element = document.createElement(tag);
@@ -45,7 +53,6 @@ function createSoundscapePractice(ui) {
   let status = "idle"; // idle | preparing | playing | unavailable | ending
   let preparedCount = 0;
   let loopCount = 0;
-  let sceneMenuOpen = false;
   let lastStatusSecond = -1;
 
   // Mixer state, rebuilt per run.
@@ -296,45 +303,8 @@ function createSoundscapePractice(ui) {
 
   // --- DOM ------------------------------------------------------------------
 
-  const row = el("div", "session-player");
-  const sceneButton = el("button", "session-player-track");
-  sceneButton.type = "button";
-  sceneButton.setAttribute("aria-haspopup", "menu");
-  const cover = el("span", "session-player-cover");
-  const coverImg = el("img", "session-player-cover-img");
-  coverImg.alt = "";
-  coverImg.addEventListener("error", () => {
-    coverImg.removeAttribute("src");
-    cover.classList.add("is-empty");
-  });
-  cover.appendChild(coverImg);
-  const texts = el("span", "session-player-texts");
-  const titleRow = el("span", "session-player-title-row");
-  const sceneTitle = el("span", "session-player-title");
-  const sceneChevron = el("span", "session-player-chevron");
-  sceneChevron.innerHTML = svgIcon(chevronDownPaths, 2.4);
-  titleRow.appendChild(sceneTitle);
-  titleRow.appendChild(sceneChevron);
-  const sceneSubtitle = el("span", "session-player-subtitle");
-  texts.appendChild(titleRow);
-  texts.appendChild(sceneSubtitle);
-  sceneButton.appendChild(cover);
-  sceneButton.appendChild(texts);
-  row.appendChild(sceneButton);
-  const sceneMenu = el("div", "session-track-menu");
-  sceneMenu.setAttribute("role", "menu");
-  row.appendChild(sceneMenu);
-
-  const statusLine = el("div", "session-sound-status");
-
-  const timerRow = el("div", "session-sound-timer");
-  const timerIcon = el("span", "session-sound-timer-icon");
-  timerIcon.innerHTML = svgIcon(moonPaths);
-  const timerChips = el("div", "session-sound-timer-chips");
-  timerRow.appendChild(timerIcon);
-  timerRow.appendChild(timerChips);
-
-  const volumeRow = el("label", "session-sound-volume");
+  // One row: volume slider and the sleep-timer button.
+  const mixRow = el("div", "session-sound-row");
   const volumeIcon = el("span", "session-sound-volume-icon");
   volumeIcon.innerHTML = svgIcon(volumeOnPaths);
   const volumeInput = el("input", "session-sound-volume-input");
@@ -348,29 +318,30 @@ function createSoundscapePractice(ui) {
     applyMasterVolume();
     renderControls();
   });
-  volumeRow.appendChild(volumeIcon);
-  volumeRow.appendChild(volumeInput);
+  const timerButton = el("button", "session-sound-timer-btn");
+  timerButton.type = "button";
+  timerButton.addEventListener("click", () => {
+    const choices = [null, ...(descriptor()?.timerMinutes ?? [])];
+    const index = choices.indexOf(timerMinutes);
+    timerMinutes = choices[(index + 1) % choices.length];
+    renderTimer();
+    ui.renderPhaseText();
+  });
+  mixRow.appendChild(volumeIcon);
+  mixRow.appendChild(volumeInput);
+  mixRow.appendChild(timerButton);
 
   const extraControls = el("div", "session-player-controls");
-  const muteButton = el("button", "session-player-btn");
-  muteButton.type = "button";
-  muteButton.addEventListener("click", () => {
-    muted = !muted;
-    applyMasterVolume();
-    renderControls();
-  });
-  extraControls.appendChild(muteButton);
-
-  // --- Scene picker -----------------------------------------------------------
-
-  const canPickScene = () => (descriptor()?.scenes.length ?? 0) > 1;
-
-  const setSceneMenuOpen = (open) => {
-    sceneMenuOpen = open && canPickScene();
-    row.classList.toggle("is-menu-open", sceneMenuOpen);
-    sceneButton.setAttribute("aria-expanded", sceneMenuOpen ? "true" : "false");
-    if (sceneMenuOpen) renderSceneMenu();
+  const makeControl = (paths, position, onClick) => {
+    const button = el("button", `session-player-btn is-${position}`);
+    button.type = "button";
+    button.innerHTML = svgIcon(paths, 2.2);
+    button.addEventListener("click", onClick);
+    extraControls.appendChild(button);
+    return button;
   };
+
+  // --- Scenes -----------------------------------------------------------------
 
   const selectScene = (sceneId) => {
     if (sceneId === selectedSceneId && ui.runState() !== "complete") return;
@@ -382,131 +353,98 @@ function createSoundscapePractice(ui) {
     ui.renderStatics();
   };
 
-  const renderSceneMenu = () => {
-    sceneMenu.textContent = "";
-    const current = selectedScene();
-    for (const scene of descriptor()?.scenes ?? []) {
-      const option = el("button", "session-track-option");
-      option.type = "button";
-      option.setAttribute("role", "menuitemradio");
-      const isCurrent = scene.id === current?.id;
-      option.setAttribute("aria-checked", isCurrent ? "true" : "false");
-      option.classList.toggle("is-current", isCurrent);
-      const thumb = el("span", "session-track-thumb");
-      if (scene.coverUrl) {
-        const img = el("img");
-        img.alt = "";
-        img.src = scene.coverUrl;
-        thumb.appendChild(img);
-      } else {
-        thumb.innerHTML = svgIcon(wavesPaths);
-      }
-      const name = el("span", "session-track-name");
-      name.textContent = scene.title;
-      const mark = el("span", "session-track-mark");
-      if (isCurrent) mark.innerHTML = svgIcon(checkPaths, 2.6);
-      option.appendChild(thumb);
-      option.appendChild(name);
-      option.appendChild(mark);
-      option.addEventListener("click", () => {
-        setSceneMenuOpen(false);
-        selectScene(scene.id);
-      });
-      sceneMenu.appendChild(option);
-    }
+  /** Previous / next step through the scenes, wrapping around. */
+  const stepScene = (direction) => {
+    const scenes = descriptor()?.scenes ?? [];
+    if (scenes.length < 2) return;
+    const index = scenes.findIndex((scene) => scene.id === selectedScene()?.id);
+    const next = scenes[(index + direction + scenes.length) % scenes.length];
+    selectScene(next.id);
   };
 
-  sceneButton.addEventListener("click", () => setSceneMenuOpen(!sceneMenuOpen));
-  document.addEventListener("mousedown", (event) => {
-    if (!sceneMenuOpen || !(event.target instanceof Element)) return;
-    if (sceneMenu.contains(event.target) || sceneButton.contains(event.target)) return;
-    setSceneMenuOpen(false);
+  const previousButton = makeControl(skipBackPaths, "prev", () => stepScene(-1));
+  const nextButton = makeControl(skipForwardPaths, "next", () => stepScene(1));
+  const muteButton = makeControl(volumeOnPaths, "mute", () => {
+    muted = !muted;
+    applyMasterVolume();
+    renderControls();
   });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && sceneMenuOpen) {
-      event.stopImmediatePropagation();
-      setSceneMenuOpen(false);
-    }
-  }, true);
 
   // --- Rendering ------------------------------------------------------------
 
-  const renderTimerChips = () => {
-    const choices = [null, ...(descriptor()?.timerMinutes ?? [])];
-    timerChips.textContent = "";
-    for (const minutes of choices) {
-      const chip = el("button", "session-sound-chip");
-      chip.type = "button";
-      chip.textContent = minutes === null ? ui.chromeText("noTimer") : ui.chromeText("minutesShort", { n: minutes });
-      const selected = minutes === timerMinutes;
-      chip.classList.toggle("is-selected", selected);
-      chip.setAttribute("aria-pressed", selected ? "true" : "false");
-      chip.addEventListener("click", () => {
-        timerMinutes = minutes;
-        renderTimerChips();
-        renderStatus();
-      });
-      timerChips.appendChild(chip);
-    }
-    timerRow.setAttribute("aria-label", ui.chromeText("sleepTimer"));
-    timerIcon.setAttribute("title", ui.chromeText("sleepTimer"));
-  };
-
   const remainingMs = () => (timerMinutes === null ? null : Math.max(0, timerMinutes * 60000 - elapsedMs));
 
-  const renderStatus = () => {
+  const renderTimer = () => {
+    timerButton.innerHTML = `${svgIcon(moonPaths)}<span>${timerMinutes === null ? "∞" : ui.escapeChromeText("minutesShort", { n: timerMinutes })}</span>`;
+    timerButton.classList.toggle("is-set", timerMinutes !== null);
+    timerButton.setAttribute("aria-label", ui.chromeText("sleepTimer"));
+    timerButton.setAttribute("title", `${ui.chromeText("sleepTimer")}: ${timerMinutes === null ? ui.chromeText("noTimer") : ui.chromeText("minutesShort", { n: timerMinutes })}`);
+  };
+
+  /** The live status line, shown as the header subtitle during a run. */
+  const statusText = () => {
     const runState = ui.runState();
-    let text = "";
-    if (status === "preparing") text = ui.chromeText("preparingSounds", { n: preparedCount, total: loopCount });
-    else if (status === "unavailable") text = ui.chromeText("soundsUnavailable");
-    else if (runState === "active" || runState === "paused") {
+    if (status === "preparing") return ui.chromeText("preparingSounds", { n: preparedCount, total: loopCount });
+    if (status === "unavailable") return ui.chromeText("soundsUnavailable");
+    if (runState === "paused") return ui.chromeText("paused");
+    if (runState === "active") {
       const remaining = remainingMs();
-      text = remaining === null
+      return remaining === null
         ? ui.chromeText("playingFor", { time: ui.formatClock(elapsedMs / 1000) })
         : ui.chromeText("stopsIn", { time: ui.formatClock(remaining / 1000) });
     }
-    statusLine.textContent = text;
-    statusLine.classList.toggle("is-warning", status === "unavailable");
+    return null;
   };
+
+  // The mixer reports progress through the header.
+  const renderStatus = () => ui.renderPhaseText();
 
   const renderControls = () => {
-    muteButton.innerHTML = svgIcon(muted || volume === 0 ? volumeOffPaths : volumeOnPaths, 2.2);
-    const key = muted ? "unmuteAudio" : "muteAudio";
-    muteButton.setAttribute("aria-label", ui.chromeText(key));
-    muteButton.setAttribute("title", ui.chromeText(key));
+    const multiple = (descriptor()?.scenes.length ?? 0) > 1;
+    previousButton.disabled = !multiple;
+    nextButton.disabled = !multiple;
+    const silent = muted || volume === 0;
+    muteButton.innerHTML = svgIcon(silent ? volumeOffPaths : volumeOnPaths, 2.2);
+    volumeIcon.innerHTML = svgIcon(silent ? volumeOffPaths : volumeOnPaths);
+    const muteKey = muted ? "unmuteAudio" : "muteAudio";
+    muteButton.setAttribute("aria-label", ui.chromeText(muteKey));
+    muteButton.setAttribute("title", ui.chromeText(muteKey));
+    previousButton.setAttribute("aria-label", ui.chromeText("previousPart"));
+    nextButton.setAttribute("aria-label", ui.chromeText("nextPart"));
     volumeInput.setAttribute("aria-label", ui.chromeText("volume"));
-    volumeIcon.innerHTML = svgIcon(muted || volume === 0 ? volumeOffPaths : volumeOnPaths);
   };
 
-  const renderScene = () => {
+  const renderCover = () => {
     const scene = selectedScene();
-    if (!scene) return;
-    sceneTitle.textContent = scene.title;
-    sceneSubtitle.textContent = scene.subtitle ?? "";
-    sceneChevron.style.display = canPickScene() ? "" : "none";
-    sceneButton.classList.toggle("is-pickable", canPickScene());
-    sceneButton.setAttribute("aria-label", ui.chromeText("chooseTrack"));
-    if (scene.coverUrl) {
-      cover.classList.remove("is-empty");
-      if (coverImg.getAttribute("src") !== scene.coverUrl) coverImg.src = scene.coverUrl;
+    if (scene?.coverUrl) {
+      widgets.topbarIcon.classList.add("has-cover");
+      widgets.topbarIcon.innerHTML = "";
+      const img = el("img");
+      img.alt = "";
+      img.src = scene.coverUrl;
+      img.addEventListener("error", () => {
+        widgets.topbarIcon.classList.remove("has-cover");
+        widgets.topbarIcon.innerHTML = svgIcon(wavesPaths);
+      });
+      widgets.topbarIcon.appendChild(img);
     } else {
-      coverImg.removeAttribute("src");
-      cover.classList.add("is-empty");
+      widgets.topbarIcon.classList.remove("has-cover");
+      widgets.topbarIcon.innerHTML = svgIcon(wavesPaths);
     }
   };
 
   return {
     kind: "soundscape",
-    topRows: [row, statusLine, timerRow, volumeRow],
+    topRows: [mixRow],
     extraControls,
     footerActiveKey: "footerListening",
+    compact: true,
     hidesSharedRows: true,
     hidesCount: true,
 
     enter(next) {
       selectedSceneId = next.sceneId;
       timerMinutes = null;
-      setSceneMenuOpen(false);
     },
 
     update(next) {
@@ -518,6 +456,7 @@ function createSoundscapePractice(ui) {
       generation += 1;
       closeContext();
       elapsedMs = 0;
+      lastStatusSecond = -1;
       status = "idle";
     },
 
@@ -556,35 +495,55 @@ function createSoundscapePractice(ui) {
       return null;
     },
 
+    primaryContent(runState) {
+      if (runState === "active") return filledIcon(pausePaths);
+      if (runState === "complete") return svgIcon(checkPaths, 2.8);
+      return filledIcon(playPaths);
+    },
+
     secondaryContent(runState) {
-      return runState === "active" || runState === "paused" ? null : undefined;
+      if (runState === "active" || runState === "paused") return null;
+      if (runState === "complete") return svgIcon(restartPaths, 2.2);
+      return undefined;
+    },
+
+    /** Header: the scene, then its categories or the live mixer status. */
+    headerText() {
+      const current = descriptor();
+      const scene = selectedScene();
+      if (!current || !scene) return null;
+      const live = statusText();
+      const subtitle = live ?? [current.title, scene.subtitle].filter(Boolean).join(" · ");
+      return { title: scene.title, subtitle };
+    },
+
+    headerMenuItems() {
+      const current = selectedScene();
+      return (descriptor()?.scenes ?? []).map((scene) => ({
+        label: scene.title,
+        imageUrl: scene.coverUrl,
+        iconSvg: svgIcon(wavesPaths),
+        current: scene.id === current?.id,
+        select: () => selectScene(scene.id),
+      }));
     },
 
     renderStatics() {
-      widgets.topbarIcon.innerHTML = svgIcon(wavesPaths);
-      renderScene();
-      renderTimerChips();
-      renderStatus();
+      ui.setPhaseColor([0.45, 0.72, 1.0], "#73b8ff");
+      renderCover();
+      renderTimer();
       renderControls();
     },
 
-    renderProgressMeta() {
-      renderStatus();
-    },
+    renderProgressMeta() {},
 
     renderIdle() {},
 
     runningPhase() {
-      const current = descriptor();
-      const scene = selectedScene();
-      if (!current || !scene) return null;
-      ui.setPhaseColor([0.45, 0.72, 1.0], "#73b8ff");
-      return { name: current.title, guidance: scene.title };
+      return null;
     },
 
-    renderPhaseDetails() {
-      renderStatus();
-    },
+    renderPhaseDetails() {},
 
     breathTarget(nowSeconds) {
       const runState = ui.runState();
@@ -592,7 +551,7 @@ function createSoundscapePractice(ui) {
       return 0.22 + 0.05 * Math.sin(nowSeconds * 0.8);
     },
 
-    /** The status line shows whole seconds; refresh it when the second changes. */
+    /** The status shows whole seconds; refresh it when the second changes. */
     renderFrame() {
       if (ui.runState() !== "active") return;
       const second = Math.floor(elapsedMs / 1000);
@@ -604,8 +563,8 @@ function createSoundscapePractice(ui) {
     deactivate() {
       generation += 1;
       closeContext();
-      setSceneMenuOpen(false);
       status = "idle";
+      widgets.topbarIcon.classList.remove("has-cover");
     },
   };
 }

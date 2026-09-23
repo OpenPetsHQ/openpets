@@ -11,7 +11,9 @@
 // uses Next/Back), opt out of pausing, hide the shared progress rows and
 // the header count, add their own control buttons (the media player), and
 // react to pause/resume/stop. The header doubles as the practice picker on
-// the idle and completed card.
+// the idle and completed card. Compact practices (the media players) use a
+// short card: the header carries their cover and track, its menu lists their
+// tracks before the practices, and the controls become a centred transport.
 // ---------------------------------------------------------------------------
 
 const { createSessionOrb } = require("./orb-renderer.cjs");
@@ -470,6 +472,14 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   const renderPhaseText = () => {
     if (!descriptor || !practice) return;
+    const custom = practice.headerText?.(runState);
+    if (custom) {
+      phaseName.textContent = custom.title;
+      phaseGuidance.textContent = custom.subtitle ?? "";
+      phaseCount.style.display = "none";
+      practice.renderPhaseDetails();
+      return;
+    }
     if (runState === "complete") {
       phaseName.textContent = chromeText("complete");
       phaseGuidance.textContent = chromeText("completeGuidance");
@@ -521,7 +531,12 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
 
   let practiceMenuOpen = false;
 
+  /** Practice-supplied menu entries (media tracks) shown above the practices. */
+  const headerItems = () => practice?.headerMenuItems?.() ?? [];
+
   const canSwitchPractice = () => {
+    // Tracks can be picked mid-run; practices only from the idle/finished card.
+    if (headerItems().length > 1) return true;
     const practices = descriptor?.practices;
     return Boolean(practices && practices.length > 1 && (runState === "idle" || runState === "complete"));
   };
@@ -562,8 +577,48 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     options[next].focus();
   });
 
+  const menuThumb = (item) => {
+    const thumb = el("span", "session-practice-option-icon");
+    if (item.imageUrl) {
+      thumb.classList.add("has-image");
+      const img = el("img");
+      img.alt = "";
+      img.src = item.imageUrl;
+      thumb.appendChild(img);
+    } else {
+      thumb.innerHTML = item.iconSvg ?? icons.leaf;
+    }
+    return thumb;
+  };
+
   const renderPracticeMenu = () => {
     practiceMenu.textContent = "";
+    const items = headerItems();
+    for (const item of items) {
+      const option = el("button", "session-practice-option");
+      option.type = "button";
+      option.tabIndex = -1;
+      option.setAttribute("role", "menuitemradio");
+      option.setAttribute("aria-checked", item.current ? "true" : "false");
+      option.classList.toggle("is-current", item.current);
+      const name = el("span", "session-practice-option-name");
+      name.textContent = item.label;
+      const mark = el("span", "session-practice-option-mark");
+      if (item.current) mark.innerHTML = icons.check;
+      option.appendChild(menuThumb(item));
+      option.appendChild(name);
+      option.appendChild(mark);
+      option.addEventListener("click", () => {
+        setPracticeMenuOpen(false);
+        if (!item.current) item.select();
+      });
+      practiceMenu.appendChild(option);
+    }
+    const practicesOpen = runState === "idle" || runState === "complete";
+    if (items.length > 0 && practicesOpen && (descriptor.practices?.length ?? 0) > 1) {
+      practiceMenu.appendChild(el("div", "session-practice-menu-divider"));
+    }
+    if (items.length > 0 && !practicesOpen) return;
     const currentId = currentPracticeId();
     for (const choice of descriptor.practices ?? []) {
       const option = el("button", "session-practice-option");
@@ -782,6 +837,7 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     practice?.deactivate();
     practice?.extraControls?.remove();
     practice = next;
+    card.classList.toggle("is-compact", Boolean(next?.compact));
     practiceRows.replaceChildren(...(next ? next.topRows : []));
     // Media players drop the shared dots/tiles/track rows for a compact card.
     const sharedDisplay = next?.hidesSharedRows ? "none" : "";

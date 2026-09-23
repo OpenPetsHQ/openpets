@@ -313,6 +313,18 @@ a first slice.
 
 Newest first.
 
+2026-09-23 — compact media players (Alvin: "player is too big").
+  Meditation / visualization card 300 → ~199px, sounds → ~169px.
+  The shell header now carries the cover and track (practice hook
+  headerText + a cover in the header icon); its menu lists the
+  tracks/scenes first, then the practices (headerMenuItems; tracks
+  can be picked mid-run, practices only from idle/finished). Controls
+  are a centred transport: ⓘ · previous · round play/pause · next ·
+  mute (sounds: previous/next scene). Removed: separate player row,
+  back-15s, paw footer, sound status/timer/volume rows — sounds show
+  their status in the header subtitle and have one row with the
+  volume slider and a timer button cycling ∞ → 15 → 30 → 60.
+
 2026-09-22 — relaxing sounds (soundscape mixer).
   New session kind "soundscape": scenes → layers (1–6 https files,
   volume, loop | random/"wave" interval, fadeIn/fadeOut, crossfade,
