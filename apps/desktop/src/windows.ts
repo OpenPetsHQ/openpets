@@ -647,6 +647,12 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   });
 
   controlCenterWindow = window;
+  // Capture webContents.id now, before it can ever be destroyed -- the
+  // "closed" handler below fires after window.webContents is already gone,
+  // and reading .webContents.id at that point throws "Object has been
+  // destroyed" (same bug class as the original Control Center crash fixed
+  // in #179, recurring here at a different call site introduced later).
+  const webContentsId = window.webContents.id;
   syncDockVisibilityForInternalUi();
   window.setMenu(null);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -665,10 +671,10 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("Control Center renderer process gone.", details);
     logError("ui", "control center renderer gone", details);
-    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center renderer was lost.");
+    void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center renderer was lost.");
   });
   window.on("closed", () => {
-    void controlCenterProviderIpc?.cancelForSender(window.webContents.id, "Control Center window was closed.");
+    void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center window was closed.");
     controlCenterWindow = null;
     syncDockVisibilityForInternalUi();
   });
