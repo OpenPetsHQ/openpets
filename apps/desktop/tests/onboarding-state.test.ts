@@ -39,13 +39,11 @@ assert.equal(preferencePatch.defaultPetId, "built-in");
 assert.equal(preferencePatch.openDefaultPetOnLaunch, true);
 assert.equal(preferencePatch.speechBubblesEnabled, true);
 
-assert.equal(defaultPetScale, 1);
-assert.deepEqual(petScaleOptions.map((option) => option.value), [0.5, 0.75, 1, 1.25, 1.5]);
-assert.equal(normalizePetScale(0.5), 0.5);
-assert.equal(normalizePetScale(0.75), 0.75);
-assert.equal(normalizePetScale(1), 1);
-assert.equal(normalizePetScale(1.25), 1.25);
-assert.equal(normalizePetScale(1.5), 1.5);
+assert.equal(defaultPetScale, 0.75);
+assert.deepEqual(petScaleOptions.map((option) => option.value), [0.35, 0.5, 0.75, 1, 1.25]);
+for (const option of petScaleOptions) assert.equal(normalizePetScale(option.value), option.value);
+// A saved size from the retired 1.5 option keeps the largest size instead of resetting.
+assert.equal(normalizePetScale(1.5), 1.25);
 assert.equal(normalizePetScale(0.56), defaultPetScale);
 assert.equal(normalizePetScale("1"), defaultPetScale);
 assert.equal(normalizePetScale(Number.NaN), defaultPetScale);

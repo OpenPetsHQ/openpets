@@ -108,8 +108,10 @@ dead. The platform predicates live in `mouse-forwarding.ts`.
 Right-clicking any pet offers a **Size** submenu with the same global scale
 choices as Settings. The current size is checked; selecting another size saves
 the global pet and HUD scale preferences and refreshes the default and agent pet
-windows. The HUD starts at its smallest readable size for XS, then grows more
-quickly than the pet at each larger choice. The same
+windows. Sizes are XS 0.35, Small 0.5, Medium 0.75 (the default), Large 1,
+and Huge 1.25; a saved size from the retired 1.5 option keeps Huge. The HUD
+stays at its smallest readable size for XS and Small, then grows more quickly
+than the pet at each larger choice. The same
 menu also offers **Flip horizontally**, a checked menu item that mirrors that
 pet's sprite left/right. Speech bubbles, status badges, controls, and the hit
 area stay unmirrored and readable. The orientation is stored per underlying pet

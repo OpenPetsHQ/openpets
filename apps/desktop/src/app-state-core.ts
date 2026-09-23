@@ -3,14 +3,16 @@ export interface OnboardingPreferenceLike {
 }
 
 export const petScaleOptions = [
-  { label: "XS", value: 0.5 },
-  { label: "Small", value: 0.75 },
-  { label: "Medium", value: 1 },
-  { label: "Large", value: 1.25 },
-  { label: "Huge", value: 1.5 },
+  { label: "XS", value: 0.35 },
+  { label: "Small", value: 0.5 },
+  { label: "Medium", value: 0.75 },
+  { label: "Large", value: 1 },
+  { label: "Huge", value: 1.25 },
 ] as const;
 export type PetScaleValue = typeof petScaleOptions[number]["value"];
-export const defaultPetScale: PetScaleValue = 1;
+export const defaultPetScale: PetScaleValue = 0.75;
+/** The retired 1.5 "Huge" maps to the largest current size instead of resetting to default. */
+const retiredLargestPetScale = 1.5;
 
 // Scale for the pinned plugin bubble (the HUD under the pet). Deliberately a
 // separate preference from petScale: pet size is aesthetic, HUD size is about
@@ -23,10 +25,11 @@ export const hudScaleOptions = [
   { label: "Huge", value: 2 },
 ] as const;
 export type HudScaleValue = typeof hudScaleOptions[number]["value"];
-export const defaultHudScale: HudScaleValue = 1.4;
+export const defaultHudScale: HudScaleValue = 1.1;
 
 export function getHudScaleForPetScale(petScale: PetScaleValue): HudScaleValue {
   switch (petScale) {
+    case 0.35:
     case 0.5:
       return 0.85;
     case 0.75:
@@ -35,8 +38,6 @@ export function getHudScaleForPetScale(petScale: PetScaleValue): HudScaleValue {
       return 1.4;
     case 1.25:
       return 1.7;
-    case 1.5:
-      return 2;
     default:
       return normalizeHudScale(petScale);
   }
@@ -84,6 +85,7 @@ export function normalizeWaitingAnimationDurationMs(value: unknown): WaitingAnim
 }
 
 export function normalizePetScale(value: unknown): PetScaleValue {
+  if (value === retiredLargestPetScale) return 1.25;
   return petScaleOptions.find((option) => option.value === value)?.value ?? defaultPetScale;
 }
 
