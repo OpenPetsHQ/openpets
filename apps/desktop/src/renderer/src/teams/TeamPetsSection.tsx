@@ -1,14 +1,17 @@
 import defaultThumbUrl from "../../../../assets/default-pet-thumbnail.png";
+import { SpriteFrame, installedPetSpritesheetUrl } from "../components/PetSprite.js";
+import type { PetSpriteLayout } from "../pet-preview-state.js";
 import { PetIcon } from "./teams-icons.js";
 import type { TeamPetEntry } from "./teams-types.js";
 
 export type TeamPetsSectionProps = {
   readonly pets: readonly TeamPetEntry[];
+  readonly spriteLayouts: ReadonlyMap<string, PetSpriteLayout>;
 };
 
-export function TeamPetsSection({ pets }: TeamPetsSectionProps) {
+export function TeamPetsSection({ pets, spriteLayouts }: TeamPetsSectionProps) {
   return (
-    <section className="flex flex-col gap-3">
+    <section data-team-pets className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="m-0 font-monoDisplay text-lg font-black text-navy dark:text-slate-100 flex items-center gap-2">
@@ -35,15 +38,18 @@ export function TeamPetsSection({ pets }: TeamPetsSectionProps) {
               key={pet.id}
               className="team-item-card flex items-center gap-3.5"
             >
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-white to-blue-50 border border-blue-100 overflow-hidden dark:bg-slate-800 dark:border-slate-700">
-                <img
-                  src={`openpets-installed://spritesheet/${encodeURIComponent(pet.id)}`}
-                  alt={pet.displayName}
-                  className="h-10 w-10 object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = defaultThumbUrl;
-                  }}
-                />
+              <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-white to-blue-50 border border-blue-100 overflow-hidden dark:bg-slate-800 dark:border-slate-700">
+                {spriteLayouts.has(pet.id) ? (
+                  <SpriteFrame
+                    src={installedPetSpritesheetUrl(pet.id)}
+                    label={pet.displayName}
+                    spriteLayout={spriteLayouts.get(pet.id)}
+                    state="idle"
+                    size="mini"
+                  />
+                ) : (
+                  <img src={defaultThumbUrl} alt={pet.displayName} className="h-10 w-10 object-contain" />
+                )}
               </div>
 
               <div className="flex-1 min-w-0">

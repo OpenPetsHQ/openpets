@@ -369,7 +369,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1) forwards;
     }
     html[data-compact-composer-open="true"] .bubble:not(.is-pinned),
-    html[data-chat-expanded="true"] .bubble:not(.is-pinned) {
+    html[data-chat-expanded="true"] .bubble:not(.is-pinned),
+    html[data-check-in-expanded="true"] .bubble:not(.is-pinned) {
       display: none !important;
     }
     .compact-composer-header {

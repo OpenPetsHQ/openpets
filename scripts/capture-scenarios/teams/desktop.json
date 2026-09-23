@@ -1,0 +1,20 @@
+{
+  "plugins": ["openpets.reminders"],
+  "teamsApi": "http://localhost:8788",
+  "steps": [
+    { "teams": "enroll" },
+    { "teams": "approve" },
+    { "teams": "sync" },
+    { "pet": "luna-techbot" },
+    { "shot": "teams-pet-check-in-due", "settleMs": 1500 },
+    { "checkIn": true },
+    { "shot": "teams-check-in-card", "settleMs": 1200 },
+    { "click": ".check-in-feeling-btn[data-code=good]" },
+    { "type": ".check-in-textarea", "text": "Shipped the onboarding redesign today — great teamwork." },
+    { "shot": "teams-check-in-filled", "settleMs": 800 },
+    { "controlCenter": "teams", "width": 1180, "height": 800 },
+    { "shot": "teams-control-center", "window": "control-center", "settleMs": 2500 },
+    { "scroll": "[data-team-pets]", "window": "control-center" },
+    { "shot": "teams-control-center-pets", "window": "control-center", "settleMs": 1200 }
+  ]
+}

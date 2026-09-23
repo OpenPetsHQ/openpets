@@ -17,10 +17,12 @@ import {
   isSensitivePermission,
   statusPillToneClass,
 } from "./teams-state.js";
-import type { TeamPluginEntry } from "./teams-types.js";
+import { isPluginIconDataUrl } from "../plugin-icon.js";
+import type { TeamPluginEntry, TeamPluginPresentation } from "./teams-types.js";
 
 export type TeamPluginCardProps = {
   readonly plugin: TeamPluginEntry;
+  readonly presentation?: TeamPluginPresentation;
   readonly isApproving: boolean;
   readonly isToggling?: boolean;
   readonly isBusy: boolean;
@@ -32,6 +34,7 @@ export type TeamPluginCardProps = {
 
 export function TeamPluginCard({
   plugin,
+  presentation,
   isApproving,
   isToggling,
   isBusy,
@@ -42,6 +45,8 @@ export function TeamPluginCard({
 }: TeamPluginCardProps) {
   const { t } = useI18n();
   const isBlocked = Boolean(plugin.permissionBlocked);
+  const displayName = presentation?.name?.trim() || plugin.id;
+  const iconDataUrl = isPluginIconDataUrl(presentation?.iconDataUrl) ? presentation.iconDataUrl : undefined;
   const requestedPermissions = plugin.requestedPermissions ?? [];
   const requestedNetworkHosts = plugin.requestedNetworkHosts ?? [];
 
@@ -68,18 +73,27 @@ export function TeamPluginCard({
           <div
             className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border shadow-sm ${iconContainerStyle}`}
           >
-            <PluginIcon />
+            {iconDataUrl ? (
+              <img src={iconDataUrl} alt="" aria-hidden="true" draggable="false" className="h-5 w-5" />
+            ) : (
+              <PluginIcon />
+            )}
           </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <strong className="text-sm font-bold text-navy dark:text-slate-100 truncate block">
-                {plugin.id}
+                {displayName}
               </strong>
               <span className="text-[11px] font-mono text-slatecopy/80 dark:text-slate-400">
                 v{plugin.version}
               </span>
             </div>
+            {displayName !== plugin.id && (
+              <span className="block truncate text-[11px] font-mono text-slatecopy dark:text-slate-400">
+                {plugin.id}
+              </span>
+            )}
 
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <span
@@ -120,7 +134,7 @@ export function TeamPluginCard({
                 className="btn btn-compact btn-secondary text-xs font-bold px-3 py-1.5 shadow-sm"
                 disabled={isBusy}
                 onClick={() => onSetEnabled(plugin.id, false)}
-                title={`Disable ${plugin.id}`}
+                title={`Disable ${displayName}`}
               >
                 {isToggling ? (
                   <>
@@ -137,7 +151,7 @@ export function TeamPluginCard({
                 className="btn btn-compact btn-primary text-xs font-bold px-3 py-1.5 shadow-sm"
                 disabled={isBusy}
                 onClick={() => onSetEnabled(plugin.id, true)}
-                title={`Enable ${plugin.id}`}
+                title={`Enable ${displayName}`}
               >
                 {isToggling ? (
                   <>

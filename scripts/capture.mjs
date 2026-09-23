@@ -25,6 +25,8 @@ const socketPath = join(sessionDir, "control.sock");
 const pidPath = join(sessionDir, "app.pid");
 const appLogPath = join(sessionDir, "app.log");
 const defaultShotsDir = join(captureRoot, "shots");
+const teamsDir = join(repoRoot, "teams");
+const teamsShowcaseStatePath = join(teamsDir, "local", "showcase", "showcase.json");
 
 const startTimeoutMs = 90_000;
 const stopTimeoutMs = 10_000;
@@ -34,7 +36,8 @@ const chatTimeoutMs = 180_000;
 const usage = `Usage: pnpm capture <command>
 
 Session
-  start [--plugins id,id] [--keep] [--no-build]   launch the capture app (fresh profile unless --keep)
+  start [--plugins id,id] [--keep] [--no-build] [--teams-api url]
+                                                  launch the capture app (fresh profile unless --keep)
   restart [same flags]                            stop, then start fresh
   stop                                            quit the capture app
   status                                          plugins, their command ids, pet visibility
@@ -48,10 +51,21 @@ Drive
   chat clear                                      forget earlier conversation history
   buttons <chat|talk|chat,talk|none>              show the pet's Chat/Talk buttons
   providers [auto]                                list provider profiles; auto selects one per empty role
+
+Teams (needs the Teams showcase: cd teams && bun run dev:showcase; start with --teams-api)
+  teams enroll                                    enroll this desktop into the showcase org (+ seeded history)
+  teams approve                                   approve requested Team plugin permissions
+  teams sync                                      sync the Team Pack and check-ins now
+  check-in                                        open the pet's check-in card
+  control-center <route> [--width px --height px] open the Control Center (e.g. teams)
+  pet select <petId>                              make an installed pet the default pet
+  ui click <selector> [--window pet|control-center]
+  ui type <selector> <text> [--window ...]        drive renderer UI for staged shots
+  ui scroll <selector> [--window ...]             scroll an element into view
   wait <ms>                                       sleep (useful in shell chains)
 
 Capture
-  shot <name> [--padding pt] [--settle ms] [--out dir]
+  shot <name> [--window pet|control-center] [--padding pt] [--settle ms] [--out dir]
   run <scenario.json | folder>                    run a scripted scenario (or every one in a folder)
 
 Shots land in .capture/shots/ unless --out (or a scenario "out") says otherwise.`;
@@ -89,6 +103,25 @@ async function main() {
     case "buttons":
       await setPetButtons(required(positional[0], "buttons (chat, talk, chat,talk, or none)").split(","));
       return;
+    case "teams":
+      await runTeamsCommand(required(positional[0], "teams action (enroll, approve, sync)"));
+      return;
+    case "pet":
+      if (positional[0] !== "select") throw new Error("Use: pet select <petId>");
+      printJson(await request("pet.select", { petId: required(positional[1], "petId") }));
+      return;
+    case "ui":
+      await runUiCommand(positional, flags);
+      return;
+    case "check-in":
+      printJson(await request("check-in.open"));
+      return;
+    case "control-center":
+      await openControlCenter(required(positional[0], "route"), {
+        width: optionalNumberFlag(flags, "width"),
+        height: optionalNumberFlag(flags, "height"),
+      });
+      return;
     case "providers":
       printJson(await request(positional[0] === "auto" ? "providers.auto" : "providers"));
       return;
@@ -99,6 +132,7 @@ async function main() {
       await takeShot(required(positional[0], "name"), {
         padding: optionalNumberFlag(flags, "padding"),
         settleMs: optionalNumberFlag(flags, "settle"),
+        window: typeof flags.window === "string" ? flags.window : undefined,
         outDir: typeof flags.out === "string" ? resolve(flags.out) : defaultShotsDir,
       });
       return;
@@ -118,10 +152,11 @@ function sessionOptionsFromFlags(flags) {
     plugins: typeof flags.plugins === "string" ? flags.plugins.split(",").map((id) => id.trim()).filter(Boolean) : null,
     keepProfile: flags.keep === true,
     build: flags["no-build"] !== true,
+    teamsApi: typeof flags["teams-api"] === "string" ? flags["teams-api"] : null,
   };
 }
 
-async function startSession({ plugins, keepProfile, build }) {
+async function startSession({ plugins, keepProfile, build, teamsApi }) {
   if (await isSessionRunning()) {
     throw new Error("A capture session is already running. Use `pnpm capture restart` or `pnpm capture stop`.");
   }
@@ -139,7 +174,7 @@ async function startSession({ plugins, keepProfile, build }) {
     cwd: desktopDir,
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    env: createSessionEnv(plugins),
+    env: createSessionEnv(plugins, teamsApi),
   });
   child.unref();
   writeFileSync(pidPath, `${child.pid}\n`);
@@ -149,7 +184,7 @@ async function startSession({ plugins, keepProfile, build }) {
   printPluginSummary(status);
 }
 
-function createSessionEnv(plugins) {
+function createSessionEnv(plugins, teamsApi) {
   const env = {
     ...process.env,
     OPENPETS_CAPTURE_SESSION_DIR: sessionDir,
@@ -158,6 +193,8 @@ function createSessionEnv(plugins) {
     OPENPETS_DISABLE_PLUGIN_CATALOG: "1",
   };
   delete env.ELECTRON_RUN_AS_NODE;
+  if (teamsApi) env.OPENPETS_TEAMS_API_URL = teamsApi;
+  else delete env.OPENPETS_TEAMS_API_URL;
   delete env.OPENPETS_DEV_PLUGIN_ROOTS;
   delete env.OPENPETS_DEV_PLUGIN_PATHS;
 
@@ -280,6 +317,66 @@ async function sendChat(message, { wait }) {
   console.log(`chat turn ${result.status}`);
 }
 
+async function runTeamsCommand(action) {
+  if (action === "enroll") {
+    await enrollInShowcaseTeam();
+  } else if (action === "approve") {
+    printJson(await request("teams.approve"));
+  } else if (action === "sync") {
+    printJson(await request("teams.sync"));
+  } else {
+    throw new Error(`Unknown teams action "${action}". Use enroll, approve, or sync.`);
+  }
+}
+
+/**
+ * Plays the employee's side of a join link against the Teams showcase: the
+ * browser starts the enrollment intent, the desktop completes it, then the
+ * showcase attaches seeded check-in history to this desktop's employee.
+ */
+async function enrollInShowcaseTeam() {
+  let showcase;
+  try {
+    showcase = JSON.parse(readFileSync(teamsShowcaseStatePath, "utf8"));
+  } catch {
+    throw new Error("No Teams showcase found. Run `bun run dev:showcase` in teams/ first.");
+  }
+  const joinLink = showcase.joinLinks[0];
+  const started = await fetch(`${showcase.apiBaseUrl}/v1/join/${encodeURIComponent(joinLink.token)}/start`);
+  if (!started.ok) throw new Error(`Starting the join link failed with HTTP ${started.status}.`);
+  const { intentId } = await started.json();
+  const enrolled = await request("teams.enroll", { intentId, displayName: showcase.desktopPersonaName }, { timeoutMs: 60_000 });
+  console.log(`enrolled as ${showcase.desktopPersonaName} in ${enrolled.organizationName}`);
+
+  const history = spawnSync("bun", ["run", "showcase:desktop-history"], { cwd: teamsDir, stdio: "inherit" });
+  if (history.status !== 0) throw new Error("Attaching showcase check-in history failed.");
+  printJson(await request("teams.sync", {}, { timeoutMs: 60_000 }));
+}
+
+async function runUiCommand(positional, flags) {
+  const [action, selector, text] = positional;
+  const window = typeof flags.window === "string" ? { window: flags.window } : {};
+  if (action === "click") {
+    await request("ui.click", { selector: required(selector, "selector"), ...window });
+  } else if (action === "scroll") {
+    await request("ui.scroll", { selector: required(selector, "selector"), ...window });
+  } else if (action === "type") {
+    await request("ui.type", { selector: required(selector, "selector"), text: required(text, "text"), ...window });
+  } else {
+    throw new Error("Use: ui click <selector> | ui scroll <selector> | ui type <selector> <text>");
+  }
+  console.log(`ui ${action} ${selector}`);
+}
+
+async function openControlCenter(route, { width, height }) {
+  await request("control-center.open", {
+    route,
+    ...(width === undefined ? {} : { width }),
+    ...(height === undefined ? {} : { height }),
+  });
+  console.log(`control center ${route}`);
+}
+
 async function setPetButtons(names) {
   const wanted = new Set(names.map((name) => name.trim()));
   const unknown = [...wanted].filter((name) => !["chat", "talk", "none"].includes(name));
@@ -297,7 +394,7 @@ async function runPluginCommand(pluginId, commandId, args) {
   console.log(`ran ${pluginId} ${commandId}`);
 }
 
-async function takeShot(name, { padding, settleMs, outDir }) {
+async function takeShot(name, { padding, settleMs, window, outDir }) {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
     throw new Error(`Shot name "${name}" may only use letters, digits, ".", "_" and "-".`);
   }
@@ -305,6 +402,7 @@ async function takeShot(name, { padding, settleMs, outDir }) {
     path: join(outDir, `${name}.png`),
     ...(padding === undefined ? {} : { padding }),
     ...(settleMs === undefined ? {} : { settleMs }),
+    ...(window === undefined ? {} : { window }),
   });
   console.log(`shot ${relativeToRepo(result.path)} (${result.width}x${result.height} px, @${result.scaleFactor}x)`);
   return result;
@@ -328,6 +426,7 @@ async function runScenarios(path) {
  * {
  *   "plugins": ["openpets.simple-timer"],   // optional: restart fresh with only these
  *   "out": "docs/screenshots/plugins",       // optional, relative to the repo root
+ *   "teamsApi": "http://localhost:8788",     // optional: point the desktop at a Teams API
  *   "keepProfile": true,                      // optional: keep the profile (and a configured provider) on restarts
  *   "padding": 24,                            // optional default for every shot
  *   "steps": [
@@ -336,6 +435,14 @@ async function runScenarios(path) {
  *     { "cmd": ["openpets.simple-timer", "start-timer", { "preset": "25" }] },
  *     { "say": "Hello!", "reaction": "happy" },
  *     { "buttons": ["chat", "talk"] },
+ *     { "teams": "enroll" },                   // enroll | approve | sync (scenario needs "teamsApi")
+ *     { "checkIn": true },
+ *     { "pet": "luna-techbot" },               // make an installed pet the default
+ *     { "click": ".check-in-feeling-btn[data-code=good]" },
+ *     { "type": ".check-in-textarea", "text": "Great sprint!" },  // "window" picks pet | control-center
+ *     { "scroll": "[data-team-pets]", "window": "control-center" },
+ *     { "controlCenter": "teams", "width": 1180, "height": 800 },
+ *     { "shot": "teams-page", "window": "control-center" },
  *     { "chat": "expanded" },                  // collapsed | compact | expanded | clear
  *     { "chatSend": "What can you do?" },      // add "noWait": true to shoot mid-reply
  *     { "wait": 1000 },
@@ -354,6 +461,7 @@ async function runScenario(scenarioPath) {
     plugins: Array.isArray(scenario.plugins) ? scenario.plugins : null,
     keepProfile: scenario.keepProfile === true,
     build: true,
+    teamsApi: typeof scenario.teamsApi === "string" ? scenario.teamsApi : null,
   };
 
   if (sessionOptions.plugins) {
@@ -382,6 +490,20 @@ async function runScenario(scenarioPath) {
       await request("chat.panel", { state: step.chat });
     } else if (step.chatSend) {
       await sendChat(step.chatSend, { wait: step.noWait !== true });
+    } else if (step.teams) {
+      await runTeamsCommand(step.teams);
+    } else if (step.pet) {
+      await request("pet.select", { petId: step.pet });
+    } else if (step.click) {
+      await request("ui.click", { selector: step.click, ...(step.window ? { window: step.window } : {}) });
+    } else if (step.scroll) {
+      await request("ui.scroll", { selector: step.scroll, ...(step.window ? { window: step.window } : {}) });
+    } else if (step.type) {
+      await request("ui.type", { selector: step.type, text: step.text, ...(step.window ? { window: step.window } : {}) });
+    } else if (step.checkIn) {
+      await request("check-in.open");
+    } else if (step.controlCenter) {
+      await openControlCenter(step.controlCenter, { width: step.width, height: step.height });
     } else if (step.providers === "auto") {
       await request("providers.auto");
     } else if (step.buttons) {
@@ -396,6 +518,7 @@ async function runScenario(scenarioPath) {
       await takeShot(step.shot, {
         padding: step.padding ?? scenario.padding,
         settleMs: step.settleMs,
+        window: step.window,
         outDir,
       });
     } else if (step.restart) {

@@ -181,6 +181,30 @@ test("Teams API client pins requests to the configured origin and validates pack
   assert.throws(() => new TeamApiClient({ baseUrl: "http://insecure.example.test" }));
 });
 
+test("Teams artifact downloads mint the capability with POST, as the API route requires", async () => {
+  const bytes = new TextEncoder().encode("team artifact bytes");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const requests: string[] = [];
+  const client = new TeamApiClient({
+    baseUrl: "https://teams.example.test/",
+    fetchImpl: async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      requests.push(`${init?.method ?? "GET"} ${path}`);
+      if (path.endsWith("/capability")) {
+        if (init?.method !== "POST") return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+        return new Response(JSON.stringify({ capability: "signed-capability" }), { status: 200 });
+      }
+      return new Response(bytes, { status: 200 });
+    },
+  });
+  const downloaded = await client.downloadArtifact("device-credential", "version-1", bytes.length, sha256);
+  assert.equal(Buffer.from(downloaded).toString(), "team artifact bytes");
+  assert.deepEqual(requests, [
+    "POST /v1/device/artifacts/version-1/capability",
+    "GET /v1/device/artifacts/version-1",
+  ]);
+});
+
 test("Teams enrollment previews identity and completes in one desktop request", async () => {
   const requestBodies: Record<string, Record<string, unknown>> = {};
   const expiresAt = new Date(Date.now() + 3_000).toISOString();
@@ -725,6 +749,46 @@ test("TeamService requires the current approval token, scopes snapshots, and adv
       () => service.setTeamPluginEnabled("team-plugin", false),
       /Only fully approved/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TeamService approves Team plugins whose manifest lists permissions out of canonical order", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-service-permission-order-test-"));
+  try {
+    const teamState = new TeamStateStore({ userDataPath: root });
+    teamState.initialize();
+    teamState.enroll({ organizationId: "org-one", organizationName: "One" });
+    const pluginState = new PluginStateStore({ userDataPath: root });
+    pluginState.initialize();
+    const nonCanonicalPermissions = ["storage", "commands", "pet:speak"];
+    const api = {
+      getTeamPack: async () => ({ pack: createPluginPack("1.0.0", "artifact-one", 1, "optional", nonCanonicalPermissions), notModified: false, etag: "pack-1" }),
+      downloadArtifact: async () => createPluginZip("team-plugin", "1.0.0", nonCanonicalPermissions),
+      reportDeployment: async () => undefined,
+      leaveOrganization: async () => undefined,
+      getEnrollmentPreview: async () => {
+        throw new Error("not used");
+      },
+      completeEnrollment: async () => {
+        throw new Error("not used");
+      },
+    } satisfies NonNullable<TeamServiceOptions["apiClient"]>;
+    const service = new TeamService({
+      userDataPath: root,
+      apiClient: api,
+      stateStore: teamState,
+      credentialStore: new MemoryCredentialStore("credential_" + "b".repeat(32)),
+      pluginService: { stateStore: pluginState, runtime: { reloadPlugin: async () => undefined } },
+      petState: createPetStateAdapter(() => [], () => undefined),
+    });
+
+    await service.syncNow();
+    const token = pluginState.getRecord("team-plugin")?.teamApprovalToken;
+    const approved = await service.approveTeamPluginPermissions("team-plugin", token!);
+    assert.equal(approved.appliedRevision, 1);
+    assert.equal(approved.teamPlugins.find((plugin) => plugin.id === "team-plugin")?.permissionBlocked, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

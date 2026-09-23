@@ -7,13 +7,14 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 ## Design
 
 - **Route Shell**: In-renderer route state supports `dashboard`, `pets`, `assistant`, `settings`, `plugins`, `integrations`, and `teams`; tray actions retarget the singleton window through route-change events. Pet Assistant chat is hosted directly inside the default pet carrier window as an attached expandable panel, not inside Control Center.
+- `components/PetSprite.tsx`: Allow-listed pet image sources, `SpriteFrame` animated sprite frames, and `PetImage`, shared by the Pets, Dashboard, and Teams views. `plugin-icon.ts`: the plugin icon data-URL check shared by the Plugins and Teams views.
 - **Teams**: Modularized under `teams/` to manage organization membership, synchronization, and security controls while strictly isolating personal content:
-  - `teams/TeamsView.tsx`: Top-level container component orchestrating snapshot retrieval, synchronization, permission approval actions, optional plugin enable/disable toggling, error banner/toast presentation, and child section rendering.
+  - `teams/TeamsView.tsx`: Top-level container component orchestrating snapshot retrieval (joined with installed pet sprite layouts and plugin names/icons for presentation), synchronization, permission approval actions, optional plugin enable/disable toggling, error banner/toast presentation, and child section rendering.
   - `teams/TeamEnrollmentSection.tsx`: Presentational view for deep-link invitation enrollment (device display name entry), authoritative preview/expiry gating for acceptance, and un-enrolled onboarding guides with personal isolation assurances.
   - `teams/TeamOverviewSection.tsx`: Organization status banner with applied/pending revisions, manual synchronization trigger, leave action trigger, metadata overview, and pending-approval alert banners.
-  - `teams/TeamPetsSection.tsx`: Displays organization-managed companion pets with installed sprite thumbnails and team-managed badges.
+  - `teams/TeamPetsSection.tsx`: Displays organization-managed companion pets as animated idle sprite frames (shared `components/PetSprite.tsx`) with team-managed badges.
   - `teams/TeamPluginsSection.tsx`: Lists organization-provisioned plugins with approval counters and status summaries.
-  - `teams/TeamPluginCard.tsx`: Detailed plugin card rendering required/optional policy badges, explicit permission approval workflows (`Approve & Activate` for required vs `Approve Permissions` for optional), actionable enable/disable controls for approved optional plugins, sensitive capability disclosures, and allowed network destinations.
+  - `teams/TeamPluginCard.tsx`: Detailed plugin card rendering the translated plugin name, id, and icon, required/optional policy badges, explicit permission approval workflows (`Approve & Activate` for required vs `Approve Permissions` for optional), actionable enable/disable controls for approved optional plugins, sensitive capability disclosures, and allowed network destinations.
   - `teams/TeamLeaveModal.tsx`: Confirmation modal clarifying the removal of organization assets while guaranteeing personal content safety.
   - `teams/teams-icons.tsx`: Cohesive set of 2px-stroke SVG icons matching Control Center design conventions.
   - `teams/teams-types.ts`: Strong typing for snapshots, pet/plugin entries, approval tokens, and preload bridge API contracts.

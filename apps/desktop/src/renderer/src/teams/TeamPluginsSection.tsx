@@ -1,9 +1,10 @@
 import { PluginIcon } from "./teams-icons.js";
 import { TeamPluginCard } from "./TeamPluginCard.js";
-import type { TeamPluginEntry } from "./teams-types.js";
+import type { TeamPluginEntry, TeamPluginPresentation } from "./teams-types.js";
 
 export type TeamPluginsSectionProps = {
   readonly plugins: readonly TeamPluginEntry[];
+  readonly presentations: ReadonlyMap<string, TeamPluginPresentation>;
   readonly pendingApprovalsCount: number;
   readonly busy: string;
   readonly approvingPluginId: string | null;
@@ -16,6 +17,7 @@ export type TeamPluginsSectionProps = {
 
 export function TeamPluginsSection({
   plugins,
+  presentations,
   pendingApprovalsCount,
   busy,
   approvingPluginId,
@@ -59,6 +61,7 @@ export function TeamPluginsSection({
             <TeamPluginCard
               key={plugin.id}
               plugin={plugin}
+              presentation={presentations.get(plugin.id)}
               isApproving={approvingPluginId === plugin.id}
               isToggling={togglingPluginId === plugin.id}
               isBusy={isBusy}

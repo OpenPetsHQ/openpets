@@ -606,6 +606,10 @@ export function installInternalUiProtocol(): void {
 // control center out a notch so more content fits without restyling every view.
 const controlCenterZoomFactor = 0.9;
 
+export function getControlCenterWindow(): BrowserWindow | null {
+  return controlCenterWindow && !controlCenterWindow.isDestroyed() ? controlCenterWindow : null;
+}
+
 export function openControlCenterWindow(route: ControlCenterRoute = "dashboard"): void {
   openControlCenterWindowTarget({ route: normalizeControlCenterRoute(route) });
 }
