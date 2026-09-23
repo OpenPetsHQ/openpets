@@ -5,6 +5,7 @@ import { GlassCard } from "../components/ui/GlassCard.js";
 import { StatusPill } from "../components/ui/StatusPill.js";
 import { IntegrationIcon } from "./IntegrationIcon.js";
 import { PathField } from "./PathField.js";
+import { ConnectedAppsView } from "./ConnectedAppsView.js";
 import {
   CloseIcon,
   ConfigureIcon,
@@ -84,7 +85,7 @@ export function zedStatusTone(state: ZedSetupStatus["state"]): IntegrationStatus
   return "slate";
 }
 
-export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
+export function IntegrationsView({ api: injectedApi, connectedAppsApi }: IntegrationsViewProps) {
   const { t } = useI18n();
   const api = injectedApi ?? (window as unknown as { openPetsControlCenter: IntegrationsApi }).openPetsControlCenter;
 
@@ -94,6 +95,22 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [selectedSection, setSelectedSection] = useState<"agents" | "connected-apps">("agents");
+  const sectionNavigation = (
+    <nav className="integration-section-tabs flex flex-wrap gap-2" aria-label={t("integrations.sections.aria")}>
+      {(["agents", "connected-apps"] as const).map((section) => (
+        <button
+          key={section}
+          type="button"
+          className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${selectedSection === section ? "border-brand bg-brand/10 text-navy" : "border-navy/15 bg-white/60 text-slatecopy hover:bg-white"}`}
+          aria-pressed={selectedSection === section}
+          onClick={() => setSelectedSection(section)}
+        >
+          {t(section === "agents" ? "integrations.sections.agents" : "connectedApps.title")}
+        </button>
+      ))}
+    </nav>
+  );
 
   const load = async (selectedPetId?: string, commandMode?: AgentSetupSnapshot["commandMode"]) => {
     try {
@@ -152,16 +169,30 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
     void load(snapshot?.selectedPetId, mode);
   };
 
+  if (selectedSection === "connected-apps") {
+    return (
+      <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2">
+        {sectionNavigation}
+        {connectedAppsApi
+          ? <ConnectedAppsView api={connectedAppsApi} />
+          : <div className="error" role="alert">{t("connectedApps.loadError")}</div>}
+      </div>
+    );
+  }
+
   if (!snapshot) {
     return (
-      <GlassCard className="flex h-64 flex-col items-center justify-center gap-4 text-center">
-        <p className="text-sm font-semibold text-slatecopy">{error || t("integrations.loading")}</p>
-        {error && (
-          <Button variant="secondary" size="compact" icon={<RefreshIcon />} onClick={() => void load()}>
-            {t("common.retry")}
-          </Button>
-        )}
-      </GlassCard>
+      <div className="flex flex-col gap-5">
+        {sectionNavigation}
+        <GlassCard className="flex h-64 flex-col items-center justify-center gap-4 text-center">
+          <p className="text-sm font-semibold text-slatecopy">{error || t("integrations.loading")}</p>
+          {error && (
+            <Button variant="secondary" size="compact" icon={<RefreshIcon />} onClick={() => void load()}>
+              {t("common.retry")}
+            </Button>
+          )}
+        </GlassCard>
+      </div>
     );
   }
 
@@ -231,6 +262,7 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
 
   return (
     <div className="flex flex-col gap-6 h-full overflow-y-auto pr-2">
+      {sectionNavigation}
       {error && <div className="error">{error}</div>}
       {message && <div className="settings-success settings-message">{message}</div>}
 

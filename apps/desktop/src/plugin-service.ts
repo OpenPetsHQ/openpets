@@ -37,6 +37,8 @@ export type SafePluginRecord = {
   readonly enabled: boolean;
   readonly brokenReason?: string;
   readonly approvedPermissions: readonly PluginPermission[];
+  /** Permissions declared by the currently installed manifest, for consent presentation. */
+  readonly requestedPermissions?: readonly PluginPermission[];
   readonly runtime?: "declarative" | "javascript";
   readonly sdkVersion?: string;
   readonly catalogDisabled?: boolean;
@@ -331,6 +333,8 @@ export class PluginService {
         return this.#error(safeError(error));
       }
     }
+    try { await this.#capabilities?.calendar?.clearUserAccess?.(id); }
+    catch { return this.#error("Plugin calendar permissions could not be revoked; uninstall was stopped."); }
     this.stateStore.removeRecord(id);
     if (record.source === "local" && record.sourcePath) this.#onLocalPluginSourceRemoved?.(record.sourcePath);
     await this.runtime.reloadPlugin(id);
@@ -503,6 +507,7 @@ export class PluginService {
       enabled: record.enabled,
       brokenReason: record.brokenReason,
       approvedPermissions: record.approvedPermissions,
+      requestedPermissions: [],
       runtime: record.runtime,
       sdkVersion: record.sdkVersion,
       catalogDisabled: record.catalogDisabled,
@@ -514,7 +519,7 @@ export class PluginService {
       const config = getEffectivePluginConfig(manifest, record.config);
       const runtimeState = typeof (this.runtime as unknown as { getPluginState?: unknown }).getPluginState === "function" ? this.runtime.getPluginState(record.id) : { commands: [] };
       await ensurePluginLocales(record.id, record.installPath).catch(() => undefined);
-      return { ...base, brokenReason: sanitizePluginUiMessage(record.brokenReason), name: resolvePluginText(record.id, manifest.name) ?? manifest.name, description: resolvePluginText(record.id, manifest.description), icon: manifest.icon, iconDataUrl: await readPluginIconDataUrl(manifest, record.installPath), configSchema: resolveConfigSchemaText(record.id, manifest.configSchema), effectiveConfig: config.ok ? resolveConfigValueText(record.id, config.config) : undefined, configErrors: config.ok ? undefined : config.errors, spritePreviews: getSafeSpritePreviews(manifest), commands: runtimeState.commands.map((command) => resolveCommandText(record.id, command)), status: runtimeState.status };
+      return { ...base, requestedPermissions: manifest.permissions, brokenReason: sanitizePluginUiMessage(record.brokenReason), name: resolvePluginText(record.id, manifest.name) ?? manifest.name, description: resolvePluginText(record.id, manifest.description), icon: manifest.icon, iconDataUrl: await readPluginIconDataUrl(manifest, record.installPath), configSchema: resolveConfigSchemaText(record.id, manifest.configSchema), effectiveConfig: config.ok ? resolveConfigValueText(record.id, config.config) : undefined, configErrors: config.ok ? undefined : config.errors, spritePreviews: getSafeSpritePreviews(manifest), commands: runtimeState.commands.map((command) => resolveCommandText(record.id, command)), status: runtimeState.status };
     } catch (error) {
       return { ...base, brokenReason: sanitizePluginUiMessage(record.brokenReason) ?? safeError(error) };
     }

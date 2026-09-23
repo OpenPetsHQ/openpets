@@ -218,6 +218,10 @@ export interface PluginHostCapabilities {
     signOut(pluginId: string, provider: string): Promise<void>;
   };
   calendar?: {
+    /** Additional host-owned user approval, separate from manifest permission. */
+    hasUserAccess?(pluginId: string, provider: OpenPetsCalendarProvider): Promise<boolean>;
+    /** Host-internal uninstall cleanup; never exposed through the plugin SDK. */
+    clearUserAccess?(pluginId: string): Promise<void>;
     connect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<{ state: "link_opened" | "already_connected" | "pending" | "busy" | "cancelled" }>;
     status(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<OpenPetsCalendarConnectionStatus>;
     disconnect(pluginId: string, provider: OpenPetsCalendarProvider, signal?: AbortSignal): Promise<void>;
@@ -318,6 +322,7 @@ export function createDefaultPluginHostCapabilities(petApi: PluginPetApi): Plugi
     voice: { speak: unavailable("voice.speak"), listen: unavailable("voice.listen") },
     auth: { oauth: unavailable("auth.oauth"), refresh: unavailable("auth.refresh"), signOut: async () => undefined },
     calendar: {
+      hasUserAccess: async () => false,
       connect: unavailable("calendar.connect"),
       status: unavailable("calendar.status"),
       disconnect: unavailable("calendar.disconnect"),
@@ -487,6 +492,7 @@ export class PluginSdkBridge {
     const state = this.#pluginState(record.id);
     const caps = this.#capabilities;
     const calendarCaps = caps.calendar ?? {
+      hasUserAccess: async () => false,
       connect: async () => { throw new Error("Plugin host capability is unavailable: calendar.connect"); },
       status: async () => { throw new Error("Plugin host capability is unavailable: calendar.status"); },
       disconnect: async () => { throw new Error("Plugin host capability is unavailable: calendar.disconnect"); },
@@ -498,6 +504,14 @@ export class PluginSdkBridge {
     const apiGeneration = this.#apiGenerations.get(pluginId) ?? 0;
     const requireActive = () => { if ((this.#apiGenerations.get(pluginId) ?? 0) !== apiGeneration) throw new Error(PLUGIN_INACTIVE_ERROR); };
     const requirePermission = (permission: PluginPermission) => { requireActive(); if (!approved.has(permission)) throw new Error(`Plugin permission is not approved: ${permission}`); };
+    const requireCalendarAccess = async (providerInput: unknown): Promise<OpenPetsCalendarProvider> => {
+      requirePermission("calendar:connect");
+      const provider = validateCalendarProvider(providerInput);
+      if (!await calendarCaps.hasUserAccess?.(pluginId, provider)) {
+        throw new Error("Calendar access has not been approved in Integrations → Connected Apps.");
+      }
+      return provider;
+    };
     const isCurrentGeneration = () => (this.#apiGenerations.get(pluginId) ?? 0) === apiGeneration;
     const trackNetworkRequest = <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
       requireActive();
@@ -876,36 +890,36 @@ export class PluginSdkBridge {
       },
       calendar: {
         connect: async (provider: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
-          return trackNetworkRequest((signal) => calendarCaps.connect(pluginId, validateCalendarProvider(provider), signal));
+          return trackNetworkRequest((signal) => calendarCaps.connect(pluginId, validatedProvider, signal));
         },
         status: async (provider: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
-          return trackNetworkRequest((signal) => calendarCaps.status(pluginId, validateCalendarProvider(provider), signal));
+          return trackNetworkRequest((signal) => calendarCaps.status(pluginId, validatedProvider, signal));
         },
         disconnect: async (provider: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
-          await trackNetworkRequest((signal) => calendarCaps.disconnect(pluginId, validateCalendarProvider(provider), signal));
+          await trackNetworkRequest((signal) => calendarCaps.disconnect(pluginId, validatedProvider, signal));
         },
         listCalendars: async (provider: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
-          return trackNetworkRequest((signal) => calendarCaps.listCalendars(pluginId, validateCalendarProvider(provider), signal));
+          return trackNetworkRequest((signal) => calendarCaps.listCalendars(pluginId, validatedProvider, signal));
         },
         listEvents: async (provider: unknown, calendarId: unknown, range: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
           const validatedRange = validateCalendarRange(range);
-          return trackNetworkRequest((signal) => calendarCaps.listEvents(pluginId, validateCalendarProvider(provider), validateCalendarOpaqueId(calendarId, "calendar"), validatedRange, signal));
+          return trackNetworkRequest((signal) => calendarCaps.listEvents(pluginId, validatedProvider, validateCalendarOpaqueId(calendarId, "calendar"), validatedRange, signal));
         },
         getEvent: async (provider: unknown, calendarId: unknown, eventId: unknown, calendarTimeZone?: unknown) => {
-          requirePermission("calendar:connect");
+          const validatedProvider = await requireCalendarAccess(provider);
           state.calendarWindow.tick(quotas.calendarPerMinute, "calendar");
           const validatedTimeZone = calendarTimeZone === undefined ? undefined : validateCalendarTimeZone(calendarTimeZone);
-          return trackNetworkRequest((signal) => calendarCaps.getEvent(pluginId, validateCalendarProvider(provider), validateCalendarOpaqueId(calendarId, "calendar"), validateCalendarOpaqueId(eventId, "event"), validatedTimeZone, signal));
+          return trackNetworkRequest((signal) => calendarCaps.getEvent(pluginId, validatedProvider, validateCalendarOpaqueId(calendarId, "calendar"), validateCalendarOpaqueId(eventId, "event"), validatedTimeZone, signal));
         },
       },
       files: {

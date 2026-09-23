@@ -28,6 +28,7 @@ import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/gener
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
 import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
+import type { ConnectedAppsApi, ConnectedAppsProvider, ConnectedAppsSnapshot } from "../../connected-apps-contract.js";
 
 import {
   IntegrationsView,
@@ -85,7 +86,7 @@ type PluginCommand = { id: string; title: string; description?: string; form?: P
 type PluginStatus = { text: string; tone?: "info" | "success" | "warning" | "error" };
 type PluginConfigError = { path?: string; code?: string; message?: string };
 type PluginCategory = "Companion" | "Wellness" | "Focus" | "Developer" | "Advanced";
-type SafePluginRecord = { id: string; name?: string; description?: string; version: string; icon?: PluginIconName; iconDataUrl?: string; source: "catalog" | "local"; sourcePath?: string; bundled?: boolean; category?: PluginCategory; enabled: boolean; brokenReason?: string; approvedPermissions: PluginPermission[]; runtime?: "declarative" | "javascript"; sdkVersion?: string; catalogDisabled?: boolean; catalogDeprecated?: boolean; catalogStatusReason?: string; configSchema?: PluginConfigSchema; effectiveConfig?: PluginConfig; configErrors?: PluginConfigError[]; spritePreviews?: Record<string, { url: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number }>; commands?: PluginCommand[]; status?: PluginStatus };
+type SafePluginRecord = { id: string; name?: string; description?: string; version: string; icon?: PluginIconName; iconDataUrl?: string; source: "catalog" | "local"; sourcePath?: string; bundled?: boolean; category?: PluginCategory; enabled: boolean; brokenReason?: string; approvedPermissions: PluginPermission[]; requestedPermissions?: PluginPermission[]; runtime?: "declarative" | "javascript"; sdkVersion?: string; catalogDisabled?: boolean; catalogDeprecated?: boolean; catalogStatusReason?: string; configSchema?: PluginConfigSchema; effectiveConfig?: PluginConfig; configErrors?: PluginConfigError[]; spritePreviews?: Record<string, { url: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number }>; commands?: PluginCommand[]; status?: PluginStatus };
 type SafeCatalogPluginRecord = { id: string; name: string; version: string; description: string; runtime: "declarative" | "javascript"; icon?: PluginIconName; iconDataUrl?: string; sdkVersion?: string; permissions: PluginPermission[]; installed: boolean; bundled?: boolean; category?: PluginCategory; deprecated?: boolean; statusReason?: string; publisherType?: "official" | "community" };
 type PluginServiceSnapshot = { plugins: SafePluginRecord[] };
 type PluginCatalogSnapshot = { plugins: SafeCatalogPluginRecord[] };
@@ -242,6 +243,10 @@ type ControlCenterApi = {
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   updateIntegrationCommandPaths(patch: Partial<AgentSetupCommandPaths>): Promise<AgentSetupCommandPaths>;
+  getConnectedAppsSnapshot(): Promise<ConnectedAppsSnapshot>;
+  connectConnectedAppsAccount(pluginId: string, provider: ConnectedAppsProvider): Promise<ConnectedAppsSnapshot>;
+  setConnectedAppsPluginAccess(pluginId: string, provider: ConnectedAppsProvider, enabled: boolean): Promise<ConnectedAppsSnapshot>;
+  disconnectConnectedAppsAccount(pluginId: string, provider: ConnectedAppsProvider): Promise<ConnectedAppsSnapshot>;
   getRemoteSnapshot(): Promise<RemoteControlSnapshot>;
   configureRemote(input: { enabled: boolean; address?: string; port?: number }): Promise<RemoteControlSnapshot>;
   pairRemoteClient(input: { name: string; scopes: RemoteControlScope[] }): Promise<RemotePairingResult>;
@@ -4095,7 +4100,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       ) : currentRoute === "plugins" ? (
         <PluginsView />
       ) : currentRoute === "integrations" ? (
-        <IntegrationsView api={api} />
+        <IntegrationsView api={api} connectedAppsApi={api} />
       ) : currentRoute === "teams" ? (
         <TeamsView
           api={{

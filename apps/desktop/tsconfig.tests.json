@@ -6,6 +6,7 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
+    "jsx": "react-jsx",
     "lib": ["ES2022"]
   },
   "include": ["tests/**/*.ts", "contracts/**/*.ts", "src/**/*.ts"],

@@ -120,7 +120,7 @@ The permission surface (from `plugin-manifest.ts`):
 
 `timer`/`schedule`, `pet:*`, `pets:*`, `audio`, `events`, `ui:*`, `notify`,
 `bus`, `ai`, `secrets`, `voice:*`, `auth`, `files`, `system:*`, `clipboard`,
-`network:*`.
+`network:*`, `calendar:connect`.
 
 A plugin that calls a namespace it didn't declare (or wasn't approved for) is
 denied and the block is recorded in diagnostics. `network:*` is further
@@ -136,6 +136,13 @@ is not implicitly callable by the host assistant. Registration grants no new
 authority. The handler's effects remain limited by the plugin's existing
 manifest-declared and user-approved permissions and continue through the normal
 bridge checks.
+
+`calendar:connect` also requires a separate user grant for that plugin and
+provider in Command Center → Integrations → Connected Apps. The host enforces
+that local-profile grant on every calendar SDK call; account disconnection and
+plugin permission revocation are independent. Calendar OAuth/status remain
+fail-closed until the host can independently verify the person completing the
+Composio browser flow. See [Desktop architecture](/desktop#security-model).
 
 The descriptor is bounded and object-rooted: it contains only an id,
 description, and input JSON Schema subset. The host validates supported schema

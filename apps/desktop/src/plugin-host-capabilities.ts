@@ -14,6 +14,7 @@ import { readDroppedFileText, startPluginEventSources, subscribePluginEvent } fr
 import { PluginOauthBroker } from "./plugin-oauth.js";
 import { CalendarBrokerClient } from "./plugin-calendar-broker-client.js";
 import { CalendarProfileCredentialStore } from "./plugin-calendar-profile.js";
+import { CalendarPluginConsentStore } from "./calendar-plugin-consent.js";
 import { openPluginPanel } from "./plugin-panels.js";
 import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
 import {
@@ -83,6 +84,7 @@ export type ElectronPluginHostCapabilities = PluginHostCapabilities & {
   readonly secretsStore: PluginSecretsStore;
   readonly providerService: HostProviderService;
   readonly aiGateway: PluginAiGateway;
+  readonly calendarConsentStore: CalendarPluginConsentStore;
   /** Tear down everything a plugin owns on stop/reload. */
   clearPlugin(pluginId: string, isCurrentGeneration?: () => boolean): Promise<void>;
   /** Redeem a verifier handoff using this host's encrypted local profile. */
@@ -105,6 +107,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
   const aiGateway = new PluginAiGateway(providerService);
   const oauthBroker = new PluginOauthBroker(secretsStore);
   const calendarProfile = new CalendarProfileCredentialStore(userDataPath, safeStorage);
+  const calendarConsentStore = new CalendarPluginConsentStore(userDataPath);
   const calendarBroker = new CalendarBrokerClient({
     getCredential: () => calendarProfile.getOrCreate(),
     openExternal: (url) => shell.openExternal(url),
@@ -126,6 +129,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
     secretsStore,
     providerService,
     aiGateway,
+    calendarConsentStore,
     bubbles: {
       async show({ petId, pluginId, bubble, callbacks }) {
         return getPluginPetArbiter(petId).show(pluginId, bubble, callbacks);
@@ -248,6 +252,8 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       signOut: async (pluginId, provider) => { try { await oauthBroker.signOut(pluginId, provider); } catch (error) { warn("plugin", "oauth signout failed", { pluginId, provider, reason: error instanceof Error ? error.message : "unknown", errorCode: classifyPluginError(error) }); throw error; } },
     },
     calendar: {
+      hasUserAccess: (pluginId, provider) => calendarConsentStore.hasAccess(pluginId, provider),
+      clearUserAccess: (pluginId) => calendarConsentStore.clearPlugin(pluginId),
       connect: (pluginId, provider, signal) => calendarBroker.connect(pluginId, provider, signal),
       status: (pluginId, provider, signal) => calendarBroker.status(pluginId, provider, signal),
       disconnect: (pluginId, provider, signal) => calendarBroker.disconnect(pluginId, provider, signal),

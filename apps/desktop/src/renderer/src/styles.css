@@ -17,6 +17,31 @@ body.theme-dark {
     linear-gradient(180deg, #101624 0%, #111827 52%, #172033 100%);
 }
 
+body.theme-dark .connected-apps-view .text-navy {
+  color: #f8fbff;
+}
+
+body.theme-dark .connected-apps-view .text-slatecopy {
+  color: #a9b6ca;
+}
+
+body.theme-dark .integration-section-tabs button {
+  border-color: rgba(116, 159, 221, 0.3);
+  background: rgba(30, 41, 59, 0.68);
+  color: #cbd5e1;
+}
+
+body.theme-dark .integration-section-tabs button:hover:not([aria-pressed="true"]) {
+  border-color: rgba(124, 199, 255, 0.48);
+  background: rgba(30, 43, 68, 0.9);
+}
+
+body.theme-dark .integration-section-tabs button[aria-pressed="true"] {
+  border-color: rgba(96, 165, 250, 0.65);
+  background: rgba(37, 99, 235, 0.3);
+  color: #f8fbff;
+}
+
 body.theme-dark::-webkit-scrollbar-thumb {
   background: rgba(96, 165, 250, 0.36);
 }

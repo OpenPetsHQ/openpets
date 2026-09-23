@@ -649,6 +649,15 @@ available and reviewed. Profile/plugin-scoped disconnect remains available for
 cleanup. See `apps/calendar-broker/README.md` for deployment prerequisites.
 This does not change Calendar Airmail's independent OAuth flow.
 
+Command Center → Integrations → **Connected Apps** shows Google Calendar and
+Outlook connection state separately for each installed plugin requesting
+`calendar:connect`. Account connection and the user's per-plugin read approval
+are independent; revoking one plugin grant does not affect another plugin.
+Provider account names are shown only when independently verified. OAuth and
+connection status currently remain unavailable because that identity handoff
+has not been established; the screen explains this and manual Deadline Buddy
+deadlines remain usable.
+
 ### Agent setup
 
 `agent-setup.ts` detects installed agents and runs configuration actions (MCP

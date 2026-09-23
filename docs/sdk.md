@@ -55,6 +55,7 @@ each gated by a permission ([Plugin platform](/plugins)):
 | `ctx.ai` | Host-mediated AI gateway | `ai` |
 | `ctx.secrets` | Encrypted plugin-scoped secrets | `secrets` |
 | `ctx.auth` | Host-mediated OAuth/PKCE | `auth` |
+| `ctx.calendar` | Host-mediated, allowlisted read-only Google/Outlook calendar connection and event reads | `calendar:connect` plus per-plugin/provider approval in Connected Apps |
 | `ctx.net` | Declared∩approved hosts; public HTTPS + optional local HTTP via `network:local`; non-GET via `network:write` | `network`, `network:write`, `network:local` |
 | `ctx.files` | Scoped file access | `files` |
 | `ctx.system` | System info, aggregate CPU/memory plus optional GPU, system-volume, battery, and network metrics, clipboard | `system:*`, `clipboard` |

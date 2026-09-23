@@ -32,6 +32,8 @@ import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerSessionMediaProtocol } from "./session-media-cache.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
 import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
+import { installControlCenterConnectedAppsIpcHandlers } from "./control-center-connected-apps-ipc.js";
+import { getPluginHostCapabilitiesForUi } from "./plugin-host-capabilities.js";
 import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
 import { installControlCenterRemoteIpcHandlers } from "./control-center-remote-ipc.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
@@ -404,6 +406,22 @@ export function installInternalUiHandlers(): void {
       debug: (message, fields) => debug("ui", message, fields),
       warn: (message, fields) => warn("ui", message, fields),
       error: (message, fields) => logError("ui", message, fields),
+    },
+  });
+
+  installControlCenterConnectedAppsIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getPluginService,
+    getConsentStore: () => {
+      const capabilities = getPluginHostCapabilitiesForUi();
+      if (!capabilities) throw new Error("Calendar permission management is unavailable.");
+      return capabilities.calendarConsentStore;
+    },
+    getCalendarManager: () => {
+      const calendar = getPluginHostCapabilitiesForUi()?.calendar;
+      if (!calendar) throw new Error("Calendar account management is unavailable.");
+      return calendar;
     },
   });
 

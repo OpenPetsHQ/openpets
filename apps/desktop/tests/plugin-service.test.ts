@@ -178,7 +178,14 @@ await scenario("uninstall clears plugin user sounds", async ({ userData, root, s
   mkdirSync(join(userData, "plugins"), { recursive: true });
   mkdirSync(join(userData, "plugins-dev"), { recursive: true });
   const runtime = new FakeRuntime();
-  const service = new PluginService({ userDataPath: userData, stateStore: store, runtime: runtime as never, allowedPluginRoots: [root] });
+  const revokedCalendarGrants: string[] = [];
+  const service = new PluginService({
+    userDataPath: userData,
+    stateStore: store,
+    runtime: runtime as never,
+    allowedPluginRoots: [root],
+    capabilities: { calendar: { clearUserAccess: async (pluginId: string) => { revokedCalendarGrants.push(pluginId); } } } as never,
+  });
   addPlugin(store, { source: "catalog", installPath: join(userData, "plugins", "plug") });
   const soundDir = join(userData, "plugin-user-sounds", "plug");
   mkdirSync(soundDir, { recursive: true });
@@ -186,6 +193,7 @@ await scenario("uninstall clears plugin user sounds", async ({ userData, root, s
   const result = await service.uninstall("plug");
   assert.equal(result.ok, true);
   assert.equal(existsSync(soundDir), false);
+  assert.deepEqual(revokedCalendarGrants, ["plug"]);
 });
 
 await scenario("stop cancels runtime", async ({ service, runtime }) => {

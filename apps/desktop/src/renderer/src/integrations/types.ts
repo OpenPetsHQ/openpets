@@ -1,3 +1,5 @@
+import type { ConnectedAppsApi } from "../../../connected-apps-contract.js";
+
 export type AgentSetupAction =
   | "configure"
   | "replace"
@@ -211,4 +213,5 @@ export type IntegrationIconProps = {
 
 export type IntegrationsViewProps = {
   readonly api?: IntegrationsApi;
+  readonly connectedAppsApi?: ConnectedAppsApi;
 };

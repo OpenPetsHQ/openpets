@@ -1,13 +1,10 @@
 import React from "react";
 
-export interface GlassCardProps {
+export interface GlassCardProps extends React.HTMLAttributes<HTMLElement> {
   readonly children: React.ReactNode;
   readonly className?: string;
 }
 
-export function GlassCard({
-  children,
-  className = "",
-}: GlassCardProps) {
-  return <section className={`glass ${className}`}>{children}</section>;
+export function GlassCard({ children, className = "", ...attributes }: GlassCardProps) {
+  return <section className={`glass ${className}`} {...attributes}>{children}</section>;
 }

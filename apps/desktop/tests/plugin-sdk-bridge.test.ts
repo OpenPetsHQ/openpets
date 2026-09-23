@@ -729,8 +729,11 @@ await scenario("calendar connector is permission-gated, input-validated, and quo
 
   let forwardedCalls = 0;
   const forwardedPluginIds: string[] = [];
+  const consentPluginIds: string[] = [];
   let forwardedRange: { from: string; to: string; calendarTimeZone?: string } | undefined;
+  let hostAccessGranted = false;
   capabilities.calendar = {
+    hasUserAccess: async (pluginId) => { consentPluginIds.push(pluginId); return hostAccessGranted; },
     connect: async (pluginId, provider) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; return { state: provider === "google" ? "already_connected" : "pending" }; },
     status: async (pluginId, provider) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; return { provider, state: "connected", checkedAt: "2026-09-23T12:00:00.000Z" }; },
     disconnect: async (pluginId) => { forwardedPluginIds.push(pluginId); forwardedCalls += 1; },
@@ -740,6 +743,11 @@ await scenario("calendar connector is permission-gated, input-validated, and quo
   };
   const calendarApi = bridge.createApi(approvedRecord, manifest({ permissions: [...manifest().permissions, "calendar:connect"] }));
 
+  await assert.rejects(() => calendarApi.calendar.status("google"), /not been approved in Integrations → Connected Apps/);
+  assert.equal(forwardedCalls, 0, "manifest permission alone cannot forward calendar requests");
+  assert.deepEqual(consentPluginIds, ["plug"], "the host checks consent against the isolated plugin identity");
+  hostAccessGranted = true;
+
   assert.deepEqual(await calendarApi.calendar.connect("google"), { state: "already_connected" });
   assert.equal((await calendarApi.calendar.status("outlook")).state, "connected");
   assert.deepEqual(await calendarApi.calendar.listCalendars("google"), { calendars: [], truncated: false });
@@ -748,13 +756,14 @@ await scenario("calendar connector is permission-gated, input-validated, and quo
   assert.equal(await calendarApi.calendar.getEvent("google", "primary", "event-1", "Europe/London"), null);
   await calendarApi.calendar.disconnect("google");
   assert.deepEqual(forwardedPluginIds, Array(6).fill("plug"), "host calls retain the manifest plugin id needed for account isolation");
+  assert.equal(consentPluginIds.every((pluginId) => pluginId === "plug"), true, "every calendar operation checks this plugin's own grant");
 
   await assert.rejects(() => Reflect.apply(calendarApi.calendar.connect, calendarApi.calendar, ["zoom"]), /Calendar provider is not supported/);
   await assert.rejects(() => calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00", to: "2026-09-24T12:00:00Z" }), /ISO UTC/);
   await assert.rejects(() => calendarApi.calendar.listEvents("google", "primary", { from: "2026-09-23T12:00:00Z", to: "2026-09-24T12:00:00Z", calendarTimeZone: "Not/A_Timezone" }), /Invalid calendar timezone/);
-  for (let index = 0; index < 21; index += 1) await calendarApi.calendar.status("google");
+  for (let index = 0; index < 22; index += 1) await calendarApi.calendar.status("google");
   await assert.rejects(() => calendarApi.calendar.status("google"), /quota exceeded/);
-  assert.equal(forwardedCalls, 27, "malformed requests are rejected before host forwarding");
+  assert.equal(forwardedCalls, 28, "malformed requests are rejected before host forwarding");
 });
 
 type ScenarioContext = {
