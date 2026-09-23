@@ -1,6 +1,6 @@
 {
   "plugin.name": "Anxiety Aid Tools",
-  "plugin.description": "圍繞寵物進行的引導式平靜練習，從呼吸與肌肉放鬆開始。https://anxietyaidtools.com/ 的 OpenPets 夥伴。",
+  "plugin.description": "圍繞寵物進行的平靜練習：呼吸、肌肉放鬆、著陸練習、引導冥想、意象放鬆與舒緩聲音。https://anxietyaidtools.com/ 的 OpenPets 夥伴。",
   "command.start.description": "開始一次平靜 4-6 呼吸練習。",
   "command.startPmr.description": "開始一次漸進式肌肉放鬆練習。",
   "command.startGuided.description": "用上次的模式開始引導呼吸。",

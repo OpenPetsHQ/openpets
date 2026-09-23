@@ -1,6 +1,6 @@
 {
   "plugin.name": "Anxiety Aid Tools",
-  "plugin.description": "펫 주위에서 진행되는 가이드 안정 연습, 호흡과 근육 이완부터 시작합니다. https://anxietyaidtools.com/ 의 OpenPets 컴패니언입니다.",
+  "plugin.description": "펫 주위에서 하는 안정 연습: 호흡, 근육 이완, 그라운딩, 가이드 명상, 심상 명상, 편안한 소리. https://anxietyaidtools.com/ 의 OpenPets 컴패니언입니다.",
   "command.start.description": "차분한 4-6 호흡 세션을 시작합니다.",
   "command.startPmr.description": "점진적 근육 이완 세션을 시작합니다.",
   "command.startGuided.description": "마지막으로 사용한 패턴으로 가이드 호흡을 시작합니다.",

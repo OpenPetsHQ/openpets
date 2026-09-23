@@ -3,7 +3,7 @@
   "id": "openpets.virtual-pet",
   "name": "$t:plugin.name",
   "description": "$t:plugin.description",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "runtime": "javascript",
   "icon": "heart",
   "sdkVersion": "3.0.0",

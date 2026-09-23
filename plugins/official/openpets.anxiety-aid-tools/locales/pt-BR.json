@@ -1,6 +1,6 @@
 {
   "plugin.name": "Anxiety Aid Tools",
-  "plugin.description": "Práticas guiadas de calma ao redor do seu pet, começando pela respiração e pelo relaxamento muscular. O companheiro OpenPets de https://anxietyaidtools.com/.",
+  "plugin.description": "Práticas de calma ao redor do seu pet: respiração, relaxamento muscular, ancoragem, meditação guiada, visualização e sons relaxantes. O companheiro OpenPets de https://anxietyaidtools.com/.",
   "command.start.description": "Inicia uma sessão de respiração calma 4-6.",
   "command.startPmr.description": "Inicia uma sessão de relaxamento muscular progressivo.",
   "command.startGuided.description": "Inicia a respiração guiada com o seu último padrão.",

@@ -85,8 +85,15 @@ export type PluginServiceOptions = {
   readonly onLocalPluginSourceRemoved?: (sourcePath: string) => void;
 };
 
-const bundledEnabledByDefault = new Set<string>(["openpets.reminders", "openpets.focus-buddy", "openpets.launch-buddy"]);
-const staleBundledPluginIds = ["openpets.daily-reminders", "openpets.pomodoro", "openpets.ambient-companion", "openpets.break-buddy", "openpets.focus-buddy", "openpets.github-notifications", "openpets.pet-pal", "openpets.quick-reminders", "openpets.wander-buddy"] as const;
+const bundledEnabledByDefault = new Set<string>([
+  "openpets.reminders",
+  "openpets.simple-timer",
+  "openpets.anxiety-aid-tools",
+  "openpets.focus-buddy",
+  "openpets.launch-buddy",
+  "openpets.fortune-cookie",
+]);
+const staleBundledPluginIds = ["openpets.daily-reminders", "openpets.pomodoro", "openpets.ambient-companion", "openpets.break-buddy", "openpets.github-notifications", "openpets.pet-pal", "openpets.quick-reminders", "openpets.wander-buddy"] as const;
 
 export class PluginService {
   readonly stateStore: PluginStateStore;

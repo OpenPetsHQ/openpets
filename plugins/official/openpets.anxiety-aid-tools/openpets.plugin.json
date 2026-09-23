@@ -3,12 +3,15 @@
   "id": "openpets.anxiety-aid-tools",
   "name": "$t:plugin.name",
   "description": "$t:plugin.description",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "runtime": "javascript",
   "icon": "heart",
   "sdkVersion": "3.0.0",
   "entry": "index.js",
   "assets": {
+    "icons": {
+      "anxiety-aid-tools": "assets/icon.svg"
+    },
     "svgs": {
       "logo": "assets/logo.svg",
       "pmr-right-hand-tense": "assets/pmr/right-hand-tense.svg",
