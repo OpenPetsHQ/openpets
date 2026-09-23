@@ -1,0 +1,86 @@
+name: Build Windows Store AppX
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to package, normally the desktop release tag, e.g. v4.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-appx:
+    name: Build Windows Store AppX x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop dependencies
+        shell: bash
+        run: pnpm --filter '@open-pets/desktop^...' build
+
+      - name: Build desktop bundles
+        shell: bash
+        run: |
+          pnpm --dir apps/desktop exec tsc
+          pnpm --dir apps/desktop build:preload
+          pnpm --dir apps/desktop exec vite build
+
+      - name: Clean package output
+        run: node apps/desktop/scripts/clean-package-output.cjs
+
+      # Identity values must match the Partner Center product reservation (docs/release.md).
+      - name: Build AppX package
+        shell: bash
+        run: |
+          pnpm --dir apps/desktop exec electron-builder --win appx --x64 --publish never \
+            -c.appx.identityName=AlvinUnreal.OpenPetsDesktopCompanion \
+            -c.appx.publisher=CN=5749BA4D-6A45-4111-8CAA-6B151AEDC238 \
+            -c.appx.publisherDisplayName=AlvinUnreal \
+            -c.appx.displayName="OpenPets: Desktop Companion" \
+            -c.appx.applicationId=OpenPetsDesktopCompanion
+
+      - name: Validate AppX tile assets
+        shell: pwsh
+        run: |
+          $appx = Get-ChildItem -Path apps/desktop/dist-electron -Filter "OpenPets-*-win-x64.appx" | Select-Object -First 1
+          if (-not $appx) { throw "AppX package was not produced." }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($appx.FullName)
+          try {
+            $names = $zip.Entries | ForEach-Object { $_.FullName }
+            foreach ($asset in "StoreLogo.png", "Square44x44Logo.png", "Square150x150Logo.png", "Wide310x150Logo.png") {
+              if ($names -notcontains "assets/$asset") { throw "AppX is missing branded tile asset assets/$asset." }
+            }
+            if ($names | Where-Object { $_ -like "*SampleAppx*" }) { throw "AppX contains Electron Builder sample tile assets." }
+          } finally {
+            $zip.Dispose()
+          }
+
+      - name: Upload AppX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openpets-windows-store-appx
+          path: apps/desktop/dist-electron/OpenPets-*-win-x64.appx
+          if-no-files-found: error

@@ -915,7 +915,19 @@ apps/desktop/build/appx/SplashScreen.png
 
 These assets are generated from `apps/desktop/assets/app-icon.png` plus OpenPets-branded tile art. Do not delete or rename them unless the AppX manifest/build config is updated at the same time.
 
-Build a Windows x64 AppX package:
+Build the Store AppX on GitHub Actions, which provides the Windows
+`makeappx.exe` toolchain without a local Windows VM. The
+`windows-store-appx.yml` workflow checks out the given release tag, builds with
+the Store identity values below, rejects a package missing the branded tile
+assets, and uploads the `openpets-windows-store-appx` artifact:
+
+```bash
+gh workflow run windows-store-appx.yml --repo alvinunreal/openpets --ref main -f ref=v<version>
+gh run download <run-id> --repo alvinunreal/openpets --name openpets-windows-store-appx --dir <download-dir>
+```
+
+The equivalent local build command, which on macOS needs a Windows VM for
+`makeappx.exe`:
 
 ```bash
 pnpm --filter @open-pets/desktop build
