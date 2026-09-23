@@ -1,0 +1,17 @@
+{
+  "plugins": [
+    "openpets.water-reminder"
+  ],
+  "steps": [
+    {
+      "cmd": [
+        "openpets.water-reminder",
+        "test-reminder"
+      ]
+    },
+    {
+      "shot": "water-reminder",
+      "settleMs": 2000
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "plugins": [
+    "openpets.magic-8-ball"
+  ],
+  "steps": [
+    {
+      "cmd": [
+        "openpets.magic-8-ball",
+        "ask-decision",
+        {
+          "question": "Should we ship the redesign on Friday?"
+        }
+      ]
+    },
+    {
+      "shot": "magic-8-ball-answer",
+      "settleMs": 2000
+    }
+  ]
+}

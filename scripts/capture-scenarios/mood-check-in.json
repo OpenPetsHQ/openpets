@@ -1,0 +1,17 @@
+{
+  "plugins": [
+    "openpets.mood-check-in"
+  ],
+  "steps": [
+    {
+      "cmd": [
+        "openpets.mood-check-in",
+        "check-in-now"
+      ]
+    },
+    {
+      "shot": "mood-check-in",
+      "settleMs": 2000
+    }
+  ]
+}

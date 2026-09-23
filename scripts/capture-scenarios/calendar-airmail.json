@@ -1,0 +1,8 @@
+{
+  "plugins": ["openpets.calendar-airmail"],
+  "steps": [
+    { "delivery": { "courier": "courier-owl", "title": "Design review in 10 minutes", "detail": "Room 4B · Harbor Studio" } },
+    { "wait": 3500 },
+    { "shot": "calendar-airmail-delivery", "window": "delivery", "settleMs": 200 }
+  ]
+}

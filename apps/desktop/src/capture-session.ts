@@ -18,6 +18,8 @@ import { getPluginPlatformSettings, profileSupportsRole, selectProviderProfile, 
 import { getTeamService, type TeamServiceSnapshot } from "./team-service.js";
 import { getControlCenterWindow, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
 import { refreshPetGazePreference } from "./pet-window-gaze.js";
+import { getActiveDeliveryWindows } from "./plugin-delivery.js";
+import type { PluginHostCapabilities } from "./plugin-sdk-bridge.js";
 import type { PluginService } from "./plugin-service.js";
 
 /**
@@ -51,6 +53,7 @@ type CaptureRequestHandler = (params: Record<string, unknown>) => Promise<unknow
 export interface CaptureSessionOptions {
   readonly sessionDir: string;
   readonly pluginService: PluginService;
+  readonly pluginCapabilities: PluginHostCapabilities;
   readonly pluginStartup: Promise<void>;
 }
 
@@ -81,7 +84,7 @@ export function prepareCaptureSessionBeforeReady(sessionDir: string): void {
 export function startCaptureSession(options: CaptureSessionOptions): void {
   const socketPath = join(options.sessionDir, socketFileName);
   const pluginStartupState = trackPluginStartup(options.pluginStartup);
-  const handlers = createHandlers(options.pluginService, pluginStartupState);
+  const handlers = createHandlers(options.pluginService, options.pluginCapabilities, pluginStartupState);
   // The pet otherwise turns toward wherever the mouse happens to be.
   updatePreferences({ idleCursorGazeEnabled: false });
   refreshPetGazePreference();
@@ -122,7 +125,7 @@ function trackPluginStartup(pluginStartup: Promise<void>): PluginStartupState {
   };
 }
 
-function createHandlers(pluginService: PluginService, pluginStartup: PluginStartupState): Map<string, CaptureRequestHandler> {
+function createHandlers(pluginService: PluginService, capabilities: PluginHostCapabilities, pluginStartup: PluginStartupState): Map<string, CaptureRequestHandler> {
   return new Map<string, CaptureRequestHandler>([
     ["status", async () => getStatus(pluginService, pluginStartup)],
     ["plugin.command", async (params) => runPluginCommand(pluginService, params)],
@@ -136,6 +139,11 @@ function createHandlers(pluginService: PluginService, pluginStartup: PluginStart
     ["teams.enroll", async (params) => enrollInTeam(params)],
     ["teams.approve", async () => approveTeamPlugins()],
     ["teams.sync", async () => syncTeam()],
+    ["delivery.show", async (params) => showDelivery(capabilities, params)],
+    ["delivery.clear", async (params) => {
+      capabilities.delivery.teardown(requireString(params, "pluginId"));
+      return { cleared: true };
+    }],
     ["pet.select", async (params) => selectPet(params)],
     ["ui.click", async (params) => clickInWindow(params)],
     ["ui.type", async (params) => typeInWindow(params)],
@@ -327,6 +335,26 @@ async function waitUntil(condition: () => boolean, description: string): Promise
   }
 }
 
+/**
+ * Sends an airmail delivery through the same host capability a plugin's
+ * ctx.ui.delivery uses (plugin and courier sprite validated), so shots show a
+ * real courier without an OAuth-connected calendar.
+ */
+async function showDelivery(capabilities: PluginHostCapabilities, params: Record<string, unknown>): Promise<unknown> {
+  const pluginId = requireString(params, "pluginId");
+  const courier = requireString(params, "courier");
+  const now = Date.now();
+  await capabilities.delivery.register(pluginId, {
+    key: `capture.${now}`,
+    courier: { kind: "sprite", name: courier },
+    title: requireString(params, "title"),
+    detail: requireString(params, "detail"),
+    expiresAt: now + 30 * 60_000,
+  });
+  await waitUntil(() => getActiveDeliveryWindows().some((window) => window.isVisible()), "the courier window");
+  return { pluginId, courier };
+}
+
 async function selectPet(params: Record<string, unknown>): Promise<unknown> {
   const petId = requireString(params, "petId");
   await setDefaultInstalledPet(petId);
@@ -369,7 +397,13 @@ async function scrollInWindow(params: Record<string, unknown>): Promise<unknown>
 
 function captureTargetWindow(params: Record<string, unknown>): BrowserWindow {
   const target = params.window === undefined ? "pet" : requireString(params, "window");
-  const window = target === "pet" ? getDefaultPetWindowForPlugins() : target === "control-center" ? getControlCenterWindow() : null;
+  const window = target === "pet"
+    ? getDefaultPetWindowForPlugins()
+    : target === "control-center"
+      ? getControlCenterWindow()
+      : target === "delivery"
+        ? getActiveDeliveryWindows()[0] ?? null
+        : null;
   if (!window) throw new Error(`The ${target} window is not open.`);
   return window;
 }
