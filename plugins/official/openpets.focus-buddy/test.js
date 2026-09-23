@@ -66,8 +66,11 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
     completedFocusCount: 0,
   });
   h.expectStored("session", (v) => v.mode === "focus" && v.endsAt - v.startedAt === 10 * 60_000);
-  assert.equal(h.calls.bubbles.length, 0, "assistant actions must not emit command speech or bubbles");
-  assert.equal(h.calls.speak.length, 0, "assistant actions must not emit command speech or bubbles");
+  assert.equal(h.calls.bubbles.length, 1, "assistant start shows the timer HUD so the user sees the timer is set");
+  assert.equal(h.calls.bubbles[0].spec.pin, true, "the only bubble is the pinned timer HUD");
+  assert.match(h.calls.bubbles[0].spec.text, /Focus · 10 min left/);
+  // The harness records bubble text as speech; the HUD must be the only thing "said".
+  assert.deepEqual(h.calls.speak, [h.calls.bubbles[0].spec.text], "the chat owns the reply; assistant start must not add speech");
   assert.equal(h.calls.schedules.size, 2, "assistant start should use the normal timer schedules");
   h.expectNoErrors();
 }
@@ -86,8 +89,9 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
     completedFocusCount: 1,
   });
   h.expectStored("session", (v) => v.mode === "break" && v.completedFocusCount === 1);
-  assert.equal(h.calls.bubbles.length, 0, "assistant skip-to-break must not emit a bubble");
-  assert.equal(h.calls.speak.length, 0, "assistant skip-to-break must not speak");
+  assert.equal(h.calls.bubbles.length, 1, "assistant skip-to-break keeps the single timer HUD");
+  assert.match(h.calls.bubbles[0].spec.text, /Break/);
+  assert.equal(h.calls.speak.length, 1, "assistant skip-to-break must not add speech beyond the HUD");
   h.expectNoErrors();
 }
 
@@ -166,7 +170,8 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
     paused: false,
     completedFocusCount: 0,
   });
-  assert.equal(h.calls.bubbles.length, 0, "assistant invalid states must not emit command bubbles");
+  assert.equal(h.calls.bubbles.length, 1, "only the valid start creates a bubble (the timer HUD); invalid states emit none");
+  assert.equal(h.calls.bubbles[0].dismissed, true, "assistant end dismisses the timer HUD");
   h.expectNoErrors();
 }
 

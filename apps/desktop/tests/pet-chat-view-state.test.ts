@@ -5,6 +5,7 @@ import {
   deriveTalkButtonPresentation,
   shouldAcceptConversationSnapshot,
   shouldAcceptTalkSnapshot,
+  shouldShowPromptSuggestions,
   transitionChatDraft,
 } from "../src/pet-chat-view-state.js";
 
@@ -51,3 +52,8 @@ assert.deepEqual(transitionChatDraft(draft, { type: "expanded-changed", expanded
 assert.equal(transitionChatDraft(draft, { type: "draft-changed", draft: "next" }).draft, "next");
 
 console.log("pet-chat-view-state tests passed.");
+
+// Suggestions start a conversation; once it has messages they must not crowd the transcript.
+assert.equal(shouldShowPromptSuggestions({ activity: "idle", items: [] }, 3), true);
+assert.equal(shouldShowPromptSuggestions({ activity: "idle", items: [{ kind: "message" }] }, 3), false);
+assert.equal(shouldShowPromptSuggestions({ activity: "thinking", items: [] }, 3), false);
