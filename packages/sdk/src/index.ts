@@ -328,13 +328,22 @@ export interface OpenPetsBreathPattern {
   phases: OpenPetsBreathPhase[];
   /** Cycles per session (1–99), or null/omitted for until-stopped. */
   cycles?: number | null;
+  /**
+   * Optional cue pair timed to this pattern (manifest-declared sounds). The
+   * inhale cue plays when an inhale starts, the exhale cue when an exhale
+   * starts; either may run through the hold that follows. Overrides the
+   * session-level `audio` pair while this pattern is selected.
+   */
+  cues?: { inhale: OpenPetsAssetRef; exhale: OpenPetsAssetRef };
 }
 
 /**
  * Named host icons available on session Info cards:
  * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
  * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
- * `sparkles`, `timer`, `square`, `moon`, `zap`.
+ * `sparkles`, `timer`, `square`, `moon`, `zap`, `anchor`, `eye`, `hand`,
+ * `ear`, `flower`, `coffee`. The same names serve practice choices and
+ * grounding steps.
  */
 export type OpenPetsSessionInfoIcon =
   | "activity"
@@ -351,7 +360,13 @@ export type OpenPetsSessionInfoIcon =
   | "timer"
   | "square"
   | "moon"
-  | "zap";
+  | "zap"
+  | "anchor"
+  | "eye"
+  | "hand"
+  | "ear"
+  | "flower"
+  | "coffee";
 
 /** A titled card inside an Info section (mechanism, research finding, tip). */
 export interface OpenPetsSessionInfoCard {
@@ -435,6 +450,58 @@ export interface OpenPetsPracticeChoice {
   id: string;
   /** Display name (1–40 chars). */
   name: string;
+  /** Named host icon shown in the overlay's practice picker. */
+  icon?: OpenPetsSessionInfoIcon;
+}
+
+/** One noticing prompt inside a grounding step. */
+export interface OpenPetsGroundingItem {
+  /** What to notice (1–80 chars). */
+  text: string;
+  /** Optional hint on how to notice it (1–120 chars). */
+  guidance?: string;
+}
+
+/** One sense of a grounding run (e.g. "5 things you can see"). */
+export interface OpenPetsGroundingStep {
+  /** Stable step id (`[A-Za-z0-9._:-]`, 1–48 chars). */
+  id: string;
+  /** Short track label (1–16 chars, e.g. "See"). */
+  label: string;
+  /** Header line (1–60 chars, e.g. "Look around you"). */
+  title: string;
+  /** Header guidance (1–80 chars, e.g. "Find 5 things you can see"). */
+  prompt: string;
+  /** Named host icon for the sense. */
+  icon?: OpenPetsSessionInfoIcon;
+  /** Items to notice (1–6); the count is the step's number. */
+  items: OpenPetsGroundingItem[];
+}
+
+/**
+ * Self-paced sensory grounding (e.g. 5-4-3-2-1). There is no phase clock:
+ * the user checks items and moves on with Next, so the overlay never pauses.
+ * `started`, `completed` (with `cycles` = items noticed), and `stopped`
+ * events carry `patternId: "grounding"`.
+ */
+export interface OpenPetsGroundingSessionOptions {
+  kind: "grounding";
+  /** Overlay title (e.g. "Grounding"). */
+  title: string;
+  /** Small line under the title (e.g. "Anxiety Aid Tools"). */
+  subtitle?: string;
+  /** Ordered senses (1–8 steps). */
+  steps: OpenPetsGroundingStep[];
+  /** Start at the first step immediately (default true). */
+  autoStart?: boolean;
+  /** Lead-in countdown in seconds (0–15, default 5); 0 is usual for grounding. */
+  countdownSeconds?: number;
+  /** Info sheet content for the current technique. */
+  info?: OpenPetsSessionInfo;
+  /** Practices offered by the practice picker (1–6 entries). */
+  practices?: OpenPetsPracticeChoice[];
+  /** Initially active practice id; must match one of practices if present. */
+  practiceId?: string;
 }
 
 export interface OpenPetsPmrStep {
@@ -480,7 +547,7 @@ export interface OpenPetsPmrSessionOptions {
   countdownSeconds?: number;
   /** Info sheet content for the current technique. */
   info?: OpenPetsSessionInfo;
-  /** Practices offered by the switch control (1–6 entries). */
+  /** Practices offered by the practice picker (1–6 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
@@ -507,13 +574,16 @@ export interface OpenPetsBreathingSessionOptions {
   info?: OpenPetsSessionInfo;
   /** Optional phase audio cues with an overlay mute toggle. */
   audio?: OpenPetsSessionAudio;
-  /** Practices offered by the switch control (1–6 entries). */
+  /** Practices offered by the practice picker (1–6 entries). */
   practices?: OpenPetsPracticeChoice[];
   /** Initially active practice id; must match one of practices if present. */
   practiceId?: string;
 }
 
-export type OpenPetsSessionOptions = OpenPetsBreathingSessionOptions | OpenPetsPmrSessionOptions;
+export type OpenPetsSessionOptions =
+  | OpenPetsBreathingSessionOptions
+  | OpenPetsPmrSessionOptions
+  | OpenPetsGroundingSessionOptions;
 
 /** Lifecycle and interaction events emitted by the session overlay. */
 export type OpenPetsSessionEvent =
@@ -532,7 +602,11 @@ export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin
 /** Live handle to the session overlay. */
 export interface OpenPetsSessionHandle {
   readonly id: string;
-  /** Replace the selected pattern, the pattern list, or the Info content. */
+  /**
+   * Replace the selected pattern, the pattern list, or the Info content.
+   * `patternId` and `patterns` apply to breathing sessions only; PMR and
+   * grounding sessions accept an Info-only update.
+   */
   update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
   /** Pause the running phase clock (no-op unless a run is active). */
   pause(): Promise<void>;

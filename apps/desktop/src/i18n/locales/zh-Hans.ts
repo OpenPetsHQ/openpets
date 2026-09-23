@@ -66,6 +66,12 @@ export const zhHans: Partial<Messages> = {
   "session.readStudy": "阅读研究",
   "session.openStudy": "PMC",
   "session.currentChoice": "当前",
+  "session.next": "下一步",
+  "session.back": "返回",
+  "session.finish": "完成",
+  "session.noticed": "已觉察",
+  "session.footerGrounding": "与{name}一起着陆当下",
+  "session.switchPractice": "切换练习",
 
   "pet.paused": "已暂停",
   "pet.status.thinking": "思考中",

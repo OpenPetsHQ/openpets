@@ -20,6 +20,14 @@ export interface SessionBreathPhase {
   readonly label?: string;
 }
 
+/** Pattern-specific inhale/exhale cue pair: raw manifest refs in, bridge-resolved paths out. */
+export interface SessionPatternCues {
+  readonly inhale?: SessionAssetRef;
+  readonly exhale?: SessionAssetRef;
+  readonly inhaleSoundPath?: string;
+  readonly exhaleSoundPath?: string;
+}
+
 export interface SessionBreathPattern {
   readonly id: string;
   readonly name: string;
@@ -27,9 +35,11 @@ export interface SessionBreathPattern {
   readonly phases: readonly SessionBreathPhase[];
   /** Cycles per run (1–99) or null for until-stopped. */
   readonly cycles: number | null;
+  /** Cues timed to this pattern; overrides the descriptor-level audio pair. */
+  readonly cues?: SessionPatternCues;
 }
 
-/** Named host icons a session Info card may show (rendered by the Info window). */
+/** Named host icons for Info cards, practice choices, and grounding steps. */
 export const sessionInfoIconNames = new Set([
   "activity",
   "wind",
@@ -46,6 +56,12 @@ export const sessionInfoIconNames = new Set([
   "square",
   "moon",
   "zap",
+  "anchor",
+  "eye",
+  "hand",
+  "ear",
+  "flower",
+  "coffee",
 ]);
 
 export interface SessionInfoCard {
@@ -102,6 +118,30 @@ export interface SessionAudio {
 export interface SessionPracticeChoice {
   readonly id: string;
   readonly name: string;
+  /** Named host icon shown in the practice picker. */
+  readonly icon?: string;
+  /** Renderer-only: inline SVG paths for `icon`, attached by the session coordinator. */
+  readonly iconPaths?: string;
+}
+
+export interface SessionGroundingItem {
+  readonly text: string;
+  readonly guidance?: string;
+}
+
+/** One sense of a grounding run: the user notices each item at their own pace. */
+export interface SessionGroundingStep {
+  readonly id: string;
+  /** Short track label (e.g. "See"). */
+  readonly label: string;
+  /** Header line (e.g. "Look around you"). */
+  readonly title: string;
+  /** Header guidance (e.g. "Find 5 things you can see"). */
+  readonly prompt: string;
+  readonly icon?: string;
+  /** Renderer-only: inline SVG paths for `icon`, attached by the session coordinator. */
+  readonly iconPaths?: string;
+  readonly items: readonly SessionGroundingItem[];
 }
 
 export interface SessionPmrStep {
@@ -157,7 +197,23 @@ export interface PluginPmrSessionDescriptor {
   readonly practiceId?: string;
 }
 
-export type PluginSessionDescriptor = PluginBreathingSessionDescriptor | PluginPmrSessionDescriptor;
+/** Self-paced sensory grounding (e.g. 5-4-3-2-1): no phase clock, the user advances. */
+export interface PluginGroundingSessionDescriptor {
+  readonly kind: "grounding";
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly steps: readonly SessionGroundingStep[];
+  readonly autoStart: boolean;
+  readonly countdownSeconds: number;
+  readonly info?: SessionInfo;
+  readonly practices?: readonly SessionPracticeChoice[];
+  readonly practiceId?: string;
+}
+
+export type PluginSessionDescriptor =
+  | PluginBreathingSessionDescriptor
+  | PluginPmrSessionDescriptor
+  | PluginGroundingSessionDescriptor;
 
 /** Patch accepted by `ui.sessionUpdate`. */
 export interface PluginSessionUpdate {
@@ -188,10 +244,15 @@ const maxPhases = 8;
 const maxSections = 8;
 const maxCitations = 8;
 const maxSteps = 24;
+const maxGroundingSteps = 8;
+const maxGroundingItems = 6;
 
 export function validateSessionDescriptor(value: unknown): PluginSessionDescriptor {
   check(isRecord(value), "Invalid session descriptor.");
-  check(value.kind === "breathing" || value.kind === "pmr", "Session kind must be \"breathing\" or \"pmr\".");
+  check(
+    value.kind === "breathing" || value.kind === "pmr" || value.kind === "grounding",
+    "Session kind must be \"breathing\", \"pmr\", or \"grounding\".",
+  );
 
   const title = validateLine(value.title, 1, 60, "session title");
   const subtitle = value.subtitle === undefined ? undefined : validateLine(value.subtitle, 1, 80, "session subtitle");
@@ -229,6 +290,21 @@ export function validateSessionDescriptor(value: unknown): PluginSessionDescript
     };
   }
 
+  if (value.kind === "grounding") {
+    checkKnownKeys(value, ["kind", "title", "subtitle", "steps", "autoStart", "countdownSeconds", "info", "practices", "practiceId"], "grounding session descriptor");
+    return {
+      kind: "grounding",
+      title,
+      ...(subtitle === undefined ? {} : { subtitle }),
+      steps: validateGroundingSteps(value.steps),
+      autoStart,
+      countdownSeconds,
+      ...(info === undefined ? {} : { info }),
+      ...(practices === undefined ? {} : { practices }),
+      ...(practiceId === undefined ? {} : { practiceId }),
+    };
+  }
+
   // PMR
   checkKnownKeys(value, ["kind", "title", "subtitle", "steps", "autoStart", "countdownSeconds", "info", "practices", "practiceId"], "pmr session descriptor");
   const steps = validatePmrSteps(value.steps);
@@ -252,12 +328,13 @@ function validatePractices(value: unknown): readonly SessionPracticeChoice[] {
   const seen = new Set<string>();
   const practices = value.map((entry) => {
     check(isRecord(entry), "Invalid session practice choice.");
-    checkKnownKeys(entry, ["id", "name"], "session practice choice");
+    checkKnownKeys(entry, ["id", "name", "icon"], "session practice choice");
     check(typeof entry.id === "string" && idPattern.test(entry.id), "Invalid session practice choice id.");
     check(!seen.has(entry.id), `Duplicate session practice choice id "${entry.id}".`);
     seen.add(entry.id);
     const name = validateLine(entry.name, 1, 40, "session practice choice name");
-    return { id: entry.id, name };
+    const icon = entry.icon === undefined ? undefined : validateIconName(entry.icon, "session practice choice icon");
+    return { id: entry.id, name, ...(icon === undefined ? {} : { icon }) };
   });
   return practices;
 }
@@ -265,6 +342,44 @@ function validatePractices(value: unknown): readonly SessionPracticeChoice[] {
 function validatePracticeId(value: unknown, practices: readonly SessionPracticeChoice[] | undefined): string {
   check(typeof value === "string" && idPattern.test(value), "Invalid session practice id.");
   check(practices !== undefined && practices.some((p) => p.id === value), "Selected session practice id is not in the practices list.");
+  return value;
+}
+
+function validateGroundingSteps(value: unknown): readonly SessionGroundingStep[] {
+  check(Array.isArray(value), "Session steps must be an array.");
+  check(value.length >= 1 && value.length <= maxGroundingSteps, `Grounding steps must contain 1–${maxGroundingSteps} entries.`);
+  const seen = new Set<string>();
+  return value.map((entry): SessionGroundingStep => {
+    check(isRecord(entry), "Invalid grounding step.");
+    checkKnownKeys(entry, ["id", "label", "title", "prompt", "icon", "items"], "grounding step");
+    check(typeof entry.id === "string" && idPattern.test(entry.id), "Invalid grounding step id.");
+    check(!seen.has(entry.id), `Duplicate grounding step id "${entry.id}".`);
+    seen.add(entry.id);
+    check(Array.isArray(entry.items), "Grounding step items must be an array.");
+    check(entry.items.length >= 1 && entry.items.length <= maxGroundingItems, `Grounding step items must contain 1–${maxGroundingItems} entries.`);
+    const items = entry.items.map((item): SessionGroundingItem => {
+      check(isRecord(item), "Invalid grounding item.");
+      checkKnownKeys(item, ["text", "guidance"], "grounding item");
+      const guidance = item.guidance === undefined ? undefined : validateLine(item.guidance, 1, 120, "grounding item guidance");
+      return {
+        text: validateLine(item.text, 1, 80, "grounding item text"),
+        ...(guidance === undefined ? {} : { guidance }),
+      };
+    });
+    const icon = entry.icon === undefined ? undefined : validateIconName(entry.icon, "grounding step icon");
+    return {
+      id: entry.id,
+      label: validateLine(entry.label, 1, 16, "grounding step label"),
+      title: validateLine(entry.title, 1, 60, "grounding step title"),
+      prompt: validateLine(entry.prompt, 1, 80, "grounding step prompt"),
+      ...(icon === undefined ? {} : { icon }),
+      items,
+    };
+  });
+}
+
+function validateIconName(value: unknown, label: string): string {
+  check(typeof value === "string" && sessionInfoIconNames.has(value), `Unknown ${label}.`);
   return value;
 }
 
@@ -419,7 +534,7 @@ function validatePatterns(value: unknown): readonly SessionBreathPattern[] {
 
 function validatePattern(value: unknown): SessionBreathPattern {
   check(isRecord(value), "Invalid session pattern.");
-  checkKnownKeys(value, ["id", "name", "hint", "phases", "cycles"], "session pattern");
+  checkKnownKeys(value, ["id", "name", "hint", "phases", "cycles", "cues"], "session pattern");
   check(typeof value.id === "string" && idPattern.test(value.id), "Invalid session pattern id.");
   const name = validateLine(value.name, 1, 40, "session pattern name");
   const hint = value.hint === undefined ? undefined : validateLine(value.hint, 1, 60, "session pattern hint");
@@ -436,12 +551,23 @@ function validatePattern(value: unknown): SessionBreathPattern {
     cycles = count;
   }
 
+  let cues: SessionPatternCues | undefined;
+  if (value.cues !== undefined) {
+    check(isRecord(value.cues), "Invalid session pattern cues.");
+    checkKnownKeys(value.cues, ["inhale", "exhale"], "session pattern cues");
+    cues = {
+      inhale: validateAssetRefShape(value.cues.inhale, "session pattern cues inhale"),
+      exhale: validateAssetRefShape(value.cues.exhale, "session pattern cues exhale"),
+    };
+  }
+
   return {
     id: value.id,
     name,
     ...(hint === undefined ? {} : { hint }),
     phases,
     cycles,
+    ...(cues === undefined ? {} : { cues }),
   };
 }
 
@@ -525,11 +651,7 @@ function validateInfoSection(value: unknown): SessionInfoSection {
       check(isRecord(card), "Invalid session info card.");
       checkKnownKeys(card, ["title", "body", "url", "icon", "detail", "highlighted"], "session info card");
       const url = card.url === undefined ? undefined : validateHttpsUrl(card.url, "session info card url");
-      let icon: string | undefined;
-      if (card.icon !== undefined) {
-        check(typeof card.icon === "string" && sessionInfoIconNames.has(card.icon), "Unknown session info card icon.");
-        icon = card.icon;
-      }
+      const icon = card.icon === undefined ? undefined : validateIconName(card.icon, "session info card icon");
       const detail = card.detail === undefined ? undefined : validateLine(card.detail, 1, 160, "session info card detail");
       if (card.highlighted !== undefined) {
         check(typeof card.highlighted === "boolean", "Invalid session info card highlighted flag.");

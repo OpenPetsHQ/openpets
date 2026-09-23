@@ -1,12 +1,19 @@
 OpenPets × Anxiety Aid Tools — working design
 =============================================
 
-Status: Calm 4-6 breathing is tuned. PMR and guided breathing
-(box, 4-7-8, energizing, quick reset) run on the same pet session
-surface (no new window). Next: grounding, then peaceful
-visualization, guided meditation, relaxing sounds (see log).
-Custom patterns still later. Do not write docs/*.md until Alvin
-signs off what is running.
+Status (2026-09-22): four practices run on the pet session surface —
+simple breathing (Calm 4-6), guided breathing (box, 4-7-8,
+energizing, quick reset, each with its own AAT audio), progressive
+muscle relaxation, and grounding 5-4-3-2-1. The HUD card sits on top
+of the pet; the carrier fits the measured card + orb. Waiting on an
+in-app check of the pet-window zoom fix (card→orb gap). Next:
+peaceful visualization, guided meditation, relaxing sounds. Custom
+patterns still later. Do not write docs/*.md until Alvin signs off
+what is running.
+
+PRs: #206 (renderer split + guided breathing) → #207 (grounding,
+practice picker, card-on-top, measured sizing, zoom pin, pattern
+audio; stacked on #206, retarget to main after #206 merges).
 
 Source of practice knowledge: ../anxiety-aid-tools-private/ (AAT).
 Public product: https://anxietyaidtools.com/
@@ -82,8 +89,9 @@ Do not duplicate existing OpenPets plugins:
 - mood-check-in, water-reminder, day-routine, focus-buddy stay theirs
 - fidget / stress-ball / bubbles / path-tracing stay on the website
   (pointer toys, not this surface)
-- relaxing sounds + guided-meditation MP3s stay on the website
-  (assets, licensing, not a pet plugin)
+- relaxing sounds + guided meditation: REVERSED 2026-09-22 — they
+  come into the plugin later (images ship in the plugin, audio streams
+  from r2.anxietyaidtools.com); rights + Pro questions still open (§10)
 
 
 3. The experience bar (deep, not cheap)
@@ -125,10 +133,11 @@ Start in one click
   there, but a stressed person does not hunt.
 
 The pet
-  Right-click: Open Anxiety Aid Tools / Start breathing / Pause /
-  Resume / Stop. Pet may speak short phase cues. Pet is not a
-  replacement for the visual. Closing the window pauses or stops
-  honestly; it does not leave a ghost session.
+  Right-click lists the practices themselves: Breathing / Guided
+  breathing / Muscle relaxation / Grounding. While a run is live the
+  menu adds Pause / Resume / Stop (grounding: Stop only, it has no
+  clock). The pet is not a replacement for the visual. Closing the
+  overlay stops honestly; it does not leave a ghost session.
 
 
 4. Surface: the session happens around the pet (no dedicated window)
@@ -137,9 +146,10 @@ The pet
 REVERSED 2026-09-21: no panel window. The practice renders around the
 pet itself, the way the Pet Assistant chat does — the default pet
 window is a carrier that expands in place (anchor-preserving) into an
-"expanded-session" state, and the host draws the orb, phase ring, top
-bar HUD, session card, and Info sheet around the real pet. The pet
-floats up into the orb (mock: lfs/breathing.png).
+"expanded-session" state. Current layout (2026-09-22): one HUD card at
+the top, the night-sky orb wrapping the pet near its resting spot
+below it (the pet rises ~50px), and a separate Info window. The
+carrier height is the overlay's own measurement of card + orb.
 
 Mechanism (built):
 
@@ -149,14 +159,23 @@ Mechanism (built):
   Info content (sections, citations, disclaimer, site link — https
   only). Descriptor-only, like bubbles: no plugin markup ever enters
   the pet window.
+- Descriptor kinds: "breathing" (patterns, optional per-pattern cues),
+  "pmr" (tense/release steps with pose SVGs and cue lists), and
+  "grounding" (self-paced senses with items). Practices list with
+  icons drives the header practice picker.
 - The host owns rendering and the 60fps phase clock (WebGL orb in the
   pet preload). The plugin receives lifecycle events: started, paused,
-  resumed, patternChanged, completed, stopped(reason), infoOpened.
-  One session overlay at a time; opening another replaces it.
+  resumed, patternChanged, completed, stopped(reason), infoOpened,
+  audioToggled, practiceSelected. One session overlay at a time;
+  opening another replaces it.
 - Coordinator: apps/desktop/src/pet-session-overlay.ts. Descriptor
-  validation: apps/desktop/src/plugin-session-descriptor.ts. Carrier
-  state + geometry: default-pet-chat.ts / default-pet-chat-geometry.ts
-  (orb radius and window size derive from petScale).
+  validation: apps/desktop/src/plugin-session-descriptor.ts. Renderer:
+  apps/desktop/pet-session/ (session-overlay-view.cjs shell +
+  breathing/pmr/grounding practice views + orb-renderer.cjs). Icons:
+  src/session-icons.ts. Carrier state + geometry: default-pet-chat.ts /
+  default-pet-chat-geometry.ts (estimates size the first frame; the
+  renderer then reports the exact height). The pet window is pinned
+  to 1x zoom.
 - Info links (citations, anxietyaidtools.com) open via shell from the
   host, allowlisted to URLs in the validated descriptor — real links,
   no dead buttons.
@@ -171,21 +190,20 @@ the pet menu are still open (see log).
 5. Breathing (the first thing we build)
 ---------------------------------------
 
-English copy, translated in the seven host locales. Breathing
-stays the tuned baseline. PMR is the second practice in this
-plugin, on the same overlay. Do not start guided patterns or
-custom patterns until Alvin signs off what is running.
+English copy, translated in the seven host locales. Simple
+breathing (Calm 4-6) is the tuned baseline; guided breathing is its
+own practice with a pattern picker. Custom patterns are not started.
 
-Patterns:
+Patterns (as built):
 
-| id             | name        | phases                  | best for             |
-|----------------|-------------|-------------------------|----------------------|
-| calm           | Calm 4-6    | in 4, out 6             | default, longer out  |
-| box            | Box         | 4-4-4-4                 | focus, pressure      |
-| fourSevenEight | 4-7-8       | in 4, hold 7, out 8     | wind-down            |
-| energizing     | Energizing  | in 4, hold 4, out 6     | midday reset         |
-| quickReset     | Quick Reset | 3-3-3                   | about a minute       |
-| custom:*       | user-named  | inhale/hold/exhale/hold | stored, not JSON     |
+| practice | id         | name        | phases              | rounds | audio            |
+|----------|------------|-------------|---------------------|--------|------------------|
+| simple   | calm       | Calm 4-6    | in 4, out 6         | 10     | breath-in/out    |
+| guided   | box        | Box         | 4-4-4-4             | 8      | AAT 4-4-4-4 pair |
+| guided   | calming    | Calming     | in 4, hold 7, out 8 | 4      | AAT 4-7-8 pair   |
+| guided   | energizing | Energizing  | in 4, hold 4, out 6 | 8      | AAT 4-4-6 pair   |
+| guided   | quick      | Quick reset | 3-3-3               | 6      | AAT 3-3-3 pair   |
+| later    | custom:*   | user-named  | in/hold/out/hold    | —      | —                |
 
 Custom: 1–20s per phase, 0s hold allowed, capped count, unique names,
 edited in the panel (form, not a textarea of JSON).
@@ -194,9 +212,9 @@ Session states: idle → active → paused → complete.
 No pre-session lecture. First run can show a one-line disclaimer in
 Info and a small first-run note, then get out of the way.
 
-Host owns the clock (`ctx.schedule`) so sleep/restart reconcile.
-Panel receives phase ticks over postMessage and renders visual + steps.
-Pause / Resume / Stop work from both the panel and the pet menu.
+The host overlay owns the clock (not ctx.schedule); sleep/restart
+reconciliation is still open. Pause / Resume / Stop work from both
+the card and the pet menu.
 
 Info for breathing ships the AAT knowledge, rewritten for this UI,
 pattern-aware where it matters, with real PMC/journal citations.
@@ -214,33 +232,23 @@ Description: mention practices + official site URL.
 Lane: plugins/official/, catalog-listed, not bundled, not enabled
 by default.
 
-Commands (v1 breathing):
-- Open Anxiety Aid Tools
-- Start breathing
-- Pause / Resume / Stop   (only while a session exists)
-Later techniques add Start PMR etc. or a picker inside the panel.
-Do not explode the pet menu with every pattern. Patterns live in
-the panel; last-used is what Start breathing runs.
+Commands (as built): one per practice, titled with the practice name
+— start-breathing, start-guided-breathing, start-pmr,
+start-grounding. Dynamic menu items Pause / Resume / Stop while a run
+exists. Patterns never go in the pet menu; they live on the card.
 
-Config (keep small): audio cues, maybe default cycles. Custom
-patterns and last-used are storage.
+Storage (as built): audioCues (mute toggle), lastGuidedPattern.
+Later maybe: customPatterns, stats.
 
-Storage: live session, customPatterns, lastTechnique/lastPattern,
-stats, disclaimerAcceptedAt.
-
-Permissions (expected v1): ui:panel, pet:speak, pet:interact,
-schedule, storage, commands, status, audio. pet:pin only if a
-compact HUD while the window is open is actually useful — not
-required to start.
+Permissions (as built): ui:session, commands, storage.
 
 Assistant later, not in the breathing tuning loop: start/pause/stop,
 list patterns, explain technique.
 
-Later techniques in the same plugin, after breathing is signed off:
-- PMR (AAT muscle groups, tense/release, step track)
-- Grounding 5-4-3-2-1
-- Thought labeling / visualization only if they still fit a session
-  window and do not become a journal
+Practices: built — simple breathing, guided breathing, PMR,
+grounding 5-4-3-2-1. Next, in order — peaceful visualization, guided
+meditation, relaxing sounds. Staying on the website — thought
+labeling, fidget toys, self-tests, worksheets.
 
 License: AAT site is GPL, OpenPets is MIT. Rewrite copy and visuals
 for this plugin. Do not copy AAT Vue/i18n/source into this repo.
@@ -289,8 +297,9 @@ Docs are downstream of a breathing UI Alvin has pushed on.
 4. After breathing is signed off: write the durable docs
    (official-plugins row, plugin contract, codemap). Document what
    we actually built, not the guess in this file.
-5. Then PMR in the same plugin, reusing the session chrome.
-6. Then grounding, etc.
+5. Then PMR in the same plugin, reusing the session chrome.  [done]
+6. Then grounding, etc.  [grounding + guided breathing done; next:
+   peaceful visualization → guided meditation → relaxing sounds]
 
 No "visual later". No Info-as-TODO. Breathing without those is not
 a first slice.
@@ -300,6 +309,70 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-22 — guided breathing uses AAT's per-pattern audio (Alvin).
+  AAT plays a cue pair recorded for each pattern (4-4-4-4, 4-7-8,
+  4-4-6, 3-3-3; the "in" file runs through the hold after the
+  inhale, the "out" file through the exhale and its hold). Copied to
+  assets/guided/*.mp3 (~1.9MB, each <1MB cap). SDK: breath patterns
+  take optional `cues {inhale, exhale}`; the bridge resolves them on
+  open and update, the coordinator ships them per pattern, and the
+  overlay plays the selected pattern's pair (default pair otherwise).
+  PMR cue lists: numbers now sit centred on the first text line.
+
+2026-09-22 — pet window zoom pinned to 1x; sizing diagnostics.
+  Still a big card→orb gap in-app. Log: overlay reported 880 for
+  grounding while the drawn card was ~0.75 of its measured size — the
+  pet page was rendering zoomed (~0.75). Chromium keeps zoom per host
+  and all file:// pages share one, so a zoom set elsewhere leaks into
+  the pet window, which never pinned its own (Control Center does).
+  Pet window now pins zoomFactor 1 on create/load/zoom-changed and
+  locks pinch zoom; "pet window zoom reset" logs when it corrects.
+  Height reports now log the measurement inputs (card, sprite,
+  viewport, DPR, orb radius, lift) under pet.session.
+
+2026-09-22 — carrier fits measured content; practice-only pet menu (Alvin).
+  In-app the top-card layout showed a big empty band: the carrier was
+  sized from per-practice card estimates (PMR 537 vs ~405 real) and
+  an orb larger than the pet got. Now the overlay measures its real
+  card + orb and reports the height it needs
+  (openpets:session-overlay-content-height); the carrier fits it with
+  the pet anchored. Estimates only size the first frame. PMR cue
+  boxes fit their content (fixed 124px removed). Pet menu lists just
+  the four practices (Breathing / Guided breathing / Muscle
+  relaxation / Grounding); "Open Anxiety Aid Tools" and the
+  lastPractice memory it relied on are gone.
+
+2026-09-22 — HUD card on top of the pet, all practices (Alvin).
+  The session card now sits at the top of the carrier and the orb
+  wraps the pet near its resting spot below it (was: orb stacked
+  above a bottom card, pet lifted by the whole card height). The pet
+  now rises only ~50px so the orb's rim fits; the orb no longer jumps
+  when the card changes height. Practice picker drops down under the
+  header. Geometry constants renamed to the new order
+  (sessionCardTopInset, sessionOrbBottomGap); window height formula
+  unchanged in total.
+
+2026-09-22 — grounding 5-4-3-2-1 + practice picker (Alvin: "go").
+  New descriptor kind "grounding" (SDK + validator + conformance):
+  senses as steps (label/title/prompt/icon), 1–6 items each with
+  optional guidance. Self-paced: no clock, no pause; Next (Finish on
+  the last sense) and Back replace Pause/Restart; checking items is
+  optional so Next never gates. Card: sense checklist, per-item dots,
+  elapsed · sense icon · "noticed" tiles, 5-4-3-2-1 track in sense
+  colors; orb brightens with each sense; finished card shows a
+  per-sense summary. Pet menu offers Stop only. Card estimate 534.
+  Practice picker: the header (icon + title + chevron) opens a menu
+  of all practices with icons on the idle/finished card; replaces the
+  cycle-to-next button. Practice choices take an allowlisted icon.
+  Icons moved to src/session-icons.ts (Info window + overlay share
+  it); new icons anchor/eye/hand/ear/flower/coffee; a desktop test
+  guards that every allowlisted name draws.
+  Grounding Info is honest: grounding is a standard CBT/DBT/trauma
+  skill, 5-4-3-2-1 alone has thin direct evidence; the three studies
+  (Li 2025 Sci Rep, Palmer 2023 MDCP, Myers 2021 E&B Reports) are
+  described as what they are. AAT's "meta-analysis, 82%" line was
+  wrong and is not repeated. Localized x7 (plugin + host chrome).
 
 2026-09-22 — session renderer split + guided breathing (Alvin asked).
   The ~1,660-line inline ui:session block in pet-preload.cjs is now
@@ -536,13 +609,17 @@ Newest first.
 10. Still open
 --------------
 
-Q1. Plugin id `openpets.anxiety-aid-tools` — yes unless you want a
-    different id.
+Settled: plugin id openpets.anxiety-aid-tools; official AAT
+companion with the site URL in the card; closing the overlay stops
+the run (dismiss → stopped event); breathing was built.
 
-Q2. Catalog publisher: official OpenPets plugin that is the AAT
-    companion, with site URL in the card. Confirm.
-
-Q3. Closing the session window: pause vs stop. Recommend pause if a
-    session is active, with the pet menu still able to Resume/Stop.
-
-Q4. Ready to build breathing, or more direction first?
+Q1. In-app confirmation that the 1x zoom pin removes the card→orb
+    gap (openpets.log: "pet window zoom reset" / content height lines).
+Q2. Rights to ship/stream AAT sound layers + meditation narration in
+    an MIT plugin; is meditation AAT Pro content?
+Q3. Streaming source for sounds/meditation: AAT R2 directly (needs a
+    CORS rule for Web Audio mixing) or an OpenPets mirror.
+Q4. Sleep/restart reconciliation for a live run.
+Q5. Custom breathing patterns (form editor) — when.
+Q6. docs/*.md (official-plugins row, SDK ui.session contract) after
+    sign-off.

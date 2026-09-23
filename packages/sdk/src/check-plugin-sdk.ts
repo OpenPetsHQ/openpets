@@ -12,6 +12,7 @@ import type {
   OpenPetsContext,
   OpenPetsPickedFile,
   OpenPetsPluginDefinition,
+  OpenPetsSessionEvent,
   OpenPetsStatus,
 } from "./index.js";
 import { createMockContext, createTestHarness } from "./testing.js";
@@ -175,5 +176,33 @@ assert.deepEqual(await assistantHarness.runCapability("sample.echo", { value: 1 
 assert.ok(assistantHarness.calls.assistantCapabilities.has("sample.echo"), "capability registrations are recorded");
 await assistantHarness.stop();
 assert.equal(assistantHarness.calls.assistantCapabilities.size, 0, "harness cleanup removes capability registrations");
+
+// Mock sessions report the same event pattern ids as the host, and reject
+// pattern updates on kinds that have no patterns.
+const sessionMock = createMockContext({ locales: { en: {} } });
+const groundingSession = await sessionMock.ctx.ui.session({
+  kind: "grounding",
+  title: "Grounding",
+  steps: [{ id: "see", label: "5", title: "See", prompt: "Look around.", icon: "eye", items: [{ text: "One thing" }] }],
+  practices: [{ id: "grounding", name: "Grounding" }],
+  practiceId: "grounding",
+});
+const groundingEvents: OpenPetsSessionEvent[] = [];
+groundingSession.onEvent((event) => groundingEvents.push(event));
+assert.deepEqual(groundingEvents, [{ type: "started", patternId: "grounding" }], "grounding events carry the kind as patternId");
+const patternUpdateRejected = await groundingSession.update({ patternId: "see" }).then(() => false, () => true);
+assert.ok(patternUpdateRejected, "grounding sessions reject pattern updates");
+await groundingSession.update({ info: { sections: [{ heading: "About", body: "Notice your senses." }] } });
+
+const breathingSession = await sessionMock.ctx.ui.session({
+  kind: "breathing",
+  title: "Breathing",
+  patterns: [{ id: "box", name: "Box", phases: [{ kind: "in", seconds: 4 }, { kind: "out", seconds: 4 }] }],
+  practices: [{ id: "breathing", name: "Breathing" }],
+  practiceId: "breathing",
+});
+const breathingEvents: OpenPetsSessionEvent[] = [];
+breathingSession.onEvent((event) => breathingEvents.push(event));
+assert.deepEqual(breathingEvents, [{ type: "started", patternId: "box" }], "breathing events carry the pattern id, not the practice id");
 
 console.log("Plugin SDK contract tests passed.");

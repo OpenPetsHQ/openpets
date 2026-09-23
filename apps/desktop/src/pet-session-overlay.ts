@@ -10,16 +10,19 @@ import {
   closeDefaultPetSession,
   isDefaultPetSessionOpen,
   openDefaultPetSession,
+  setDefaultPetSessionMeasuredHeight,
   subscribeDefaultPetPanelState,
 } from "./default-pet-chat.js";
 import {
   sessionBreathingCardEstimatedHeight,
+  sessionGroundingCardEstimatedHeight,
   sessionGuidedBreathingCardEstimatedHeight,
   sessionPmrCardEstimatedHeight,
 } from "./default-pet-chat-geometry.js";
 import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
 import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
+import { sessionIconPaths } from "./session-icons.js";
 import type {
   PluginSessionDescriptor,
   PluginSessionEvent,
@@ -70,6 +73,12 @@ export function buildSessionChrome(): Record<string, string> {
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
     currentChoice: t("session.currentChoice"),
+    next: t("session.next"),
+    back: t("session.back"),
+    finish: t("session.finish"),
+    noticed: t("session.noticed"),
+    footerGrounding: t("session.footerGrounding"),
+    switchPractice: t("session.switchPractice"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),
@@ -119,6 +128,9 @@ let handlersInstalled = false;
 let unsubscribePanelState: (() => void) | null = null;
 
 const sessionOverlayChannel = "openpets:session-overlay";
+/** Bounds on a renderer-reported carrier height (card + orb); the work area clamps further. */
+const minSessionContentHeight = 240;
+const maxSessionContentHeight = 1400;
 
 export function openPluginSessionOverlay(options: {
   readonly pluginId: string;
@@ -156,7 +168,7 @@ export function openPluginSessionOverlay(options: {
     finishActiveSession("replaced");
   }
 
-  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : "pmr";
+  const initialPatternId = options.descriptor.kind === "breathing" ? options.descriptor.patternId : options.descriptor.kind;
   const session: ActiveSessionOverlay = {
     pluginId: options.pluginId,
     descriptor: options.descriptor,
@@ -197,7 +209,16 @@ export function openPluginSessionOverlay(options: {
     async update(patch: PluginSessionUpdate): Promise<void> {
       if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
       if (session.descriptor.kind !== "breathing") {
-        throw new Error("Session update is only supported for breathing sessions.");
+        // PMR and grounding have no patterns; only their Info can change.
+        if (patch.patterns !== undefined || patch.patternId !== undefined) {
+          throw new Error("Session patterns can only be updated on breathing sessions.");
+        }
+        if (patch.info !== undefined) {
+          session.descriptor = { ...session.descriptor, info: patch.info };
+          sendDescriptorToRenderer();
+          refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
+        }
+        return;
       }
       const currentBreathing = session.descriptor;
       const patterns = patch.patterns ?? currentBreathing.patterns;
@@ -239,9 +260,10 @@ export function openPluginSessionOverlay(options: {
   };
 }
 
-/** Carrier height hint: the card grows with PMR's pose well and guided breathing's pattern chips. */
+/** Carrier height hint: the card grows with PMR's pose well, grounding's checklist, and guided breathing's chips. */
 function estimatedCardHeight(descriptor: PluginSessionDescriptor): number {
   if (descriptor.kind === "pmr") return sessionPmrCardEstimatedHeight;
+  if (descriptor.kind === "grounding") return sessionGroundingCardEstimatedHeight;
   if (descriptor.patterns.length > 1) return sessionGuidedBreathingCardEstimatedHeight;
   return sessionBreathingCardEstimatedHeight;
 }
@@ -292,11 +314,16 @@ function emitToPlugin(session: ActiveSessionOverlay, event: PluginSessionEvent):
   }
 }
 
-interface SessionAudioPayload {
-  readonly enabled: boolean;
-  readonly allowed: boolean;
+interface SessionCuePairPayload {
   readonly inhaleDataUrl?: string;
   readonly exhaleDataUrl?: string;
+}
+
+interface SessionAudioPayload extends SessionCuePairPayload {
+  readonly enabled: boolean;
+  readonly allowed: boolean;
+  /** Cue pairs timed to specific patterns, keyed by pattern id. */
+  readonly patterns?: Readonly<Record<string, SessionCuePairPayload>>;
 }
 
 const soundDataUrlCache = new Map<string, string | null>();
@@ -327,19 +354,48 @@ function currentAudioPayload(session: ActiveSessionOverlay): SessionAudioPayload
   const audio = session.descriptor.audio;
   if (!audio) return null;
   const settings = getPluginPlatformSettings();
+  const patterns: Record<string, SessionCuePairPayload> = {};
+  for (const pattern of session.descriptor.patterns) {
+    if (!pattern.cues?.inhaleSoundPath && !pattern.cues?.exhaleSoundPath) continue;
+    patterns[pattern.id] = {
+      inhaleDataUrl: soundDataUrl(pattern.cues.inhaleSoundPath),
+      exhaleDataUrl: soundDataUrl(pattern.cues.exhaleSoundPath),
+    };
+  }
   return {
     enabled: session.audioEnabled,
     allowed: settings.allowPluginAudio && !isInQuietHours(),
     inhaleDataUrl: soundDataUrl(audio.inhaleSoundPath),
     exhaleDataUrl: soundDataUrl(audio.exhaleSoundPath),
+    ...(Object.keys(patterns).length > 0 ? { patterns } : {}),
   };
 }
 
+/**
+ * Renderer copy of the descriptor: named icons become inline SVG paths (the
+ * pet window never sees icon names it would have to map itself) and PMR pose
+ * paths become file URLs.
+ */
 function buildRendererDescriptor(descriptor: PluginSessionDescriptor): PluginSessionDescriptor {
-  if (descriptor.kind !== "pmr") return descriptor;
+  const practices = descriptor.practices?.map((choice) => {
+    const iconPaths = sessionIconPaths(choice.icon);
+    return iconPaths ? { ...choice, iconPaths } : choice;
+  });
+  const withPractices = practices ? { ...descriptor, practices } : descriptor;
+
+  if (withPractices.kind === "grounding") {
+    return {
+      ...withPractices,
+      steps: withPractices.steps.map((step) => {
+        const iconPaths = sessionIconPaths(step.icon);
+        return iconPaths ? { ...step, iconPaths } : step;
+      }),
+    };
+  }
+  if (withPractices.kind !== "pmr") return withPractices;
   return {
-    ...descriptor,
-    steps: descriptor.steps.map((step) => {
+    ...withPractices,
+    steps: withPractices.steps.map((step) => {
       const tenseImageUrl = step.tenseIllustrationPath
         ? pathToFileURL(step.tenseIllustrationPath).href
         : undefined;
@@ -416,6 +472,33 @@ export function installSessionOverlayIpcHandlers(): void {
     emitToPlugin(session, parsed.event);
   });
 
+  // The overlay measures its real card + orb and reports the carrier height it
+  // needs; estimates only size the first frame.
+  ipcMain.on("openpets:session-overlay-content-height", (event: IpcMainEvent, payload: unknown) => {
+    if (!isAuthorizedSessionSender(event.sender.id)) return;
+    const session = activeSession;
+    if (!session || session.closed) return;
+    if (typeof payload !== "object" || payload === null) return;
+    const report = payload as Record<string, unknown>;
+    const height = Number(report.height);
+    if (!Number.isFinite(height)) return;
+    const clamped = Math.max(minSessionContentHeight, Math.min(maxSessionContentHeight, Math.round(height)));
+    // The measurement inputs make carrier-size mismatches diagnosable from openpets.log.
+    const numberField = (key: string) => (typeof report[key] === "number" ? Math.round(report[key] as number * 100) / 100 : null);
+    debug("pet.session", "session overlay content height", {
+      pluginId: session.pluginId,
+      height: clamped,
+      cardHeight: numberField("cardHeight"),
+      spriteHeight: numberField("spriteHeight"),
+      spriteClass: typeof report.spriteClass === "string" ? report.spriteClass.slice(0, 40) : null,
+      viewport: `${numberField("viewportWidth")}x${numberField("viewportHeight")}`,
+      devicePixelRatio: numberField("devicePixelRatio"),
+      orbRadius: numberField("orbRadius"),
+      petLift: numberField("petLift"),
+    });
+    setDefaultPetSessionMeasuredHeight(clamped);
+  });
+
   ipcMain.on("openpets:session-overlay-open-url", (event: IpcMainEvent, rawUrl: unknown) => {
     if (!isAuthorizedSessionSender(event.sender.id)) return;
     const session = activeSession;
@@ -485,7 +568,7 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
 }
 
 function resolvePatternId(value: unknown, session: ActiveSessionOverlay): string {
-  if (session.descriptor.kind === "pmr") return "pmr";
+  if (session.descriptor.kind !== "breathing") return session.descriptor.kind;
   if (typeof value === "string" && session.descriptor.patterns.some((pattern) => pattern.id === value)) return value;
   return session.lastPatternId;
 }

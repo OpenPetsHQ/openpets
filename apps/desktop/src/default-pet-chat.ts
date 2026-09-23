@@ -21,6 +21,7 @@ import {
   defaultPetChatPanelLayout,
   expandedPetWindowSize,
   sessionBreathingCardEstimatedHeight,
+  sessionPetWindowWidth,
   toCollapsedPosition,
 } from "./default-pet-chat-geometry.js";
 import { getAppStateSnapshot } from "./app-state.js";
@@ -34,6 +35,12 @@ export type DefaultPetPanelState = (typeof defaultPetPanelStates)[number];
 let carrierState: DefaultPetPanelState = "collapsed";
 let activeChatPanelHeight: number | undefined;
 let sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;
+/**
+ * Exact carrier height the session overlay measured for its card + orb. The
+ * card estimate only sizes the first frame; once the renderer reports, the
+ * carrier fits the real content so no empty band opens between card and orb.
+ */
+let sessionMeasuredHeight: number | null = null;
 let handlersInstalled = false;
 let conversationUnsubscribe: (() => void) | null = null;
 let voiceUnsubscribe: (() => void) | null = null;
@@ -135,11 +142,21 @@ export function isDefaultPetSessionOpen(): boolean {
 export function openDefaultPetSession(cardEstimatedHeight = sessionBreathingCardEstimatedHeight): void {
   if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
   sessionCardEstimatedHeight = cardEstimatedHeight;
+  sessionMeasuredHeight = null;
   if (carrierState === "expanded-session") {
     resizeExpandedSessionWindow(defaultPetWindowRef);
     return;
   }
   setCarrierMode(defaultPetWindowRef, "expanded-session");
+}
+
+/** Fit the open session carrier to the height the overlay measured (pet stays anchored). */
+export function setDefaultPetSessionMeasuredHeight(height: number): void {
+  if (!defaultPetWindowRef || defaultPetWindowRef.isDestroyed()) return;
+  if (carrierState !== "expanded-session") return;
+  if (sessionMeasuredHeight === height) return;
+  sessionMeasuredHeight = height;
+  resizeExpandedSessionWindow(defaultPetWindowRef);
 }
 
 function resizeExpandedSessionWindow(window: BrowserWindow): void {
@@ -199,6 +216,7 @@ export function closeDefaultPetCheckIn(): void {
 function expandedCarrierSizeFor(state: DefaultPetPanelState): WindowSize | null {
   if (state === "expanded-chat" || state === "expanded-check-in") return expandedPetWindowSize;
   if (state === "expanded-session") {
+    if (sessionMeasuredHeight !== null) return { width: sessionPetWindowWidth, height: sessionMeasuredHeight };
     const scale = Number(getAppStateSnapshot().preferences.petScale) || 1;
     return calculateSessionWindowSize(Math.ceil(defaultPetSprite.frameHeight * scale), sessionCardEstimatedHeight);
   }
@@ -215,6 +233,7 @@ function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState):
   const compactIsOpen = nextState === "compact-chat";
   carrierState = nextState;
   if (nextState !== "expanded-chat") activeChatPanelHeight = undefined;
+  if (nextState !== "expanded-session") sessionMeasuredHeight = null;
 
   const currentBounds = window.getBounds();
   const currentPos: Point = { x: currentBounds.x, y: currentBounds.y };

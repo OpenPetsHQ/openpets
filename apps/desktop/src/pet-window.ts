@@ -213,9 +213,11 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
       contextIsolation: true,
       sandbox: true,
       preload: join(app.getAppPath(), "dist", "pet-preload.cjs"),
+      zoomFactor: 1,
       ...(useLayerShell ? { offscreen: true, backgroundThrottling: false } : {}),
     },
   });
+  pinPetWindowZoom(window);
 
   petWindowFocusPolicy.set(window, focusable);
   window.setMenu(null);
@@ -624,6 +626,27 @@ function installMotionStatePublisher(window: BrowserWindow): void {
   });
   window.on("closed", () => {
     if (idleTimer) clearTimeout(idleTimer);
+  });
+}
+
+/**
+ * Keep the pet window at 1x zoom. Chromium remembers zoom per host and every
+ * file:// page shares one host, so a zoom set on another local page leaks in.
+ * The pet page is laid out in window pixels (carrier bounds, hit-testing, the
+ * session overlay's measured height), so any zoom desyncs it from the window.
+ */
+function pinPetWindowZoom(window: BrowserWindow): void {
+  const reset = () => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    if (window.webContents.getZoomFactor() !== 1) {
+      debug("pet.window", "pet window zoom reset", { zoomFactor: window.webContents.getZoomFactor(), windowId: window.id });
+      window.webContents.setZoomFactor(1);
+    }
+  };
+  window.webContents.on("did-finish-load", reset);
+  window.webContents.on("zoom-changed", reset);
+  window.webContents.setVisualZoomLevelLimits(1, 1).catch((error: unknown) => {
+    warn("pet.window", "pet window pinch-zoom lock failed", { error: error instanceof Error ? error.message : String(error) });
   });
 }
 

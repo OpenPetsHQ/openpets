@@ -155,7 +155,7 @@ function createBreathingPractice(ui) {
     if (ui.runState() === "active") {
       ui.triggerPulse(performance.now() / 1000);
       ui.stopCuePlayback();
-      if (pattern && pattern.phases[0]) ui.playPhaseCue(pattern.phases[0].kind);
+      if (pattern && pattern.phases[0]) ui.playPhaseCue(pattern.phases[0].kind, pattern.id);
     }
     ui.renderStatics();
     ui.send({ type: "patternChanged", patternId: pattern ? pattern.id : patternId });
@@ -217,7 +217,7 @@ function createBreathingPractice(ui) {
 
     onBegin() {
       const pattern = selectedPattern();
-      if (pattern) ui.playPhaseCue(pattern.phases[0].kind);
+      if (pattern) ui.playPhaseCue(pattern.phases[0].kind, pattern.id);
     },
 
     /** Advance the phase clock; returns the completion payload when the run ends. */
@@ -243,7 +243,7 @@ function createBreathingPractice(ui) {
           }
           ui.renderProgressMeta();
         }
-        ui.playPhaseCue(pattern.phases[phaseIndex].kind);
+        ui.playPhaseCue(pattern.phases[phaseIndex].kind, pattern.id);
         ui.renderPhaseText();
       }
       return null;

@@ -2,7 +2,7 @@ import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermissio
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
-import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
+import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionBreathPattern, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
   readonly pluginId: string;
@@ -105,8 +105,24 @@ export function createPluginUiApi(options: {
     return { ...validated, info: { ...rest, logoSvgPath: resolved.path } };
   };
 
+  /** Resolve per-pattern cue refs into sound paths (open and update both carry patterns). */
+  const resolvePatternCues = <T extends { patterns?: readonly SessionBreathPattern[] }>(validated: T): T => {
+    if (!validated.patterns) return validated;
+    const patterns = validated.patterns.map((pattern) => {
+      if (!pattern.cues?.inhale || !pattern.cues.exhale) return pattern;
+      return {
+        ...pattern,
+        cues: {
+          inhaleSoundPath: resolveAssetRef(pattern.cues.inhale, ["sounds"]).path,
+          exhaleSoundPath: resolveAssetRef(pattern.cues.exhale, ["sounds"]).path,
+        },
+      };
+    });
+    return { ...validated, patterns };
+  };
+
   const resolveSessionAudio = (validated: PluginSessionDescriptor): PluginSessionDescriptor => {
-    if (validated.kind === "pmr" || !validated.audio) return validated;
+    if (validated.kind !== "breathing" || !validated.audio) return validated;
     const audio = validated.audio;
     if (!audio.inhale || !audio.exhale) return validated;
     const { inhale, exhale, ...rest } = audio;
@@ -143,8 +159,10 @@ export function createPluginUiApi(options: {
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
     state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    const validated = validateSessionDescriptor(spec);
+    const withCues = validated.kind === "breathing" ? resolvePatternCues(validated) : validated;
     const descriptor = resolveSessionPmrIllustrations(
-      resolveSessionAudio(resolveSessionInfoLogo(validateSessionDescriptor(spec)))
+      resolveSessionAudio(resolveSessionInfoLogo(withCues))
     );
     const sessionId = opaqueId("session");
     const slot: SessionSlot = { host: undefined as unknown as PluginSessionHostHandle, closed: false };
@@ -277,7 +295,7 @@ export function createPluginUiApi(options: {
       session: openSession,
       sessionUpdate: async (sessionId: unknown, patch: unknown) => {
         const slot = requireSession(sessionId);
-        await slot.host.update(resolveSessionInfoLogo(validateSessionUpdate(patch)));
+        await slot.host.update(resolvePatternCues(resolveSessionInfoLogo(validateSessionUpdate(patch))));
       },
       sessionPause: async (sessionId: unknown) => { await requireSession(sessionId).host.pause(); },
       sessionResume: async (sessionId: unknown) => { await requireSession(sessionId).host.resume(); },

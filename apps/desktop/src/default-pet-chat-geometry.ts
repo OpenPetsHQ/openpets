@@ -6,36 +6,44 @@ export const expandedPetWindowSize: WindowSize = {
 };
 
 /**
- * Practice session overlay geometry. The orb wraps the pet, so its radius —
- * and from it the whole carrier height — derives from the pet's scaled sprite
- * size. Width stays fixed: the session card needs room for the step track and
- * pattern chips regardless of pet scale. Tuned while dogfooding breathing.
+ * Practice session overlay geometry. The session card sits at the top of the
+ * carrier and the orb wraps the pet near its resting spot below it, so the
+ * pet barely moves when a session opens. The orb radius — and from it the
+ * carrier height — derives from the pet's scaled sprite size. Width stays
+ * fixed: the card needs room for the step track and pattern chips regardless
+ * of pet scale.
  */
 export const sessionPetWindowWidth = 460;
-/** Clearance above the orb for its rim glow. */
-export const sessionOrbTopGap = 16;
+/** Clearance below the orb for its rim glow. */
+export const sessionOrbBottomGap = 16;
 
 export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
   return Math.max(110, Math.min(240, Math.round(scaledSpriteHeight)));
 }
+/**
+ * Card height estimates size only the first frame of a session; the overlay
+ * then measures its real card and orb and the carrier fits that exactly.
+ */
 /** Breathing card. The CSS fallback uses this so a breath session does not open tall. */
 export const sessionBreathingCardEstimatedHeight = 268;
 /** Guided breathing card: the breathing card plus the pattern chip row. */
 export const sessionGuidedBreathingCardEstimatedHeight = 328;
+/** Grounding card: the shared rows plus the sense checklist (up to five items). */
+export const sessionGroundingCardEstimatedHeight = 534;
 /** PMR card, including the fixed pose-illustration well and cues row. */
-export const sessionPmrCardEstimatedHeight = 537;
+export const sessionPmrCardEstimatedHeight = 400;
 export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;
-export const sessionCardBottomInset = 14;
+export const sessionCardTopInset = 14;
 export const sessionOrbCardGap = 10;
 
 
 export function calculateSessionWindowSize(scaledSpriteHeight: number, cardEstimatedHeight = sessionCardEstimatedHeight): WindowSize {
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
-  const height = sessionOrbTopGap
-    + orbRadius * 2
-    + sessionOrbCardGap
+  const height = sessionCardTopInset
     + cardEstimatedHeight
-    + sessionCardBottomInset;
+    + sessionOrbCardGap
+    + orbRadius * 2
+    + sessionOrbBottomGap;
   return { width: sessionPetWindowWidth, height };
 }
 

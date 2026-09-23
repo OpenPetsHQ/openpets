@@ -210,6 +210,20 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   await session.stop();
   await session.close();
 
+  const groundingSession = await sdk.ui.session({
+    kind: "grounding",
+    title: "Grounding",
+    countdownSeconds: 0,
+    practices: [{ id: "grounding", name: "Grounding", icon: "anchor" }],
+    practiceId: "grounding",
+    steps: [
+      { id: "see", label: "See", title: "Look around you", prompt: "Find 2 things you can see", icon: "eye", items: [{ text: "A color", guidance: "Look closely." }, { text: "A shadow" }] },
+      { id: "hear", label: "Hear", title: "Listen", prompt: "Find 1 thing you can hear", icon: "ear", items: [{ text: "Your breath" }] },
+    ],
+  });
+  groundingSession.onEvent(() => undefined);
+  await groundingSession.close();
+
   const pmrSession = await sdk.ui.session({
     kind: "pmr",
     title: "Muscle relaxation",
