@@ -400,24 +400,37 @@ await localScenario("bundled seeding copies manifest and preserves user choices"
   assert.deepEqual(record?.approvedPermissions, ["pet:speak", "pet:reaction"]);
 });
 
-await localScenario("bundled defaults enable Focus Buddy and Launch Buddy but not Virtual Pet on a fresh install", async ({ userData, root, store }) => {
+await localScenario("bundled defaults enable the companion lineup but not Virtual Pet on a fresh install", async ({ userData, root, store }) => {
   const official = join(root, "official");
-  const focusSource = join(official, "openpets.focus-buddy");
-  const launchSource = join(official, "openpets.launch-buddy");
-  const virtualPetSource = join(official, "openpets.virtual-pet");
-  writeManifest(focusSource, { manifestVersion: 2, id: "openpets.focus-buddy", name: "Focus Buddy", version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"] });
-  writeManifest(launchSource, { manifestVersion: 2, id: "openpets.launch-buddy", name: "Launch Buddy", version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"] });
-  writeManifest(virtualPetSource, { manifestVersion: 2, id: "openpets.virtual-pet", name: "Virtual Pet", version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"] });
-  writeFileSync(join(focusSource, "index.js"), "OpenPetsPlugin.register({ start() {} });\n", "utf8");
-  writeFileSync(join(launchSource, "index.js"), "OpenPetsPlugin.register({ start() {} });\n", "utf8");
-  writeFileSync(join(virtualPetSource, "index.js"), "OpenPetsPlugin.register({ start() {} });\n", "utf8");
+  const enabledIds = ["openpets.simple-timer", "openpets.anxiety-aid-tools", "openpets.focus-buddy", "openpets.launch-buddy"];
+  for (const id of [...enabledIds, "openpets.virtual-pet"]) {
+    const source = join(official, id);
+    writeManifest(source, { manifestVersion: 2, id, name: id, version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"] });
+    writeFileSync(join(source, "index.js"), "OpenPetsPlugin.register({ start() {} });\n", "utf8");
+  }
   const service = new PluginService({ userDataPath: userData, stateStore: store, runtime: new FakeRuntime() as never, bundledPluginSourceDirs: [official] });
 
   await service.start();
 
-  assert.equal(store.getRecord("openpets.focus-buddy")?.enabled, true);
-  assert.equal(store.getRecord("openpets.launch-buddy")?.enabled, true);
+  for (const id of enabledIds) assert.equal(store.getRecord(id)?.enabled, true, `${id} is enabled on a fresh install`);
   assert.equal(store.getRecord("openpets.virtual-pet")?.enabled, false);
+});
+
+await localScenario("bundled Focus Buddy keeps the user's choices across restarts", async ({ userData, root, store }) => {
+  const official = join(root, "official");
+  const source = join(official, "openpets.focus-buddy");
+  writeManifest(source, { manifestVersion: 2, id: "openpets.focus-buddy", name: "Focus Buddy", version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"], configSchema: { minutes: { type: "number", default: 25 } } });
+  writeFileSync(join(source, "index.js"), "OpenPetsPlugin.register({ start() {} });\n", "utf8");
+  const options = { userDataPath: userData, stateStore: store, runtime: new FakeRuntime() as never, bundledPluginSourceDirs: [official] };
+  await new PluginService(options).start();
+  store.replaceConfig("openpets.focus-buddy", { minutes: 50 });
+  store.setEnabled("openpets.focus-buddy", false);
+
+  await new PluginService(options).start();
+
+  const record = store.getRecord("openpets.focus-buddy");
+  assert.equal(record?.enabled, false, "a disabled Focus Buddy stays disabled after restart");
+  assert.deepEqual(record?.config, { minutes: 50 }, "Focus Buddy settings survive restart");
 });
 
 await localScenario("bundled seeding prunes stale ids and blocks uninstall update", async ({ userData, root, store }) => {
