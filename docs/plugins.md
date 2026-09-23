@@ -177,7 +177,11 @@ UTC offset, never a guessed local or natural-language date. Launch Buddy exposes
 exposes `resources.get`, `resources.show`, and `resources.hide`. These
 capabilities reuse direct-control domain operations but keep assistant calls free
 of command-specific speech and bubble confirmations, except Launch Buddy's
-explicit greeting, whose purpose is to present the configured greeting.
+explicit greeting, whose purpose is to present the configured greeting. A
+pinned state HUD is not a confirmation: Focus Buddy's start, pause, resume, and
+skip-to-break show (or update) its timer HUD exactly like the pet-menu
+controls, so a timer started from chat is visibly running; `focus.status`
+stays read-only and `focus.end` dismisses the HUD.
 
 The current v1 quotas are 32 registrations per plugin, 16 KiB per schema,
 schema depth six, 32 properties per object, 128 total schema properties, 32

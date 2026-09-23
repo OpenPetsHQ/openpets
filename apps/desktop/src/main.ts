@@ -45,6 +45,7 @@ import { reclampAgentPetWindows } from "./agent-pet-controller.js";
 import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
 import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
+import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
@@ -129,6 +130,13 @@ if (layerShellBackend && !hasExplicitOzonePlatformArg) {
 protocol.registerSchemesAsPrivileged([
   { scheme: sessionMediaScheme, privileges: { stream: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
+
+// Dev-only screenshot session (docs/screenshots.md): an isolated profile, so
+// this must precede the single-instance lock, which is scoped to userData.
+const captureSessionDir = resolveCaptureSessionDir(process.env, app.isPackaged);
+if (captureSessionDir) {
+  prepareCaptureSessionBeforeReady(captureSessionDir);
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -337,7 +345,7 @@ if (!gotSingleInstanceLock) {
       warn("remote", "remote control listener unavailable");
     }
     refreshTrayMenu();
-    void (async () => {
+    const pluginStartup = (async () => {
       const service = pluginService;
       await service.start();
       await teamService?.start();
@@ -368,7 +376,11 @@ if (!gotSingleInstanceLock) {
       }
       const watchPaths = Array.from(new Set([...paths, ...service.getLocalSourcePaths()]));
       if (devPluginMode || watchPaths.length > 0) devPluginWatcher = startDevPluginWatcher(service, roots, watchPaths);
-    })().catch((error) => logError("app", "plugin service startup failed", error));
+    })();
+    pluginStartup.catch((error) => logError("app", "plugin service startup failed", error));
+    if (captureSessionDir) {
+      startCaptureSession({ sessionDir: captureSessionDir, pluginService, pluginStartup });
+    }
     void checkForGitHubReleaseUpdate().then(() => refreshTrayMenu());
     info("app", "startup complete", { logFile: getLogFilePath(), openDefaultPetOnLaunch: shouldOpenDefaultPetOnLaunch() });
     const devRoute = app.isPackaged

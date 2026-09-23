@@ -585,8 +585,12 @@ turn, so Settings edits are visible to the next turn while an active turn keeps
 one stable composition snapshot. The profile contains bounded `petName`, `tone`,
 `style`, `ownerAddress`, and `responseLength` fields with neutral defaults.
 
-The system prompt order is immutable host rules, optional curated context, and a
-fixed-order JSON personality data block with escaped prompt markers. The
+The system prompt order is immutable host rules, optional curated context, a
+fixed-order JSON personality data block with escaped prompt markers, and a
+current-time section (local ISO timestamp with UTC offset plus the IANA
+timezone) so absolute-time capabilities such as `reminders.create` receive
+future timestamps. Realtime voice sessions compose it once when the session
+opens. The
 most-recent local archive window follows the system message and is bounded to
 24 entries/128 KiB; active in-memory context remains a separate bounded layer.
 The archive contains only terminal user/assistant text from the canonical shared
@@ -667,7 +671,7 @@ and Dashboard; `update-version.ts` does version parsing/comparison.
 ### Logging
 
 `logger.ts` provides scoped, structured logging (scopes include `app`, `ipc`, `lease`,
-`pet.*`, `state`, `tray`, `ui`, `voice`, and `provider`) with log rotation (~2MB) and redaction of
+`pet.*`, `state`, `tray`, `ui`, `voice`, `provider`, and the dev-only `capture`) with log rotation (~2MB) and redaction of
 sensitive data, written to `userData/logs/openpets.log`. Renderer diagnostics
 should be routed here so failures are visible in the log file, not only DevTools
 (see the logging guidance in `AGENTS.md`).

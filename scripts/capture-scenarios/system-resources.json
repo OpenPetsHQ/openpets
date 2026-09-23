@@ -1,0 +1,8 @@
+{
+  "plugins": ["openpets.system-resources"],
+  "steps": [
+    { "shot": "system-resources-hud", "settleMs": 2500 },
+    { "cmd": ["openpets.system-resources", "snapshot"] },
+    { "shot": "system-resources-snapshot", "settleMs": 1500 }
+  ]
+}

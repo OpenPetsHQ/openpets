@@ -85,7 +85,7 @@ pet-window.ts
 ├── ../pet-session/soundscape-practice.cjs (Web Audio soundscape mixer: crossfaded loops, randomized accents, volume, sleep timer)
 ├── ../pet-session/orb-renderer.cjs (WebGL night-sky orb)
 ├── pet-chat-markdown.ts (Electron-free chat escaping and supported markdown subset)
-└── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, and draft derivation)
+└── pet-chat-view-state.ts (Electron-free Talk, snapshot ordering, naming, draft derivation, and empty-conversation-only prompt suggestions)
 pet-window-interaction.ts
 └── mouse passthrough, drag, renderer lifecycle recovery/watchdog, IPC bridge, and speech completion subscriptions
 
@@ -335,6 +335,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `local-ipc-confinement.ts`: Electron-free module-lifetime coordination between explicit leases, terminal tracking, confinement state updates, and tracker cancellation
 - `local-ipc-protocol.ts`: Protocol constants, request/response types, validation functions
 - `local-ipc-paths.ts`: Platform-specific socket paths and discovery file locations
+
+**Capture (dev only)**:
+- `capture-session.ts`: Dev-only screenshot session driven by `scripts/capture.mjs` via `OPENPETS_CAPTURE_SESSION_DIR` (ignored when packaged): isolated userData + sRGB color profile before app ready, a private Unix control socket separate from local IPC, plugin-command/say/react/quit handlers, chat panel/send/clear and Chat/Talk button handlers, provider listing and first-profile auto-selection, and default-pet-window `capturePage()` shots written as trimmed PNGs (see `docs/screenshots.md`)
+- `capture-image-core.ts`: Pure alpha-bounds detection and even-padding re-framing for capture bitmaps
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution
 
 **Installation**:

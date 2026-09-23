@@ -66,7 +66,7 @@ export default defineConfig({
       },
       {
         label: "Maintainers",
-        items: ["/architecture", "/development", "/testing-and-validation", "/release", "/lan-mode", "/wayland"],
+        items: ["/architecture", "/development", "/testing-and-validation", "/screenshots", "/release", "/lan-mode", "/wayland"],
       },
     ],
   },

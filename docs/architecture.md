@@ -124,8 +124,10 @@ payloads, results, timeouts, cancellation, and final output. Assistant requests
 do not use the plugin `ctx.ai` gateway.
 
 The host composes each request in a fixed order: immutable host rules, optional
-curated context, a serialized owner-authored personality data block, recent
-bounded conversation messages, and the current provider-neutral capability
+curated context, a serialized owner-authored personality data block, the
+current local time with its UTC offset and timezone (models have no clock, so
+relative requests like "in 10 minutes" would otherwise resolve against a
+training-era date), recent bounded conversation messages, and the current provider-neutral capability
 definitions/results. Personality values are communication preferences only and
 cannot change host rules, permissions, available capabilities, or authoritative
 capability outcomes. The profile is persisted with app state and captured at

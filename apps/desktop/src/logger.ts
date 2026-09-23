@@ -24,6 +24,7 @@ export type LogScope =
   | "terminal-focus"
   | "window-tracker"
   | "capabilities"
+  | "capture"
   | "voice"
   | "provider";
 

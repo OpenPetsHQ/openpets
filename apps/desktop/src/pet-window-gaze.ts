@@ -67,11 +67,14 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
     syncPetGazeTicker();
   };
   const handleShow = (): void => forcePetGazeEvaluation(window);
-  window.webContents.on("did-start-navigation", resetForNavigation);
-  window.webContents.on("did-start-loading", resetForNavigation);
-  window.webContents.on("did-finish-load", handleLoad);
-  window.webContents.on("did-fail-load", resetForNavigation);
-  window.webContents.on("render-process-gone", handleRendererGone);
+  // Held directly: `closed` fires after destroy(), when the
+  // `window.webContents` getter throws "Object has been destroyed".
+  const webContents = window.webContents;
+  webContents.on("did-start-navigation", resetForNavigation);
+  webContents.on("did-start-loading", resetForNavigation);
+  webContents.on("did-finish-load", handleLoad);
+  webContents.on("did-fail-load", resetForNavigation);
+  webContents.on("render-process-gone", handleRendererGone);
   window.on("hide", handleHide);
   window.on("show", handleShow);
   window.on("close", resetForNavigation);
@@ -79,11 +82,13 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
     const current = petGazeEntries.get(window);
     if (!current) return;
     if (current.movementTimer) clearTimeout(current.movementTimer);
-    window.webContents.off("did-start-navigation", resetForNavigation);
-    window.webContents.off("did-start-loading", resetForNavigation);
-    window.webContents.off("did-finish-load", handleLoad);
-    window.webContents.off("did-fail-load", resetForNavigation);
-    window.webContents.off("render-process-gone", handleRendererGone);
+    if (!webContents.isDestroyed()) {
+      webContents.off("did-start-navigation", resetForNavigation);
+      webContents.off("did-start-loading", resetForNavigation);
+      webContents.off("did-finish-load", handleLoad);
+      webContents.off("did-fail-load", resetForNavigation);
+      webContents.off("render-process-gone", handleRendererGone);
+    }
     window.off("hide", handleHide);
     window.off("show", handleShow);
     window.off("close", resetForNavigation);

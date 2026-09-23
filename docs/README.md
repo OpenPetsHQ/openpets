@@ -70,6 +70,8 @@ Docs here are the *narrative* layer on top of those maps.
   gate: behavior tests, contract tests, runtime checks, plugin release
   validators (`validate-release` / `validate-live`), catalog verification, and
   what "production-valid" means before shipping.
+- **[screenshots.md](screenshots.md)** - the dev capture session: transparent,
+  trimmed screenshots of the pet in any plugin state (`pnpm capture`).
 
 ## How to keep these docs healthy
 

@@ -6,6 +6,7 @@ const {
   deriveTalkButtonPresentation,
   shouldAcceptConversationSnapshot,
   shouldAcceptTalkSnapshot,
+  shouldShowPromptSuggestions,
   transitionChatDraft,
 } = require("./src/pet-chat-view-state.ts");
 const { installDefaultPetSession } = require("./pet-session/session-overlay-view.cjs");
@@ -1049,8 +1050,7 @@ const installDefaultPetChat = () => {
   };
 
   const renderSuggestions = () => {
-    const isIdle = conversationSnapshot.activity === "idle";
-    if (isIdle && defaultPromptSuggestions.length > 0) {
+    if (shouldShowPromptSuggestions(conversationSnapshot, defaultPromptSuggestions.length)) {
       suggestions.style.display = "flex";
       suggestions.innerHTML = defaultPromptSuggestions.slice(0, 3).map((suggestion) => `
         <button type="button" class="chat-chip" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>
@@ -1064,8 +1064,10 @@ const installDefaultPetChat = () => {
   const renderAll = () => {
     renderStatus();
     renderVoiceControls();
-    renderTranscript();
+    // Suggestions change the transcript's height; lay them out before the
+    // transcript pins itself to the newest message.
     renderSuggestions();
+    renderTranscript();
     updateSendButtonState();
     updateCompactSendButtonState();
     updateOnPetTalkButton(voiceSnapshot);

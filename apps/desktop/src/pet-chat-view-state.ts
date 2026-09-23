@@ -107,6 +107,19 @@ export function shouldAcceptTalkSnapshot(previous: TalkSnapshotOrder, sessionId:
     || (sessionId === previous.sessionId && sequence > previous.sequence);
 }
 
+/**
+ * Prompt suggestions are conversation starters: only offered on an empty,
+ * idle conversation. Once any message exists they would crowd the transcript.
+ */
+export function shouldShowPromptSuggestions(
+  snapshot: { readonly activity?: unknown; readonly items?: readonly unknown[] } | null | undefined,
+  suggestionCount: number,
+): boolean {
+  if (!snapshot || suggestionCount <= 0) return false;
+  const isEmpty = (snapshot.items?.length ?? 0) === 0;
+  return snapshot.activity === "idle" && isEmpty;
+}
+
 export function assistantDisplayName(displayName?: unknown, assetName?: unknown): string {
   for (const value of [displayName, assetName]) {
     if (typeof value === "string" && value.trim().length > 0) return value.trim();

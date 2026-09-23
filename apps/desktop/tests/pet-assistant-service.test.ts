@@ -181,9 +181,24 @@ function testArchive(initial: readonly PetAssistantArchivedMessage[] = [], appen
   const requests: PetAssistantTextModelRequest[] = [];
   const service = new PetAssistantService(model([{ type: "text", text: "hello" }], requests), runtime(async () => ({ ok: true, result: {} })), { curatedContext: "The owner prefers concise answers.", personalityStyle: "Be warm but concise." });
   await service.startTurn("composition", "Hello.");
-  assert.deepEqual(requests[0]?.messages.filter((message) => message.role === "system").map((message) => message.content), [
+  const systemMessages = requests[0]?.messages.filter((message) => message.role === "system") ?? [];
+  assert.equal(systemMessages.length, 1);
+  assert.ok(systemMessages[0]?.content.startsWith(
     `${PET_ASSISTANT_HOST_RULES}\n\n[BEGIN OPENPETS CURATED CONTEXT]\nThe owner prefers concise answers.\n[END OPENPETS CURATED CONTEXT]\n\n[BEGIN OPENPETS PERSONALITY STYLE]\nBe warm but concise.\n[END OPENPETS PERSONALITY STYLE]`,
-  ]);
+  ));
+}
+
+// The model is told the current local time, so relative requests ("in 10
+// minutes") resolve to future absolute timestamps instead of a training-era date.
+{
+  const requests: PetAssistantTextModelRequest[] = [];
+  const now = new Date("2026-09-23T09:29:05.000Z");
+  const service = new PetAssistantService(model([{ type: "text", text: "ok" }], requests), runtime(async () => ({ ok: true, result: {} })), { now: () => now });
+  await service.startTurn("current-time", "Remind me in 10 minutes.");
+  const system = requests[0]?.messages.find((message) => message.role === "system")?.content ?? "";
+  const stated = /Current local time: (\S+)/.exec(system)?.[1];
+  assert.ok(stated, "system prompt states the current time");
+  assert.equal(Date.parse(stated), now.getTime(), "stated time is the host clock, with its UTC offset");
 }
 
 // Prompt context keeps archived messages before active messages and the current user turn.

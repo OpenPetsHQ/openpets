@@ -17,6 +17,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 - `packages/pi/src/extension.ts`: Pi coding-agent extension runtime entry point.
 - `packages/openclaw/src/index.ts`: Native OpenClaw plugin entry point and lifecycle-management exports.
 - `packages/sdk/src/index.ts`: public SDK v3 type contract for plugin authors.
+- `scripts/capture.mjs`: `pnpm capture` runner for the long-running dev screenshot session (`docs/screenshots.md`); scenarios live in `scripts/capture-scenarios/`.
 - `plugins/official/`: first-party SDK v3 plugin product source consumed by desktop dev mode and plugin packaging/catalog release workflows.
 
 ## Directory Map

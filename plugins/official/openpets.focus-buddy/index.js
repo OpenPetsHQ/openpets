@@ -510,7 +510,10 @@ async function assistantStart(ctx, input) {
     if (!isCurrent(ctx, token)) return;
     const minutes = assistantFocusMinutes(input);
     if (minutes === null) return assistantInvalid("invalid_duration", current);
-    const session = await startMode(ctx, "focus", minutes * 60_000, current?.completedFocusCount ?? 0, token, { showPinned: false, syncExistingPinned: true });
+    // Like the pet-menu controls, assistant actions that leave a session
+    // running show the timer HUD — it is the user's confirmation that the
+    // timer is set. The chat owns the reply, so nothing speaks here.
+    const session = await startMode(ctx, "focus", minutes * 60_000, current?.completedFocusCount ?? 0, token);
     return session ? assistantSuccess(session) : assistantInvalid("session_unavailable", current);
   });
 }
@@ -524,7 +527,7 @@ async function assistantStatus(ctx) {
 
 async function assistantPauseOrResume(ctx, action) {
   return lifecycle(ctx, async (token) => {
-    const result = await changePauseStateImpl(ctx, action, token, { showPinned: false, syncExistingPinned: true });
+    const result = await changePauseStateImpl(ctx, action, token);
     if (!result || result.kind === "invalid") return assistantInvalid(result?.error ?? "session_unavailable", result?.session);
     return assistantSuccess(result.session);
   });
@@ -542,7 +545,7 @@ async function assistantEnd(ctx) {
 
 async function assistantSkipToBreak(ctx) {
   return lifecycle(ctx, async (token) => {
-    const session = await skipToBreakImpl(ctx, token, { showPinned: false, syncExistingPinned: true });
+    const session = await skipToBreakImpl(ctx, token);
     return session ? assistantSuccess(session) : assistantInvalid("session_unavailable", session);
   });
 }

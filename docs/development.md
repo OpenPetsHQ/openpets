@@ -38,6 +38,7 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm dev:desktop:control-center` | Dev with renderer/Control Center focus |
 | `pnpm dev:desktop:plugins` | Dev with official plugins hot-loaded |
 | `pnpm dev:desktop:third-parties` | Dev with direct plugin folders under `third-parties` hot-loaded |
+| `pnpm capture <cmd>` | Long-running dev capture session for transparent pet/plugin screenshots (see [Screenshots](/screenshots)) |
 | `pnpm package:desktop` / `:dir` | Build + package the desktop app (full / unpacked dir) |
 | `pnpm release:desktop` | macOS-local build, automatic SignPath Windows signing, and verified GitHub publication |
 | `pnpm release:npm` | Publish npm packages |

@@ -1,0 +1,7 @@
+{
+  "plugins": ["openpets.launch-buddy"],
+  "steps": [
+    { "cmd": ["openpets.launch-buddy", "greet-now"] },
+    { "shot": "launch-buddy-greeting", "settleMs": 1500 }
+  ]
+}
