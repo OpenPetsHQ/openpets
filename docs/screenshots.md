@@ -18,7 +18,7 @@ the pet's drop shadow, and bubble shadows stay clean on any background.
 ```sh
 pnpm capture start --plugins openpets.simple-timer   # build, launch, wait until ready
 pnpm capture cmd openpets.simple-timer timer-25      # put the plugin in a state
-pnpm capture shot simple-timer-running               # → .capture/shots/simple-timer-running.png
+pnpm capture shot simple-timer-running               # → web/lfs/captures/desktop/simple-timer-running.png
 pnpm capture stop
 ```
 
@@ -47,7 +47,7 @@ runs).
 | `control-center <route> [--width px --height px]` | Open the Control Center on a route (e.g. `teams`) at a fixed content size (default 1180×800). |
 | `teams enroll` / `teams approve` / `teams sync` | Enroll into the Teams showcase organization, approve requested Team plugin permissions, sync Team Pack and check-ins (see below). |
 | `check-in` | Open the pet's check-in card. |
-| `shot <name> [--window pet\|control-center] [--padding pt] [--settle ms] [--out dir]` | Capture. `--window control-center` shoots the opaque Control Center as-is (no padding); pet shots are trimmed with `--padding` points (default 24). `--settle` waits for renders and CSS transitions first (default 250 ms), `--out` overrides `.capture/shots/`. |
+| `shot <name> [--window pet\|control-center] [--padding pt] [--settle ms] [--out dir]` | Capture. `--window control-center` shoots the opaque Control Center as-is (no padding); pet shots are trimmed with `--padding` points (default 24). `--settle` waits for renders and CSS transitions first (default 250 ms), `--out` overrides `web/lfs/captures/desktop/`. |
 | `run <scenario.json \| folder>` | Run a scripted scenario, or every scenario in a folder (below). |
 
 You can mix manual and scripted work: click through the pet's menu yourself to
@@ -171,7 +171,10 @@ Everything lives under `.capture/` (git-ignored):
   keep talking to your real app.
 - `.capture/session/control.sock` is the control socket (mode 0600).
   `.capture/session/app.log` is the app's stdout.
-- `.capture/shots/` holds the default output.
+Shots default to `web/lfs/captures/desktop/` in the OpenPets web repository
+(`web/`, a separate checkout), where `lfs/**` is tracked with Git LFS; commit
+them there when they should be published. Teams dashboard shots land beside
+them in `web/lfs/captures/teams/`.
 
 The capture pet still appears on screen (capture reads the real window), and
 the instance adds a second tray icon while it runs.

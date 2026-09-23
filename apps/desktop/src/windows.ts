@@ -703,6 +703,13 @@ function sendControlCenterRoute(window: BrowserWindow, target: ControlCenterRout
 }
 
 /** Tell the open Control Center to re-fetch the plugin snapshot (e.g. after a locale change). */
+/** Tells an open Control Center that Manager Check-in data changed (sync, submission, pause). */
+export function broadcastManagerCheckInsRefresh(): void {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.webContents.send("openpets:manager-check-ins-refresh");
+  }
+}
+
 function broadcastPluginRecordsRefresh(): void {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.webContents.send("openpets:plugins-refresh");

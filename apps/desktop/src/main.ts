@@ -27,7 +27,7 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
+import { broadcastManagerCheckInsRefresh, installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
 import { sessionMediaScheme } from "./session-media-cache.js";
 import { broadcastDefaultPetManagerCheckInSnapshot, installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
@@ -316,6 +316,7 @@ if (!gotSingleInstanceLock) {
     });
     managerCheckInService.subscribe((snapshot) => {
       broadcastDefaultPetManagerCheckInSnapshot(snapshot);
+      broadcastManagerCheckInsRefresh();
     });
     powerMonitor.on("resume", () => {
       void teamService?.syncNow().catch(() => undefined);

@@ -240,6 +240,7 @@ type ControlCenterApi = {
   removePet(petId: string): Promise<StateSnapshot>;
   onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
   onPluginsRefresh(callback: () => void): () => void;
+  onManagerCheckInsRefresh(callback: () => void): () => void;
   onDashboardRefresh?(callback: () => void): () => void;
   getIntegrationsState(selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;
   runIntegrationAction(action: AgentSetupAction, selectedPetId?: string, commandMode?: "published" | "local" | "bundled"): Promise<AgentSetupSnapshot>;

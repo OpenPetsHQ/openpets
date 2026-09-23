@@ -130,6 +130,7 @@ export type TeamsApi = {
   syncManagerCheckIns?(): Promise<ManagerCheckInSnapshot>;
   getManagerCheckInsHistory?(cursor?: string): Promise<ManagerCheckInHistoryPage>;
   setManagerCheckInDevicePaused?(paused: boolean): Promise<ManagerCheckInSnapshot>;
+  onManagerCheckInsRefresh?(callback: () => void): () => void;
 };
 
 export type TeamsNavigationRoute =

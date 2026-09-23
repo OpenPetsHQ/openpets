@@ -95,6 +95,11 @@ const api = {
     ipcRenderer.on("openpets:control-center-route", listener);
     return () => ipcRenderer.removeListener("openpets:control-center-route", listener);
   },
+  onManagerCheckInsRefresh: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("openpets:manager-check-ins-refresh", listener);
+    return () => ipcRenderer.removeListener("openpets:manager-check-ins-refresh", listener);
+  },
   onPluginsRefresh: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("openpets:plugins-refresh", listener);

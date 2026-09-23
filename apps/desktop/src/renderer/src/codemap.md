@@ -19,7 +19,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/teams-icons.tsx`: Cohesive set of 2px-stroke SVG icons matching Control Center design conventions.
   - `teams/teams-types.ts`: Strong typing for snapshots, pet/plugin entries, approval tokens, and preload bridge API contracts.
   - `teams/teams-state.ts`: Pure state helpers for snapshot validation, display name validation, authoritative enrollment-action gating, error code mapping, and permission tone/label lookup.
-  - `teams/manager-check-ins/TeamManagerCheckInSection.tsx`: Control Center Manager Check-ins management section for synchronization, read-only immutable history, and device-private scheduled-offer pause/resume; it intentionally has no submission form.
+  - `teams/manager-check-ins/TeamManagerCheckInSection.tsx`: Control Center Manager Check-ins management section for synchronization (reloading on the main process `openpets:manager-check-ins-refresh` push after background syncs), read-only immutable history, and device-private scheduled-offer pause/resume; it intentionally has no submission form.
   - `teams/manager-check-ins/ManagerCheckInHistoryList.tsx`: Read-only employee history timeline with fixed-feeling presentation and pagination.
   - `teams/manager-check-ins/ManagerCheckInPauseControls.tsx`: Local scheduled-offer pause/resume controls whose state is not organization-visible.
   - `teams/manager-check-ins/manager-check-ins-state.ts`: Pure renderer helpers for fixed feelings, bounded display state, labels, dates, and history presentation.

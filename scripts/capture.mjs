@@ -24,7 +24,8 @@ const sessionDir = join(captureRoot, "session");
 const socketPath = join(sessionDir, "control.sock");
 const pidPath = join(sessionDir, "app.pid");
 const appLogPath = join(sessionDir, "app.log");
-const defaultShotsDir = join(captureRoot, "shots");
+// Shots are published assets: they live in the web repo's Git LFS folder.
+const defaultShotsDir = join(repoRoot, "web", "lfs", "captures", "desktop");
 const teamsDir = join(repoRoot, "teams");
 const teamsShowcaseStatePath = join(teamsDir, "local", "showcase", "showcase.json");
 
@@ -68,7 +69,7 @@ Capture
   shot <name> [--window pet|control-center] [--padding pt] [--settle ms] [--out dir]
   run <scenario.json | folder>                    run a scripted scenario (or every one in a folder)
 
-Shots land in .capture/shots/ unless --out (or a scenario "out") says otherwise.`;
+Shots land in web/lfs/captures/desktop/ unless --out (or a scenario "out") says otherwise.`;
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
