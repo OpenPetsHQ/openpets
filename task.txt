@@ -3,8 +3,7 @@ OpenPets × Anxiety Aid Tools — working design
 
 Status (2026-09-22): seven practices run on the pet session surface —
 guided meditation, peaceful visualization, and relaxing sounds joined
-on the shared media player / soundscape mixer (visualization covers
-pending: image quota). Earlier four:
+on the shared media player / soundscape mixer. Earlier four:
 simple breathing (Calm 4-6), guided breathing (box, 4-7-8,
 energizing, quick reset, each with its own AAT audio), progressive
 muscle relaxation, and grounding 5-4-3-2-1. The HUD card sits on top
@@ -136,10 +135,9 @@ Start in one click
   there, but a stressed person does not hunt.
 
 The pet
-  Right-click lists the practices themselves: Breathing / Guided
-  breathing / Muscle relaxation / Grounding. While a run is live the
-  menu adds Pause / Resume / Stop (grounding: Stop only, it has no
-  clock). The pet is not a replacement for the visual. Closing the
+  Right-click lists the seven practices under the Anxiety Aid Tools
+  submenu. No Pause / Resume / Stop items: session controls live on
+  the card only. The pet is not a replacement for the visual. Closing the
   overlay stops honestly; it does not leave a ghost session.
 
 
@@ -216,8 +214,7 @@ No pre-session lecture. First run can show a one-line disclaimer in
 Info and a small first-run note, then get out of the way.
 
 The host overlay owns the clock (not ctx.schedule); sleep/restart
-reconciliation is still open. Pause / Resume / Stop work from both
-the card and the pet menu.
+reconciliation is still open. Pause / Resume / Stop are on the card.
 
 Info for breathing ships the AAT knowledge, rewritten for this UI,
 pattern-aware where it matters, with real PMC/journal citations.
@@ -237,8 +234,9 @@ by default.
 
 Commands (as built): one per practice, titled with the practice name
 — start-breathing, start-guided-breathing, start-pmr,
-start-grounding. Dynamic menu items Pause / Resume / Stop while a run
-exists. Patterns never go in the pet menu; they live on the card.
+start-grounding, start-meditation, start-visualization, start-sounds,
+in the plugin's pet-menu submenu. Patterns never go in the pet menu;
+they live on the card.
 
 Storage (as built): audioCues (mute toggle), lastGuidedPattern.
 Later maybe: customPatterns, stats.
@@ -313,6 +311,27 @@ a first slice.
 
 Newest first.
 
+2026-09-23: fixes from Alvin's in-app pass.
+  - Triangle under the idle pet: a stray "}" at the end of the session
+    CSS made Chromium drop the next rule (the chat panel's display:
+    none), so the hidden panel's lavender tail showed. Removed; the
+    check-in UI test now asserts the pet CSS braces balance.
+  - Relaxing sounds were silent: the mixer fetch()es cached loops and
+    the pet CSP had no connect-src. Added connect-src
+    openpets-session-media:. Per-file media cap 25 → 48MB (the
+    night-cricket-rain bed is a 28MB, 15-minute loop).
+  - Info-only session.update now works for every kind (meditation
+    track switches refresh Info); patterns stay breathing-only.
+  - Pet menu: practices stay in the Anxiety Aid Tools submenu; no
+    Pause / Resume / Stop items while a practice runs.
+  - No em dashes in visible strings (plugin + host session copy).
+  - Visualization covers: SVG tiles from the website's own scene
+    icon (Phosphor) and colour pair; session covers may now be
+    declared svgs as well as images.
+  - Language: narration follows the locale when a session opens; an
+    open session keeps its language until reopened (no locale-change
+    event in the SDK yet).
+
 2026-09-23 — compact media players (Alvin: "player is too big").
   Meditation / visualization card 300 → ~199px, sounds → ~169px.
   The shell header now carries the cover and track (practice hook
@@ -370,7 +389,7 @@ Newest first.
   approved manifest host (bridge refuses otherwise; desktop test).
   session-media-cache.ts downloads each segment once through
   safeHttpFetchBytes (same SSRF/host/redirect guards as ctx.net),
-  keeps it under userData/session-media (1GB LRU, 25MB/file, atomic
+  keeps it under userData/session-media (1GB LRU, 48MB/file, atomic
   writes, deduped in-flight) and serves it on the privileged
   openpets-session-media: scheme (pet CSP media-src); the coordinator
   only resolves URLs listed in the open descriptor. Plays offline

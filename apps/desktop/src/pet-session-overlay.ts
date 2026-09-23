@@ -234,13 +234,13 @@ export function openPluginSessionOverlay(options: {
     async update(patch: PluginSessionUpdate): Promise<void> {
       if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
       if (session.descriptor.kind !== "breathing") {
-        // Only breathing has patterns; other kinds can change their Info only.
         if (patch.patterns !== undefined || patch.patternId !== undefined) {
           throw new Error("Session patterns can only be updated on breathing sessions.");
         }
+        // Info lives in the host-owned Info window, so an info-only update
+        // never remounts the running practice in the pet window.
         if (patch.info !== undefined) {
           session.descriptor = { ...session.descriptor, info: patch.info };
-          sendDescriptorToRenderer();
           refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
         }
         return;

@@ -17,8 +17,9 @@ import { safeHttpFetchBytes, type NetworkDiagnostics } from "./plugin-sdk-networ
 
 export const sessionMediaScheme = "openpets-session-media";
 
-/** Per-file cap: meditation segments are ~0.2MB, sound layers up to ~8MB. */
-const maxMediaFileBytes = 25 * 1024 * 1024;
+/** Per-file cap: meditation segments are ~0.2MB; the longest sound beds
+ * (15-minute loops) reach ~28MB. */
+const maxMediaFileBytes = 48 * 1024 * 1024;
 /** Whole-cache cap; least-recently-used files are evicted past it. */
 const maxCacheBytes = 1024 * 1024 * 1024;
 const mediaExtensions = new Map<string, string>([

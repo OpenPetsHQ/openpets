@@ -6,31 +6,10 @@
 // renders the session overlay (night-sky orb, step track, bottom card) around
 // the pet and a dedicated Info window from the declarative descriptor below;
 // this plugin owns patterns and steps, the localized knowledge layer (how it
-// works, the science with linked studies, tips), practice switching, and
-// pet-menu session controls.
+// works, the science with linked studies, tips), and practice switching.
 
 export const SITE_URL = "https://anxietyaidtools.com/";
 
-export const MENU_PAUSE = "breathing-pause";
-export const MENU_RESUME = "breathing-resume";
-export const MENU_STOP = "breathing-stop";
-export const MENU_PMR_PAUSE = "pmr-pause";
-export const MENU_PMR_RESUME = "pmr-resume";
-export const MENU_PMR_STOP = "pmr-stop";
-export const MENU_GROUNDING_STOP = "grounding-stop";
-export const MENU_MEDITATION_PAUSE = "meditation-pause";
-export const MENU_MEDITATION_RESUME = "meditation-resume";
-export const MENU_MEDITATION_STOP = "meditation-stop";
-export const MENU_VISUALIZATION_PAUSE = "visualization-pause";
-export const MENU_VISUALIZATION_RESUME = "visualization-resume";
-export const MENU_VISUALIZATION_STOP = "visualization-stop";
-export const MENU_SOUNDS_PAUSE = "sounds-pause";
-export const MENU_SOUNDS_RESUME = "sounds-resume";
-export const MENU_SOUNDS_STOP = "sounds-stop";
-
-const MENU_PAUSE_IDS = new Set([MENU_PAUSE, MENU_PMR_PAUSE, MENU_MEDITATION_PAUSE, MENU_VISUALIZATION_PAUSE, MENU_SOUNDS_PAUSE]);
-const MENU_RESUME_IDS = new Set([MENU_RESUME, MENU_PMR_RESUME, MENU_MEDITATION_RESUME, MENU_VISUALIZATION_RESUME, MENU_SOUNDS_RESUME]);
-const MENU_STOP_IDS = new Set([MENU_STOP, MENU_PMR_STOP, MENU_GROUNDING_STOP, MENU_MEDITATION_STOP, MENU_VISUALIZATION_STOP, MENU_SOUNDS_STOP]);
 
 export const STORAGE_KEY_AUDIO_CUES = "audioCues";
 export const STORAGE_KEY_LAST_GUIDED_PATTERN = "lastGuidedPattern";
@@ -1176,7 +1155,14 @@ export function buildSoundScenes(t, assets) {
   }));
 }
 
-export function buildVisualizationTracks(t, locale) {
+/** Asset names are lowercase; scene ids are AAT's camelCase keys. */
+function visualizationCoverName(sceneId) {
+  const kebab = sceneId.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  return `visualization-${kebab}`;
+}
+
+export function buildVisualizationTracks(t, locale, assets) {
+  const svg = assets?.svg ? (name) => assets.svg(name) : (name) => ({ kind: "svg", name });
   const language = narrationLanguage(locale);
   return VISUALIZATION_SCENES.map((scene) => {
     const segments = [];
@@ -1190,6 +1176,7 @@ export function buildVisualizationTracks(t, locale) {
       id: scene,
       title: t(`visualization.${scene}.title`),
       subtitle: t(`visualization.${scene}.subtitle`),
+      cover: svg(visualizationCoverName(scene)),
       segments,
     };
   });
@@ -1735,7 +1722,7 @@ export function buildVisualizationDescriptor(ctx, autoStart, trackId = VISUALIZA
     kind: "player",
     title: t("visualization.session.title"),
     subtitle: t("visualization.session.subtitle"),
-    tracks: buildVisualizationTracks(t, locale),
+    tracks: buildVisualizationTracks(t, locale, ctx.assets),
     trackId: selected,
     autoStart,
     countdownSeconds: 3,
@@ -1802,43 +1789,6 @@ export function buildDescriptor(ctx, autoStart, audioCuesEnabled, practiceId = "
   return buildBreathingDescriptor(ctx, autoStart, audioCuesEnabled);
 }
 
-/** Pet-menu items per practice. Grounding is self-paced, so it only offers Stop. */
-function sessionMenuItems(ctx, mode, practiceId) {
-  if (mode === "none") return [];
-  if (practiceId === "grounding") {
-    return [{ id: MENU_GROUNDING_STOP, title: ctx.t("menu.grounding.stop") }];
-  }
-  if (practiceId === "meditation") {
-    const stopItem = { id: MENU_MEDITATION_STOP, title: ctx.t("menu.meditation.stop") };
-    if (mode === "paused") return [{ id: MENU_MEDITATION_RESUME, title: ctx.t("menu.meditation.resume") }, stopItem];
-    return [{ id: MENU_MEDITATION_PAUSE, title: ctx.t("menu.meditation.pause") }, stopItem];
-  }
-  if (practiceId === "sounds") {
-    const stopItem = { id: MENU_SOUNDS_STOP, title: ctx.t("menu.sounds.stop") };
-    if (mode === "paused") return [{ id: MENU_SOUNDS_RESUME, title: ctx.t("menu.sounds.resume") }, stopItem];
-    return [{ id: MENU_SOUNDS_PAUSE, title: ctx.t("menu.sounds.pause") }, stopItem];
-  }
-  if (practiceId === "visualization") {
-    const stopItem = { id: MENU_VISUALIZATION_STOP, title: ctx.t("menu.visualization.stop") };
-    if (mode === "paused") return [{ id: MENU_VISUALIZATION_RESUME, title: ctx.t("menu.visualization.resume") }, stopItem];
-    return [{ id: MENU_VISUALIZATION_PAUSE, title: ctx.t("menu.visualization.pause") }, stopItem];
-  }
-  const isPmr = practiceId === "pmr";
-  const stop = { id: isPmr ? MENU_PMR_STOP : MENU_STOP, title: ctx.t(isPmr ? "menu.pmr.stop" : "menu.stop") };
-  if (mode === "paused") {
-    return [{ id: isPmr ? MENU_PMR_RESUME : MENU_RESUME, title: ctx.t(isPmr ? "menu.pmr.resume" : "menu.resume") }, stop];
-  }
-  return [{ id: isPmr ? MENU_PMR_PAUSE : MENU_PAUSE, title: ctx.t(isPmr ? "menu.pmr.pause" : "menu.pause") }, stop];
-}
-
-async function setSessionMenu(ctx, mode, practiceId = "breathing") {
-  try {
-    await ctx.ui.menu.setItems(sessionMenuItems(ctx, mode, practiceId));
-  } catch (error) {
-    ctx.log.warn("session menu update failed", { reason: String(error && error.message ? error.message : error) });
-  }
-}
-
 /** Remember the picked guided pattern and mark it in Info. */
 async function selectGuidedPattern(ctx, session, patternId) {
   if (!GUIDED_PATTERN_IDS.includes(patternId)) return;
@@ -1878,13 +1828,7 @@ async function openSession(ctx, state, autoStart, practiceId) {
 
   session.onEvent((event) => {
     if (!event || state.session !== session) return;
-    if (event.type === "started" || event.type === "resumed") {
-      void setSessionMenu(ctx, "running", practiceId);
-    } else if (event.type === "paused") {
-      void setSessionMenu(ctx, "paused", practiceId);
-    } else if (event.type === "completed") {
-      void setSessionMenu(ctx, "none");
-    } else if (event.type === "patternChanged" && practiceId === "guided-breathing") {
+    if (event.type === "patternChanged" && practiceId === "guided-breathing") {
       void selectGuidedPattern(ctx, session, event.patternId);
     } else if (event.type === "patternChanged" && practiceId === "meditation") {
       void selectMeditation(ctx, session, event.patternId);
@@ -1899,7 +1843,6 @@ async function openSession(ctx, state, autoStart, practiceId) {
     } else if (event.type === "stopped") {
       if (state.session === session && event.reason !== "replaced") {
         state.session = null;
-        void setSessionMenu(ctx, "none");
       }
     }
   });
@@ -1965,13 +1908,6 @@ export function register(OpenPetsPlugin) {
         },
         () => openSession(ctx, state, true, "sounds"),
       );
-      ctx.ui.menu.onSelect((id) => {
-        const session = state.session;
-        if (!session) return;
-        if (MENU_PAUSE_IDS.has(id)) void session.pause().catch(() => undefined);
-        else if (MENU_RESUME_IDS.has(id)) void session.resume().catch(() => undefined);
-        else if (MENU_STOP_IDS.has(id)) void session.stop().catch(() => undefined);
-      });
     },
     async stop() {},
   });

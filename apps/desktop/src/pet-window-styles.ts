@@ -2621,7 +2621,6 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
       letter-spacing: 0.02em;
       user-select: none;
     }
-    }
   `;
 }
 

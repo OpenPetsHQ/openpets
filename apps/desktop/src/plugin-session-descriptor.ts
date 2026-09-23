@@ -223,7 +223,7 @@ export interface SessionPlayerTrack {
   readonly id: string;
   readonly title: string;
   readonly subtitle?: string;
-  /** Manifest-declared cover image; the bridge resolves it into `coverPath`. */
+  /** Manifest-declared cover image or SVG; the bridge resolves it into `coverPath`. */
   readonly cover?: SessionAssetRef;
   readonly coverPath?: string;
   /** Renderer-only: file URL for `coverPath`, attached by the session coordinator. */

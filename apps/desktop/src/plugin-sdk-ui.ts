@@ -157,7 +157,7 @@ export function createPluginUiApi(options: {
 
   /**
    * Player sessions stream media on the plugin's behalf: every segment must be
-   * on a host the user approved, and covers resolve to declared images.
+   * on a host the user approved, and covers resolve to declared images or SVGs.
    */
   const resolvePlayerMedia = (validated: PluginSessionDescriptor): { descriptor: PluginSessionDescriptor; mediaHosts?: ReadonlySet<string> } => {
     if (validated.kind !== "player" && validated.kind !== "soundscape") return { descriptor: validated };
@@ -173,7 +173,7 @@ export function createPluginUiApi(options: {
     const withCover = <T extends { cover?: SessionAssetRef }>(item: T): Omit<T, "cover"> & { coverPath?: string } => {
       if (!item.cover) return item;
       const { cover, ...rest } = item;
-      return { ...rest, coverPath: resolveAssetRef(cover, ["images"]).path };
+      return { ...rest, coverPath: resolveAssetRef(cover, ["images", "svgs"]).path };
     };
     if (validated.kind === "player") {
       return { descriptor: { ...validated, tracks: validated.tracks.map(withCover) }, mediaHosts: hosts };

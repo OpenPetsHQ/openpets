@@ -89,6 +89,15 @@ try {
   assert.ok(!agentBody.includes("data-openpets-check-in-button"), "agent pets must not render a Check-in action");
 
   const css = createPetWindowCss(false, 1, 1.1, "no-drag");
+  // A stray brace makes the browser drop the next rule; it once dropped the
+  // chat panel's `display: none` and left its tail visible under the pet.
+  let braceDepth = 0;
+  for (const char of css.replace(/\/\*[\s\S]*?\*\//g, "")) {
+    if (char === "{") braceDepth += 1;
+    if (char === "}") braceDepth -= 1;
+    assert.ok(braceDepth >= 0, "pet window CSS closes a block it never opened");
+  }
+  assert.equal(braceDepth, 0, "pet window CSS leaves a block open");
   const badge = ruleBlock(css, ".openpets-check-in-badge");
   assert.match(badge, /display:\s*none/, "count badge stays hidden for a single due check-in");
   const visibleBadge = ruleBlock(css, ".openpets-check-in-badge.is-visible");

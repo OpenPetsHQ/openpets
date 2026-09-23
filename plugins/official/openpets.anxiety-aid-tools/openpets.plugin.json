@@ -48,7 +48,16 @@
       "pmr-right-foot-tense": "assets/pmr/right-foot-tense.svg",
       "pmr-right-foot-release": "assets/pmr/right-foot-release.svg",
       "pmr-left-foot-tense": "assets/pmr/left-foot-tense.svg",
-      "pmr-left-foot-release": "assets/pmr/left-foot-release.svg"
+      "pmr-left-foot-release": "assets/pmr/left-foot-release.svg",
+      "visualization-mountain-peak-sunrise": "assets/visualization/mountain-peak-sunrise.svg",
+      "visualization-tranquil-forest-grove": "assets/visualization/tranquil-forest-grove.svg",
+      "visualization-peaceful-ocean-beach": "assets/visualization/peaceful-ocean-beach.svg",
+      "visualization-serene-garden-paradise": "assets/visualization/serene-garden-paradise.svg",
+      "visualization-starlit-meadow-night": "assets/visualization/starlit-meadow-night.svg",
+      "visualization-cozy-rainy-cabin": "assets/visualization/cozy-rainy-cabin.svg",
+      "visualization-misty-lakeside-dawn": "assets/visualization/misty-lakeside-dawn.svg",
+      "visualization-sunlit-desert-oasis": "assets/visualization/sunlit-desert-oasis.svg",
+      "visualization-floating-cloud-sanctuary": "assets/visualization/floating-cloud-sanctuary.svg"
     },
     "sounds": {
       "breath-in": "assets/breath-in.mp3",

@@ -54,7 +54,7 @@ export const es419: Partial<Messages> = {
   "session.mute": "Silenciar señales de respiración",
   "session.unmute": "Activar señales de respiración",
   "session.getReady": "Prepárate",
-  "session.getReadyGuidance": "Acomódate — comenzamos en un momento",
+  "session.getReadyGuidance": "Acomódate, comenzamos en un momento",
   "session.startNow": "Comenzar ya",
   "session.tense": "Tensa",
   "session.release": "Suelta",

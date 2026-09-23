@@ -597,7 +597,7 @@ export interface OpenPetsPlayerTrack {
   title: string;
   /** One-line description (1–80 chars). */
   subtitle?: string;
-  /** Manifest-declared cover image (`ctx.assets.image(...)`). */
+  /** Manifest-declared cover (`ctx.assets.image(...)` or `ctx.assets.svg(...)`). */
   cover?: OpenPetsAssetRef;
   /** Segments played in order (1–40). */
   segments: OpenPetsPlayerSegment[];
@@ -665,6 +665,7 @@ export interface OpenPetsSoundScene {
   title: string;
   /** 1–80 chars. */
   subtitle?: string;
+  /** Manifest-declared cover (`ctx.assets.image(...)` or `ctx.assets.svg(...)`). */
   cover?: OpenPetsAssetRef;
   /** 1–12 layers, at least one looping. */
   layers: OpenPetsSoundLayer[];
@@ -717,9 +718,8 @@ export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin
 export interface OpenPetsSessionHandle {
   readonly id: string;
   /**
-   * Replace the selected pattern, the pattern list, or the Info content.
-   * `patternId` and `patterns` apply to breathing sessions only; PMR and
-   * grounding sessions accept an Info-only update.
+   * Replace the Info content (any session kind), or the selected pattern and
+   * pattern list (breathing sessions only).
    */
   update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
   /** Pause the running phase clock (no-op unless a run is active). */
