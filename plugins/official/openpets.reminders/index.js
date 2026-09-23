@@ -15,6 +15,7 @@ export const REMINDER_ID_PREFIX = "reminder-";
 
 let nextReminderSequence = 0;
 const reminderOperationQueues = new WeakMap();
+const pendingCommandsShown = new WeakMap();
 
 /**
  * Serialize durable reminder operations per plugin context. The queue keeps
@@ -131,7 +132,49 @@ async function saveReminders(ctx, reminders) {
   const list = reminders.slice(0, MAX_REMINDERS);
   await ctx.storage.set("reminders", list);
   await updateStatus(ctx, list.length);
+  await syncPendingCommands(ctx, list.length);
   return list;
+}
+
+/**
+ * "View reminders" and "Clear reminders" only apply while something is
+ * pending, so they are registered only then. With nothing pending, the
+ * dynamic cancel list is emptied too.
+ */
+async function syncPendingCommands(ctx, count) {
+  const hasPending = count > 0;
+  if (pendingCommandsShown.get(ctx) === hasPending) return;
+  if (!hasPending) {
+    await ctx.commands.unregister("view-reminders");
+    await ctx.commands.unregister("clear-reminders");
+    await ctx.ui.menu.setItems([]);
+    pendingCommandsShown.set(ctx, false);
+    return;
+  }
+  await ctx.commands.register(
+    {
+      id: "view-reminders",
+      title: "$t:command.viewReminders.title",
+      description: "$t:command.viewReminders.description",
+      icon: "bell",
+      priority: -1,
+    },
+    () => showReminderList(ctx),
+  );
+  await ctx.commands.register(
+    {
+      id: "clear-reminders",
+      title: "$t:command.clearReminders.title",
+      description: "$t:command.clearReminders.description",
+      icon: "check",
+      priority: -2,
+    },
+    async () => {
+      await clearReminders(ctx);
+      await ctx.pet.speak(ctx.t("speech.cleared"));
+    },
+  );
+  pendingCommandsShown.set(ctx, true);
 }
 
 async function updateStatus(ctx, count) {
@@ -526,36 +569,13 @@ export function register(OpenPetsPlugin) {
 
       await ctx.commands.register(
         {
-          id: "view-reminders",
-          title: "$t:command.viewReminders.title",
-          description: "$t:command.viewReminders.description",
-          icon: "bell",
-        },
-        () => showReminderList(ctx),
-      );
-
-      await ctx.commands.register(
-        {
           id: "test-reminder",
           title: "$t:command.testReminder.title",
           description: "$t:command.testReminder.description",
           icon: "bell",
+          priority: -3,
         },
         () => deliver(ctx, ctx.t("reminder.testMessage")),
-      );
-
-      await ctx.commands.register(
-        {
-          id: "clear-reminders",
-          title: "$t:command.clearReminders.title",
-          description: "$t:command.clearReminders.description",
-          icon: "check",
-        },
-        async () => {
-          await clearReminders(ctx);
-          await ctx.ui.menu.setItems([]);
-          await ctx.pet.speak(ctx.t("speech.cleared"));
-        },
       );
     },
     async stop() {},

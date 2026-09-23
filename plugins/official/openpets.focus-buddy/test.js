@@ -387,4 +387,32 @@ const LOCALES = { en: JSON.parse(await readFile(new URL("./locales/en.json", imp
   overdueBreak.expectSpoke(/Welcome back/);
 }
 
+// The pet menu offers only controls that apply: live session controls at the
+// root during a session, and only "Start focus session" while idle.
+{
+  const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES, config: { focusLength: "25" }, nowMs: 1_000_000 });
+  await h.start();
+  const rootTitles = () => [...h.calls.commands.values()]
+    .filter((entry) => entry.meta.placement === "top")
+    .map((entry) => h.ctx.t(entry.meta.title.slice(3)))
+    .sort();
+  assert.deepEqual([...h.calls.commands.keys()], ["start-focus"]);
+
+  await h.runCommand("start-focus");
+  assert.deepEqual(rootTitles(), ["End focus session", "Pause focus session", "Skip to break"]);
+  assert.equal(h.calls.commands.has("start-focus"), false);
+
+  await h.runCommand("pause-resume");
+  assert.ok(rootTitles().includes("Resume focus session"));
+
+  await h.runCommand("skip-to-break");
+  assert.deepEqual(rootTitles(), ["End break", "Pause break"]);
+  assert.equal(h.calls.commands.has("start-focus"), true);
+
+  await h.runCommand("end-session");
+  assert.deepEqual([...h.calls.commands.keys()], ["start-focus"]);
+  h.expectNoErrors();
+  await h.stop();
+}
+
 console.log("openpets.focus-buddy: all checks passed.");

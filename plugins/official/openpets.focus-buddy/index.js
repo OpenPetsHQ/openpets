@@ -15,7 +15,7 @@ const contextStates = new WeakMap();
 function stateFor(ctx) {
   let state = contextStates.get(ctx);
   if (!state) {
-    state = { token: 0, queue: Promise.resolve() };
+    state = { token: 0, queue: Promise.resolve(), commandKey: null };
     contextStates.set(ctx, state);
   }
   return state;
@@ -125,7 +125,89 @@ function shouldSound(cfg) {
   return cfg.breakStyle !== "gentle" && Boolean(cfg.sound);
 }
 
+const COMMAND_IDS = ["start-focus", "pause-resume", "skip-to-break", "end-session", "show-status"];
+
+// The pet menu only offers what applies right now: live session controls sit
+// at the menu root, while starting a session and reading status stay in the
+// plugin submenu.
+function focusCommands(ctx, session) {
+  const icon = ctx.assets.icon("focus");
+  const startFocusCommand = {
+    id: "start-focus",
+    title: "$t:command.startFocus.title",
+    description: "$t:command.startFocus.description",
+    icon,
+    handler: () => startFocus(ctx),
+  };
+  if (!active(session)) return [startFocusCommand];
+
+  const paused = Boolean(session.pausedRemainingMs);
+  const pauseKey = session.mode === "focus"
+    ? (paused ? "resumeFocus" : "pauseFocus")
+    : (paused ? "resumeBreak" : "pauseBreak");
+  const endKey = session.mode === "focus" ? "endFocus" : "endBreak";
+  const commands = [
+    {
+      id: "pause-resume",
+      title: `$t:command.${pauseKey}.title`,
+      description: `$t:command.${pauseKey}.description`,
+      icon,
+      placement: "top",
+      priority: 3,
+      handler: () => pauseOrResume(ctx),
+    },
+  ];
+  if (session.mode === "focus") {
+    commands.push({
+      id: "skip-to-break",
+      title: "$t:command.skipToBreak.title",
+      description: "$t:command.skipToBreak.description",
+      icon,
+      placement: "top",
+      priority: 2,
+      handler: () => skipToBreak(ctx),
+    });
+  }
+  commands.push({
+    id: "end-session",
+    title: `$t:command.${endKey}.title`,
+    description: `$t:command.${endKey}.description`,
+    icon,
+    placement: "top",
+    priority: 1,
+    handler: () => endSession(ctx),
+  });
+  if (session.mode === "break") commands.push(startFocusCommand);
+  commands.push({
+    id: "show-status",
+    title: "$t:command.showStatus.title",
+    description: "$t:command.showStatus.description",
+    icon,
+    handler: () => showStatus(ctx),
+  });
+  return commands;
+}
+
+async function syncCommands(ctx, session, token) {
+  const commands = focusCommands(ctx, session);
+  const commandKey = commands.map((command) => `${command.id}=${command.title}`).join("|");
+  const state = stateFor(ctx);
+  if (state.commandKey === commandKey) return;
+
+  const wanted = new Set(commands.map((command) => command.id));
+  for (const commandId of COMMAND_IDS) {
+    if (!wanted.has(commandId)) await ctx.commands.unregister(commandId);
+  }
+  for (const { handler, ...command } of commands) {
+    if (!isCurrent(ctx, token)) return;
+    await ctx.commands.register(command, handler);
+  }
+  state.commandKey = commandKey;
+}
+
 async function updateStatus(ctx, session, token) {
+  if (!isCurrent(ctx, token)) return;
+  await syncCommands(ctx, session, token);
   if (!isCurrent(ctx, token)) return;
   if (!active(session)) {
     await ctx.status.set({ text: ctx.t("status.idle"), tone: "info" });
@@ -390,6 +472,7 @@ async function reconcileImpl(ctx, token) {
   if (!isCurrent(ctx, token)) return;
   if (!active(session)) return updateStatus(ctx, null, token);
   if (session.pausedRemainingMs || session.endsAt > Date.now()) {
+    await updateStatus(ctx, session, token);
     await scheduleEnd(ctx, session, token);
     await updatePinned(ctx, session, token);
     await scheduleDisplayRefresh(ctx, session, token);
@@ -512,12 +595,6 @@ export function register(OpenPetsPlugin) {
   OpenPetsPlugin.register({
     async start(ctx) {
       await reconcile(ctx);
-      const focusIcon = ctx.assets.icon("focus");
-      await ctx.commands.register({ id: "start-focus", title: "$t:command.startFocus.title", description: "$t:command.startFocus.description", icon: focusIcon }, () => startFocus(ctx));
-      await ctx.commands.register({ id: "pause-resume", title: "$t:command.pauseResume.title", description: "$t:command.pauseResume.description", icon: focusIcon }, () => pauseOrResume(ctx));
-      await ctx.commands.register({ id: "end-session", title: "$t:command.endSession.title", description: "$t:command.endSession.description", icon: focusIcon }, () => endSession(ctx));
-      await ctx.commands.register({ id: "skip-to-break", title: "$t:command.skipToBreak.title", description: "$t:command.skipToBreak.description", icon: focusIcon }, () => skipToBreak(ctx));
-      await ctx.commands.register({ id: "show-status", title: "$t:command.showStatus.title", description: "$t:command.showStatus.description", icon: focusIcon }, () => showStatus(ctx));
       await registerAssistantCapabilities(ctx);
     },
     async stop() {},

@@ -196,6 +196,21 @@ const LOCALES = {
   h.expectNoErrors();
 }
 
+// 5b) "View" and "Clear" are only offered while a reminder is pending.
+{
+  const h = createTestHarness(register, { permissions: PERMISSIONS, locales: LOCALES });
+  await h.start();
+  assert.equal(h.calls.commands.has("view-reminders"), false);
+  assert.equal(h.calls.commands.has("clear-reminders"), false);
+  await h.runCommand("reminder-15");
+  assert.equal(h.calls.commands.has("view-reminders"), true);
+  assert.equal(h.calls.commands.has("clear-reminders"), true);
+  await h.runCommand("clear-reminders");
+  assert.equal(h.calls.commands.has("view-reminders"), false);
+  assert.equal(h.calls.commands.has("clear-reminders"), false);
+  h.expectNoErrors();
+}
+
 // 6) test-reminder previews the alert without storing a reminder.
 {
   const h = createTestHarness(register, {

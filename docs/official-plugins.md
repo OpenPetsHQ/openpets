@@ -112,6 +112,9 @@ OpenPets plugins should feel like companion behaviors, not mini control panels.
 - **Commands belong on the pet.** Enabled plugins expose clear, verb-first
   commands through the default pet right-click menu. Bubble buttons and pinned
   HUDs handle in-the-moment actions such as snooze, done, feed, or dismiss.
+- **The menu reflects the current state.** Commands appear only while they
+  apply, and live controls sit at the menu root. See the
+  [pet menu rules](/plugins#pet-menu-rules).
 - **State survives sleep and restart.** Reminders, routines, focus sessions, and
   virtual-pet stats persist through `ctx.storage` and reconcile after resume.
 - **One icon style.** Official plugins declare a colour SVG under
@@ -121,6 +124,18 @@ OpenPets plugins should feel like companion behaviors, not mini control panels.
   instead (Anxiety Aid Tools uses the lotus from its logo). Icons render as
   images, so they cannot follow the app theme: avoid `currentColor` and dark
   strokes that disappear on the dark theme.
+
+## Pet menu by state
+
+How the bundled plugins apply the [pet menu rules](/plugins#pet-menu-rules):
+
+| Plugin | Menu root (live controls) | Plugin submenu |
+| --- | --- | --- |
+| Simple Timer | Running/paused: Pause *or* Resume timer, Add 5 minutes, Cancel timer. Finished: Snooze 5 minutes, Dismiss timer. | Idle or finished: Start timer… and presets. Running/paused: Start a new timer…, Show timer. |
+| Focus Buddy | Focus: Pause *or* Resume focus session, Skip to break, End focus session. Break: Pause *or* Resume break, End break. | Idle: Start focus session. Session: Show status (plus Start focus session during a break). |
+| Quick Reminders | — | Set reminder…, presets, Test reminder; View/Clear reminders only while one is pending. |
+| System Resources | — | Hide resource HUD while it is on screen, otherwise Show resource HUD; Read resources. |
+| Anxiety Aid Tools, Virtual Pet, Daily Fortune Cookie, Launch Buddy | — | Unchanged: every command applies at any time. Practice sessions have their own on-screen pause/stop controls. |
 
 ## Maintainer checklist
 

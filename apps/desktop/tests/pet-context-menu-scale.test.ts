@@ -170,6 +170,47 @@ try {
     manyTopLevelPlugins.map((plugin) => `${plugin.name} action`),
     "all nine top-level plugin commands remain accessible from the V4 pet menu",
   );
+
+  // 8. Live root-level actions stay grouped per plugin, with a divider between
+  // plugins, even when their priorities would interleave.
+  const livePlugins = [
+    {
+      id: "timer",
+      name: "Timer",
+      version: "1.0.0",
+      source: "catalog",
+      enabled: true,
+      approvedPermissions: [],
+      commands: [
+        { id: "pause", title: "Pause timer", placement: "top", priority: 3 },
+        { id: "cancel", title: "Cancel timer", placement: "top", priority: 1 },
+      ],
+    },
+    {
+      id: "focus",
+      name: "Focus",
+      version: "1.0.0",
+      source: "catalog",
+      enabled: true,
+      approvedPermissions: [],
+      commands: [{ id: "end", title: "End focus session", placement: "top", priority: 2 }],
+    },
+  ];
+  setPluginServiceForTests({
+    getSnapshot: async () => ({ plugins: livePlugins }),
+    runtime: { getPluginState: () => ({ commands: [], menuItems: [] }) },
+    stop() {},
+  } as never);
+  const liveMenu = await buildPetContextMenuTemplate({
+    label: "Hide pet",
+    click: () => {},
+    defaultPet: true,
+  });
+  assert.deepEqual(
+    liveMenu.slice(0, 5).map((item) => item.type === "separator" ? "---" : item.label),
+    ["Pause timer", "Cancel timer", "---", "End focus session", "---"],
+    "root actions are grouped per plugin and separated from the rest of the menu",
+  );
 } finally {
   setPluginServiceForTests(null);
   releaseStartupInstallLock();

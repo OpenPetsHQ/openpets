@@ -490,6 +490,57 @@ repo dev build still supports maintainer-only env paths with
 `OPENPETS_DEV_PLUGIN_ROOTS` / `OPENPETS_DEV_PLUGIN_PATHS` and
 `pnpm dev:desktop:plugins`. See [Development](/development).
 
+## Pet menu rules
+
+Plugin commands (`ctx.commands`) appear in the default pet's right-click menu.
+The host rebuilds that menu from the current registrations on every
+right-click, so the menu is exactly what the plugin has registered at that
+moment. Every plugin, official or community, should follow these rules:
+
+1. **Show only what applies now.** Register a command while it makes sense and
+   unregister it when it stops making sense. There should be no "Pause timer"
+   when no timer is running, and no "Clear reminders" when none are pending.
+   Re-register on every state change, from the one place the plugin already
+   updates its status or storage, and on startup after reconciling
+   persisted state.
+2. **Toggles show the action that will happen.** Register one command whose
+   title matches the current state ("Pause timer" while running, "Resume timer"
+   while paused), not a generic "Pause or resume". Re-registering the same `id`
+   replaces its title and handler.
+3. **Live controls go at the root; everything else goes in the submenu.**
+   Controls for something running right now (pause/resume, +5 min, cancel,
+   end session, snooze/dismiss a finished timer) use `placement: "top"`.
+   Starting something new, presets, status readouts, and settings-like
+   commands stay in the plugin's submenu (the default placement). Don't put
+   a command at the root just to make it more visible.
+4. **Root titles must read on their own.** Root items have no plugin name next
+   to them, so name the thing being acted on: "End focus session",
+   "Add 5 minutes to timer", not "End session" or "Add 5 minutes".
+5. **Order with `priority`.** Higher comes first within the plugin's own group.
+   Registration order is not a reliable order once commands come and go.
+
+Layout the host renders:
+
+```
+<plugin A root commands>        ← placement: "top", grouped per plugin
+──────────────
+<plugin B root commands>
+──────────────
+Plugin A  >                     ← submenu commands + ctx.ui.menu items
+Plugin B  >
+──────────────
+Plugins / Open Control Center / Size / Flip
+──────────────
+Hide pet
+```
+
+Keep it bounded: the menu shows at most eight commands per plugin. A command
+removed while the menu is open does nothing if clicked and is logged, so
+handlers should still tolerate being called in a state where they no longer
+apply. Grouping and dividers live in `apps/desktop/src/pet-window-context-menu.ts`.
+[Official plugins](/official-plugins) lists what each bundled plugin shows in
+each state.
+
 ## Authoring workflow (end to end)
 
 1. **Scaffold**: `openpets plugin new <name> --template <blank|reminder|ambient|ai-chat|tamagotchi|calendar>`

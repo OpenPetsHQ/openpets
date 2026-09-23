@@ -29,6 +29,7 @@ const COMMAND_IDS = [
   "pause-resume-timer",
   "add-five-minutes",
   "cancel-timer",
+  "snooze-timer",
   "show-timer",
 ];
 
@@ -119,6 +120,7 @@ function newContextState() {
     queue: Promise.resolve(),
     hud: null,
     alert: null,
+    commandKey: null,
     stopped: false,
   };
 }
@@ -139,6 +141,7 @@ function activateContext(ctx) {
   state.queue = Promise.resolve();
   state.hud = null;
   state.alert = null;
+  state.commandKey = null;
   state.stopped = false;
   activeContexts.add(ctx);
 }
@@ -185,6 +188,8 @@ async function readTimer(ctx) {
 }
 
 async function updateStatus(ctx, timer, token) {
+  if (!isCurrent(ctx, token)) return;
+  await syncCommands(ctx, timer, token);
   if (!isCurrent(ctx, token)) return;
   if (!timer) {
     await ctx.status.set({ text: ctx.t("status.ready"), tone: "info" });
@@ -694,6 +699,117 @@ async function startFromValues(ctx, values = {}) {
   await startTimer(ctx, durationMs, values.label);
 }
 
+// The pet menu only offers what applies to the current timer: live controls
+// (pause/resume, +5, cancel, or snooze/dismiss once expired) sit at the menu
+// root, while starting a timer stays in the plugin submenu.
+function timerCommands(ctx, timer) {
+  const icon = "timer";
+  const start = {
+    id: "start-timer",
+    title: timer && timer.phase !== "expired" ? "$t:command.startNew.title" : "$t:command.start.title",
+    description: "$t:command.start.description",
+    icon,
+    form: commandForm(),
+    handler: (values) => startFromValues(ctx, values),
+  };
+  const presets = PRESET_MINUTES.map((minutes) => ({
+    id: `timer-${minutes}`,
+    title: `$t:command.preset${minutes}.title`,
+    description: `$t:command.preset${minutes}.description`,
+    icon,
+    handler: () => startTimer(ctx, minutes * 60_000),
+  }));
+
+  if (!timer) return [start, ...presets];
+
+  if (timer.phase === "expired") {
+    return [
+      {
+        id: "snooze-timer",
+        title: "$t:command.snooze.title",
+        description: "$t:command.snooze.description",
+        icon,
+        placement: "top",
+        priority: 2,
+        handler: () => snoozeCurrent(ctx),
+      },
+      {
+        id: "cancel-timer",
+        title: "$t:command.dismiss.title",
+        description: "$t:command.dismiss.description",
+        icon,
+        placement: "top",
+        priority: 1,
+        handler: () => cancelTimer(ctx),
+      },
+      start,
+      ...presets,
+    ];
+  }
+
+  const paused = timer.phase === "paused";
+  return [
+    {
+      id: "pause-resume-timer",
+      title: paused ? "$t:command.resume.title" : "$t:command.pause.title",
+      description: paused ? "$t:command.resume.description" : "$t:command.pause.description",
+      icon,
+      placement: "top",
+      priority: 3,
+      handler: () => pauseOrResume(ctx),
+    },
+    {
+      id: "add-five-minutes",
+      title: "$t:command.addFive.title",
+      description: "$t:command.addFive.description",
+      icon,
+      placement: "top",
+      priority: 2,
+      handler: () => addFiveMinutes(ctx),
+    },
+    {
+      id: "cancel-timer",
+      title: "$t:command.cancel.title",
+      description: "$t:command.cancel.description",
+      icon,
+      placement: "top",
+      priority: 1,
+      handler: () => cancelTimer(ctx),
+    },
+    start,
+    {
+      id: "show-timer",
+      title: "$t:command.show.title",
+      description: "$t:command.show.description",
+      icon,
+      handler: () => showTimer(ctx),
+    },
+  ];
+}
+
+async function syncCommands(ctx, timer, token) {
+  const commands = timerCommands(ctx, timer);
+  const commandKey = commands.map((command) => `${command.id}=${command.title}`).join("|");
+  const state = stateFor(ctx);
+  if (state.commandKey === commandKey) return;
+
+  const wanted = new Set(commands.map((command) => command.id));
+  for (const commandId of COMMAND_IDS) {
+    if (!wanted.has(commandId)) await ctx.commands.unregister(commandId);
+  }
+  for (const { handler, ...command } of commands) {
+    if (!isCurrent(ctx, token)) return;
+    await ctx.commands.register(command, handler);
+  }
+  state.commandKey = commandKey;
+}
+
+async function snoozeCurrent(ctx) {
+  const timer = await readTimer(ctx);
+  if (timer?.phase !== "expired") return;
+  await snoozeExpired(ctx, timer.timerId);
+}
+
 async function stopContext(ctx) {
   const state = contextStates.get(ctx);
   if (!state) return;
@@ -732,19 +848,6 @@ export function register(OpenPetsPlugin) {
     async start(ctx) {
       activateContext(ctx);
       await reconcile(ctx);
-      await ctx.commands.register({ id: "start-timer", title: "$t:command.start.title", description: "$t:command.start.description", icon: "timer", form: commandForm(), placement: "top", featured: true }, (values) => startFromValues(ctx, values));
-      for (const minutes of PRESET_MINUTES) {
-        await ctx.commands.register({
-          id: `timer-${minutes}`,
-          title: `$t:command.preset${minutes}.title`,
-          description: `$t:command.preset${minutes}.description`,
-          icon: "timer",
-        }, () => startTimer(ctx, minutes * 60_000));
-      }
-      await ctx.commands.register({ id: "pause-resume-timer", title: "$t:command.pauseResume.title", description: "$t:command.pauseResume.description", icon: "timer" }, () => pauseOrResume(ctx));
-      await ctx.commands.register({ id: "add-five-minutes", title: "$t:command.addFive.title", description: "$t:command.addFive.description", icon: "timer" }, () => addFiveMinutes(ctx));
-      await ctx.commands.register({ id: "cancel-timer", title: "$t:command.cancel.title", description: "$t:command.cancel.description", icon: "timer" }, () => cancelTimer(ctx));
-      await ctx.commands.register({ id: "show-timer", title: "$t:command.show.title", description: "$t:command.show.description", icon: "timer" }, () => showTimer(ctx));
     },
     async stop() {
       await Promise.all([...activeContexts].map((ctx) => stopContext(ctx)));

@@ -269,6 +269,31 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   await h.stop();
 }
 
+// 7b) The pet menu offers only the controls that apply to the current timer:
+// live controls at the root while it runs, and only starters while idle.
+{
+  const h = createTestHarness(register, options(Date.now()));
+  await h.start();
+  const rootTitles = () => [...h.calls.commands.values()]
+    .filter((entry) => entry.meta.placement === "top")
+    .map((entry) => h.ctx.t(entry.meta.title.slice(3)));
+  assert.deepEqual(rootTitles(), []);
+  assert.equal(h.calls.commands.has("start-timer"), true);
+
+  await h.runCommand("timer-5");
+  assert.deepEqual(rootTitles().sort(), ["Add 5 minutes to timer", "Cancel timer", "Pause timer"]);
+  assert.equal(h.calls.commands.has("timer-5"), false, "presets are hidden while a timer runs");
+
+  await h.runCommand("pause-resume-timer");
+  assert.ok(rootTitles().includes("Resume timer"));
+
+  await h.runCommand("cancel-timer");
+  assert.deepEqual(rootTitles(), []);
+  assert.equal(h.calls.commands.has("timer-5"), true);
+  h.expectNoErrors();
+  await h.stop();
+}
+
 // 8) Invalid persisted data is ignored at the storage boundary and lifecycle
 // cleanup leaves no schedules or registered commands behind.
 {
@@ -276,7 +301,7 @@ assert.equal(parseStoredTimer({ version: 1, timerId: "timer-c", label: null, sta
   await h.ctx.storage.set("timer", { phase: "running", endsAt: "not-a-number" });
   await h.start();
   assert.equal(h.calls.schedules.size, 0);
-  assert.equal(h.calls.commands.size, 10);
+  assert.equal(h.calls.commands.size, 6);
   await h.stop();
   assert.equal(h.calls.schedules.size, 0);
   assert.equal(h.calls.commands.size, 0);
