@@ -92,6 +92,7 @@ export const en = {
   "session.references": "References",
   "session.readStudy": "Read the study",
   "session.openStudy": "PMC",
+  "session.currentChoice": "Current",
 
   // --- Confinement / Screen Recording permission (main process) ---
   "confinement.screenPermission.title": "Screen Recording permission needed",

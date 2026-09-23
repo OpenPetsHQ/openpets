@@ -20,6 +20,8 @@ export function calculateSessionOrbRadius(scaledSpriteHeight: number): number {
 }
 /** Breathing card. The CSS fallback uses this so a breath session does not open tall. */
 export const sessionBreathingCardEstimatedHeight = 268;
+/** Guided breathing card: the breathing card plus the pattern chip row. */
+export const sessionGuidedBreathingCardEstimatedHeight = 328;
 /** PMR card, including the fixed pose-illustration well and cues row. */
 export const sessionPmrCardEstimatedHeight = 537;
 export const sessionCardEstimatedHeight = sessionBreathingCardEstimatedHeight;

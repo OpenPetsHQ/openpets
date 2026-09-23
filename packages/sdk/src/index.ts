@@ -334,7 +334,7 @@ export interface OpenPetsBreathPattern {
  * Named host icons available on session Info cards:
  * `activity`, `wind`, `trending-down`, `heart-pulse`, `shield-check`,
  * `brain`, `person-standing`, `armchair`, `calendar-check`, `leaf`,
- * `sparkles`, `timer`.
+ * `sparkles`, `timer`, `square`, `moon`, `zap`.
  */
 export type OpenPetsSessionInfoIcon =
   | "activity"
@@ -348,7 +348,10 @@ export type OpenPetsSessionInfoIcon =
   | "calendar-check"
   | "leaf"
   | "sparkles"
-  | "timer";
+  | "timer"
+  | "square"
+  | "moon"
+  | "zap";
 
 /** A titled card inside an Info section (mechanism, research finding, tip). */
 export interface OpenPetsSessionInfoCard {
@@ -358,6 +361,10 @@ export interface OpenPetsSessionInfoCard {
   url?: string;
   /** Optional named host icon shown beside the title. */
   icon?: OpenPetsSessionInfoIcon;
+  /** Optional short accent line under the body (≤160 chars), e.g. "Best for: …". */
+  detail?: string;
+  /** Marks the card for the practice's current choice (e.g. the selected pattern). */
+  highlighted?: boolean;
 }
 
 /**

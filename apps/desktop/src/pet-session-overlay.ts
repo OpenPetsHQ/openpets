@@ -12,7 +12,11 @@ import {
   openDefaultPetSession,
   subscribeDefaultPetPanelState,
 } from "./default-pet-chat.js";
-import { sessionBreathingCardEstimatedHeight, sessionPmrCardEstimatedHeight } from "./default-pet-chat-geometry.js";
+import {
+  sessionBreathingCardEstimatedHeight,
+  sessionGuidedBreathingCardEstimatedHeight,
+  sessionPmrCardEstimatedHeight,
+} from "./default-pet-chat-geometry.js";
 import { t } from "./i18n/index.js";
 import { debug, info, warn } from "./logger.js";
 import { closeSessionInfoWindow, refreshSessionInfoWindowIfOpen, showSessionInfoWindow } from "./pet-session-info-window.js";
@@ -65,6 +69,7 @@ export function buildSessionChrome(): Record<string, string> {
     references: t("session.references"),
     readStudy: t("session.readStudy"),
     openStudy: t("session.openStudy"),
+    currentChoice: t("session.currentChoice"),
     tense: t("session.tense"),
     release: t("session.release"),
     groupProgress: t("session.groupProgress"),
@@ -182,7 +187,7 @@ export function openPluginSessionOverlay(options: {
     items: options.descriptor.kind === "breathing" ? options.descriptor.patterns.length : options.descriptor.steps.length,
     autoStart: options.descriptor.autoStart,
   });
-  openDefaultPetSession(options.descriptor.kind === "pmr" ? sessionPmrCardEstimatedHeight : sessionBreathingCardEstimatedHeight);
+  openDefaultPetSession(estimatedCardHeight(options.descriptor));
   sendDescriptorToRenderer();
   if (isSamePluginReplace) {
     refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
@@ -212,6 +217,9 @@ export function openPluginSessionOverlay(options: {
         patternId,
       };
       session.lastPatternId = patternId;
+      // A new pattern list can add or drop the chip row, so the carrier's
+      // height hint may change; this resizes in place when it does.
+      openDefaultPetSession(estimatedCardHeight(session.descriptor));
       sendDescriptorToRenderer();
       refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
     },
@@ -229,6 +237,13 @@ export function openPluginSessionOverlay(options: {
       finishActiveSession("user");
     },
   };
+}
+
+/** Carrier height hint: the card grows with PMR's pose well and guided breathing's pattern chips. */
+function estimatedCardHeight(descriptor: PluginSessionDescriptor): number {
+  if (descriptor.kind === "pmr") return sessionPmrCardEstimatedHeight;
+  if (descriptor.patterns.length > 1) return sessionGuidedBreathingCardEstimatedHeight;
+  return sessionBreathingCardEstimatedHeight;
 }
 
 function sendControlToRenderer(session: ActiveSessionOverlay, action: "pause" | "resume" | "stop"): void {
@@ -441,6 +456,11 @@ function parseRendererSessionEvent(payload: unknown, session: ActiveSessionOverl
     case "resumed":
       return { kind: "event", event: { type: "resumed", patternId, cycle } };
     case "patternChanged":
+      // The overlay's selection is now the live one; a later plugin update
+      // that only swaps Info must not revert it.
+      if (session.descriptor.kind === "breathing") {
+        session.descriptor = { ...session.descriptor, patternId };
+      }
       return { kind: "event", event: { type: "patternChanged", patternId } };
     case "completed":
       return { kind: "event", event: { type: "completed", patternId, cycles: clampCount(record.cycles) } };

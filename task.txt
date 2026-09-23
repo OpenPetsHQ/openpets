@@ -1,9 +1,11 @@
 OpenPets × Anxiety Aid Tools — working design
 =============================================
 
-Status: Calm 4-6 breathing is tuned. PMR is now on the same pet
-session surface (no new window). Guided patterns and custom
-patterns are still later. Do not write docs/*.md until Alvin
+Status: Calm 4-6 breathing is tuned. PMR and guided breathing
+(box, 4-7-8, energizing, quick reset) run on the same pet session
+surface (no new window). Next: grounding, then peaceful
+visualization, guided meditation, relaxing sounds (see log).
+Custom patterns still later. Do not write docs/*.md until Alvin
 signs off what is running.
 
 Source of practice knowledge: ../anxiety-aid-tools-private/ (AAT).
@@ -298,6 +300,47 @@ a first slice.
 ----------------
 
 Newest first.
+
+2026-09-22 — session renderer split + guided breathing (Alvin asked).
+  The ~1,660-line inline ui:session block in pet-preload.cjs is now
+  apps/desktop/pet-session/: session-overlay-view.cjs (shell),
+  breathing-practice.cjs, pmr-practice.cjs, orb-renderer.cjs. New
+  practices add a view module instead of kind branches everywhere.
+  Behavior-preserving: scripted old-vs-new run (26 card snapshots,
+  15 events) matched exactly. Re-check breathing + PMR in-app anyway.
+  Guided breathing = third practice (practiceId guided-breathing,
+  kind breathing): Box 4-4-4-4 ×8, Calming 4-7-8 ×4, Energizing
+  4-4-6 ×8, Quick reset 3-3-3 ×6. Pattern chips under the header
+  (name + host-derived timing), switchable any time: a live run
+  restarts on the new pattern, paused stays paused at its start,
+  after completion returns to idle. Holds say "lungs full/empty".
+  Info opens with all four patterns as cards (AAT overview style:
+  icon, what it is, "Best for" line, current one badged), then
+  shared how/science/when/notice/tips; the badge moves on pick via
+  session.update. SDK Info cards gained `detail` + `highlighted`
+  and icons square/moon/zap. Last pattern stored (lastGuidedPattern). Pet
+  command "Start guided breathing". AAT copy rewritten: no
+  "oxygen saturates blood" or Navy SEAL lines; 4-7-8 starts at four
+  rounds; disclaimer covers holds. Card estimate 328 (chip row).
+  Practice switch still cycles to the next practice (3 now) — revisit
+  as a picker once grounding lands.
+
+2026-09-22 — practice order set (Alvin), reverses the "stays on the
+  website" lines for sounds + meditation.
+  Order: grounding 5-4-3-2-1 → guided breathing → peaceful
+  visualization → guided meditation → relaxing sounds. Thought
+  labeling, fidget toys, self-tests, worksheets stay on the website.
+  Images carry meditation + sounds (AAT webp art, 65–290KB each,
+  ship in the plugin). Audio streams straight from
+  r2.anxietyaidtools.com (sounds: 43 layers / 166MB, over the 1MB
+  plugin sound cap; meditation: ~200KB segments, 11 languages).
+  R2 answers 200 + accept-ranges but sends NO CORS headers today:
+  plain <audio> streaming works; Web Audio pan/mix (sounds accents)
+  needs a CORS rule on the bucket. Pet-window CSP is media-src data:
+  only — needs https media for descriptor URLs on hosts the plugin
+  declares in manifest network.hosts.
+  Open: rights to redistribute/stream the sound layers + narration
+  in an MIT plugin; meditation is AAT-dashboard content (Pro?).
 
 2026-09-22 — PMR on the same pet session (Alvin asked to build it).
   kind: "pmr" on ctx.ui.session. Same expanded-session carrier, orb,
