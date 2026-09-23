@@ -516,11 +516,40 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
   };
 
   const setPracticeMenuOpen = (open) => {
+    const focusWasInMenu = practiceMenu.contains(document.activeElement);
     practiceMenuOpen = open && canSwitchPractice();
     card.classList.toggle("is-practice-menu-open", practiceMenuOpen);
     headerSwitch.setAttribute("aria-expanded", practiceMenuOpen ? "true" : "false");
-    if (practiceMenuOpen) renderPracticeMenu();
+    if (practiceMenuOpen) {
+      renderPracticeMenu();
+      // Menu semantics: focus enters on the current practice.
+      const options = practiceMenuOptions();
+      const current = options.find((option) => option.getAttribute("aria-checked") === "true");
+      (current ?? options[0])?.focus();
+    } else if (focusWasInMenu) {
+      headerSwitch.focus();
+    }
   };
+
+  const practiceMenuOptions = () => Array.from(practiceMenu.querySelectorAll(".session-practice-option"));
+
+  practiceMenu.addEventListener("keydown", (event) => {
+    const options = practiceMenuOptions();
+    if (options.length === 0) return;
+    const index = options.indexOf(document.activeElement);
+    let next = -1;
+    if (event.key === "ArrowDown") next = (index + 1) % options.length;
+    else if (event.key === "ArrowUp") next = (index - 1 + options.length) % options.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = options.length - 1;
+    else if (event.key === "Tab") {
+      setPracticeMenuOpen(false);
+      return;
+    }
+    if (next < 0) return;
+    event.preventDefault();
+    options[next].focus();
+  });
 
   const renderPracticeMenu = () => {
     practiceMenu.textContent = "";
@@ -528,6 +557,8 @@ function installDefaultPetSession({ ipcRenderer, escapeHtml }) {
     for (const choice of descriptor.practices ?? []) {
       const option = el("button", "session-practice-option");
       option.type = "button";
+      // Arrow keys move between options; Tab leaves the menu.
+      option.tabIndex = -1;
       option.setAttribute("role", "menuitemradio");
       const isCurrent = choice.id === currentId;
       option.setAttribute("aria-checked", isCurrent ? "true" : "false");

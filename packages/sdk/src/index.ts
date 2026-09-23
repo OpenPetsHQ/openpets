@@ -602,7 +602,11 @@ export type OpenPetsSessionStopReason = "user" | "closed" | "replaced" | "plugin
 /** Live handle to the session overlay. */
 export interface OpenPetsSessionHandle {
   readonly id: string;
-  /** Replace the selected pattern, the pattern list, or the Info content. */
+  /**
+   * Replace the selected pattern, the pattern list, or the Info content.
+   * `patternId` and `patterns` apply to breathing sessions only; PMR and
+   * grounding sessions accept an Info-only update.
+   */
   update(patch: { patternId?: string; patterns?: OpenPetsBreathPattern[]; info?: OpenPetsSessionInfo }): Promise<void>;
   /** Pause the running phase clock (no-op unless a run is active). */
   pause(): Promise<void>;

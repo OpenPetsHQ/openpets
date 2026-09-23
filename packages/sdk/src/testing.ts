@@ -522,12 +522,11 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       session: async (spec) => {
         requirePermission("ui:session");
         const id = newId("session");
-        const patternId =
-          spec.practiceId ??
-          ("patternId" in spec ? spec.patternId : undefined) ??
-          ("patterns" in spec ? spec.patterns[0]?.id : undefined) ??
-          ("steps" in spec ? spec.steps[0]?.id : undefined) ??
-          "";
+        // Match the host: breathing events carry the selected pattern, other
+        // kinds carry the kind itself ("pmr", "grounding").
+        const patternId = spec.kind === "breathing"
+          ? spec.patternId ?? spec.patterns[0]?.id ?? ""
+          : spec.kind;
         let onEvent: ((event: OpenPetsSessionEvent) => void) | undefined;
         // Auto-start delivers on subscription so plugins that attach their
         // handler right after `await ctx.ui.session(...)` never miss it.
@@ -535,7 +534,11 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
         const cycle = 0;
         return {
           id,
-          update: async (patch) => { void patch; },
+          update: async (patch) => {
+            if (spec.kind !== "breathing" && (patch.patterns !== undefined || patch.patternId !== undefined)) {
+              throw new Error("Session patterns can only be updated on breathing sessions.");
+            }
+          },
           pause: async () => { onEvent?.({ type: "paused", patternId, cycle }); },
           resume: async () => { onEvent?.({ type: "resumed", patternId, cycle }); },
           stop: async () => { onEvent?.({ type: "stopped", reason: "user", patternId, cycle }); },

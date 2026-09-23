@@ -209,7 +209,16 @@ export function openPluginSessionOverlay(options: {
     async update(patch: PluginSessionUpdate): Promise<void> {
       if (session.closed || activeSession !== session) throw new Error("Plugin session overlay is no longer open.");
       if (session.descriptor.kind !== "breathing") {
-        throw new Error("Session update is only supported for breathing sessions.");
+        // PMR and grounding have no patterns; only their Info can change.
+        if (patch.patterns !== undefined || patch.patternId !== undefined) {
+          throw new Error("Session patterns can only be updated on breathing sessions.");
+        }
+        if (patch.info !== undefined) {
+          session.descriptor = { ...session.descriptor, info: patch.info };
+          sendDescriptorToRenderer();
+          refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
+        }
+        return;
       }
       const currentBreathing = session.descriptor;
       const patterns = patch.patterns ?? currentBreathing.patterns;
