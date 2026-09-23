@@ -337,7 +337,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `local-ipc-paths.ts`: Platform-specific socket paths and discovery file locations
 
 **Capture (dev only)**:
-- `capture-session.ts`: Dev-only screenshot session driven by `scripts/capture.mjs` via `OPENPETS_CAPTURE_SESSION_DIR` (ignored when packaged): isolated userData + sRGB color profile before app ready, a private Unix control socket separate from local IPC, plugin-command/say/react/quit handlers, chat panel/send/clear and Chat/Talk button handlers, provider listing and first-profile auto-selection, and default-pet-window `capturePage()` shots written as trimmed PNGs (see `docs/screenshots.md`)
+- `capture-session.ts`: Dev-only screenshot session driven by `scripts/capture.mjs` via `OPENPETS_CAPTURE_SESSION_DIR` (ignored when packaged): isolated userData + sRGB color profile before app ready, a private Unix control socket separate from local IPC, plugin-command/say/react/quit handlers, chat panel/send/clear and Chat/Talk button handlers, provider listing and first-profile auto-selection, Teams enroll/approve/sync against a local Teams API, default-pet selection, check-in card opening, Control Center opening/sizing, selector-based UI click/type for staged states, and pet- or Control Center-window `capturePage()` shots written as trimmed PNGs (see `docs/screenshots.md`)
 - `capture-image-core.ts`: Pure alpha-bounds detection and even-padding re-framing for capture bitmaps
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution
 

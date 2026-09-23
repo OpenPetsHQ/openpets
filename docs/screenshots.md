@@ -31,7 +31,7 @@ runs).
 
 | Command | What it does |
 |---------|--------------|
-| `start [--plugins a,b] [--keep] [--no-build]` | Build the desktop app, launch the capture instance, wait for plugins and the pet. Starts from an empty profile unless `--keep`. Without `--plugins`, every official plugin loads. |
+| `start [--plugins a,b] [--keep] [--no-build] [--teams-api url]` | Build the desktop app, launch the capture instance, wait for plugins and the pet. Starts from an empty profile unless `--keep`. Without `--plugins`, every official plugin loads. `--teams-api` points the instance at a Teams API. |
 | `restart [same flags]` | `stop` then `start`: the reset between unrelated shots. |
 | `stop` | Quit the capture instance. |
 | `status` | Plugins, enabled/broken state, current command ids, pet visibility. |
@@ -42,7 +42,12 @@ runs).
 | `chat clear` | Forget earlier conversation history so it doesn't shape new replies. |
 | `buttons <chat\|talk\|chat,talk\|none>` | Show the pet's Chat/Talk buttons (off by default). |
 | `providers [auto]` | List the capture profile's provider profiles and selections; `auto` selects the first matching profile for each empty role (text, stt, tts). |
-| `shot <name> [--padding pt] [--settle ms] [--out dir]` | Capture. `--padding` is in points (default 24), `--settle` waits for renders and CSS transitions first (default 250 ms), `--out` overrides `.capture/shots/`. |
+| `pet select <petId>` | Make an installed pet (for example a Team pet) the default pet. |
+| `ui click <selector>` / `ui type <selector> <text>` / `ui scroll <selector>` | Drive renderer UI in the pet window (or `--window control-center`) for staged states, such as a filled-in check-in card. The renderer's own event listeners handle it. |
+| `control-center <route> [--width px --height px]` | Open the Control Center on a route (e.g. `teams`) at a fixed content size (default 1180×800). |
+| `teams enroll` / `teams approve` / `teams sync` | Enroll into the Teams showcase organization, approve requested Team plugin permissions, sync Team Pack and check-ins (see below). |
+| `check-in` | Open the pet's check-in card. |
+| `shot <name> [--window pet\|control-center] [--padding pt] [--settle ms] [--out dir]` | Capture. `--window control-center` shoots the opaque Control Center as-is (no padding); pet shots are trimmed with `--padding` points (default 24). `--settle` waits for renders and CSS transitions first (default 250 ms), `--out` overrides `.capture/shots/`. |
 | `run <scenario.json \| folder>` | Run a scripted scenario, or every scenario in a folder (below). |
 
 You can mix manual and scripted work: click through the pet's menu yourself to
@@ -80,7 +85,9 @@ state a kept profile may or may not have), `{ "say": "…", "reaction": "…" }`
 `{ "wait": ms }`, `{ "shot": name, "settleMs"?, "padding"? }`,
 `{ "chat": "collapsed" | "compact" | "expanded" | "clear" }`,
 `{ "chatSend": "…", "noWait"? }`, `{ "buttons": ["chat", "talk"] }`,
-`{ "providers": "auto" }`, or
+`{ "providers": "auto" }`, `{ "pet": petId }`, `{ "click": selector }`,
+`{ "type": selector, "text": "…" }`, `{ "scroll": selector }`, `{ "teams": "enroll" | "approve" | "sync" }`,
+`{ "checkIn": true }`, `{ "controlCenter": route, "width"?, "height"? }`, or
 `{ "restart": true }`. Set `"keepProfile": true` to keep the profile across the
 scenario's restarts. The runner script's header documents the same shape.
 
@@ -111,6 +118,30 @@ tool-use turns (a reminder and a focus session, handled by the loaded
 Reminders and Focus Buddy plugins; Simple Timer has no assistant tools).
 Replies come from a real model, so the wording differs every run; re-run until
 you like an answer.
+
+## OpenPets Teams
+
+Teams screenshots use the Teams showcase organization (Harbor Studio), which
+lives in the `teams/` repository. Web dashboard shots come from there; this
+session covers the desktop side:
+
+```sh
+cd teams && bun run dev:showcase          # keep running
+pnpm capture run scripts/capture-scenarios/teams/desktop.json
+```
+
+The scenario sets `teamsApi`, so the capture instance talks to the showcase
+API. `teams enroll` plays both sides of a join link: it starts the enrollment
+intent over HTTP the way the browser does, then completes it in the app
+through the real desktop flow as the showcase's desktop persona (Alex Rivera),
+runs `bun run showcase:desktop-history` so that desktop has a personal check-in
+history, and syncs. The scenario then approves the Team plugins, switches to
+the Team pet (Luna TechBot), and shoots the check-in offer, the empty and
+filled-in check-in card, and the Control Center Teams page (top, and scrolled
+to Team Pets and Team Plugins). Scenarios in
+`scripts/capture-scenarios/teams/` are skipped by a plain `run` of the scenario
+folder because they need the showcase running. See `teams/docs/manual-testing.md`
+for the dashboard shots.
 
 ## How it works
 

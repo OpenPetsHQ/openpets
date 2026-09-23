@@ -6,12 +6,17 @@ import { dirname, isAbsolute, join } from "node:path";
 
 import { updatePreferences } from "./app-state.js";
 import { frameVisibleContent } from "./capture-image-core.js";
+import { resolveDevControlCenterRoute } from "./control-center-route.js";
 import { collapseDefaultPetChat, expandDefaultPetChat, setDefaultPetChatCompactOpen } from "./default-pet-chat.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetWindowForPlugins, isDefaultPetVisible, refreshDefaultPetContent } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetWindowForPlugins, isDefaultPetVisible, openDefaultPetManagerCheckIn, refreshDefaultPetContent } from "./default-pet-controller.js";
 import { isRecord, validateReaction, validateSayMessage } from "./local-ipc-protocol.js";
 import { debug, info, warn } from "./logger.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
+import { getManagerCheckInService } from "./manager-check-in-service.js";
+import { setDefaultInstalledPet } from "./pet-installation.js";
 import { getPluginPlatformSettings, profileSupportsRole, selectProviderProfile, type ProviderRole } from "./plugin-platform-settings.js";
+import { getTeamService, type TeamServiceSnapshot } from "./team-service.js";
+import { getControlCenterWindow, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
 import { refreshPetGazePreference } from "./pet-window-gaze.js";
 import type { PluginService } from "./plugin-service.js";
 
@@ -127,6 +132,18 @@ function createHandlers(pluginService: PluginService, pluginStartup: PluginStart
     ["chat.send", async (params) => sendChatMessage(params)],
     ["chat.clear", async () => clearChatHistory()],
     ["pet.buttons", async (params) => setPetButtons(params)],
+    ["control-center.open", async (params) => openControlCenter(params)],
+    ["teams.enroll", async (params) => enrollInTeam(params)],
+    ["teams.approve", async () => approveTeamPlugins()],
+    ["teams.sync", async () => syncTeam()],
+    ["pet.select", async (params) => selectPet(params)],
+    ["ui.click", async (params) => clickInWindow(params)],
+    ["ui.type", async (params) => typeInWindow(params)],
+    ["ui.scroll", async (params) => scrollInWindow(params)],
+    ["check-in.open", async () => {
+      openDefaultPetManagerCheckIn();
+      return { opened: true };
+    }],
     ["providers", async () => describeProviders()],
     ["providers.auto", async () => selectFirstProviders()],
     ["shot", async (params) => takeShot(params)],
@@ -230,6 +247,133 @@ async function clearChatHistory(): Promise<unknown> {
   return { cleared: true };
 }
 
+const defaultControlCenterSize = { width: 1180, height: 800 };
+
+async function openControlCenter(params: Record<string, unknown>): Promise<unknown> {
+  const resolved = resolveDevControlCenterRoute(requireString(params, "route"), false);
+  if (resolved?.kind === "route") {
+    openControlCenterWindow(resolved.route);
+  } else if (resolved?.kind === "target") {
+    openControlCenterWindowTarget(resolved.target);
+  } else {
+    throw new Error("\"route\" is not a Control Center route.");
+  }
+  const window = getControlCenterWindow();
+  if (!window) throw new Error("The Control Center window did not open.");
+  await waitUntil(() => window.isVisible(), "the Control Center window to show");
+  const width = optionalNumber(params, "width", defaultControlCenterSize.width, 640, 2400);
+  const height = optionalNumber(params, "height", defaultControlCenterSize.height, 480, 1600);
+  window.setContentSize(Math.round(width), Math.round(height));
+  return { route: params.route, width, height };
+}
+
+/**
+ * Completes Teams enrollment through the real desktop flow: the deep link
+ * stores the pending intent, then the display name is submitted exactly as the
+ * Control Center Teams route does.
+ */
+async function enrollInTeam(params: Record<string, unknown>): Promise<unknown> {
+  const intentId = requireString(params, "intentId");
+  const displayName = requireString(params, "displayName");
+  const teamService = getTeamService();
+  if (!teamService.handleDeepLink(`openpets://teams/enroll?intent=${encodeURIComponent(intentId)}`)) {
+    throw new Error("The enrollment intent was rejected.");
+  }
+  await waitForTeamSnapshot(teamService.getSnapshot.bind(teamService), (snapshot) => snapshot.pendingEnrollmentStatus !== null);
+  const enrolled = await teamService.submitEnrollment(displayName);
+  if (!enrolled.enrolled) throw new Error(enrolled.lastError ?? "Teams enrollment did not complete.");
+  info("capture", "teams enrolled", { organizationId: enrolled.organizationId });
+  return summarizeTeam(await teamService.syncNow());
+}
+
+async function approveTeamPlugins(): Promise<unknown> {
+  const teamService = getTeamService();
+  let snapshot = teamService.getSnapshot();
+  for (const plugin of snapshot.teamPlugins) {
+    if (!plugin.permissionBlocked || !plugin.approvalToken) continue;
+    snapshot = await teamService.approveTeamPluginPermissions(plugin.id, plugin.approvalToken);
+  }
+  return summarizeTeam(snapshot);
+}
+
+async function syncTeam(): Promise<unknown> {
+  const snapshot = await getTeamService().syncNow();
+  await getManagerCheckInService().syncNow();
+  return summarizeTeam(snapshot);
+}
+
+function summarizeTeam(snapshot: TeamServiceSnapshot): unknown {
+  return {
+    enrolled: snapshot.enrolled,
+    organizationName: snapshot.organizationName,
+    installationId: snapshot.installationId,
+    appliedRevision: snapshot.appliedRevision,
+    pendingRevision: snapshot.pendingRevision,
+    teamPets: snapshot.teamPets.map((pet) => pet.id),
+    teamPlugins: snapshot.teamPlugins.map((plugin) => ({ id: plugin.id, enabled: plugin.enabled, blocked: plugin.permissionBlocked })),
+    lastError: snapshot.lastError ?? null,
+  };
+}
+
+async function waitForTeamSnapshot(read: () => TeamServiceSnapshot, ready: (snapshot: TeamServiceSnapshot) => boolean): Promise<void> {
+  await waitUntil(() => ready(read()), "the Teams enrollment preview");
+}
+
+async function waitUntil(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${description}.`);
+    await delay(100);
+  }
+}
+
+async function selectPet(params: Record<string, unknown>): Promise<unknown> {
+  const petId = requireString(params, "petId");
+  await setDefaultInstalledPet(petId);
+  refreshDefaultPetContent();
+  return { petId };
+}
+
+/**
+ * Screenshot staging only: drives renderer UI the way a click or keystrokes
+ * would (the renderer's own listeners handle the events), for states such as
+ * a filled-in check-in card that no command reaches.
+ */
+async function clickInWindow(params: Record<string, unknown>): Promise<unknown> {
+  const selector = requireString(params, "selector");
+  const clicked = await captureTargetWindow(params).webContents.executeJavaScript(
+    `(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element) return false; element.click(); return true; })()`,
+  );
+  if (clicked !== true) throw new Error(`No element matches ${selector}.`);
+  return { clicked: selector };
+}
+
+async function typeInWindow(params: Record<string, unknown>): Promise<unknown> {
+  const selector = requireString(params, "selector");
+  const text = typeof params.text === "string" ? params.text : (() => { throw new Error("\"text\" must be a string."); })();
+  const typed = await captureTargetWindow(params).webContents.executeJavaScript(
+    `(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element || !("value" in element)) return false; element.focus(); element.value = ${JSON.stringify(text)}; element.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
+  );
+  if (typed !== true) throw new Error(`No text field matches ${selector}.`);
+  return { typed: selector };
+}
+
+async function scrollInWindow(params: Record<string, unknown>): Promise<unknown> {
+  const selector = requireString(params, "selector");
+  const scrolled = await captureTargetWindow(params).webContents.executeJavaScript(
+    `(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element) return false; element.scrollIntoView({ block: "start" }); return true; })()`,
+  );
+  if (scrolled !== true) throw new Error(`No element matches ${selector}.`);
+  return { scrolled: selector };
+}
+
+function captureTargetWindow(params: Record<string, unknown>): BrowserWindow {
+  const target = params.window === undefined ? "pet" : requireString(params, "window");
+  const window = target === "pet" ? getDefaultPetWindowForPlugins() : target === "control-center" ? getControlCenterWindow() : null;
+  if (!window) throw new Error(`The ${target} window is not open.`);
+  return window;
+}
+
 const providerRoles: readonly ProviderRole[] = ["text", "stt", "tts"];
 
 function describeProviders(): unknown {
@@ -273,13 +417,12 @@ async function takeShot(params: Record<string, unknown>): Promise<unknown> {
   if (!isAbsolute(outputPath) || !outputPath.endsWith(".png")) {
     throw new Error("Shot path must be an absolute .png path.");
   }
-  const paddingPoints = optionalNumber(params, "padding", defaultShotPaddingPoints, 0, maxShotPaddingPoints);
+  const window = captureTargetWindow(params);
+  if (!window.isVisible()) throw new Error("The window is not visible.");
+  // The Control Center is opaque, so its shots are the window as-is.
+  const defaultPadding = window === getControlCenterWindow() ? 0 : defaultShotPaddingPoints;
+  const paddingPoints = optionalNumber(params, "padding", defaultPadding, 0, maxShotPaddingPoints);
   const settleMs = optionalNumber(params, "settleMs", defaultSettleMs, 0, maxSettleMs);
-
-  const window = getDefaultPetWindowForPlugins();
-  if (!window || !window.isVisible()) {
-    throw new Error("The default pet is not visible.");
-  }
   await delay(settleMs);
 
   const image = await window.webContents.capturePage();
