@@ -173,6 +173,12 @@ export function TeamManagerCheckInSection({ api }: TeamManagerCheckInSectionProp
     void loadSnapshot();
   }, [loadSnapshot]);
 
+  // A background sync (for example right after enrollment) must replace the
+  // "synchronizing" state without the user pressing Sync.
+  useEffect(() => api.onManagerCheckInsRefresh?.(() => {
+    void loadSnapshot();
+  }), [api, loadSnapshot]);
+
   const handleTogglePause = async (paused: boolean) => {
     if (!api.setManagerCheckInDevicePaused) {
       setErrorMessage(t("teams.checkIn.error.pauseNotAvailable"));
