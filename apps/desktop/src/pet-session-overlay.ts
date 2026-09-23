@@ -217,6 +217,9 @@ export function openPluginSessionOverlay(options: {
         patternId,
       };
       session.lastPatternId = patternId;
+      // A new pattern list can add or drop the chip row, so the carrier's
+      // height hint may change; this resizes in place when it does.
+      openDefaultPetSession(estimatedCardHeight(session.descriptor));
       sendDescriptorToRenderer();
       refreshSessionInfoWindowIfOpen(session.descriptor, buildSessionChrome());
     },
