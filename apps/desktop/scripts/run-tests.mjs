@@ -103,8 +103,10 @@ async function main() {
 
   // 5. Run remaining dist checks
   console.log("\n[5/5] Running dist checks...");
+  // Rebuild the full app (main + renderer), not just main: `pnpm release:desktop`
+  // packages dist/ right after `check`, and v4.0.0 shipped without dist/renderer.
   await rm(join(rootDir, "dist"), { force: true, recursive: true });
-  await run("pnpm", ["build:main"]);
+  await run("pnpm", ["build"]);
   await assertArtifactsExist("dist check", distChecks);
   for (const check of distChecks) {
     console.log(`- ${relativePath(rootDir, check)}`);

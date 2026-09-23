@@ -33,7 +33,8 @@ Run the suite with `pnpm test` (builds first, then each package's tests) and
 
 The desktop runner (`apps/desktop/scripts/run-tests.mjs`) orchestrates:
 preload syntax checks → test compilation → behavior tests → contract tests →
-dist checks. Three buckets:
+dist checks. The dist-check step wipes `dist/` and rebuilds the full app
+(main and renderer), so a finished `check` leaves a packageable `dist/`. Three buckets:
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
