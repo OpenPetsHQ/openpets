@@ -59,8 +59,8 @@ Those defaults are defined in `apps/desktop/src/bundled-plugins.ts` and consumed
 
 | Default | Plugins |
 | --- | --- |
-| Bundled with the app | Quick Reminders, Simple Timer, Anxiety Aid Tools, Focus Buddy, Launch Buddy, Virtual Pet, System Resources |
-| Enabled by default | Quick Reminders, Simple Timer, Anxiety Aid Tools, Focus Buddy, Launch Buddy |
+| Bundled with the app | Quick Reminders, Simple Timer, Anxiety Aid Tools, Focus Buddy, Launch Buddy, Daily Fortune Cookie, Virtual Pet, System Resources |
+| Enabled by default | Quick Reminders, Simple Timer, Anxiety Aid Tools, Focus Buddy, Launch Buddy, Daily Fortune Cookie |
 | Bundled but disabled by default | Virtual Pet, System Resources |
 
 A bundled plugin's saved enabled state wins over the default. A plugin newly
@@ -78,8 +78,9 @@ install.
 The bundled plugins below expose their useful operations as typed Pet
 Assistant capabilities when enabled. Their assistant operations use the same
 durable domain state as their pet-menu controls, while the host conversation
-owns the spoken or chat response. Simple Timer and Anxiety Aid Tools do not
-register assistant capabilities yet; they are driven from the pet menu.
+owns the spoken or chat response. Simple Timer, Anxiety Aid Tools and Daily
+Fortune Cookie do not register assistant capabilities yet; they are driven from
+the pet menu.
 
 | Plugin | Assistant capabilities |
 | --- | --- |

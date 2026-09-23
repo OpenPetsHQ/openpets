@@ -1,6 +1,6 @@
 {
   "plugin.name": "Anxiety Aid Tools",
-  "plugin.description": "ペットのまわりで行うガイド付きのリラックス習慣。呼吸や筋肉の弛緩から始めましょう。https://anxietyaidtools.com/ の OpenPets コンパニオンです。",
+  "plugin.description": "ペットのまわりで行うリラックス習慣：呼吸、筋弛緩、グラウンディング、ガイド付き瞑想、イメージ瞑想、リラックスサウンド。https://anxietyaidtools.com/ の OpenPets コンパニオンです。",
   "command.start.description": "リラックス 4-6 呼吸セッションを開始します。",
   "command.startPmr.description": "漸進的筋弛緩法セッションを開始します。",
   "command.startGuided.description": "前回のパターンでガイド付き呼吸を開始します。",

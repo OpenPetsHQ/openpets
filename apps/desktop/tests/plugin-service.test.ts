@@ -402,7 +402,7 @@ await localScenario("bundled seeding copies manifest and preserves user choices"
 
 await localScenario("bundled defaults enable the companion lineup but not Virtual Pet on a fresh install", async ({ userData, root, store }) => {
   const official = join(root, "official");
-  const enabledIds = ["openpets.simple-timer", "openpets.anxiety-aid-tools", "openpets.focus-buddy", "openpets.launch-buddy"];
+  const enabledIds = ["openpets.simple-timer", "openpets.anxiety-aid-tools", "openpets.focus-buddy", "openpets.launch-buddy", "openpets.fortune-cookie"];
   for (const id of [...enabledIds, "openpets.virtual-pet"]) {
     const source = join(official, id);
     writeManifest(source, { manifestVersion: 2, id, name: id, version: "1.0.0", runtime: "javascript", sdkVersion: "1.0.0", entry: "index.js", permissions: ["pet:speak"] });

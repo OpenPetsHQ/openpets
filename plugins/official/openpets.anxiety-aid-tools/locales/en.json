@@ -1,6 +1,6 @@
 {
   "plugin.name": "Anxiety Aid Tools",
-  "plugin.description": "Guided calm practices around your pet, starting with breathing and muscle relaxation. The OpenPets companion of https://anxietyaidtools.com/.",
+  "plugin.description": "Calm practices around your pet: breathing, muscle relaxation, grounding, guided meditation, visualization, and relaxing sounds. The OpenPets companion of https://anxietyaidtools.com/.",
   "command.start.description": "Start a calm 4-6 breathing session.",
   "command.startPmr.description": "Start a progressive muscle relaxation session.",
   "command.startGuided.description": "Start guided breathing with your last pattern.",
