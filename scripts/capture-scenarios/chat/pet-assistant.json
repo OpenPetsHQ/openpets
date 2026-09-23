@@ -1,0 +1,23 @@
+{
+  "plugins": ["openpets.reminders", "openpets.focus-buddy"],
+  "keepProfile": true,
+  "steps": [
+    { "cmd": ["openpets.focus-buddy", "end-session"], "optional": true },
+    { "cmd": ["openpets.reminders", "clear-reminders"], "optional": true },
+    { "restart": true },
+    { "providers": "auto" },
+    { "chat": "clear" },
+    { "buttons": ["chat", "talk"] },
+    { "shot": "assistant-buttons", "settleMs": 800 },
+    { "chat": "compact" },
+    { "shot": "assistant-compact", "settleMs": 1000 },
+    { "chat": "expanded" },
+    { "shot": "assistant-empty", "settleMs": 1200 },
+    { "chatSend": "What can you do?" },
+    { "shot": "assistant-reply", "settleMs": 1500 },
+    { "chatSend": "Remind me in 10 minutes to stretch" },
+    { "shot": "assistant-tool-reminder", "settleMs": 1500 },
+    { "chatSend": "Start a 25 minute focus session" },
+    { "shot": "assistant-tool-focus", "settleMs": 1500 }
+  ]
+}

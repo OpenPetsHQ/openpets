@@ -1,0 +1,14 @@
+{
+  "plugins": ["openpets.simple-timer"],
+  "steps": [
+    { "cmd": ["openpets.simple-timer", "start-timer", { "preset": "25", "label": "Deep work" }] },
+    { "shot": "simple-timer-running", "settleMs": 1200 },
+    { "cmd": ["openpets.simple-timer", "pause-resume-timer"] },
+    { "shot": "simple-timer-paused", "settleMs": 1200 },
+    { "cmd": ["openpets.simple-timer", "cancel-timer"] },
+    { "wait": 4500 },
+    { "cmd": ["openpets.simple-timer", "start-timer", { "customMinutes": 1, "label": "Tea" }] },
+    { "wait": 61000 },
+    { "shot": "simple-timer-done", "settleMs": 1500 }
+  ]
+}

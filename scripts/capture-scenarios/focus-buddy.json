@@ -1,0 +1,7 @@
+{
+  "plugins": ["openpets.focus-buddy"],
+  "steps": [
+    { "cmd": ["openpets.focus-buddy", "start-focus"] },
+    { "shot": "focus-buddy-running", "settleMs": 1500 }
+  ]
+}

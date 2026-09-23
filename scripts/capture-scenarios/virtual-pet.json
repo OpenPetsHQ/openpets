@@ -1,0 +1,8 @@
+{
+  "plugins": ["openpets.virtual-pet"],
+  "steps": [
+    { "shot": "virtual-pet-stats", "settleMs": 1500 },
+    { "cmd": ["openpets.virtual-pet", "feed"] },
+    { "shot": "virtual-pet-fed", "settleMs": 1200 }
+  ]
+}

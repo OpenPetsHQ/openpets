@@ -1,0 +1,7 @@
+{
+  "plugins": ["openpets.fortune-cookie"],
+  "steps": [
+    { "cmd": ["openpets.fortune-cookie", "today-fortune"] },
+    { "shot": "fortune-cookie-today", "settleMs": 1500 }
+  ]
+}

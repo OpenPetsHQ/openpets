@@ -21,6 +21,7 @@
     "dev:desktop": "pnpm --filter @open-pets/desktop dev",
     "dev:desktop:control-center": "pnpm --filter @open-pets/desktop dev:control-center",
     "dev:desktop:plugins": "pnpm --filter @open-pets/desktop dev:plugins",
+    "capture": "node scripts/capture.mjs",
     "dev:desktop:third-parties": "OPENPETS_DISABLE_PLUGIN_CATALOG=1 OPENPETS_DEV_PLUGIN_ROOTS=\"$(pwd)/third-parties\" pnpm dev:desktop",
     "package:desktop:dir": "pnpm build && pnpm --filter @open-pets/desktop package:dir",
     "package:desktop": "pnpm build && pnpm --filter @open-pets/desktop package",

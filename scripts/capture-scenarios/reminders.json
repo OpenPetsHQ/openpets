@@ -1,0 +1,9 @@
+{
+  "plugins": ["openpets.reminders"],
+  "steps": [
+    { "cmd": ["openpets.reminders", "set-reminder", { "message": "Stretch and drink some water", "hours": 0, "minutes": 1 }] },
+    { "shot": "reminders-set", "settleMs": 800 },
+    { "wait": 61000 },
+    { "shot": "reminders-due", "settleMs": 1500 }
+  ]
+}

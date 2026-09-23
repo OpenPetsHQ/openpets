@@ -1,0 +1,25 @@
+{
+  "plugins": ["openpets.anxiety-aid-tools"],
+  "steps": [
+    { "cmd": ["openpets.anxiety-aid-tools", "start-breathing"] },
+    { "shot": "anxiety-aid-breathing", "settleMs": 6000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-guided-breathing"] },
+    { "shot": "anxiety-aid-guided-breathing", "settleMs": 6000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-pmr"] },
+    { "shot": "anxiety-aid-muscle-relaxation", "settleMs": 6000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-grounding"] },
+    { "shot": "anxiety-aid-grounding", "settleMs": 4000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-meditation"] },
+    { "shot": "anxiety-aid-meditation", "settleMs": 6000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-visualization"] },
+    { "shot": "anxiety-aid-visualization", "settleMs": 6000 },
+    { "restart": true },
+    { "cmd": ["openpets.anxiety-aid-tools", "start-sounds"] },
+    { "shot": "anxiety-aid-sounds", "settleMs": 6000 }
+  ]
+}
