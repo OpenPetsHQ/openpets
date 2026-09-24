@@ -40,10 +40,17 @@ describe("computeEffectiveWaylandBackend (production predicate)", () => {
 });
 
 describe("shouldPetWindowBeFocusable", () => {
-  it("keeps passive Linux pet windows non-focusable", () => {
+  it("keeps passive native-Wayland pet windows non-focusable", () => {
     assert.equal(shouldPetWindowBeFocusable("linux", true, false), false);
-    assert.equal(shouldPetWindowBeFocusable("linux", false, false), false);
     assert.equal(shouldPetWindowBeFocusable("linux", true), false);
+  });
+
+  it("keeps passive X11/XWayland pet windows focusable (#227)", () => {
+    // A window created with focusable: false latches WM_HINTS.input = False
+    // at map time on X11; some window managers (KWin included) never honor a
+    // later setFocusable(true), so passive X11 windows must start focusable.
+    assert.equal(shouldPetWindowBeFocusable("linux", false, false), true);
+    assert.equal(shouldPetWindowBeFocusable("linux", false), true);
   });
 
   it("allows Linux pet windows with interactive inputs to receive focus", () => {

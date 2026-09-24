@@ -34,19 +34,26 @@ export function computeEffectiveWaylandBackend(
 /**
  * Whether the transparent pet overlay should be allowed to receive input focus.
  *
- * Linux compositors, especially native Wayland compositors such as Niri, can
- * treat the pet as a normal focusable toplevel unless Electron opts it out.
- * Keep passive overlays non-focusable on Linux, but allow focus when a plugin
+ * Native Wayland compositors, especially tiling ones such as Niri, can treat
+ * the pet as a normal focusable toplevel unless Electron opts it out, so
+ * passive overlays stay non-focusable there. X11 (and XWayland) must stay
+ * focusable even for passive overlays: a window created with
+ * `focusable: false` gets its X11 `WM_HINTS.input` flag set to `False` at map
+ * time, and some X11 window managers (KWin included; see #227) never
+ * re-evaluate focus-acceptance for an already-mapped window after a later
+ * `setFocusable(true)` — so toggling focusability at runtime silently stops
+ * working the moment a chat bubble opens. Always allow focus when a plugin
  * bubble hosts an inline input/select that needs keyboard input. Preserve the
  * existing focusable behavior on macOS and Windows.
  */
 export function shouldPetWindowBeFocusable(
   platform: NodeJS.Platform | string,
-  _effectiveWaylandBackend: boolean,
+  effectiveWaylandBackend: boolean,
   hasInteractiveInput = false,
 ): boolean {
   if (hasInteractiveInput) return true;
-  return platform !== "linux";
+  if (platform !== "linux") return true;
+  return !effectiveWaylandBackend;
 }
 
 /**
