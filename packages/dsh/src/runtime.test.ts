@@ -95,6 +95,56 @@ const forbiddenContent = [
 }
 
 {
+  const scheduled: Array<() => Promise<void>> = [];
+  const calls: RecordedCall[] = [];
+  const handlers = new Map<string, (...args: readonly unknown[]) => unknown>();
+  const context = {
+    on(eventName: string, listener: (...args: readonly unknown[]) => unknown) {
+      handlers.set(eventName, listener);
+    },
+  } as unknown as Context;
+  let testNow = 10_000;
+  apply(context, {
+    now: () => testNow,
+    schedule: (work: () => Promise<void>) => { scheduled.push(work); },
+    clientFactory: () => createMockClient(calls),
+    random: () => 0,
+  });
+
+  const streamHandler = handlers.get("agent/assistant-stream");
+  assert.ok(streamHandler);
+
+  // Send start frame
+  streamHandler({ frame: { type: "start" } });
+  // Send chunk with ⏵ status line
+  streamHandler({
+    frame: {
+      type: "chunk",
+      chunk: { type: "text-delta", text: "⏵ Fixing login page styles\nHere is the fix" },
+    },
+  });
+
+  assert.equal(scheduled.length, 1, "Status line from stream must be scheduled");
+  await scheduled.shift()?.();
+  assert.deepEqual(calls.at(-1), { message: "Fixing login page styles", options: { reaction: "working" } });
+
+  // Advance time past minSpeechIntervalMs
+  testNow += 2_000;
+
+  // Test tool result handler
+  const toolResultHandler = handlers.get("tools/result");
+  assert.ok(toolResultHandler);
+  toolResultHandler({
+    name: "bash",
+    params: { description: "Run vitest on product categories" },
+  });
+  assert.equal(scheduled.length, 1, "Tool description must be scheduled");
+  await scheduled.shift()?.();
+  assert.deepEqual(calls.at(-1), { message: "Run vitest on product categories", options: { reaction: "running" } });
+  assertNoForbiddenContent(calls);
+}
+
+{
   const previousEndpoint = process.env.OPENPETS_REMOTE_ENDPOINT;
   const previousToken = process.env.OPENPETS_REMOTE_TOKEN;
   process.env.OPENPETS_REMOTE_ENDPOINT = "tcp://8.8.8.8:37645";
