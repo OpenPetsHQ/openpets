@@ -14,7 +14,7 @@ import { pickReactionMessage, reactionMessagePools } from "./reaction-messages.j
 const distDir = dirname(fileURLToPath(import.meta.url));
 const appDir = dirname(distDir);
 const repoRoot = resolve(appDir, "../..");
-const packageJson = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string>; description?: string; author?: string };
+const packageJson = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { main?: string; scripts?: Record<string, string>; dependencies?: Record<string, string>; devDependencies?: Record<string, string>; description?: string; author?: string };
 const rootPackageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { scripts?: Record<string, string> };
 const workspaceConfig = readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8");
 const builderConfigPath = join(appDir, "electron-builder.yml");
@@ -22,6 +22,7 @@ const builderConfig = readFileSync(builderConfigPath, "utf8");
 
 assert.equal(packageJson.description, "OpenPets tray-first desktop companion app.");
 assert.equal(packageJson.author, "OpenPets");
+assert.equal(packageJson.main, "dist/bootstrap.js", "Electron must enter through the early display-backend bootstrap.");
 assert.match(packageJson.scripts?.["dev:debug"] ?? "", /OPENPETS_LOG_LEVEL=debug OPENPETS_LOG_CONSOLE=1 pnpm dev/, "desktop debug dev script must enable verbose log mirroring.");
 assert.match(packageJson.scripts?.package ?? "", /node scripts\/clean-package-output\.cjs && electron-builder/);
 assert.match(packageJson.scripts?.["package:dir"] ?? "", /node scripts\/clean-package-output\.cjs && electron-builder --dir/);
@@ -87,6 +88,8 @@ assert.equal(pickReactionMessage("success", () => 0), reactionMessagePools.succe
 assert.ok(existsSync(join(appDir, "scripts", "clean-package-output.cjs")), "package output cleanup helper must exist.");
 assert.ok(existsSync(join(appDir, "scripts", "check-windows-symlink-privilege.cjs")), "Windows package symlink preflight helper must exist.");
 assert.ok(existsSync(join(distDir, "main.js")), "desktop main build output must exist before packaging checks run.");
+assert.ok(existsSync(join(distDir, "bootstrap.js")), "desktop startup bootstrap build output must exist before packaging checks run.");
+assert.ok(existsSync(join(distDir, "startup-backend-policy.js")), "pure startup backend policy build output must exist before packaging checks run.");
 assert.ok(existsSync(join(repoRoot, "packages", "claude", "dist", "index.js")), "@open-pets/claude must be built before packaging.");
 assert.ok(existsSync(join(repoRoot, "packages", "client", "dist", "index.js")), "@open-pets/client must be built before packaging.");
 assert.ok(existsSync(join(repoRoot, "packages", "mcp", "dist", "index.js")), "@open-pets/mcp must be built before packaging.");
@@ -110,6 +113,9 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   const appResourceDir = findPackagedAppResourceDir(outputDir);
   assert.ok(appResourceDir, "packaged app resources directory was not found.");
   assert.ok(existsSync(join(appResourceDir, "app.asar")), "packaged app.asar is missing.");
+  const packagedEntries = listPackage(join(appResourceDir, "app.asar"), { isPack: false });
+  assert.ok(packagedEntries.includes("/dist/bootstrap.js"), "packaged app.asar is missing the Electron bootstrap entry.");
+  assert.ok(packagedEntries.includes("/dist/startup-backend-policy.js"), "packaged app.asar is missing the early backend policy module.");
   assertRendererBundled(join(appResourceDir, "app.asar"));
   assertBundledOfficialPlugins(appResourceDir, join(repoRoot, "plugins", "official"));
   const appContents = join(appResourceDir, "app.asar.unpacked");
@@ -150,7 +156,7 @@ function findPackagedAppResourceDir(outputDir: string): string | null {
   collectDirectories(outputDir, candidates, 4);
 
   for (const dir of candidates) {
-    if (existsSync(join(dir, "app.asar")) || existsSync(join(dir, "app", "dist", "main.js"))) {
+    if (existsSync(join(dir, "app.asar")) || existsSync(join(dir, "app", "dist", "bootstrap.js"))) {
       return dir;
     }
   }

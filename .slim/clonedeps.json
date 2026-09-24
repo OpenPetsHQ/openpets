@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "updatedAt": "2026-08-25T00:00:00.000Z",
+  "updatedAt": "2026-09-24T00:00:00.000Z",
   "dependencies": [
     {
       "name": "electron",
@@ -10,17 +10,37 @@
       "commit": "51db52e1b56e0739944dfbc679a86f2c69a26e5f",
       "path": ".slim/clonedeps/repos/electron__electron",
       "packagePath": null,
-      "reason": "Inspect Electron BrowserWindow, Linux, and Wayland window geometry behavior used by OpenPets drag handling."
+      "reason": "Inspect Electron BrowserWindow behavior, including Linux window hints that affect taskbar, switcher, and focus visibility, alongside general Linux and Wayland geometry behavior."
     },
     {
       "name": "kwin",
       "resolvedVersion": null,
       "repoUrl": "https://github.com/KDE/kwin",
-      "ref": "master",
-      "commit": "10273ea5f8c43f9a17825e9560f9616b23cef1ba",
+      "ref": "v5.27.11",
+      "commit": "c328a2fd746a8c838b3d6d3c47475d8191d05b7f",
       "path": ".slim/clonedeps/repos/KDE__kwin",
       "packagePath": null,
-      "reason": "Inspect KDE Wayland compositor handling of xdg toplevel movement, activation, and window geometry constraints."
+      "reason": "Inspect KDE Wayland handling of taskbar, switcher, and focus roles for xdg toplevels, alongside movement, activation, and window geometry constraints."
+    },
+    {
+      "name": "mutter",
+      "resolvedVersion": "46.0",
+      "repoUrl": "https://github.com/GNOME/mutter",
+      "ref": "46.0",
+      "commit": "c4753689e3413cd9332d885dd0297b3b7d9ba9ca",
+      "path": ".slim/clonedeps/repos/GNOME__mutter",
+      "packagePath": null,
+      "reason": "Inspect GNOME Wayland handling of taskbar, switcher, and focus roles, alongside window movement, activation, and geometry constraints."
+    },
+    {
+      "name": "gnome-shell",
+      "resolvedVersion": "46.0",
+      "repoUrl": "https://github.com/GNOME/gnome-shell",
+      "ref": "46.0",
+      "commit": "0463511457612ca87f7426b3b01356d1d85bee9b",
+      "path": ".slim/clonedeps/repos/GNOME__gnome-shell",
+      "packagePath": null,
+      "reason": "Inspect GNOME Shell taskbar, switcher, and focus behavior and its interaction with Mutter, alongside Linux desktop window movement and activation."
     },
     {
       "name": "openclaw",
@@ -31,6 +51,26 @@
       "path": ".slim/clonedeps/repos/openclaw__openclaw",
       "packagePath": null,
       "reason": "Inspect the source-supported extension, lifecycle hook, and configuration contracts for the OpenPets OpenClaw integration."
+    },
+    {
+      "name": "node-x11",
+      "resolvedVersion": "4.2.1",
+      "repoUrl": "https://github.com/sidorares/node-x11",
+      "ref": "v4.2.1",
+      "commit": "12bb53b3d78f592f05762784ec3be68cb011b8b8",
+      "path": ".slim/clonedeps/repos/sidorares__node-x11",
+      "packagePath": null,
+      "reason": "Inspect the Node.js X11 client and its support for setting or querying X11 window properties relevant to taskbar, switcher, and focus behavior."
+    },
+    {
+      "name": "xserver",
+      "resolvedVersion": "xwayland-23.2.6",
+      "repoUrl": "https://gitlab.freedesktop.org/xorg/xserver.git",
+      "ref": "xwayland-23.2.6",
+      "commit": "db9cde0328aa1bd21210cf5472ca7901697b3713",
+      "path": ".slim/clonedeps/repos/xorg__xserver",
+      "packagePath": null,
+      "reason": "Inspect Xwayland and X server handling of X11 window properties relevant to Linux taskbar, switcher, and focus behavior."
     }
   ]
 }

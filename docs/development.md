@@ -66,6 +66,24 @@ catch.
 
 - `pnpm dev:desktop` launches Electron against the TypeScript source with the
   Vite renderer dev server.
+- On Linux, the desktop package entry runs a backend bootstrap before importing
+  `main.ts`. An unflagged launch starts a replacement process directly with
+  Node's `child_process.spawn` and the initial `--ozone-platform=x11` argument.
+  The original process waits up to 15 seconds for a bounded ready/failure IPC
+  handoff; unpackaged launches, including development over SSH, supervise the
+  replacement and propagate signals and exit status. Only packaged launches
+  detach. This avoids Electron's relaunch API and preserves the Linux setuid
+  sandbox configuration. A short-lived bootstrap process therefore precedes the
+  app process. Packaged arm64 KDE/X11 and GNOME startup were exercised; KDE
+  packaged testing verified switcher exclusion, chat typing, and close/re-show,
+  and a mounted KDE AppImage passed startup and skip-hint checks. Development
+  `dev:control-center` startup over SSH and coordinated stop were verified on the
+  GNOME VM. GNOME packaged XWayland startup and standard skip atoms were verified,
+  but a keyring modal blocked GUI Alt+Tab and typing checks. DEB, RPM, and tar.gz
+  launches are untested. Launches already carrying the canonical argument do
+  not need the extra process. `OPENPETS_ALLOW_WAYLAND=1` opts out, and native
+  layer-shell keeps its separate backend path. See [Desktop app](/desktop) for
+  the scope and limitations of these checks.
 - Plugin authors using the installed app do not need this repo: open **Plugins →
   Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
   reload a standalone plugin folder.

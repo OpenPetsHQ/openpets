@@ -24,18 +24,20 @@ Core TypeScript source for the OpenPets desktop application. Organized into: lif
 
 **Main Process Flow**:
 ```
-main.ts
-├── lifecycle.ts (app events, cleanup)
-├── logger.ts (structured logging init)
-├── app-state.ts (state init)
-├── pet-install-transaction.ts (startup recovery of interrupted pet commits)
-├── codex-pet-migration.ts (safe legacy V2 marker repair)
-├── plugin-service.ts (plugin state/runtime init, JS host wiring)
-├── manager-check-in-service.ts (bundled weekly sync, local-week offer state, and pet snapshot)
-├── tray.ts (tray creation)
-├── local-ipc.ts (IPC server start)
-├── control-center-route.ts (canonical route/target validation and dev-only startup routing)
-└── windows.ts (UI handlers)
+bootstrap.ts (Electron package entry)
+├── startup-backend-policy.ts (pre-main platform/argv/environment plan; selects launch or replacement-process argv)
+└── main.ts (application bootstrap after backend selection)
+    ├── lifecycle.ts (app events, cleanup)
+    ├── logger.ts (structured logging init)
+    ├── app-state.ts (state init)
+    ├── pet-install-transaction.ts (startup recovery of interrupted pet commits)
+    ├── codex-pet-migration.ts (safe legacy V2 marker repair)
+    ├── plugin-service.ts (plugin state/runtime init, JS host wiring)
+    ├── manager-check-in-service.ts (bundled weekly sync, local-week offer state, and pet snapshot)
+    ├── tray.ts (tray creation)
+    ├── local-ipc.ts (IPC server start)
+    ├── control-center-route.ts (canonical route/target validation and dev-only startup routing)
+    └── windows.ts (UI handlers)
 ```
 
 **IPC Request Flow**:
@@ -93,6 +95,14 @@ Plugin motion APIs:
 plugin-sdk-bridge.ts → plugin-sdk-routes.ts → plugin-pet-registry.ts
 └── pet-motion-engine.ts tick() calculates interpolated target vectors for spawned/default pets
 ```
+
+X11/XWayland pet windows remain focusable for chat and plugin inputs. The
+pre-show lifecycle subscribes to structure events and prepares `_NET_WM_STATE`;
+after MapNotify it sends EWMH add-state requests and watches the property until
+the standard taskbar/pager atoms, and the KDE switcher atom when advertised by
+root `_NET_SUPPORTED`, are present. This is pet-window-only (not Control Center)
+and does not cover experimental native Wayland. Property verification is not
+proof of compositor UI behavior or no visible flash.
 
 **Manager Check-in Flow**:
 ```
@@ -265,7 +275,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 ## Key Modules
 
 **Core**:
-- `main.ts`: Entry, single-instance lock, bootstrap sequence, JavaScript plugin host construction, and dev-only Control Center route opening
+- `bootstrap.ts`: Package-entry pre-main backend bootstrap; uses `startup-backend-policy.ts` and starts a normalized replacement with Node `child_process.spawn` when needed, waits up to 15 seconds for a bounded ready/failure IPC handoff, supervises unpackaged replacements with signal/exit propagation, and detaches packaged replacements
+- `startup-backend-policy.ts`: Pure platform/argv/environment policy for normal X11, Wayland opt-out, and native layer-shell startup selection
+- `main.ts`: Application bootstrap after backend selection, single-instance lock, JavaScript plugin host construction, and dev-only Control Center route opening
 - `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance) with logging; stops plugin service, IPC, and pet windows on quit
 - `state.ts`: Simple shell pause state
 - `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
@@ -312,7 +324,11 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, and context-menu installation delegation
+- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
+- `x11-pet-window-state.ts`: X11 client adapter that subscribes to StructureNotify before show, waits for matching MapNotify, sends post-map EWMH state additions, and observes `_NET_WM_STATE` until standard exclusion atoms and the KDE switcher atom when advertised by root `_NET_SUPPORTED` are present
+- `x11-pet-window-state-core.ts`: Electron-free EWMH atom/property helpers for merging existing state and checking required atoms
+- `pet-window-x11-map-core.ts`: Electron-free matching/cancellation state for the target window's MapNotify transition
+- `pet-window-show-coordinator.ts`: Generation-based readiness gate that prevents stale asynchronous completion from showing a pet after a later hide
 - `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
 - `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
 - `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
@@ -321,7 +337,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `default-pet-chat.ts`: Host-side in-pet chat and Manager Check-in coordinator managing expanded/collapsed carrier states, IPC authorization, conversation transcript streams, Talk subscriptions, and the private check-in card lifecycle
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
-- `default-pet-controller.ts`: Default pet visibility, position persistence, transient reactions, status badges, and the private weekly Manager Check-in offer/action-circle presentation
+- `default-pet-controller.ts`: Default pet visibility, position persistence, persisted explicit Hide vs temporary window-manager-close hiding, transient reactions, status badges, and the private weekly Manager Check-in offer/action-circle presentation
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `built-in-pet.ts`: Built-in pet constant

@@ -11,7 +11,7 @@
   },
   "author": "OpenPets",
   "type": "module",
-  "main": "dist/main.js",
+  "main": "dist/bootstrap.js",
   "scripts": {
     "dev": "pnpm build && electron .",
     "dev:electron": "pnpm build:main && electron .",
@@ -67,6 +67,7 @@
     "react-dom": "^19.2.6",
     "sharp": "^0.34.5",
     "undici": "^7.29.0",
+    "x11": "4.2.1",
     "yauzl": "3.3.0"
   }
 }

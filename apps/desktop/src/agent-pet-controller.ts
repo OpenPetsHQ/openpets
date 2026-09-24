@@ -7,7 +7,7 @@ import { clampToTerminalBounds, getConfinementState, getEffectiveConfinementBoun
 import { defaultPetWindowSize, clampToVisibleWorkArea, getDefaultPetInitialPosition } from "./display.js";
 import { debug, info } from "./logger.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { clearTransientReaction, createAgentPetWindow, getTransientDisplayDurationMs, getTransientReactionAnimationMs, loadExplicitPetContent, mergePetTransientDisplay, readWindowPosition, setPetReactionState, type PetShowMediaOptions, type PetTransientDisplay } from "./pet-window.js";
+import { clearTransientReaction, createAgentPetWindow, getTransientDisplayDurationMs, getTransientReactionAnimationMs, loadExplicitPetContent, mergePetTransientDisplay, readWindowPosition, setPetReactionState, showPetWindowInactive, type PetShowMediaOptions, type PetTransientDisplay } from "./pet-window.js";
 import { focusTerminalWindow } from "./terminal-focus.js";
 import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
 
@@ -26,7 +26,7 @@ export function showAgentPet(petId: string): boolean {
   if (window.isMinimized()) window.restore();
   // Pull the pet into its terminal window bounds if confinement is active.
   repositionConfinedPet(petId, window);
-  window.showInactive();
+  showPetWindowInactive(window);
   const shownWin = agentPetWindows.get(petId);
   if (shownWin && !shownWin.isDestroyed()) {
     registerRoamingPet(petId, () => agentPetWindows.get(petId) ?? null);

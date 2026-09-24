@@ -136,29 +136,70 @@ telemetry, or anonymous mode.
 
 ## Linux display backend (Ozone/Wayland)
 
-On Linux, `main.ts` appends `--ozone-platform=x11` **before** `app` is ready, so
-the app always runs under x11/XWayland. This is required because OpenPets pets
-depend on programmatic top-level window positioning (`setPosition`/`setBounds`)
-and z-order control (`setAlwaysOnTop`); native Wayland forbids clients from
-positioning or restacking their own toplevels, which silently breaks motion,
-gravity, walkabout, drag, and always-on-top stacking. The forcing is
-unconditional (it overrides even an explicit `--ozone-platform=wayland`) so a
-mistaken launch flag cannot disable pet movement.
+Electron 42 selects its Ozone platform before evaluating the application's
+JavaScript entry point. A late `app.commandLine.appendSwitch("ozone-platform",
+"x11")` in `main.ts` is therefore not sufficient to change the backend. Before
+the bootstrap was added, GNOME Wayland testing showed that the app could log an
+intended X11 backend while Electron created a native Wayland window; subsequent
+X11 property operations failed against the invalid window handle.
 
-The escape hatch is the environment variable `OPENPETS_ALLOW_WAYLAND=1`: when
-set, the app honors the system default backend (or an explicit
-`--ozone-platform`) and emits a one-time `warn("app", ...)` at startup (after the
-startup-begin log) stating that positioning, gravity, walkabout, and drag are
-unsupported under native Wayland and how to restore full functionality. The
-pet-drag path keys off this same effective backend via
-`isEffectiveWaylandBackend()` in `pet-window.ts`, which is evaluated at
-window-creation time (after the switch is applied) and cached. The pure backend
-decision (platform + `--ozone-platform` + `XDG_SESSION_TYPE`/`WAYLAND_DISPLAY`)
-is factored into `computeEffectiveWaylandBackend()` in `wayland-backend.ts`;
-`pet-window.ts` delegates to it and owns only the cache.
+Linux startup uses a package-entry bootstrap before the side-effectful `main.ts`.
+On a normal launch without the canonical `--ozone-platform=x11` argument, it
+starts a replacement process directly with Node's `child_process.spawn` and the
+canonical argument, then imports `main.ts` only in that process. This avoids
+Electron's relaunch API, which can lose the Linux setuid sandbox configuration.
+The original process waits up to 15 seconds for a bounded IPC handoff: the child
+reports readiness after importing `main.ts`, or reports startup failure. The
+original exits successfully only after readiness and unsuccessfully if startup
+fails or the handoff times out. Unpackaged launches—including development over
+SSH—keep the replacement supervised, with signal and exit status propagated;
+only packaged launches detach. A launch that already has the canonical argument
+proceeds directly. Thus an unflagged launch normally has one short-lived initial
+process followed by the corrected app process; this is expected, not a second
+persistent app instance.
 
-The x11-forcing branch and the `OPENPETS_ALLOW_WAYLAND` opt-out are asserted by
-`check-packaging-contract.ts`, so this behavior cannot silently regress.
+`OPENPETS_ALLOW_WAYLAND=1` opts out of the normal X11 relaunch and leaves the
+system-selected backend (or a user-supplied Ozone argument) in effect. The
+existing warning describes positioning, gravity, walkabout, and drag as
+unsupported when native Wayland is active. The separate
+`OPENPETS_NATIVE_WAYLAND=1` layer-shell path retains its dedicated backend
+selection rather than using the normal X11 path. These native Wayland modes are
+experimental; they do not provide the X11 window-property behavior below.
+
+For packaged AppImage launches, the bootstrap spawns through the original
+`APPIMAGE` executable path so the AppImage environment is retained. A mounted
+AppImage passed startup and X11 skip-hint checks on KDE; this does not verify all
+AppImage environments or other packaged Linux formats. The
+effective backend used by pet interaction code is decided in
+`wayland-backend.ts` and cached by `pet-window.ts` at window-creation time.
+
+On X11/XWayland, pet windows remain focusable so chat and plugin inputs can
+receive keyboard focus. For a pet show, the X11 state lifecycle subscribes to
+structure notifications and prepares `_NET_WM_STATE` with taskbar and pager
+exclusion atoms, plus the KDE switcher exclusion atom when the root
+`_NET_SUPPORTED` advertises it. Once the window is mapped, it sends EWMH
+add-state requests because Chromium may replace the pre-map property during
+mapping, then watches property changes until all supported required atoms are
+present. Re-showing a pet reapplies the hints. A show coordinator prevents stale
+readiness completions from showing a carrier after a later hide.
+
+The show gate waits for watcher setup, not for proof that the window manager's
+UI reflects the hints. Logs report property verification and explicitly do not
+claim compositor/task-switcher behavior or absence of a visible flash. X11
+state handling applies to pet windows only, not Control Center windows. The
+experimental native Wayland path is not covered by this behavior.
+
+On an arm64 KDE/X11 VM, packaged testing confirmed exclusion from the taskbar
+and switcher, real typing in chat, and restoration after window-manager close
+followed by tray re-show. A mounted KDE AppImage also passed startup and skip-hint
+checks. Packaged arm64 GNOME testing confirmed an XWayland window with a valid
+XID and the standard skip atoms. GNOME GUI Alt+Tab and typing checks were blocked
+by a keyring modal; they are unverified. Development `dev:control-center` startup
+over SSH and coordinated stop were verified on the GNOME VM. DEB, RPM, and
+tar.gz launches remain untested. These checks do not establish that there is no
+visible flash or that every compositor presents the hints identically. The pure
+startup selection policy is covered by
+`apps/desktop/tests/startup-backend-policy.test.ts`.
 
 On Windows, the shell silently strips `HWND_TOPMOST` from other windows when an
 app enters fullscreen (browser video, games) and never restores it - and no
@@ -379,6 +420,14 @@ helpers. `pet-display-coordinator.ts` owns display/power listener lifecycle and
 cross-controller topology/recovery fanout. `pet-window-interaction.ts` owns the per-window mouse/drag and renderer
 IPC lifecycle, recovery/watchdog, and speech-completion bridge. This is covered
 in depth in [Pets](/pets).
+
+Closing the default pet through the window manager temporarily hides its existing
+window: it saves the current position and runs normal hide cleanup, but does not
+change the persisted open-on-launch preference. The explicit context-menu Hide
+action retains its persisted preference behavior. A canceled close is not a
+destruction boundary, so interaction and gaze state remain installed for a later
+show; app shutdown destroys the window directly rather than routing through the
+canceled close request.
 
 ### Local IPC server
 

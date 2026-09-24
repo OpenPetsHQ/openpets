@@ -227,6 +227,11 @@ FYI: third-parties/ folder contains other repos related to openpets, putting her
 Read-only dependency source repositories are available under
 `.slim/clonedeps/repos/` for inspection. Do not edit these clones.
 
-- `.slim/clonedeps/repos/electron__electron/` — `electron/electron` at `v42.0.0`; inspect Electron BrowserWindow, Linux, and Wayland geometry behavior used by OpenPets drag handling.
-- `.slim/clonedeps/repos/KDE__kwin/` — `KDE/kwin` at `master` (`10273ea5f8c43f9a17825e9560f9616b23cef1ba`); inspect KDE Wayland compositor handling of xdg toplevel movement, activation, and geometry constraints.
-- `.slim/clonedeps/repos/openclaw__openclaw/` — `openclaw/openclaw` at `v2026.7.1-2` (`0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c`); inspect the source-supported extension, lifecycle hook, and configuration contracts for the OpenPets OpenClaw integration.
+- `.slim/clonedeps/repos/electron__electron/` — `electron/electron` at `v42.0.0`; inspect Electron BrowserWindow behavior, including Linux window hints that affect taskbar, switcher, and focus visibility, alongside general Linux and Wayland geometry behavior.
+- `.slim/clonedeps/repos/KDE__kwin/` — `KDE/kwin` at `v5.27.11` (`c328a2fd746a8c838b3d6d3c47475d8191d05b7f`); inspect KDE Wayland handling of taskbar, switcher, and focus roles for xdg toplevels, alongside movement, activation, and window geometry constraints.
+- `.slim/clonedeps/repos/GNOME__mutter/` — `GNOME/mutter` at `46.0` (`c4753689e3413cd9332d885dd0297b3b7d9ba9ca`); inspect GNOME Wayland handling of taskbar, switcher, and focus roles, alongside window movement, activation, and geometry constraints.
+- `.slim/clonedeps/repos/GNOME__gnome-shell/` — `GNOME/gnome-shell` at `46.0` (`0463511457612ca87f7426b3b01356d1d85bee9b`); inspect GNOME Shell taskbar, switcher, and focus behavior and its interaction with Mutter, alongside Linux desktop window movement and activation.
+- `.slim/clonedeps/repos/sidorares__node-x11/` — `sidorares/node-x11` at `v4.2.1` (`12bb53b3d78f592f05762784ec3be68cb011b8b8`); inspect the Node.js X11 client and its support for setting or querying X11 window properties relevant to taskbar, switcher, and focus behavior.
+- `.slim/clonedeps/repos/xorg__xserver/` — `xorg/xserver` at `xwayland-23.2.6` (`db9cde0328aa1bd21210cf5472ca7901697b3713`); inspect Xwayland and X server handling of X11 window properties relevant to Linux taskbar, switcher, and focus behavior.
+
+The OpenClaw source clone recorded in `.slim/clonedeps.json` is not currently present under `.slim/clonedeps/repos/`.

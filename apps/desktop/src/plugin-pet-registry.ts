@@ -7,7 +7,7 @@ import { builtInPet } from "./built-in-pet.js";
 import { debug, info } from "./logger.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { motionMoveTo, motionSetFollowCursor, motionSetPhysics, motionStop, type WindowAccessor } from "./pet-motion-engine.js";
-import { createAgentPetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
+import { createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
 import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { resolveReactionSpriteState } from "./reaction-animation-mapping.js";
@@ -154,7 +154,7 @@ export async function spawnPluginPet(opts: { pluginId: string; petId: string; na
   });
   pet.window = window;
   window.once("closed", () => { if (pet.window === window) pet.window = null; });
-  window.showInactive();
+  showPetWindowInactive(window);
   spawnedPets.set(handleId, pet);
   info("plugin", "plugin pet spawned", { handleId, petId: opts.petId, pluginId: opts.pluginId });
   notifyChange();
@@ -185,13 +185,13 @@ export function clearPluginPetsForPlugin(pluginId: string): void {
 
 export function showPluginPet(petHandleId: string): void {
   if (petHandleId === "default") { import("./default-pet-controller.js").then(({ showDefaultPet }) => showDefaultPet()).catch(() => undefined); notifyChange(); return; }
-  requireWindow(petHandleId).showInactive();
+  showPetWindowInactive(requireWindow(petHandleId));
   notifyChange();
 }
 
 export function hidePluginPet(petHandleId: string): void {
   if (petHandleId === "default") { import("./default-pet-controller.js").then(({ hideDefaultPet }) => hideDefaultPet()).catch(() => undefined); notifyChange(); return; }
-  requireWindow(petHandleId).hide();
+  hidePetWindow(requireWindow(petHandleId));
   notifyChange();
 }
 

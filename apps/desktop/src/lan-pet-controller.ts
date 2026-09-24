@@ -5,7 +5,7 @@ import { clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosit
 import { debug, info, warn } from "./logger.js";
 import { planLanPetPresence, resolveRenderableLanPetId } from "./lan-pet-presence.js";
 import type { LanPetRecord, LanPoint } from "./lan-contract.js";
-import { createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, type PetTransientDisplay } from "./pet-window.js";
+import { createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, showPetWindowInactive, type PetTransientDisplay } from "./pet-window.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 
@@ -103,7 +103,7 @@ function showLanVisitingPet(pet: LanPetRecord): void {
 
   const existing = visitingPetWindows.get(pet.ownerHost);
   if (existing && !existing.window.isDestroyed() && existing.renderedPetId === renderedPetId) {
-    existing.window.showInactive();
+    showPetWindowInactive(existing.window);
     return;
   }
   if (existing) closeLanVisitingPet(pet.ownerHost);
@@ -154,7 +154,7 @@ function showLanVisitingPet(pet: LanPetRecord): void {
     unregisterRoamingPet(motionHandleId);
     visitingPetWindows.delete(pet.ownerHost);
   });
-  window.showInactive();
+  showPetWindowInactive(window);
   registerRoamingPet(motionHandleId, () => {
     const current = visitingPetWindows.get(pet.ownerHost);
     return current?.window && !current.window.isDestroyed() ? current.window : null;

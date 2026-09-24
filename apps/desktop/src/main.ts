@@ -46,6 +46,7 @@ import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
 import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
+import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
 
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
@@ -82,15 +83,10 @@ if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 }
 
-// OpenPets requires programmatic window positioning and z-ordering, which
-// native Wayland compositors disallow for XDG-shell toplevels. To ensure
-// gravity, drag, and always-on-top work correctly on all KDE/GNOME Linux
-// desktops, we force the x11/XWayland backend. Users who explicitly need
-// native Wayland can set OPENPETS_ALLOW_WAYLAND=1, but gravity, walkabout,
-// and manual drag will not function under native Wayland.
 const isLinux = process.platform === "linux";
 const allowWayland = process.env.OPENPETS_ALLOW_WAYLAND === "1";
 const layerShellBackend = isLinux && process.env.OPENPETS_NATIVE_WAYLAND === "1";
+const requestedOzonePlatform = readOzonePlatformSwitch(process.argv);
 
 // In layer-shell mode the pet is carried by the native helper's overlay
 // surface; the hidden offscreen renderer only composites frames for it. The
@@ -103,28 +99,6 @@ if (layerShellBackend) {
   app.commandLine.appendSwitch("disable-background-timer-throttling");
   app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 }
-const hasExplicitOzonePlatformArg = process.argv.some(
-  (arg) => arg === "--ozone-platform" || arg.startsWith("--ozone-platform="),
-);
-// When OPENPETS_ALLOW_WAYLAND=1 we deliberately do NOT append an ozone-platform
-// switch: Electron honours the system default (typically wayland on a Wayland
-// session, or any explicit --ozone-platform the user passed) and we warn at
-// startup that positioning/gravity/walkabout/drag are unsupported there.
-//
-// In layer-shell mode the pet is a native Wayland layer-shell surface (owned by
-// the helper) and the pet's own renderer is a hidden offscreen window, so
-// Electron's ozone platform only matters for the Control Center and other
-// ordinary windows. Under Niri, XWayland (x11) windows are unreliable (they may
-// not map), so layer-shell mode forces native Wayland for those instead.
-if (isLinux && !allowWayland && !layerShellBackend) {
-  // Force x11 even if the user passed --ozone-platform=wayland or auto;
-  // we overwrite any pre-existing switch so nothing silently slips through.
-  app.commandLine.appendSwitch("ozone-platform", "x11");
-}
-if (layerShellBackend && !hasExplicitOzonePlatformArg) {
-  app.commandLine.appendSwitch("ozone-platform", "wayland");
-}
-
 // Privileged schemes must be registered before app ready, in a single call.
 // Session media is served to <audio> elements, which need `stream` to seek.
 protocol.registerSchemesAsPrivileged([
@@ -169,7 +143,22 @@ if (!gotSingleInstanceLock) {
     if (process.platform === "win32") {
       app.setAppUserModelId("dev.openpets.app");
     }
-    info("app", "startup begin", { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, pid: process.pid, ozonePlatform: app.commandLine.getSwitchValue("ozone-platform") || null, explicitOzonePlatformArg: hasExplicitOzonePlatformArg });
+    info("app", "startup begin", {
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      packaged: app.isPackaged,
+      pid: process.pid,
+      requestedOzonePlatform,
+      effectiveOzonePlatform: app.commandLine.getSwitchValue("ozone-platform") || null,
+      backendPolicy: layerShellBackend
+        ? "native-wayland-layer-shell"
+        : allowWayland
+          ? "wayland-opt-out"
+          : isLinux
+            ? "x11-default"
+            : "platform-default",
+    });
     if (isLinux && allowWayland) {
       const effectiveOzone = app.commandLine.getSwitchValue("ozone-platform") || "(auto/system)";
       warn("app", "native Wayland mode active — pet positioning, gravity, walkabout, and drag are unsupported under native Wayland; remove OPENPETS_ALLOW_WAYLAND=1 to restore full functionality", { effectiveOzone });

@@ -6,10 +6,10 @@ import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, 
 import { motionMoveTo } from "./pet-motion-engine.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { bindDefaultPetChatWindow, collapseDefaultPetChat, openDefaultPetCheckIn, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
-import { debug, info } from "./logger.js";
+import { debug, info, warn } from "./logger.js";
 import { t } from "./i18n/index.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
+import { clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, hidePetWindow, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, showPetWindowInactive, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
 import { PetBubbleArbiter, type ActiveBubble, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
@@ -99,7 +99,7 @@ function showDefaultPetWindow(source: "user" | "external-event"): void {
     window.restore();
   }
 
-  window.showInactive();
+  showPetWindowInactive(window);
   registerRoamingPet("default", getDefaultPetWindowForPlugins);
 }
 
@@ -108,24 +108,46 @@ export function hideDefaultPet(): void {
   hideDefaultPetWindow();
 }
 
+export function hideDefaultPetTemporarily(): void {
+  if (hideDefaultPetWindow()) {
+    refreshTrayMenuAfterVisibilityChange();
+  }
+}
+
 export function hideDefaultPetForLan(): void {
   hideDefaultPetWindow();
 }
 
-function hideDefaultPetWindow(): void {
+function hideDefaultPetWindow(): boolean {
   if (!defaultPetWindow || defaultPetWindow.isDestroyed()) {
     debug("pet.default", "hide skipped", { reason: "no-window" });
-    return;
+    return false;
   }
-  if (!defaultPetWindow.isVisible()) {
-    return;
-  }
-
-  const hidePosition = readWindowPosition(defaultPetWindow);
-  info("pet.default", "hide requested", { windowId: defaultPetWindow.id, position: hidePosition, petId: getAppStateSnapshot().preferences.defaultPetId });
-  handlePositionChanged(hidePosition);
+  const window = defaultPetWindow;
+  const wasVisible = window.isVisible();
+  const hidePosition = wasVisible ? readWindowPosition(window) : null;
+  hidePetWindow(window);
+  unregisterRoamingPet("default");
   collapseDefaultPetChat();
-  defaultPetWindow.hide();
+  if (!hidePosition || window.isDestroyed()) return wasVisible;
+
+  info("pet.default", "hide requested", { windowId: window.id, position: hidePosition, petId: getAppStateSnapshot().preferences.defaultPetId });
+  handlePositionChanged(hidePosition);
+  return wasVisible;
+}
+
+function refreshTrayMenuAfterVisibilityChange(): void {
+  void import("./tray.js")
+    .then(({ refreshTrayMenu }) => refreshTrayMenu())
+    .catch((error: unknown) => {
+      warn("pet.default", "tray menu refresh after pet visibility change failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+function watchDefaultPetVisibility(window: BrowserWindow): void {
+  window.on("show", refreshTrayMenuAfterVisibilityChange);
 }
 
 export function getDefaultPetLanPosition(): { readonly x: number; readonly y: number } | null {
@@ -406,12 +428,14 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
     pluginBubbles: getDefaultPetPluginBubbles(),
     onPositionChanged: handlePositionChanged,
     onHideRequested: hideDefaultPet,
+    onWindowCloseRequested: hideDefaultPetTemporarily,
     onBubbleDismissed: handleBubbleDismissed,
     onBubbleAction: (token, actionId) => defaultPetBubbleArbiter.handleAction(token, actionId),
     onBubbleSubmit: (token, values) => defaultPetBubbleArbiter.handleSubmit(token, values),
     onPetEvent: (name, payload) => publishPluginPetEvent("default", name, payload),
     onWindowReplaced: (replacement) => {
       defaultPetWindow = replacement;
+      watchDefaultPetVisibility(replacement);
       bindDefaultPetChatWindow(replacement);
       void loadDefaultPetContent(replacement, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
       const replacementId = replacement.id;
@@ -426,6 +450,7 @@ function getOrCreateDefaultPetWindow(): BrowserWindow {
     },
   }, getCurrentDismissToken());
   const createdWindow = defaultPetWindow;
+  watchDefaultPetVisibility(createdWindow);
   bindDefaultPetChatWindow(createdWindow);
   const windowId = createdWindow.id;
   info("pet.default", "created", { windowId, position, paused, petId: getAppStateSnapshot().preferences.defaultPetId });
