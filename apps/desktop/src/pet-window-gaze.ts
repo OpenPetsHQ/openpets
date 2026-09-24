@@ -77,7 +77,6 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
   webContents.on("render-process-gone", handleRendererGone);
   window.on("hide", handleHide);
   window.on("show", handleShow);
-  window.on("close", resetForNavigation);
   const remove = (): void => {
     const current = petGazeEntries.get(window);
     if (!current) return;
@@ -91,7 +90,6 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
     }
     window.off("hide", handleHide);
     window.off("show", handleShow);
-    window.off("close", resetForNavigation);
     petGazeEntries.delete(window);
     syncPetGazeTicker();
   };

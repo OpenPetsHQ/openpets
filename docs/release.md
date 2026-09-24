@@ -866,6 +866,31 @@ do not publish a partial set or upload the staged files directly. If using
 `--include-experimental-arm`, keep it on every run too; the unsigned Windows
 ARM installer remains disposable and is not published.
 
+## Linux x64 package CI
+
+The `Build Linux x64 packages` workflow runs for pull requests that touch the
+desktop packaging inputs, relevant scripts, or the workflow itself. It checks
+out the PR head commit (including recursive submodules), runs the Desktop check,
+builds AppImage, DEB, RPM, and tar.gz packages on Ubuntu 24.04, validates the
+complete package set and checksums, then smoke-tests the DEB. It does not create
+a release, tag, or publish packages.
+
+For a successful PR run, download the
+`openpets-linux-x64-packages-<version>-<short-source-sha>-run-<attempt>` artifact
+from the run's **Artifacts** section. It contains the four verified Linux x64
+packages, `SHA256SUMS` (covering only those four packages), and a separate
+`BUILD-METADATA.txt` with source/workflow revisions, recursive submodule
+revisions, lockfile hash, toolchain/runner details, and validation/smoke results.
+The run summary also includes this provenance. Failed runs provide a separate
+diagnostics artifact. Keep the artifact as a build/test handoff, not as an
+automatically published release.
+
+After this workflow has been merged to `main`, maintainers can run it from the
+Actions tab using **Run workflow**. The manual run packages the selected ref;
+review its successful checks and provenance before manually using any artifact
+in a release. GitHub release creation and upload remain part of the separate
+desktop release procedure.
+
 ## Microsoft Store package quick actions
 
 Use this flow when Partner Center rejects the unsigned Win32 `.exe` installer under Store policy 10.2.9. GitHub Releases should still prefer the NSIS setup `.exe`; Microsoft Store submission should use the Store package artifact.

@@ -62,6 +62,9 @@ importers:
       undici:
         specifier: ^7.29.0
         version: 7.29.0
+      x11:
+        specifier: 4.2.1
+        version: 4.2.1
       yauzl:
         specifier: 3.3.0
         version: 3.3.0
@@ -7139,6 +7142,10 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
+
+  x11@4.2.1:
+    resolution: {integrity: sha512-Qe2k+duweuxGlO5bhXmSFNBsborj0wKKx6MKCd6fOM3h9j7rYALBCjibIoytIdt5sVKM1Euy0Sq4Z099/hHigQ==}
+    engines: {node: '>=18'}
 
   xdg-app-paths@5.5.1:
     resolution: {integrity: sha512-hI3flOB4PLZIy5prbtTpirobtPE2ZtZ52szO+2mM9Efp6ErM398La+C1lIpNWDfNoQk+6Lsi6nMcCwVB7pxeMQ==}
@@ -15301,6 +15308,8 @@ snapshots:
   ws@8.20.1: {}
 
   ws@8.21.0: {}
+
+  x11@4.2.1: {}
 
   xdg-app-paths@5.5.1:
     dependencies:

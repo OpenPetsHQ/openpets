@@ -463,7 +463,6 @@ export function installPetWindowInteraction(
   webContents.on("did-finish-load", rearmAfterLoad);
   webContents.on("dom-ready", handleDomReady);
   webContents.on("did-fail-load", handleLoadFailure);
-  window.on("close", removeListeners);
   window.once("closed", removeListeners);
 }
 

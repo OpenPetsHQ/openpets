@@ -21,6 +21,8 @@ import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderConte
 import { registerPetGazeWindow, resetPetGazeWindow, setPetGazeDragging, setPetGazeMotionState, setPetGazePluginOverride, setPetGazeReactionState, setPetGazeRendererReady, suspendPetGazeForMovement, updatePetGazeConfiguration } from "./pet-window-gaze.js";
 import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
+import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
+import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from "./pet-window-show-coordinator.js";
 
 export type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 export { createPetBodyMarkup, pluginBubblesCacheKey } from "./pet-window-render.js";
@@ -33,6 +35,9 @@ const petWindowRenderCache = new WeakMap<BrowserWindow, string>();
 const windowLoadChains = new WeakMap<BrowserWindow, Promise<void>>();
 const windowLoadSequences = new WeakMap<BrowserWindow, number>();
 const petWindowFocusPolicy = new WeakMap<BrowserWindow, boolean>();
+const petWindowShowCoordinators = new WeakMap<BrowserWindow, PetWindowShowCoordinator>();
+const petWindowLayerShellBackends = new WeakMap<BrowserWindow, boolean>();
+const petWindowX11MapLifecycles = new WeakMap<BrowserWindow, PetWindowX11MapLifecycle>();
 export { isPetWindowDragging, recoverPetMouseInterop, subscribePetWindowSpeechCompletion } from "./pet-window-interaction.js";
 
 /**
@@ -85,7 +90,7 @@ export function createDefaultPetWindow(options: DefaultPetWindowOptions, dismiss
       const replacement = createBasePetWindowWithMode("OpenPets — Default Pet", fallbackPosition, { hasInteractiveInput: petPluginBubblesHaveInteractiveInput(options.pluginBubbles ?? null) }, false);
       installDefaultPetWindow(replacement, options, dismissToken);
       options.onWindowReplaced?.(replacement);
-      if (wasVisible) replacement.showInactive();
+      if (wasVisible) showPetWindowInactive(replacement);
     },
   );
   if (!window.isDestroyed()) installDefaultPetWindow(window, options, dismissToken);
@@ -111,9 +116,10 @@ function installDefaultPetWindow(window: BrowserWindow, options: DefaultPetWindo
 
   window.on("move", savePosition);
   window.on("moved", savePosition);
-  window.on("close", () => {
+  window.on("close", (event) => {
+    event.preventDefault();
     info("pet.window", "default window close", { windowId: window.id, position: readWindowPosition(window) });
-    options.onPositionChanged(readWindowPosition(window));
+    options.onWindowCloseRequested();
   });
 
   void loadDefaultPetContent(window, options.paused, options.display, options.badge, dismissToken, options.pluginBubbles ?? null);
@@ -131,7 +137,7 @@ export function createAgentPetWindow(options: AgentPetWindowOptions, dismissToke
       const replacement = createBasePetWindowWithMode(`OpenPets — ${options.displayName}`, fallbackPosition, {}, false);
       installAgentPetWindow(replacement, options, dismissToken);
       options.onWindowReplaced?.(replacement);
-      if (wasVisible) replacement.showInactive();
+      if (wasVisible) showPetWindowInactive(replacement);
     },
   );
   if (!window.isDestroyed()) installAgentPetWindow(window, options, dismissToken);
@@ -179,6 +185,68 @@ export function shouldUseLayerShellBackend(): boolean {
   return isLayerShellBackendRequested(process.platform, process.env) && isLayerShellHelperAvailable();
 }
 
+/** Show pet carriers only after Linux shell-exclusion hints are ready. */
+export function showPetWindowInactive(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const coordinator = getPetWindowShowCoordinator(window);
+  if (!shouldSetX11PetWindowState(window)) {
+    coordinator.cancel();
+    cancelPetWindowX11MapLifecycle(window);
+    window.showInactive();
+    return;
+  }
+
+  let lifecycle = petWindowX11MapLifecycles.get(window);
+  if (!lifecycle) {
+    try {
+      lifecycle = beginPetWindowX11MapLifecycle(window.getNativeWindowHandle(), process.env.DISPLAY);
+      petWindowX11MapLifecycles.set(window, lifecycle);
+      void lifecycle.finished.then(() => {
+        if (petWindowX11MapLifecycles.get(window) === lifecycle) petWindowX11MapLifecycles.delete(window);
+      });
+    } catch (error) {
+      coordinator.cancel();
+      logError("pet.window", "Linux X11 map watcher could not start; showing pet", { windowId: window.id, error: error instanceof Error ? error.message : String(error) });
+      window.showInactive();
+      return;
+    }
+  }
+  const showReady = lifecycle.ready.catch((error: unknown) => {
+    logError("pet.window", "showing pet after X11 shell exclusion failure", { windowId: window.id, error: error instanceof Error ? error.message : String(error) });
+  });
+  coordinator.schedule(showReady, () => {
+    if (window.isDestroyed()) return;
+    window.showInactive();
+  });
+}
+
+/** Invalidates a pending readiness-gated show before hiding a reusable carrier. */
+export function hidePetWindow(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  getPetWindowShowCoordinator(window).cancel();
+  cancelPetWindowX11MapLifecycle(window);
+  window.hide();
+}
+
+function cancelPetWindowX11MapLifecycle(window: BrowserWindow): void {
+  const lifecycle = petWindowX11MapLifecycles.get(window);
+  if (!lifecycle) return;
+  petWindowX11MapLifecycles.delete(window);
+  lifecycle.cancel();
+}
+
+function getPetWindowShowCoordinator(window: BrowserWindow): PetWindowShowCoordinator {
+  const existing = petWindowShowCoordinators.get(window);
+  if (existing) return existing;
+  const coordinator = createPetWindowShowCoordinator();
+  petWindowShowCoordinators.set(window, coordinator);
+  return coordinator;
+}
+
+function shouldSetX11PetWindowState(window: BrowserWindow): boolean {
+  return process.platform === "linux" && !isEffectiveWaylandBackend() && petWindowLayerShellBackends.get(window) !== true;
+}
+
 function createBasePetWindowWithMode(title: string, position: Point, focusOptions: { readonly hasInteractiveInput?: boolean }, useLayerShell: boolean, onLayerShellFatal?: (position: Point, wasVisible: boolean) => void): BrowserWindow {
   const effectiveWaylandBackend = isEffectiveWaylandBackend();
   const focusable = shouldPetWindowBeFocusable(process.platform, effectiveWaylandBackend, focusOptions.hasInteractiveInput === true);
@@ -217,6 +285,8 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
       ...(useLayerShell ? { offscreen: true, backgroundThrottling: false } : {}),
     },
   });
+  petWindowLayerShellBackends.set(window, useLayerShell);
+  window.once("closed", () => cancelPetWindowX11MapLifecycle(window));
   pinPetWindowZoom(window);
 
   petWindowFocusPolicy.set(window, focusable);
