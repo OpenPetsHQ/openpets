@@ -34,6 +34,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 | `apps/desktop/src/renderer/` | Vite renderer workspace for the sandboxed React/Tailwind Control Center bundle. | [View Map](apps/desktop/src/renderer/codemap.md) |
 | `apps/desktop/src/renderer/src/` | React/Tailwind Control Center UI for Dashboard, Pets, Integrations, Plugins, and Settings via narrow preload APIs. | [View Map](apps/desktop/src/renderer/src/codemap.md) |
 | `apps/desktop/scripts/` | Desktop package cleanup and local release automation scripts. | [View Map](apps/desktop/scripts/codemap.md) |
+| `infra/linux-vms/` | Reproducible VMware/Vagrant Linux desktop test VMs (GNOME, KDE X11, COSMIC), guest provisioning, and the host `vm` driver; see `docs/development.md`. | — |
 | `packages/` | Publishable npm package workspace for shared protocol, CLI, MCP, and coding-agent integrations. | [View Map](packages/codemap.md) |
 | `packages/agent-events/` | Shared agent speech/event message pools and validation utilities. | [View Map](packages/agent-events/codemap.md) |
 | `packages/agent-events/src/` | Source implementation for agent event messages. | [View Map](packages/agent-events/src/codemap.md) |

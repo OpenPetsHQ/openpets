@@ -202,27 +202,23 @@ Common pet image protocols include `openpets-codex:`, `openpets-installed:`, and
 
 See `docs/desktop.md` (security model) and `docs/pets.md` (image protocols).
 
-## Ubuntu VMware Testing
+## Linux Desktop Test VMs
 
-An Ubuntu 24.04 ARM64 VMware/Vagrant development VM exists for Linux GUI testing. See `/Volumes/external/repos/vagrants.md` for the host-side VM inventory and commands.
+Reproducible VMware Fusion/Vagrant VMs for Linux GUI testing are defined in
+`infra/linux-vms/`: `gnome` (Ubuntu 24.04 GNOME Wayland), `kde` (Kubuntu Plasma
+X11), and `cosmic` (Fedora 43 COSMIC). Always drive them through
+`infra/linux-vms/vm` (`up`, `sync`, `dx`, `log`, `focus`, `screenshot`), which
+keeps VM state outside the repo in `~/.openpets-vms`. Pick the VM that matches
+the reporter's desktop, run one at a time, and check guest logs with
+`vm log <name>`.
 
-- VM directory: `/Volumes/external/vmware/ubuntu24`
-- Provider: `vmware_desktop` / VMware Fusion on Apple Silicon
-- Guest OpenPets checkout: `/home/vagrant/src/openpets`
-- Guest helper aliases: `cdpets` and `openpets-dx`
+Never mount the macOS checkout into a guest; each guest has its own clone at
+`~/src/openpets` with Linux `node_modules`, and local changes arrive via
+`vm sync`. Verify window-manager behavior (focus, activation, stacking) with
+X11 tools such as `xdotool`, not Electron's own state or our logs.
 
-Do not mount the macOS OpenPets checkout into Ubuntu for development. The macOS `node_modules` tree contains platform-specific packages and ownership metadata; using it from Linux can break local macOS development. Ubuntu testing should use the isolated guest clone and its own Linux `node_modules`.
-
-For Linux GUI bug reproduction or Electron desktop testing:
-
-1. Start or inspect the VM from `/Volumes/external/vmware/ubuntu24` with `vagrant up` / `vagrant status`.
-2. SSH with `vagrant ssh`.
-3. In the guest, run `cdpets` then `openpets-dx` to update dependencies, fix Electron sandbox permissions, and launch OpenPets in the Ubuntu desktop session.
-4. Check guest logs at `~/.config/@open-pets/desktop/logs/openpets.log`.
-
-The VM is configured to boot into the Ubuntu desktop (`graphical.target`) with GDM auto-login for the `vagrant` user. Prefer this VM when validating Linux-specific renderer, Electron, tray, pet-window, IPC, plugin, or packaging behavior.
-
-See `docs/development.md` (cross-platform & Linux testing) for how this fits the wider DX/testing workflow.
+See `docs/development.md` (Cross-platform & Linux testing) for the full workflow
+and guest helpers.
 
 FYI: third-parties/ folder contains other repos related to openpets, putting here so it's easier to work on those other repos too.
 

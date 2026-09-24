@@ -18,6 +18,7 @@ opencode.json
 third-parties/
 /teams/
 .env
+/infra/
 
 # BEGIN oh-my-opencode-slim clonedeps
 .slim/clonedeps/repos/

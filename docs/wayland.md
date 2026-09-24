@@ -53,11 +53,10 @@ compositor-controlled window placement.
 
 ## Reproduction and validation notes
 
-The KDE Wayland repro VM lives at:
-
-```text
-/Volumes/external/vmware/ubuntu24-kde-wayland
-```
+Reproduce with the `kde` VM from `infra/linux-vms/` (see
+[Development](/development)). It logs into Plasma X11 by default; for Plasma
+Wayland, set `Session=plasmawayland` in the guest's
+`/etc/sddm.conf.d/10-openpets-autologin.conf` and reboot.
 
 Validated behavior in KDE Plasma Wayland:
 

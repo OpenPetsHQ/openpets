@@ -210,13 +210,60 @@ and [Release guide](/release).
 
 ## Cross-platform & Linux testing
 
-- An **Ubuntu 24.04 ARM64 VMware/Vagrant VM** exists for Linux GUI testing.
-  Details and host-side commands are in `AGENTS.md` (VM dir
-  `/Volumes/external/vmware/ubuntu24`; guest checkout `/home/vagrant/src/openpets`;
-  helpers `cdpets` + `openpets-dx`). Use the **isolated guest clone**, never the
-  mounted macOS checkout (platform-specific `node_modules`).
-- Use the VM to validate Linux/Wayland renderer, tray, pet-window drag, IPC,
-  plugin, and packaging behavior.
+Linux desktop bugs are usually specific to one compositor or window manager, so
+the repo defines one reproducible VMware Fusion VM per desktop environment under
+`infra/linux-vms/` (Vagrant + `vagrant-vmware-desktop`, ARM64 guests on Apple
+Silicon):
+
+| Machine | Guest | Session | Use for |
+| --- | --- | --- | --- |
+| `gnome` | Ubuntu 24.04 | GNOME Wayland (GDM; "Ubuntu on Xorg" selectable) | baseline Linux behavior, tray/AppIndicator, DEB/RPM fallback builds |
+| `kde` | Ubuntu 24.04 + Kubuntu | Plasma 5.27 X11 (SDDM) | KWin focus, activation, drag, input-shape bugs |
+| `cosmic` | Fedora 43 | COSMIC Wayland (cosmic-greeter) | COSMIC/XWayland visibility and placement bugs |
+
+Drive them through `infra/linux-vms/vm`, never bare `vagrant`: the wrapper keeps
+Vagrant state and VM disks outside the repository (`~/.openpets-vms`, override
+with `OPENPETS_VM_HOME`). Run one VM at a time on a 16 GB host.
+
+```bash
+infra/linux-vms/vm up kde          # first boot provisions everything, then reboots into the desktop
+infra/linux-vms/vm sync kde        # copy this working tree (incl. .git) into the guest checkout
+infra/linux-vms/vm dx kde          # build and launch OpenPets in the guest desktop session
+infra/linux-vms/vm dx kde --packaged -- --disable-gpu   # unpacked electron-builder app + app args
+infra/linux-vms/vm log kde         # follow the guest openpets.log
+infra/linux-vms/vm focus kde       # print real X11 keyboard-focus changes (xdotool)
+infra/linux-vms/vm screenshot kde  # save the guest screen under infra/linux-vms/logs/
+infra/linux-vms/vm ssh kde         # anything else is passed to vagrant (halt, destroy, ...)
+```
+
+Each guest has an isolated checkout at `~/src/openpets` with its own Linux
+`node_modules`; the macOS checkout is never mounted, because its native modules
+are darwin-specific. Local, unpushed changes reach the guest only through
+`vm sync`. Guest helpers live in `/usr/local/bin`: `openpets-dx`,
+`openpets-stop`, `openpets-log`, `openpets-set-pref <key> <json>` (edits
+`openpets-state.json` preferences, for example `showChatButton true`),
+`openpets-focus-watch`, `openpets-session-env`, and `openpets-fix-sandbox`.
+
+Things that are easy to get wrong in these guests:
+
+- Electron 42 downloads its binary lazily on the first `require('electron')`,
+  not during `pnpm install`; `openpets-fix-sandbox` resolves it before making
+  `chrome-sandbox` root-owned `4755`.
+- Commands started over SSH need the logged-in desktop's `DISPLAY`,
+  `WAYLAND_DISPLAY`, `XAUTHORITY`, and D-Bus address; `openpets-session-env`
+  prints them from the running session, and `openpets-dx` uses it.
+- Electron's own `isFocusable()` and our `focus policy applied` log line only
+  reflect what Electron believes. Verify focus with `vm focus` or
+  `xdotool getwindowfocus`, and activation with `xdotool windowactivate`.
+- On `cosmic`, the first launch shows a "Choose password for new keyring"
+  prompt (Electron safe storage via gnome-keyring). It is a native Wayland
+  dialog, so `xdotool` cannot dismiss it; cancel it by hand or
+  `pkill -f gcr-prompter`.
+- The guests are ARM64, so released x64 AppImage/DEB/RPM artifacts do not run
+  there; test a guest build (`--packaged` for the closest match). GPU-driver
+  bugs (for example NVIDIA proprietary drivers) cannot be reproduced in these
+  VMs at all and need real hardware or an x86 GPU cloud instance.
+
 - **WSL** cross-platform IPC (WSL client → Windows host over private TCP) is part
   of the protocol - see [IPC and remote control](/ipc).
 

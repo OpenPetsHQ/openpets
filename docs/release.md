@@ -379,7 +379,7 @@ Electron Builder can produce an invalid tiny DEB archive. The `build:linux-deb`
 and `build:linux-rpm` stages reject a package smaller than 1 MiB, so this failure
 stops the release at that stage instead of producing a partial artifact set. Do
 not publish a partial release. Build valid DEB/RPM replacements inside the Ubuntu
-VMware guest, place them in an external staging directory, and re-run with
+`gnome` VM, place them in an external staging directory, and re-run with
 `--linux-package-dir`. The script then skips the failing local DEB/RPM targets,
 copies and validates the staged files into `dist-electron`, and continues only
 with the complete final artifact set. Adding `--linux-package-dir` on a resume
@@ -694,29 +694,20 @@ Warnings behavior to expect:
 
 ### Linux release-smoke VM
 
-Use the clean Ubuntu release-smoke VM for Linux artifact install checks that
-should behave like a normal user machine, not the development VM with a repo
-checkout and build dependencies.
-
-The VM is documented in `/Volumes/external/repos/vagrants.md`:
-
-```txt
-VM directory: /Volumes/external/vmware/ubuntu24-release-smoke
-Provider: vmware_desktop / VMware Fusion
-Guest OS: Ubuntu 24.04 ARM64
-SSH: 127.0.0.1:2200 when the main Ubuntu VM already owns 2222
-```
-
-Start and enter the VM from macOS:
+Use a freshly created VM from `infra/linux-vms/` (see
+[Development](/development#cross-platform-linux-testing)) for Linux install
+checks that should behave like a normal user machine. Recreate it first so no
+earlier dev build or state is present:
 
 ```bash
-cd /Volumes/external/vmware/ubuntu24-release-smoke
-vagrant up
-vagrant ssh
+infra/linux-vms/vm destroy -f gnome
+infra/linux-vms/vm up gnome
+infra/linux-vms/vm ssh gnome
 ```
 
-This VM intentionally does **not** mount the macOS OpenPets checkout. Use it to
-download and install released Linux artifacts from GitHub/R2 like a user would.
+The guests are ARM64, so they can install the Linux ARM64 artifacts built with
+`--include-experimental-arm`, but not the default x64 AppImage/DEB/RPM. Smoke the
+x64 artifacts on an x86 Linux machine or VM.
 
 Smoke checklist inside the VM:
 
@@ -729,9 +720,8 @@ Smoke checklist inside the VM:
 7. Confirm community plugins, including `openpets.spotify-buddy`, appear as installable when the live catalog includes them.
 8. Install, enable, and open configuration for at least one plugin without crashes or raw `$t:` strings.
 
-The existing `/Volumes/external/vmware/ubuntu24` VM remains the Linux development
-VM. Prefer `ubuntu24-release-smoke` for fresh-user release validation, and use
-the dev VM only for build/debug workflows.
+Use the `kde` and `cosmic` VMs as well when the release touches pet-window
+focus, input shape, or placement.
 
 ## Common failure modes
 
@@ -807,7 +797,7 @@ apps/desktop/dist-electron/
 Use this flow when the local macOS release host cannot produce valid Linux DEB
 or RPM artifacts. A common macOS failure mode is RPM failing under
 `fpm`/`rpmbuild`, or Electron Builder producing a tiny invalid DEB archive.
-Building the Linux package targets inside the Ubuntu VMware guest should produce
+Building the Linux package targets inside the Ubuntu `gnome` VM should produce
 valid x64 artifacts.
 
 The DEB failure is silent: Electron Builder logs `building target=deb` and exits
@@ -823,42 +813,37 @@ It happens because Apple's BSD `ar` is used when `dpkg`/`dpkg-deb`/`fpm` are not
 installed on the host. The `build:linux-deb` stage now rejects any package under
 1 MiB, so this stops the release at that stage instead of reaching artifact
 validation. Do not try to fix it by installing packaging tools on macOS; use the
-Ubuntu guest, which is the validated path.
+Ubuntu `gnome` VM, which is the validated path.
 
-The VM is documented in `/Volumes/external/repos/vagrants.md`:
-
-```txt
-VM directory: /Volumes/external/vmware/ubuntu24
-Guest checkout: /home/vagrant/src/openpets
-Provider: vmware_desktop / VMware Fusion
-```
-
-Start and prepare the VM from macOS:
+Use the `gnome` VM from `infra/linux-vms/` (see
+[Development](/development#cross-platform-linux-testing)). Start it, update its
+checkout to the release commit, and install the packaging tools:
 
 ```bash
-cd /Volumes/external/vmware/ubuntu24
-vagrant up
-vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; git fetch origin --tags; git checkout main; git pull --ff-only; git submodule update --init --recursive'
-vagrant ssh -c 'set -e; sudo apt-get update; sudo apt-get install -y rpm fakeroot'
+infra/linux-vms/vm up gnome
+infra/linux-vms/vm ssh gnome -c 'set -e; cd ~/src/openpets; git fetch origin --tags; git checkout main; git pull --ff-only; git submodule update --init --recursive'
+infra/linux-vms/vm ssh gnome -c 'set -e; sudo apt-get update; sudo apt-get install -y rpm fakeroot'
 ```
 
 Build only the Linux package targets in the guest:
 
 ```bash
-vagrant ssh -c 'set -e; cd /home/vagrant/src/openpets; git submodule update --init --recursive; pnpm install --frozen-lockfile; pnpm --filter @open-pets/desktop build; cd apps/desktop; node scripts/clean-package-output.cjs; pnpm exec electron-builder --linux deb --x64 --publish never; pnpm exec electron-builder --linux rpm --x64 --publish never; ls -lh dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm; file dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm'
+infra/linux-vms/vm ssh gnome -c 'set -e; cd ~/src/openpets; pnpm install --frozen-lockfile; pnpm --filter @open-pets/desktop build; cd apps/desktop; node scripts/clean-package-output.cjs; pnpm exec electron-builder --linux deb --x64 --publish never; pnpm exec electron-builder --linux rpm --x64 --publish never; ls -lh dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm; file dist-electron/OpenPets-<version>-linux-amd64.deb dist-electron/OpenPets-<version>-linux-x86_64.rpm'
 ```
 
-Copy the valid artifacts back through the VM's `/vagrant` share, then place
-them in an absolute host staging directory. Do not put them in
-`apps/desktop/dist-electron/`; the release script cleans that directory and
+Copy the valid artifacts to an absolute host staging directory. Do not put them
+in `apps/desktop/dist-electron/`; the release script cleans that directory and
 copies the validated files into it itself:
 
 ```bash
-vagrant ssh -c 'set -e; cp /home/vagrant/src/openpets/apps/desktop/dist-electron/OpenPets-<version>-linux-amd64.deb /vagrant/; cp /home/vagrant/src/openpets/apps/desktop/dist-electron/OpenPets-<version>-linux-x86_64.rpm /vagrant/'
 STAGING_DIR="/absolute/path/openpets-linux-packages/<version>"
 mkdir -p "$STAGING_DIR"
-cp /Volumes/external/vmware/ubuntu24/OpenPets-<version>-linux-amd64.deb "$STAGING_DIR/"
-cp /Volumes/external/vmware/ubuntu24/OpenPets-<version>-linux-x86_64.rpm "$STAGING_DIR/"
+infra/linux-vms/vm ssh-config gnome > "$STAGING_DIR/.ssh-config"
+scp -F "$STAGING_DIR/.ssh-config" \
+  gnome:src/openpets/apps/desktop/dist-electron/OpenPets-<version>-linux-amd64.deb \
+  gnome:src/openpets/apps/desktop/dist-electron/OpenPets-<version>-linux-x86_64.rpm \
+  "$STAGING_DIR/"
+rm "$STAGING_DIR/.ssh-config"
 ```
 
 Run the complete release flow with the staging directory. Do not precede it with
