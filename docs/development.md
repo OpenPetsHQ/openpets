@@ -78,9 +78,12 @@ catch.
   packaged testing verified switcher exclusion, chat typing, and close/re-show,
   and a mounted KDE AppImage passed startup and skip-hint checks. Development
   `dev:control-center` startup over SSH and coordinated stop were verified on the
-  GNOME VM. GNOME packaged XWayland startup and standard skip atoms were verified,
-  but a keyring modal blocked GUI Alt+Tab and typing checks. DEB, RPM, and tar.gz
-  launches are untested. Launches already carrying the canonical argument do
+  GNOME VM. Packaged arm64 GNOME XWayland startup and standard skip atoms were
+  verified; GUI testing confirmed typed text in pet chat and that the native
+  Alt+Tab switcher listed Files and Terminal but not the pet. First-run/keyring
+  dialogs were cleared manually before keyboard interaction. DEB, RPM, tar.gz,
+  and x86_64 launches are untested.
+  Launches already carrying the canonical argument do
   not need the extra process. `OPENPETS_ALLOW_WAYLAND=1` opts out, and native
   layer-shell keeps its separate backend path. See [Desktop app](/desktop) for
   the scope and limitations of these checks.

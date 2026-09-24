@@ -193,12 +193,14 @@ On an arm64 KDE/X11 VM, packaged testing confirmed exclusion from the taskbar
 and switcher, real typing in chat, and restoration after window-manager close
 followed by tray re-show. A mounted KDE AppImage also passed startup and skip-hint
 checks. Packaged arm64 GNOME testing confirmed an XWayland window with a valid
-XID and the standard skip atoms. GNOME GUI Alt+Tab and typing checks were blocked
-by a keyring modal; they are unverified. Development `dev:control-center` startup
-over SSH and coordinated stop were verified on the GNOME VM. DEB, RPM, and
-tar.gz launches remain untested. These checks do not establish that there is no
-visible flash or that every compositor presents the hints identically. The pure
-startup selection policy is covered by
+XID and the standard skip atoms. GUI checks verified typed text in the pet chat
+field; the native GNOME Alt+Tab switcher showed Files and Terminal but not the
+pet. First-run/keyring dialogs were cleared manually before keyboard interaction.
+Development `dev:control-center` startup over SSH
+and coordinated stop were also verified on the GNOME VM. DEB, RPM, and tar.gz
+launches, and x86_64 behavior, remain untested. These checks do not establish
+that there is no visible flash or that every compositor presents the hints
+identically. The pure startup selection policy is covered by
 `apps/desktop/tests/startup-backend-policy.test.ts`.
 
 On Windows, the shell silently strips `HWND_TOPMOST` from other windows when an
