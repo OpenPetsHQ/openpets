@@ -131,17 +131,33 @@ const forbiddenContent = [
   // Advance time past minSpeechIntervalMs
   testNow += 2_000;
 
-  // Test tool result handler
+  // Test tool result handler with canonical arguments property
   const toolResultHandler = handlers.get("tools/result");
   assert.ok(toolResultHandler);
   toolResultHandler({
     name: "bash",
-    params: { description: "Run vitest on product categories" },
+    arguments: { description: "Run vitest on product categories" },
   });
   assert.equal(scheduled.length, 1, "Tool description must be scheduled");
   await scheduled.shift()?.();
   assert.deepEqual(calls.at(-1), { message: "Run vitest on product categories", options: { reaction: "running" } });
   assertNoForbiddenContent(calls);
+}
+
+{
+  // Test enabled: false completely disables listener registration
+  const handlers = new Map<string, (...args: readonly unknown[]) => unknown>();
+  const context = {
+    on(eventName: string, listener: (...args: readonly unknown[]) => unknown) {
+      handlers.set(eventName, listener);
+    },
+  } as unknown as Context;
+
+  apply(context, {
+    enabled: false,
+  });
+
+  assert.equal(handlers.size, 0, "apply with enabled: false must not register any listeners");
 }
 
 {

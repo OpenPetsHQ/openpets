@@ -11,10 +11,20 @@ export interface DshEventDecision {
 }
 
 export interface OpenPetsDshOptions {
+  /** Master toggle to enable or disable OpenPets integration. Default: true. */
+  readonly enabled?: boolean;
   readonly clientFactory?: () => OpenPetsClient;
   readonly schedule?: (work: () => Promise<void>) => void | Promise<void>;
   readonly random?: () => number;
   readonly now?: () => number;
+  /** Minimum time between speech messages in milliseconds. Default: 1200. */
+  readonly minSpeechIntervalMs?: number;
+  /** Forward ⏵ status lines from assistant stream. Default: true. */
+  readonly enableStatusLineStream?: boolean;
+  /** Forward tool events. Default: true. */
+  readonly enableToolEvents?: boolean;
+  /** Announce when an approval request is waiting. Default: true. */
+  readonly enableApprovalEvents?: boolean;
 }
 
 export interface OpenPetsDshRuntime {
@@ -67,6 +77,10 @@ export function classifyDshEvent(eventName: DshEventName | string, event?: unkno
 export function createOpenPetsDshRuntime(options: OpenPetsDshOptions = {}): OpenPetsDshRuntime {
   const clientFactory = options.clientFactory ?? createOpenPetsDshClient;
   const schedule = options.schedule ?? defaultSchedule;
+  const minSpeech = options.minSpeechIntervalMs ?? minSpeechIntervalMs;
+  const enableStatusLineStream = options.enableStatusLineStream !== false;
+  const enableToolEvents = options.enableToolEvents !== false;
+  const enableApprovalEvents = options.enableApprovalEvents !== false;
   let client: OpenPetsClient | undefined;
   let recentErrorAt = Number.NEGATIVE_INFINITY;
   let lastCustomSpeechAt = Number.NEGATIVE_INFINITY;
@@ -107,7 +121,7 @@ export function createOpenPetsDshRuntime(options: OpenPetsDshOptions = {}): Open
 
   const dispatchCustom = (message: string, reaction: OpenPetsReaction): void => {
     const now = options.now?.() ?? Date.now();
-    if (now - lastCustomSpeechAt < minSpeechIntervalMs) return;
+    if (now - lastCustomSpeechAt < minSpeech) return;
     lastCustomSpeechAt = now;
 
     const work = async (): Promise<void> => {
@@ -140,9 +154,11 @@ export function createOpenPetsDshRuntime(options: OpenPetsDshOptions = {}): Open
       dispatch(classifyDshEvent(eventName, event));
     },
     handleApproval() {
+      if (!enableApprovalEvents) return;
       dispatch(classifyDshEvent("approval/request"));
     },
     handleStream(payload) {
+      if (!enableStatusLineStream) return;
       if (!payload || typeof payload !== "object") return;
       const frame = (payload as { readonly frame?: unknown }).frame as {
         readonly type?: string;
@@ -180,20 +196,22 @@ export function createOpenPetsDshRuntime(options: OpenPetsDshOptions = {}): Open
       }
     },
     handleToolResult(exec) {
+      if (!enableToolEvents) return;
       if (!exec || typeof exec !== "object") return;
-      const e = exec as { readonly name?: string; readonly params?: Record<string, unknown> };
+      const e = exec as { readonly name?: string; readonly arguments?: Record<string, unknown>; readonly params?: Record<string, unknown> };
       if (!e.name) return;
+      const args = e.arguments ?? e.params;
 
-      if (e.name === "bash" && e.params?.description) {
-        const clean = sanitizeStatusLine(String(e.params.description));
+      if (e.name === "bash" && args?.description) {
+        const clean = sanitizeStatusLine(String(args.description));
         if (clean) dispatchCustom(clean, "running");
       } else if (e.name === "edit" || e.name === "write") {
-        const filePath = e.params?.file_path ? String(e.params.file_path).split(/[\\/]/).pop() : "";
+        const filePath = args?.file_path ? String(args.file_path).split(/[\\/]/).pop() : "";
         const action = e.name === "edit" ? "Chỉnh sửa" : "Ghi file";
         const clean = sanitizeStatusLine(filePath ? `${action} ${filePath}` : action);
         if (clean) dispatchCustom(clean, "editing");
       } else if (e.name === "read") {
-        const filePath = e.params?.file_path ? String(e.params.file_path).split(/[\\/]/).pop() : "";
+        const filePath = args?.file_path ? String(args.file_path).split(/[\\/]/).pop() : "";
         const clean = sanitizeStatusLine(filePath ? `Đọc ${filePath}` : "Đang đọc file");
         if (clean) dispatchCustom(clean, "working");
       }
@@ -212,6 +230,7 @@ export function createOpenPetsDshClient(): OpenPetsClient {
 /** Register the DSH listeners without taking ownership of their flow. */
 export function registerDshListeners(cordis: DshCordisApi, options: OpenPetsDshOptions = {}): OpenPetsDshRuntime {
   const runtime = createOpenPetsDshRuntime(options);
+  if (options.enabled === false) return runtime;
   const on = cordis.on as unknown as (eventName: string, listener: (...args: readonly unknown[]) => unknown) => unknown;
   on("agent/status", (event: unknown) => runtime.handleStatus(event));
   on("agent/error", () => runtime.handleEvent("agent/error"));
