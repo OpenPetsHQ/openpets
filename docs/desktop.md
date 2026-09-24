@@ -280,13 +280,20 @@ cleanly for subsequent turns. Draft text is preserved across open/close lifecycl
 triggered by Escape, the close button, launcher toggles, or carrier collapse.
 
 On Linux, `pet-window-shape.ts` computes exact input masks (`setShape`) for collapsed,
-compact-composer, and expanded carrier states, keeping mouse passthrough and focus
-semantics correct under X11 and Wayland. For expanded chat, the mask aligns with the
-bottom-anchored panel bounds, tracking dynamic panel height reported from the renderer via
-`ResizeObserver`. Compact open/close is owned by the main
-process alongside expansion: opening makes the carrier focusable and adds the
-composer rectangle to the input shape; closing restores the passive pet shape and
-focus policy. The compact composer is anchored above the pet with a 12px visual gap
+compact-composer, and expanded carrier states, keeping mouse passthrough correct across
+states. Focus semantics are handled separately by `shouldPetWindowBeFocusable()` in
+`wayland-backend.ts`: X11/XWayland pet windows (the default under the forced
+`--ozone-platform=x11`, see above) are always created focusable, because some X11 window
+managers — KWin included, see #227 — never honor a later `setFocusable(true)` on a window
+that started `focusable: false`; native Wayland compositors keep the passive pet
+non-focusable until it hosts an interactive input, since treating an idle overlay as a
+normal focusable toplevel there causes tiling/activation issues (e.g. on Niri). For
+expanded chat, the mask aligns with the bottom-anchored panel bounds, tracking dynamic
+panel height reported from the renderer via `ResizeObserver`. Compact open/close is owned
+by the main process alongside expansion: opening widens the input shape to include the
+composer rectangle and (on native Wayland only) makes the carrier focusable; closing
+restores the passive pet shape and, on native Wayland, the passive focus policy. The
+compact composer is anchored above the pet with a 12px visual gap
 below its 6px tail. It has one shared maximum geometry contract: its
 multiline textarea is capped at 68px and error feedback at 34px, producing a
 152px maximum envelope used by both CSS and the Linux mask.
