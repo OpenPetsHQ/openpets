@@ -27,6 +27,7 @@ runner_pid=
 
 cleanup() {
   local status=$?
+  trap - EXIT INT TERM
   if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
     kill -- "-$runner_pid" 2>/dev/null || true
     kill "$runner_pid" 2>/dev/null || true
@@ -65,20 +66,44 @@ setsid dbus-run-session -- xvfb-run -a -s "-screen 0 1280x900x24 -nolisten tcp" 
   app_pid=
   cleanup_smoke() {
     local status=$?
-    if [[ -n "$app_pid" ]]; then
-      kill -- "-$app_pid" 2>/dev/null || true
-      kill "$app_pid" 2>/dev/null || true
-    fi
-    # Electron may replace its initial process with a detached relaunch. Its
-    # unique run marker is inherited only by this smoke-test process tree.
-    for environ_path in /proc/[0-9]*/environ; do
-      [[ -r "$environ_path" ]] || continue
-      if grep -azFq "OPENPETS_LINUX_SMOKE_ID=$OPENPETS_LINUX_SMOKE_ID" "$environ_path" 2>/dev/null; then
+    trap - EXIT INT TERM
+
+    signal_openpets_processes() {
+      local signal=$1
+      local environ_path pid process_argv0
+
+      # Electron can relaunch into a detached session. Restrict cleanup to
+      # processes carrying this smoke token whose argv[0] is the installed
+      # OpenPets executable; wrappers, ancestors, and unrelated marker-bearing
+      # processes are never signalled.
+      for environ_path in /proc/[0-9]*/environ; do
+        [[ -r "$environ_path" ]] || continue
+        if ! grep -azFq "OPENPETS_LINUX_SMOKE_ID=$OPENPETS_LINUX_SMOKE_ID" "$environ_path" 2>/dev/null; then
+          continue
+        fi
+
         pid=${environ_path#/proc/}
         pid=${pid%/environ}
-        [[ "$pid" == "$$" || "$pid" == "$PPID" ]] || kill "$pid" 2>/dev/null || true
-      fi
-    done
+        [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
+        process_argv0=
+        IFS= read -r -d "" process_argv0 <"/proc/$pid/cmdline" 2>/dev/null || true
+        if [[ "$process_argv0" == "$binary" ]]; then
+          kill -"$signal" "$pid" 2>/dev/null || true
+        fi
+      done
+    }
+
+    if [[ -n "$app_pid" ]]; then
+      kill -TERM -- "-$app_pid" 2>/dev/null || true
+    fi
+    signal_openpets_processes TERM
+    sleep 1
+    if [[ -n "$app_pid" ]]; then
+      kill -KILL -- "-$app_pid" 2>/dev/null || true
+      wait "$app_pid" 2>/dev/null || true
+    fi
+    signal_openpets_processes KILL
+
     kill "$openbox_pid" 2>/dev/null || true
     wait "$openbox_pid" 2>/dev/null || true
     exit "$status"
