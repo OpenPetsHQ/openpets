@@ -56,12 +56,13 @@ You do not need to be a developer or connect any AI agents to enjoy OpenPets. Th
 
 ### 1. Install OpenPets Desktop
 
-Download the package for your operating system from [OpenPets Releases](https://github.com/alvinunreal/openpets/releases/latest):
+Download the package for your operating system from [OpenPets Releases](https://github.com/alvinunreal/openpets/releases/latest), or use the community-maintained AUR package on Arch-based Linux:
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`
 - **Windows**: `OpenPets-*-win-x64-setup.exe`
 - **Linux**: `OpenPets-*-linux-x86_64.AppImage`
+- **Arch Linux / CachyOS**: Install the [community-maintained `openpets-bin` AUR package](https://aur.archlinux.org/packages/openpets-bin) by [@pinoybear](https://github.com/pinoybear) with `paru -S openpets-bin` (or `yay -S openpets-bin`).
 
 > Note: Windows release installers are signed. macOS builds may still be unsigned and can trigger a security warning; if macOS blocks execution, remove the quarantine flag via terminal:
 > ```bash
