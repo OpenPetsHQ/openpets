@@ -16,6 +16,7 @@ import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-
 import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
 import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
+import { setWindowPosition } from "./window-position.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
@@ -514,10 +515,10 @@ async function moveDefaultPetBy(rawX: number, rawY: number, rawDurationMs: unkno
       const blocked = getMovementBlockedReason(window, true);
       if (blocked) return { moved: false, reason: blocked };
       const t = step / steps;
-      window.setPosition(Math.round(current.x + (target.x - current.x) * t), Math.round(current.y + (target.y - current.y) * t), false);
+      setWindowPosition(window, Math.round(current.x + (target.x - current.x) * t), Math.round(current.y + (target.y - current.y) * t), false);
       await delay(durationMs / steps);
     }
-    window.setPosition(target.x, target.y, false);
+    setWindowPosition(window, target.x, target.y, false);
     handlePositionChanged(target);
     debug("pet.default", "move finished", { windowId: window.id, target });
     return { moved: true };
@@ -604,7 +605,7 @@ export function reclampDefaultPetWindow(reason: DisplayChangeReason, changedDisp
     : getSafeDefaultPetPosition(currentPosition);
 
   info("pet.default", "reclamp position", { windowId: defaultPetWindow.id, position: safePosition, restored: Boolean(restoredPosition), reason, changedDisplayKey });
-  defaultPetWindow.setPosition(safePosition.x, safePosition.y, false);
+  setWindowPosition(defaultPetWindow, safePosition.x, safePosition.y, false);
   handlePositionChanged(safePosition);
   recoverDefaultPetMouseInterop("display-change");
   // A live display-scale change invalidates the Linux setShape() click-through mask
@@ -626,6 +627,6 @@ export function resetDefaultPetToInitialPosition(): void {
   resetDefaultPetPosition(safePosition);
 
   if (defaultPetWindow && !defaultPetWindow.isDestroyed()) {
-    defaultPetWindow.setPosition(safePosition.x, safePosition.y, false);
+    setWindowPosition(defaultPetWindow, safePosition.x, safePosition.y, false);
   }
 }

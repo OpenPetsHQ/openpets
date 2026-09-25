@@ -27,6 +27,7 @@ import {
 } from "./plugin-service.js";
 import type { PluginCommandForm } from "./plugin-sdk-bridge.js";
 import { escapeHtml } from "./pet-window-render.js";
+import { setWindowPosition } from "./window-position.js";
 
 export function installPetContextMenu(
   window: BrowserWindow,
@@ -429,7 +430,7 @@ async function openPluginCommandForm(
       display.workArea.y + display.workArea.height - bounds.height,
     );
     if (nextX !== bounds.x || nextY !== bounds.y) {
-      window.setPosition(Math.round(nextX), Math.round(nextY));
+      setWindowPosition(window, nextX, nextY);
     }
   });
   window.once("closed", () => {
