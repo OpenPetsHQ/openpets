@@ -13,6 +13,7 @@ import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { resolveReactionSpriteState } from "./reaction-animation-mapping.js";
 import type { PluginAnimationSpec, PluginPetInfo, PluginPetState } from "./plugin-sdk-bridge.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
+import { setWindowPosition } from "./window-position.js";
 
 /**
  * Multi-pet registry (§4): addressable pet handles for plugins. "default" is
@@ -367,7 +368,7 @@ export function reclampPluginPetWindows(reason?: DisplayChangeReason): void {
     if (!window || window.isDestroyed()) continue;
     const [cx, cy] = window.getPosition();
     const safe = readWindowPosition(window);
-    if (safe.x !== cx || safe.y !== cy) window.setPosition(safe.x, safe.y, false);
+    if (safe.x !== cx || safe.y !== cy) setWindowPosition(window, safe.x, safe.y, false);
     // A live display-scale change invalidates the Linux setShape() click-through
     // mask for plugin pet windows too, not just the default pet -- see the
     // matching fix in default-pet-controller.ts's reclampDefaultPetWindow().

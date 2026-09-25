@@ -8,6 +8,7 @@ import type { LanPetRecord, LanPoint } from "./lan-contract.js";
 import { createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, showPetWindowInactive, type PetTransientDisplay } from "./pet-window.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
+import { setWindowPosition } from "./window-position.js";
 
 type VisitingPetWindow = {
   readonly ownerHost: string;
@@ -83,7 +84,7 @@ export function reclampLanVisitingPetWindows(): void {
     if (entry.window.isDestroyed()) continue;
     const safe = readWindowPosition(entry.window);
     const [x, y] = entry.window.getPosition();
-    if (safe.x !== x || safe.y !== y) entry.window.setPosition(safe.x, safe.y, false);
+    if (safe.x !== x || safe.y !== y) setWindowPosition(entry.window, safe.x, safe.y, false);
   }
 }
 

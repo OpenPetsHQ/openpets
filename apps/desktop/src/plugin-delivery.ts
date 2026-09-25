@@ -2,6 +2,7 @@ import type { BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getDisplayKey } from "./display.js";
+import { setWindowPosition } from "./window-position.js";
 
 const require = createRequire(import.meta.url);
 
@@ -807,7 +808,7 @@ async function createOrUpdateAirmailWindow(displayKey: string, activeItem: Queue
       await window.loadURL(targetUrl);
 
       if (window.isDestroyed() || getActiveItem()?.generationId !== activeItem.generationId) return;
-      window.setPosition(x_start, y_pos);
+      setWindowPosition(window, x_start, y_pos);
       window.showInactive();
       const [visibleXStart, visibleYStart] = window.getPosition();
       logDebug("ui", "delivery flight starts from visible window position", { displayKey, requestedXStart: x_start, requestedYStart: y_pos, visibleXStart, visibleYStart, xEnd: x_end });
@@ -837,7 +838,7 @@ async function createOrUpdateAirmailWindow(displayKey: string, activeItem: Queue
         const t = easeLinear(progress);
         const x = Math.round(visibleXStart + (x_end - visibleXStart) * t);
 
-        window.setPosition(x, visibleYStart);
+        setWindowPosition(window, x, visibleYStart);
 
         if (progress >= 1) {
           clearInterval(animTimer);
@@ -866,7 +867,7 @@ async function createOrUpdateAirmailWindow(displayKey: string, activeItem: Queue
       await window.loadURL(targetUrl);
       if (window.isDestroyed() || getActiveItem()?.generationId !== activeItem.generationId) return;
       // Set straight to parked/waiting if we did an in-place update
-      window.setPosition(x_end, y_pos);
+      setWindowPosition(window, x_end, y_pos);
       window.webContents.send("openpets:pet-reaction-state", "waiting");
     }
   } catch (err) {
