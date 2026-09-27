@@ -188,30 +188,30 @@ v4 is complete only when:
 
 ## Delivery tracker
 
-The [v4 epic](https://github.com/alvinunreal/openpets/issues/142) is the
+The [v4 epic](https://github.com/OpenPetsHQ/openpets/issues/142) is the
 implementation tracker. It turns this product direction into independently
 verifiable delivery work:
 
-- [#137](https://github.com/alvinunreal/openpets/issues/137) — plugin assistant
+- [#137](https://github.com/OpenPetsHQ/openpets/issues/137) — plugin assistant
   capability SDK/runtime (complete).
-- [#138](https://github.com/alvinunreal/openpets/issues/138) — provider-neutral
+- [#138](https://github.com/OpenPetsHQ/openpets/issues/138) — provider-neutral
   Pet Assistant conversation and tool loop (complete; no user surface yet).
-- [#143](https://github.com/alvinunreal/openpets/issues/143) and
-  [#144](https://github.com/alvinunreal/openpets/issues/144) — Focus Buddy and
+- [#143](https://github.com/OpenPetsHQ/openpets/issues/143) and
+  [#144](https://github.com/OpenPetsHQ/openpets/issues/144) — Focus Buddy and
   Quick Reminders assistant capabilities (complete).
-- [#145](https://github.com/alvinunreal/openpets/issues/145) — independent text,
+- [#145](https://github.com/OpenPetsHQ/openpets/issues/145) — independent text,
   speech-to-text, and text-to-speech provider profiles.
-- [#146](https://github.com/alvinunreal/openpets/issues/146) — editable pet
+- [#146](https://github.com/OpenPetsHQ/openpets/issues/146) — editable pet
   personality and layered prompt composition.
-- [#147](https://github.com/alvinunreal/openpets/issues/147) — composable
+- [#147](https://github.com/OpenPetsHQ/openpets/issues/147) — composable
   speech-to-text → Pet Assistant → text-to-speech conversations.
-- [#139](https://github.com/alvinunreal/openpets/issues/139) — optional OpenAI
+- [#139](https://github.com/OpenPetsHQ/openpets/issues/139) — optional OpenAI
   Realtime adapter for the same assistant contract.
-- [#148](https://github.com/alvinunreal/openpets/issues/148) — shared
+- [#148](https://github.com/OpenPetsHQ/openpets/issues/148) — shared
   chat/transcript UI (current-session projection delivered).
-- [#149](https://github.com/alvinunreal/openpets/issues/149) — host-side local
+- [#149](https://github.com/OpenPetsHQ/openpets/issues/149) — host-side local
   recent-history archive, bounded prompt context, and owner history controls.
-- [#150](https://github.com/alvinunreal/openpets/issues/150) — pet Talk controls,
+- [#150](https://github.com/OpenPetsHQ/openpets/issues/150) — pet Talk controls,
   shortcut lifecycle, and voice projection hookup.
 
 With #137, #138, #143, #144, and the current host/UI work complete, remaining
@@ -221,7 +221,7 @@ for voice.
 
 ## Two-developer GitHub workflow
 
-The [v4 epic](https://github.com/alvinunreal/openpets/issues/142) is the shared
+The [v4 epic](https://github.com/OpenPetsHQ/openpets/issues/142) is the shared
 coordination point for v4 work.
 
 1. Before coding, claim one unclaimed child issue: comment on the epic with the

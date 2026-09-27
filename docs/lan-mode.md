@@ -21,7 +21,7 @@ before another handoff.
 
 Meeting interactions, privacy-preserving MCP work signals, and Control Center
 setup are intentionally deferred to later phases of
-[issue #93](https://github.com/alvinunreal/openpets/issues/93). Multi-machine GUI
+[issue #93](https://github.com/OpenPetsHQ/openpets/issues/93). Multi-machine GUI
 validation is pending while the second test system is unavailable, so this work
 remains experimental.
 
