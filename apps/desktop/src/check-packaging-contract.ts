@@ -113,7 +113,7 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   const appResourceDir = findPackagedAppResourceDir(outputDir);
   assert.ok(appResourceDir, "packaged app resources directory was not found.");
   assert.ok(existsSync(join(appResourceDir, "app.asar")), "packaged app.asar is missing.");
-  const packagedEntries = listPackage(join(appResourceDir, "app.asar"), { isPack: false });
+  const packagedEntries = listPackagedEntries(join(appResourceDir, "app.asar"));
   assert.ok(packagedEntries.includes("/dist/bootstrap.js"), "packaged app.asar is missing the Electron bootstrap entry.");
   assert.ok(packagedEntries.includes("/dist/startup-backend-policy.js"), "packaged app.asar is missing the early backend policy module.");
   assertRendererBundled(join(appResourceDir, "app.asar"));
@@ -146,9 +146,13 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
 // List the archive contents directly instead of trusting that the file's
 // mere presence means it has what packaging was supposed to put in it.
 function assertRendererBundled(asarPath: string): void {
-  const entries = listPackage(asarPath, { isPack: false });
+  const entries = listPackagedEntries(asarPath);
   assert.ok(entries.includes("/dist/renderer/index.html"), `packaged app.asar is missing dist/renderer/index.html -- Control Center/dashboard will fail to load. Archive: ${asarPath}`);
   assert.ok(entries.some((entry) => entry.startsWith("/dist/renderer/assets/") && entry.endsWith(".js")), `packaged app.asar is missing its renderer JS bundle under dist/renderer/assets/. Archive: ${asarPath}`);
+}
+
+function listPackagedEntries(asarPath: string): string[] {
+  return listPackage(asarPath, { isPack: false }).map((entry) => entry.replaceAll("\\", "/"));
 }
 
 function findPackagedAppResourceDir(outputDir: string): string | null {
