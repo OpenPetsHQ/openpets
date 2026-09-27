@@ -19,7 +19,7 @@ failed. See [Staged desktop releases](#staged-desktop-releases).
 
 ## Repository and app
 
-- GitHub repo: `alvinunreal/openpets`
+- GitHub repo: `OpenPetsHQ/openpets`
 - Desktop app: `apps/desktop`
 - Release script: `apps/desktop/scripts/release-local.mjs`
 - Root command: `pnpm release:desktop`
@@ -259,7 +259,7 @@ unsigned or incomplete artifact set.
 | `release:publish` | publishes the verified draft |
 
 Preflight still enforces macOS, `pnpm`/`gh` availability, GitHub CLI auth, an
-`origin` pointing at `alvinunreal/openpets`, a clean working tree, an upstream
+`origin` pointing at `OpenPetsHQ/openpets`, a clean working tree, an upstream
 branch, `HEAD` matching upstream, and stable non-zero semver. It refuses an
 existing tag or release unless the checkpoint says this release already reached
 the `tag` stage at this `HEAD`, or both the local and origin tags already point
@@ -429,7 +429,7 @@ These setup values are already configured. If the SignPath project or GitHub rep
 1. Accept the SignPath OSS organization invitation.
 2. In SignPath, add the predefined trusted build system **GitHub.com** to the organization.
 3. Link the GitHub.com trusted build system to the OpenPets SignPath project.
-4. Install/authorize the SignPath GitHub App for `alvinunreal/openpets` if SignPath asks for source/build policy verification.
+4. Install/authorize the SignPath GitHub App for `OpenPetsHQ/openpets` if SignPath asks for source/build policy verification.
 5. Create a SignPath project for OpenPets and note its project slug.
 6. Create or identify a signing policy slug. Start with the self-signed test certificate policy; switch to the production certificate policy after SignPath reviews the setup.
 7. Add this GitHub repository secret:
@@ -469,7 +469,7 @@ The NSIS installer configuration is `openpets-windows-installer-zip`:
 Use `test-signing` only to validate SignPath setup. The normal `--yes` release command dispatches the workflow after the local build has succeeded and the annotated release tag has been pushed. It supplies these production inputs:
 
 ```bash
-gh workflow run signpath-windows.yml --repo alvinunreal/openpets --ref v<version> \
+gh workflow run signpath-windows.yml --repo OpenPetsHQ/openpets --ref v<version> \
   -f signing_policy_slug=release-signing \
   -f artifact_configuration_app_exe_slug=openpets-windows-app-exe-zip \
   -f artifact_configuration_installer_slug=openpets-windows-installer-zip
@@ -932,8 +932,8 @@ the Store identity values below, rejects a package missing the branded tile
 assets, and uploads the `openpets-windows-store-appx` artifact:
 
 ```bash
-gh workflow run windows-store-appx.yml --repo alvinunreal/openpets --ref main -f ref=v<version>
-gh run download <run-id> --repo alvinunreal/openpets --name openpets-windows-store-appx --dir <download-dir>
+gh workflow run windows-store-appx.yml --repo OpenPetsHQ/openpets --ref main -f ref=v<version>
+gh run download <run-id> --repo OpenPetsHQ/openpets --name openpets-windows-store-appx --dir <download-dir>
 ```
 
 The equivalent local build command, which on macOS needs a Windows VM for

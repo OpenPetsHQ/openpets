@@ -188,7 +188,8 @@ macOS-local build + packaging, reaches the staged tag-promotion boundary,
 dispatches the production SignPath Windows workflow, waits for its signed
 artifact, and only then creates a draft GitHub release, verifies its complete
 asset set, and publishes it. The local Windows installer is disposable; macOS
-and Linux artifacts remain unsigned.
+and Linux artifacts remain unsigned. Desktop release automation and the app's
+update checker use `OpenPetsHQ/openpets` as the canonical GitHub repository.
 
 Desktop-only releases do not publish npm packages unless Desktop emits a new
 exact npm integration version; that version must be published and verified first.

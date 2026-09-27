@@ -20,7 +20,7 @@ interface GitHubReleaseResponse {
   readonly html_url?: unknown;
 }
 
-const githubRepository = process.env.OPENPETS_GITHUB_REPOSITORY || "alvinunreal/openpets";
+const githubRepository = process.env.OPENPETS_GITHUB_REPOSITORY || "OpenPetsHQ/openpets";
 const latestReleaseApiUrl = `https://api.github.com/repos/${githubRepository}/releases/latest`;
 const releasesPageUrl = `https://github.com/${githubRepository}/releases`;
 const releaseCheckTimeoutMs = 6_000;

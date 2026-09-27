@@ -45,7 +45,7 @@ Check preload syntax → Compile tests to .test-dist → Run behavior tests → 
 
 - **File System**: `apps/desktop/dist-electron/` (build output), `apps/desktop/.release-state/` (gitignored release checkpoints), `apps/desktop/dist/` (compiled JS), optional external Linux package staging directory
 - **Git**: Working tree status, remote sync verification, tag existence checks
-- **GitHub**: `gh workflow run`, `gh run list/download`, and draft-to-published release operations for `alvinunreal/openpets`
+- **GitHub**: `gh workflow run`, `gh run list/download`, and draft-to-published release operations for `OpenPetsHQ/openpets`
 - **Build Tools**: `pnpm`, `electron-builder`, `node --check`
 - **Node APIs**: `crypto` (SHA256), `fs`, `path`, `child_process.spawnSync`
 
