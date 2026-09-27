@@ -31,7 +31,7 @@
 
 ## Download OpenPets
 
-**[Download the latest OpenPets desktop release](https://github.com/alvinunreal/openpets/releases/latest)** and launch it. A pet appears immediately; no agent setup required.
+**[Download the latest OpenPets desktop release](https://github.com/OpenPetsHQ/openpets/releases/latest)** and launch it. A pet appears immediately; no agent setup required.
 
 - **Desktop pets**: animated companions that idle, wander, react, and keep your workspace from feeling empty.
 - **Official plugins**: focus timers, reminders, mood check-ins, mini games, launch shortcuts, hydration nudges, and virtual-pet stats.
@@ -56,7 +56,7 @@ You do not need to be a developer or connect any AI agents to enjoy OpenPets. Th
 
 ### 1. Install OpenPets Desktop
 
-Download the package for your operating system from [OpenPets Releases](https://github.com/alvinunreal/openpets/releases/latest), or use the community-maintained AUR package on Arch-based Linux:
+Download the package for your operating system from [OpenPets Releases](https://github.com/OpenPetsHQ/openpets/releases/latest), or use the community-maintained AUR package on Arch-based Linux:
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`

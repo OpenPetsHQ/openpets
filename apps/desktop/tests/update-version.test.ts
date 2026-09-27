@@ -14,13 +14,13 @@ assert.equal(isVersionNewer("1.0.0", "1.0.0"), false);
 assert.equal(isVersionNewer("1.0.0", "1.0.1"), false);
 assert.equal(isVersionNewer("bad", "1.0.1"), false);
 
-const repo = "alvinunreal/openpets";
+const repo = "OpenPetsHQ/openpets";
 const releasesUrl = `https://github.com/${repo}/releases`;
-const available = createParsedUpdateStatus("1.0.0", { tag_name: "v1.0.1", html_url: "https://github.com/alvinunreal/openpets/releases/tag/v1.0.1" }, 123, repo, releasesUrl);
+const available = createParsedUpdateStatus("1.0.0", { tag_name: "v1.0.1", html_url: "https://github.com/OpenPetsHQ/openpets/releases/tag/v1.0.1" }, 123, repo, releasesUrl);
 assert.equal(available.state, "available");
 assert.equal(available.latestVersion, "1.0.1");
 
-const current = createParsedUpdateStatus("1.0.1", { tag_name: "v1.0.1", html_url: "https://github.com/alvinunreal/openpets/releases/tag/v1.0.1" }, 124, repo, releasesUrl);
+const current = createParsedUpdateStatus("1.0.1", { tag_name: "v1.0.1", html_url: "https://github.com/OpenPetsHQ/openpets/releases/tag/v1.0.1" }, 124, repo, releasesUrl);
 assert.equal(current.state, "current");
 
 assert.throws(() => createParsedUpdateStatus("1.0.0", { tag_name: "release" }, 125, repo, releasesUrl));

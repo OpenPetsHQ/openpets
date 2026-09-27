@@ -31,7 +31,7 @@
 
 ## OpenPetsのダウンロード
 
-**[最新のOpenPetsデスクトップリリースをダウンロード](https://github.com/alvinunreal/openpets/releases/latest)**して起動します。エージェントのセットアップは不要で、すぐにペットが表示されます。
+**[最新のOpenPetsデスクトップリリースをダウンロード](https://github.com/OpenPetsHQ/openpets/releases/latest)**して起動します。エージェントのセットアップは不要で、すぐにペットが表示されます。
 
 - **Desktop pets**: アイドリング、徘徊、リアクションを行い、ワークスペースの寂しさを和らげるアニメーションコンパニオンです。
 - **Official plugins**: 集中タイマー、リマインダー、気分チェックイン、ミニゲーム、起動ショートカット、水分補給の促し、バーチャルペットのステータス機能などがあります。
@@ -56,7 +56,7 @@ OpenPetsを楽しむために、開発者である必要や、AIエージェン�
 
 ### 1. Install OpenPets Desktop
 
-[OpenPets Releases](https://github.com/alvinunreal/openpets/releases/latest)から、お使いのオペレーティングシステム用のパッケージをダウンロードします。
+[OpenPets Releases](https://github.com/OpenPetsHQ/openpets/releases/latest)から、お使いのオペレーティングシステム用のパッケージをダウンロードします。
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`

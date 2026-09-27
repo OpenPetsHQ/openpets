@@ -31,7 +31,7 @@
 
 ## Baixar o OpenPets
 
-**[Baixe a versão mais recente do OpenPets para desktop](https://github.com/alvinunreal/openpets/releases/latest)** e execute-o. Um pet aparecerá imediatamente; nenhuma configuração de agente é necessária.
+**[Baixe a versão mais recente do OpenPets para desktop](https://github.com/OpenPetsHQ/openpets/releases/latest)** e execute-o. Um pet aparecerá imediatamente; nenhuma configuração de agente é necessária.
 
 - **Pets de desktop**: acompanhantes animados que ficam ociosos, andam pela tela, reagem e evitam que seu espaço de trabalho pareça vazio.
 - **Plugins oficiais**: temporizadores de foco, lembretes, acompanhamento de humor, mini-jogos, atalhos de inicialização, alertas de hidratação e atributos de pet virtual.
@@ -56,7 +56,7 @@ Você não precisa ser desenvolvedor ou conectar nenhum agente de IA para aprove
 
 ### 1. Instalar o OpenPets Desktop
 
-Baixe o pacote para o seu sistema operacional a partir das [Versões do OpenPets](https://github.com/alvinunreal/openpets/releases/latest):
+Baixe o pacote para o seu sistema operacional a partir das [Versões do OpenPets](https://github.com/OpenPetsHQ/openpets/releases/latest):
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`

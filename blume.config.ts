@@ -39,14 +39,14 @@ export default defineConfig({
     site: "https://docs.openpets.dev",
   },
   github: {
-    owner: "alvinunreal",
+    owner: "OpenPetsHQ",
     repo: "openpets",
     branch: "main",
   },
   navigation: {
     featured: [
       { label: "Download OpenPets", href: "https://openpets.dev", icon: "rocket" },
-      { label: "GitHub", href: "https://github.com/alvinunreal/openpets", icon: "github" },
+      { label: "GitHub", href: "https://github.com/OpenPetsHQ/openpets", icon: "github" },
     ],
     sidebar: [
       "/",
@@ -80,7 +80,7 @@ export default defineConfig({
     { from: "/packages", to: "/development" },
     { from: "/files-and-config", to: "/desktop" },
     { from: "/superplugins", to: "/official-plugins" },
-    { from: "/license", to: "https://github.com/alvinunreal/openpets/blob/main/LICENSE" },
+    { from: "/license", to: "https://github.com/OpenPetsHQ/openpets/blob/main/LICENSE" },
   ],
   search: {
     provider: "orama",

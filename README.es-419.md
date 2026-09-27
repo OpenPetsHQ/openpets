@@ -31,7 +31,7 @@
 
 ## Descargar OpenPets
 
-**[Descarga la última versión de OpenPets para escritorio](https://github.com/alvinunreal/openpets/releases/latest)** e iníciala. Aparecerá una mascota de inmediato; no se requiere configuración de agentes.
+**[Descarga la última versión de OpenPets para escritorio](https://github.com/OpenPetsHQ/openpets/releases/latest)** e iníciala. Aparecerá una mascota de inmediato; no se requiere configuración de agentes.
 
 - **Mascotas de escritorio**: compañeros animados que reposan, deambulan, reaccionan y evitan que tu espacio de trabajo se sienta vacío.
 - **Plugins oficiales**: temporizadores de enfoque, recordatorios, controles de estado de ánimo, minijuegos, atajos de lanzamiento, alertas de hidratación y estadísticas de mascotas virtuales.
@@ -56,7 +56,7 @@ No necesitas ser desarrollador ni conectar ningún agente de IA para disfrutar d
 
 ### 1. Instalar OpenPets para escritorio
 
-Descarga el paquete para tu sistema operativo desde los [lanzamientos de OpenPets](https://github.com/alvinunreal/openpets/releases/latest):
+Descarga el paquete para tu sistema operativo desde los [lanzamientos de OpenPets](https://github.com/OpenPetsHQ/openpets/releases/latest):
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`

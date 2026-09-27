@@ -31,7 +31,7 @@
 
 ## 下載 OpenPets
 
-**[下載最新的 OpenPets 桌面版發行版本](https://github.com/alvinunreal/openpets/releases/latest)**並啟動它。寵物會立即出現；無需設定任何代理（Agent）。
+**[下載最新的 OpenPets 桌面版發行版本](https://github.com/OpenPetsHQ/openpets/releases/latest)**並啟動它。寵物會立即出現；無需設定任何代理（Agent）。
 
 - **桌面寵物**：動作生動的桌面伴侶，會閒置、漫遊、做出反應，讓您的工作空間不再顯得空蕩。
 - **官方外掛程式**：專注計時器、提醒事項、心情打卡、迷你遊戲、啟動捷徑、喝水提醒和虛擬寵物數值。
@@ -56,7 +56,7 @@
 
 ### 1. 安裝 OpenPets 桌面版
 
-從 [OpenPets Releases](https://github.com/alvinunreal/openpets/releases/latest) 下載適用於您作業系統的套件：
+從 [OpenPets Releases](https://github.com/OpenPetsHQ/openpets/releases/latest) 下載適用於您作業系統的套件：
 
 - **macOS Apple Silicon**：`OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**：`OpenPets-*-mac-x64.dmg`

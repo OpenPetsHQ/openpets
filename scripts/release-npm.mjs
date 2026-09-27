@@ -20,7 +20,7 @@ import {
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptsDir, "..");
-const repository = "alvinunreal/openpets";
+const repository = "OpenPetsHQ/openpets";
 const npmRegistry = "https://registry.npmjs.org";
 const npmRegistryProbeTimeoutMs = 30_000;
 

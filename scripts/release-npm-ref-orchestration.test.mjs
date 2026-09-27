@@ -99,7 +99,7 @@ if (args[0] === "remote" && args[1] === "get-url") {
   if (!isFixtureRoot) fail("remote validation must use the current checkout");
   state.remoteChecked = true;
   saveState(state);
-  process.stdout.write("https://github.com/alvinunreal/openpets.git\\n");
+  process.stdout.write("https://github.com/OpenPetsHQ/openpets.git\\n");
 } else if (args[0] === "status") {
   if (isFixtureRoot) {
     state.currentStatusChecked = true;

@@ -31,7 +31,7 @@
 
 ## Download OpenPets
 
-**[최신 OpenPets 데스크톱 릴리스 다운로드](https://github.com/alvinunreal/openpets/releases/latest)** 후 실행해 보세요. 에이전트 설정 없이도 펫이 즉시 나타납니다.
+**[최신 OpenPets 데스크톱 릴리스 다운로드](https://github.com/OpenPetsHQ/openpets/releases/latest)** 후 실행해 보세요. 에이전트 설정 없이도 펫이 즉시 나타납니다.
 
 - **데스크톱 펫**: 대기, 배회, 반응 등의 모션으로 작업 공간을 심심하지 않게 채워주는 움직이는 컴패니언입니다.
 - **공식 플러그인**: 집중 타이머, 알림, 감정 상태 체크인, 미니 게임, 실행 바로가기, 수분 섭취 미리 알림, 가상 펫 스탯 기능을 제공합니다.
@@ -56,7 +56,7 @@ OpenPets를 즐기기 위해 개발자이거나 AI 에이전트를 연결할 필
 
 ### 1. Install OpenPets Desktop
 
-[OpenPets 릴리스](https://github.com/alvinunreal/openpets/releases/latest)에서 운영체제에 맞는 패키지를 다운로드하세요:
+[OpenPets 릴리스](https://github.com/OpenPetsHQ/openpets/releases/latest)에서 운영체제에 맞는 패키지를 다운로드하세요:
 
 - **macOS Apple Silicon**: `OpenPets-*-mac-arm64.dmg`
 - **macOS Intel**: `OpenPets-*-mac-x64.dmg`

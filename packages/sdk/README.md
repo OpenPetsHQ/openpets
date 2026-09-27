@@ -39,4 +39,4 @@ import type { OpenPetsContext, OpenPetsPluginDefinition } from "@open-pets/plugi
 
 - SDK guide: https://openpets.dev/sdk
 - Full reference: https://openpets.dev/docs/plugin-sdk
-- Example plugins: https://github.com/alvinunreal/openpets/tree/main/plugins/official
+- Example plugins: https://github.com/OpenPetsHQ/openpets/tree/main/plugins/official

@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alvinunreal/openpets.git"
+    "url": "git+https://github.com/OpenPetsHQ/openpets.git"
   },
   "type": "module",
   "packageManager": "pnpm@11.0.8",
