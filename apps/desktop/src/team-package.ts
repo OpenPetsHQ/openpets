@@ -4,6 +4,7 @@ import { dirname, join, posix } from "node:path";
 import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
 
+import { validateCodexPetMetadata } from "./codex-pets-core.js";
 import { readCatalogPluginManifestFromZip } from "./plugin-package.js";
 import { validatePluginConfigReplacement } from "./plugin-config.js";
 import {
@@ -168,23 +169,14 @@ function validatePetFiles(
     || sprite.toString("ascii", 0, 4) !== "RIFF"
     || sprite.toString("ascii", 8, 12) !== "WEBP"
   ) throw new Error("Team pet package does not match the OpenPets pet format.");
-  const value = JSON.parse(petBytes.toString("utf8")) as Record<string, unknown>;
-  if (
-    typeof value.id !== "string"
-    || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(value.id)
-    || value.id !== expectedId
-    || typeof value.displayName !== "string"
-    || value.displayName.trim() === ""
-    || value.displayName.length > 80
-    || typeof value.description !== "string"
-    || value.description.trim() === ""
-    || value.description.length > 500
-    || value.spritesheetPath !== "spritesheet.webp"
-  ) throw new Error("Team pet metadata does not match the Team Pack.");
+  const value = validateCodexPetMetadata(
+    JSON.parse(petBytes.toString("utf8")) as unknown,
+    expectedId,
+  );
   return {
     id: value.id,
-    displayName: value.displayName.trim(),
-    description: value.description.trim(),
+    displayName: value.displayName,
+    description: value.description,
   };
 }
 

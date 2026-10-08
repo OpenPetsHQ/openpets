@@ -11,6 +11,13 @@ export interface CodexPetMetadata {
   readonly description: string;
   readonly spritesheetPath: "spritesheet.webp";
   readonly spriteVersionNumber?: 2;
+  readonly gazeAnchor?: CodexPetGazeAnchor;
+}
+
+/** A gaze target normalized within one sprite frame, measured from its top-left. */
+export interface CodexPetGazeAnchor {
+  readonly x: number;
+  readonly y: number;
 }
 
 export interface CodexPetSpriteLayout {
@@ -57,6 +64,41 @@ export const codexV2GazeIdleResetMs = 1_200;
 export interface CodexV2GazePoint {
   readonly x: number;
   readonly y: number;
+}
+
+export interface CodexV2GazeCarrierBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Resolve a normalized frame anchor against the base-scale card origin and the
+ * sprite's effective transform scale. Omission preserves the legacy carrier
+ * bottom-center anchor.
+ */
+export function getCodexV2GazeAnchorPoint(
+  bounds: CodexV2GazeCarrierBounds,
+  frame: { readonly width: number; readonly height: number },
+  layoutScale: number,
+  spriteScaleOverride: number | null,
+  gazeAnchor: CodexPetGazeAnchor | undefined,
+  flipped: boolean,
+  spriteBottomInset: number,
+): CodexV2GazePoint {
+  if (!gazeAnchor) return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height };
+
+  const layoutFrameWidth = Math.ceil(frame.width * layoutScale);
+  const layoutFrameHeight = Math.ceil(frame.height * layoutScale);
+  const spriteLeft = bounds.x + (bounds.width - layoutFrameWidth) / 2;
+  const spriteTop = bounds.y + bounds.height - spriteBottomInset - layoutFrameHeight;
+  const spriteScale = spriteScaleOverride ?? layoutScale;
+  const frameAnchorX = gazeAnchor.x * frame.width * spriteScale;
+  return {
+    x: spriteLeft + (flipped ? layoutFrameWidth - frameAnchorX : frameAnchorX),
+    y: spriteTop + gazeAnchor.y * frame.height * spriteScale,
+  };
 }
 
 export function isCodexV2GazeActive(lastCursorMovedAt: number | null, now: number, idleResetMs = codexV2GazeIdleResetMs): boolean {
@@ -146,13 +188,30 @@ export function validateCodexPetMetadata(value: unknown, folderName: string): Co
   if (typeof value.displayName !== "string" || value.displayName.trim().length === 0 || value.displayName.length > 80) throw new Error("Codex pet displayName is invalid.");
   if (typeof value.description !== "string" || value.description.trim().length === 0 || value.description.length > 500) throw new Error("Codex pet description is invalid.");
   if (value.spritesheetPath !== "spritesheet.webp") throw new Error("Codex pet spritesheetPath must be spritesheet.webp.");
+  const gazeAnchor = value.gazeAnchor === undefined ? undefined : validateCodexPetGazeAnchor(value.gazeAnchor);
   return {
     id: value.id,
     displayName: value.displayName.trim(),
     description: value.description.trim(),
     spritesheetPath: "spritesheet.webp",
     ...(spriteLayout.version === 2 ? { spriteVersionNumber: 2 as const } : {}),
+    ...(gazeAnchor ? { gazeAnchor } : {}),
   };
+}
+
+function validateCodexPetGazeAnchor(value: unknown): CodexPetGazeAnchor {
+  if (!isRecord(value)
+    || typeof value.x !== "number"
+    || !Number.isFinite(value.x)
+    || value.x < 0
+    || value.x > 1
+    || typeof value.y !== "number"
+    || !Number.isFinite(value.y)
+    || value.y < 0
+    || value.y > 1) {
+    throw new Error("Codex pet gazeAnchor must contain normalized finite x and y coordinates.");
+  }
+  return { x: value.x, y: value.y };
 }
 
 export function getCodexPetSpriteLayout(value: unknown): CodexPetSpriteLayout {

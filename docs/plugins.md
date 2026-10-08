@@ -503,6 +503,15 @@ repo dev build still supports maintainer-only env paths with
 
 ## Pet menu rules
 
+The host owns pet-window rendering and lifecycle. `pet.setScale` changes only
+the sprite transform; the shell/card layout stays at its render-time base scale.
+The main-process V2 idle-gaze target uses that base scale for the sprite origin
+and the active override for the anchor's transformed frame coordinates. The
+host reapplies an active per-window override after a renderer reload. Without an
+override, each pet render scale supplies both values. Manifest gaze anchors
+remain relative to one sprite frame; plugins do not receive a separate
+gaze-setting API.
+
 Plugin commands (`ctx.commands`) appear in the default pet's right-click menu.
 The host rebuilds that menu from the current registrations on every
 right-click, so the menu is exactly what the plugin has registered at that

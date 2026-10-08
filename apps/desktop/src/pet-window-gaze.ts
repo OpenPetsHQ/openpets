@@ -1,8 +1,10 @@
 import { screen, type BrowserWindow } from "electron";
 
 import { getAppStateSnapshot } from "./app-state.js";
-import { getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze } from "./codex-pets-core.js";
+import { defaultPetScale } from "./app-state-core.js";
+import { codexV2SpriteLayout, getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze, type CodexPetGazeAnchor } from "./codex-pets-core.js";
 import type { Point } from "./display.js";
+import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
 import type { PetContentRender } from "./pet-window-types.js";
 import type { PetMotionState, UniversalSpriteState } from "./reaction-animation-mapping.js";
 
@@ -13,6 +15,10 @@ interface PetGazeEntry {
   reactionState: UniversalSpriteState;
   motionState: PetMotionState;
   flipped: boolean;
+  gazeAnchor: CodexPetGazeAnchor | undefined;
+  layoutPetScale: number;
+  petScaleOverride: number | null;
+  gazeSpriteBottomInset: number;
   pluginSpriteOverride: boolean;
   rendererReady: boolean;
   dragging: boolean;
@@ -38,6 +44,10 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
     reactionState: "idle",
     motionState: "idle",
     flipped: false,
+    gazeAnchor: undefined,
+    layoutPetScale: defaultPetScale,
+    petScaleOverride: null,
+    gazeSpriteBottomInset: getPetWindowSpriteBottomInset(false),
     pluginSpriteOverride: false,
     rendererReady: false,
     dragging: false,
@@ -174,7 +184,15 @@ function evaluatePetGaze(entry: PetGazeEntry, cursor: Point, now = Date.now()): 
   }
   const direction = quantizeCodexV2GazeDirection(
     cursor,
-    { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height },
+    getCodexV2GazeAnchorPoint(
+      bounds,
+      { width: codexV2SpriteLayout.frameWidth, height: codexV2SpriteLayout.frameHeight },
+      entry.layoutPetScale,
+      entry.petScaleOverride,
+      entry.gazeAnchor,
+      entry.flipped,
+      entry.gazeSpriteBottomInset,
+    ),
   );
   const selected = direction === null ? null : getCodexV2GazeSpritePosition(direction, entry.flipped);
   const selectedDirection = direction === null ? null : (entry.flipped ? mirrorCodexV2GazeIndex(direction) : direction);
@@ -245,6 +263,9 @@ export function setPetGazeRendererReady(window: BrowserWindow): void {
   const entry = petGazeEntries.get(window);
   if (!entry || window.isDestroyed() || window.webContents.isDestroyed()) return;
   entry.rendererReady = true;
+  if (entry.petScaleOverride !== null) {
+    window.webContents.send("openpets:pet-scale-override", entry.petScaleOverride);
+  }
   forcePetGazeEvaluation(window);
 }
 
@@ -254,13 +275,29 @@ export function updatePetGazeConfiguration(window: BrowserWindow, render: PetCon
   const changed = entry.codexSpriteVersion !== render.codexSpriteVersion
     || entry.paused !== render.paused
     || entry.reactionState !== render.reactionState
-    || entry.flipped !== flipped;
+    || entry.flipped !== flipped
+    || entry.gazeAnchor?.x !== render.gazeAnchor?.x
+    || entry.gazeAnchor?.y !== render.gazeAnchor?.y
+    || entry.layoutPetScale !== render.petScale
+    || entry.gazeSpriteBottomInset !== render.gazeSpriteBottomInset;
   entry.codexSpriteVersion = render.codexSpriteVersion;
   entry.paused = render.paused;
   entry.reactionState = render.reactionState;
   entry.flipped = flipped;
+  entry.gazeAnchor = render.gazeAnchor;
+  entry.layoutPetScale = render.petScale;
+  entry.gazeSpriteBottomInset = render.gazeSpriteBottomInset;
   if (changed) resetPetGazeDirection(entry);
   syncPetGazeTicker();
+}
+
+/** Keep the gaze target in sync with the transient renderer scale override. */
+export function setPetGazeScale(window: BrowserWindow, scale: number): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry || !Number.isFinite(scale) || scale <= 0) return;
+  entry.petScaleOverride = scale;
+  resetPetGazeDirection(entry);
+  forcePetGazeEvaluation(window);
 }
 
 export function setPetGazeMotionState(window: BrowserWindow, state: PetMotionState): void {

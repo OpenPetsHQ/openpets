@@ -58,6 +58,10 @@ v3 is **paginated** to keep each runtime fetch small. The flow the app follows:
    boundary normalizes numeric `1` to omission, matching the internal
    optional-`2` type.
 
+Pet-specific rendering metadata such as `gazeAnchor` remains owned by the ZIP's
+validated `pet.json`, not duplicated into catalog entries. Catalog omission of
+that optional field therefore does not affect installed V2 gaze behavior.
+
 Only pets with a valid `category` (`western` or `asian`) appear in v3 - the
 generator drops the rest and logs a warning. To keep the app UI clean, the
 Control Center browsing/search indexes surface only "curated" (original or

@@ -18,7 +18,7 @@ import { getActiveChatPanelHeight, isDefaultPetCarrierExpanded, isDefaultPetChat
 
 import type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
-import { registerPetGazeWindow, resetPetGazeWindow, setPetGazeDragging, setPetGazeMotionState, setPetGazePluginOverride, setPetGazeReactionState, setPetGazeRendererReady, suspendPetGazeForMovement, updatePetGazeConfiguration } from "./pet-window-gaze.js";
+import { registerPetGazeWindow, resetPetGazeWindow, setPetGazeDragging, setPetGazeMotionState, setPetGazePluginOverride, setPetGazeReactionState, setPetGazeRendererReady, setPetGazeScale, suspendPetGazeForMovement, updatePetGazeConfiguration } from "./pet-window-gaze.js";
 import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
 import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
@@ -500,6 +500,7 @@ export function setPetSpriteOverride(window: BrowserWindow, override: { readonly
 /** Scale override for a single pet window (plugin setScale). */
 export function setPetWindowScale(window: BrowserWindow, scale: number): void {
   if (window.isDestroyed()) return;
+  setPetGazeScale(window, scale);
   window.webContents.send("openpets:pet-scale-override", scale);
 }
 

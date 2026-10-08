@@ -22,6 +22,7 @@ import { TeamApiClient, TeamApiError } from "../src/team-api-client.js";
 import {
   activateTeamArtifact,
   removeTeamArtifact,
+  stageTeamArtifact,
 } from "../src/team-package.js";
 import {
   isEnrollmentActionable,
@@ -547,6 +548,47 @@ test("Team artifact rollback and cleanup never touch a colliding personal pet", 
       await readFile(join(personalRoot, "team-pet", "marker"), "utf8"),
       "personal",
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Team pet staging rejects invalid gaze anchors and preserves a valid ZIP anchor", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-pet-metadata-test-"));
+  try {
+    const makeItemForZip = (zip: Buffer) => validateTeamPack({
+      version: 1,
+      revision: 1,
+      items: [item({
+        sha256: createHash("sha256").update(zip).digest("hex"),
+        size: zip.byteLength,
+      })],
+    }).items[0]!;
+
+    const invalidZip = createPetZip("team-pet", {
+      spriteVersionNumber: 2,
+      gazeAnchor: { x: 1.1, y: 0.5 },
+    });
+    await assert.rejects(() => stageTeamArtifact(
+      root,
+      makeItemForZip(invalidZip),
+      invalidZip,
+    ));
+
+    const validZip = createPetZip("team-pet", {
+      spriteVersionNumber: 2,
+      gazeAnchor: { x: 0.5, y: 0.25 },
+    });
+    const staged = await stageTeamArtifact(
+      root,
+      makeItemForZip(validZip),
+      validZip,
+    );
+    const stagedMetadata = JSON.parse(
+      await readFile(join(staged.stagingPath, "pet.json"), "utf8"),
+    ) as { gazeAnchor?: { x: number; y: number } };
+
+    assert.deepEqual(stagedMetadata.gazeAnchor, { x: 0.5, y: 0.25 });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1397,7 +1439,7 @@ function createPluginZip(
   ]);
 }
 
-function createPetZip(id: string): Buffer {
+function createPetZip(id: string, metadata: Record<string, unknown> = {}): Buffer {
   const sprite = Buffer.alloc(16);
   sprite.write("RIFF", 0, "ascii");
   sprite.write("WEBP", 8, "ascii");
@@ -1409,6 +1451,7 @@ function createPetZip(id: string): Buffer {
         displayName: "Team Pet",
         description: "Team pet",
         spritesheetPath: "spritesheet.webp",
+        ...metadata,
       })),
     },
     {

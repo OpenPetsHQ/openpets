@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
-import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
+import { getCodexPetSpriteLayout } from "./codex-pets-core.js";
+import { readInstalledPetMetadata } from "./installed-pet-layout.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
 import { defaultMediaDurationMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
@@ -15,6 +16,7 @@ import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
 import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, resolveEffectiveSpriteState, resolveReactionSpriteState, type UniversalSpriteState } from "./reaction-animation-mapping.js";
 import { createPetWindowCss, createCodexV2GazeCss, createInstalledSpriteStateCss, createSpriteStateCss, escapeCssUrl } from "./pet-window-styles.js";
+import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
 import type { PetContentRender, PetPluginBubbles, PetStatusBadgeReaction, PetTransientDisplay } from "./pet-window-types.js";
 
 export { escapeCssUrl } from "./pet-window-styles.js";
@@ -57,6 +59,8 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     assetName: assetDisplayName,
     reactionState,
     codexSpriteVersion: defaultPetSprite.version,
+    petScale: scale,
+    gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale),
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
@@ -157,7 +161,8 @@ export async function createInstalledPetRender(
   if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) {
     throw new Error("Installed pet spritesheet is missing or too large.");
   }
-  const spriteLayout = await readInstalledPetSpriteLayout(petId, source);
+  const metadata = await readInstalledPetMetadata(petId, source);
+  const spriteLayout = getCodexPetSpriteLayout(metadata);
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
   const hasPinned = Boolean(pluginBubbles?.pinned);
@@ -170,12 +175,15 @@ export async function createInstalledPetRender(
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,
     reactionState,
     codexSpriteVersion: spriteLayout.version,
+    ...(metadata.gazeAnchor ? { gazeAnchor: metadata.gazeAnchor } : {}),
+    petScale: scale,
+    gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale),
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>

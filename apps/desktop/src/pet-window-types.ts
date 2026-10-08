@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 
 import type { PetScaleValue } from "./app-state.js";
+import type { CodexPetGazeAnchor } from "./codex-pets-core.js";
 import type { Point } from "./display.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
@@ -81,6 +82,9 @@ export interface PetContentRender {
   readonly assetName: string;
   readonly reactionState: UniversalSpriteState;
   readonly codexSpriteVersion: 1 | 2;
+  readonly gazeAnchor?: CodexPetGazeAnchor;
+  readonly petScale: PetScaleValue;
+  readonly gazeSpriteBottomInset: number;
   readonly paused: boolean;
   readonly flipped: boolean;
   readonly cacheKey: string;

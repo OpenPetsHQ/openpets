@@ -59,13 +59,23 @@ export const compactComposerGeometry = Object.freeze({
 });
 
 const petBottom = 22;
-const hitPadding = 28;
+export const petWindowHitPadding = 28;
+const petWindowPinnedLiftUnit = 28;
 const bubbleHeight = 156;
 const companionLauncherSize = 22;
 const companionLauncherInset = 8;
 const defaultPanelWidth = 390;
 const defaultPanelHeight = 500;
 const defaultPanelTop = 14;
+
+export function getPetWindowPinnedLift(hasPinned: boolean, hudScale = 1): number {
+  return hasPinned ? Math.round(petWindowPinnedLiftUnit * hudScale) : 0;
+}
+
+/** Distance from the carrier bottom to the sprite bottom, including the pinned-HUD lift. */
+export function getPetWindowSpriteBottomInset(hasPinned: boolean, hudScale = 1): number {
+  return petWindowHitPadding + getPetWindowPinnedLift(hasPinned, hudScale);
+}
 
 /**
  * Computes the Linux input shape for the carrier window.
@@ -76,7 +86,7 @@ const defaultPanelTop = 14;
 export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions): PetInteractiveShape {
   const scaledWidth = Math.ceil(options.spriteWidth * options.scale);
   const scaledHeight = Math.ceil(options.spriteHeight * options.scale);
-  const pinnedLift = options.hasPinned ? Math.round(28 * (options.hudScale ?? 1)) : 0;
+  const pinnedLift = getPetWindowPinnedLift(options.hasPinned ?? false, options.hudScale ?? 1);
 
   if (options.isSessionOpen) {
     const fullWindow: PetShapeRectangle = { x: 0, y: 0, width: options.windowWidth, height: options.windowHeight };
@@ -88,10 +98,10 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   }
 
   const petHitbox: PetShapeRectangle = {
-    x: Math.round((options.windowWidth - (scaledWidth + hitPadding * 2)) / 2),
-    y: Math.round(options.windowHeight - Math.max(0, petBottom - hitPadding) - pinnedLift - (scaledHeight + hitPadding * 2)),
-    width: scaledWidth + hitPadding * 2,
-    height: scaledHeight + hitPadding * 2,
+    x: Math.round((options.windowWidth - (scaledWidth + petWindowHitPadding * 2)) / 2),
+    y: Math.round(options.windowHeight - Math.max(0, petBottom - petWindowHitPadding) - pinnedLift - (scaledHeight + petWindowHitPadding * 2)),
+    width: scaledWidth + petWindowHitPadding * 2,
+    height: scaledHeight + petWindowHitPadding * 2,
   };
   const companionLauncher: PetShapeRectangle = {
     x: petHitbox.x + petHitbox.width - companionLauncherInset - companionLauncherSize,
