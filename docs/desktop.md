@@ -237,6 +237,12 @@ pet keeps rendering during fullscreen video and games.
   `BrowserWindow`, loads the Vite renderer (dev) or packaged `dist/renderer`
   (prod), targets a route, registers all renderer-facing IPC handlers, builds
   the Dashboard snapshot, and defines the internal asset protocols.
+- `external-url-opener.ts` owns ordinary external browser launches across the
+  desktop. Linux uses `xdg-open` with a copied environment that omits
+  `GDK_BACKEND`, then falls back to Electron's shell opener if needed; other
+  platforms use Electron's shell opener directly. Callers retain their own URL
+  validation and allowlists. macOS system-preference links are not browser URLs
+  and remain on their existing platform-specific path.
 - `display.ts` provides screen-geometry helpers for positioning pet windows,
   including the permissive `clampToNearestDisplayIfOffscreen` helper that allows
   pets to roam across display seams while only snapping when fully off-screen.

@@ -102,6 +102,24 @@ export function validateCatalogV2(value: unknown): CatalogV2 {
   };
 }
 
+/**
+ * Normalize the publisher's explicit V1 marker at the remote catalog boundary.
+ * Local catalog validation remains strict: the V1 behavior is represented by
+ * omitting spriteVersionNumber internally.
+ */
+export function normalizeRemoteCatalogSpriteVersionOne(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.pets)) return value;
+
+  return {
+    ...value,
+    pets: value.pets.map((pet) => {
+      if (!isRecord(pet) || pet.spriteVersionNumber !== 1) return pet;
+      const { spriteVersionNumber: _spriteVersionNumber, ...normalizedPet } = pet;
+      return normalizedPet;
+    }),
+  };
+}
+
 export function validateCatalogV3Index(value: unknown): CatalogV3Index {
   if (!isRecord(value)) throw new Error("Catalog v3 index must be an object.");
   if (value.version !== 3) throw new Error("Catalog v3 index version must be 3.");

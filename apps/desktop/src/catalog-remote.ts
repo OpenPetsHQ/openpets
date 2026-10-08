@@ -1,4 +1,5 @@
 import {
+  normalizeRemoteCatalogSpriteVersionOne,
   toCatalogPetV2Compat,
   validateCatalogV2,
   validateCatalogV3Index,
@@ -34,10 +35,20 @@ export function createCatalogRemoteClient(options: {
   let v2CatalogPromise: Promise<CatalogV2> | null = null;
 
   async function getV3Index(): Promise<CatalogV3Index> {
-    v3IndexPromise ||= Promise.resolve().then(async () => validateCatalogV3Index(
-      JSON.parse(await fetchLimitedText(v3Url, maxCatalogV3PageBytes)) as unknown,
-    ));
-    return await v3IndexPromise;
+    if (!v3IndexPromise) {
+      const request = Promise.resolve().then(async () => validateCatalogV3Index(
+        JSON.parse(await fetchLimitedText(v3Url, maxCatalogV3PageBytes)) as unknown,
+      ));
+      v3IndexPromise = request;
+    }
+
+    const request = v3IndexPromise;
+    try {
+      return await request;
+    } catch (error) {
+      if (v3IndexPromise === request) v3IndexPromise = null;
+      throw error;
+    }
   }
 
   async function getV3Page(page: number, index: CatalogV3Index): Promise<readonly CatalogPetV2[]> {
@@ -48,7 +59,7 @@ export function createCatalogRemoteClient(options: {
     if (!pageUrl) throw new Error("Catalog page is out of range.");
 
     const payload = validateCatalogV3Page(
-      JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown,
+      normalizeRemoteCatalogSpriteVersionOne(JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown),
       page,
     );
     const pets = payload.pets.map(toCatalogPetV2Compat);
@@ -58,25 +69,35 @@ export function createCatalogRemoteClient(options: {
   }
 
   async function getV3Search(index: CatalogV3Index): Promise<readonly CatalogV3SearchPet[]> {
-    v3SearchPromise ||= Promise.resolve().then(async () => {
-      const searchIndex = validateCatalogV3SearchIndex(
-        JSON.parse(await fetchLimitedText(index.search, maxCatalogV3PageBytes)) as unknown,
-      );
-      const pages = await Promise.all(searchIndex.pages.map(async (pageUrl, page) => validateCatalogV3SearchPage(
-        JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown,
-        page,
-        index.pages.length,
-      )));
-      const pets = pages.flatMap((page) => page.pets);
-      if (pets.length !== index.total) throw new Error("Catalog v3 search total does not match index total.");
-      return pets;
-    });
-    return await v3SearchPromise;
+    if (!v3SearchPromise) {
+      const request = Promise.resolve().then(async () => {
+        const searchIndex = validateCatalogV3SearchIndex(
+          JSON.parse(await fetchLimitedText(index.search, maxCatalogV3PageBytes)) as unknown,
+        );
+        const pages = await Promise.all(searchIndex.pages.map(async (pageUrl, page) => validateCatalogV3SearchPage(
+          normalizeRemoteCatalogSpriteVersionOne(JSON.parse(await fetchLimitedText(pageUrl, maxCatalogV3PageBytes)) as unknown),
+          page,
+          index.pages.length,
+        )));
+        const pets = pages.flatMap((page) => page.pets);
+        if (pets.length !== index.total) throw new Error("Catalog v3 search total does not match index total.");
+        return pets;
+      });
+      v3SearchPromise = request;
+    }
+
+    const request = v3SearchPromise;
+    try {
+      return await request;
+    } catch (error) {
+      if (v3SearchPromise === request) v3SearchPromise = null;
+      throw error;
+    }
   }
 
   async function getV2Catalog(): Promise<CatalogV2> {
     v2CatalogPromise ||= Promise.resolve().then(async () => validateCatalogV2(
-      JSON.parse(await fetchLimitedText(v2Url, maxCatalogBytes)) as unknown,
+      normalizeRemoteCatalogSpriteVersionOne(JSON.parse(await fetchLimitedText(v2Url, maxCatalogBytes)) as unknown),
     ));
     return await v2CatalogPromise;
   }

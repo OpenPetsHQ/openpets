@@ -1,4 +1,4 @@
-import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -31,6 +31,7 @@ import type {
   PluginSessionUpdate,
   SessionStopReason,
 } from "./plugin-session-descriptor.js";
+import { openExternalUrl } from "./external-url-opener.js";
 
 /**
  * Host-localized strings for the overlay chrome (buttons, tiles, footers).
@@ -588,7 +589,9 @@ export function installSessionOverlayIpcHandlers(): void {
       return;
     }
     debug("pet.session", "session overlay url opened", { pluginId: session.pluginId });
-    void shell.openExternal(rawUrl);
+    void openExternalUrl(rawUrl).catch((error: unknown) => {
+      warn("pet.session", "session link open failed", { reason: error instanceof Error ? error.message : String(error) });
+    });
   });
 }
 

@@ -408,6 +408,13 @@ and delegates to focused namespace modules (`plugin-sdk-audio`, `plugin-sdk-netw
 capability's permission check and host effect localized. The author-facing
 mirror of all this is the SDK in [Plugin SDK v3](/sdk).
 
+The host implements `system.openExternal` through the desktop-owned
+`external-url-opener.ts`. On Linux, it launches `xdg-open` with a copied process
+environment that omits Electron's `GDK_BACKEND` override, falling back to
+Electron's shell opener if the command fails. The SDK's existing HTTPS and
+credential validation remains in `plugin-sdk-bridge.ts`; other host link
+surfaces retain their own URL allowlists.
+
 The bridge tracks active network requests by API generation, aborts the retired
 generation during teardown, and drains those requests before host cleanup.
 

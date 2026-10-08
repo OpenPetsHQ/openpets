@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import { basename, extname, join } from "node:path";
 
-import { app, clipboard, dialog, nativeTheme, net, Notification, shell } from "electron";
+import { app, clipboard, dialog, nativeTheme, net, Notification } from "electron";
 
 import { getDefaultPetWindowForPlugins } from "./default-pet-controller.js";
 import { getActiveLocaleLang } from "./i18n/index.js";
@@ -28,6 +28,7 @@ import { closePluginSessionOverlaysForPlugin, installSessionOverlayIpcHandlers, 
 import type { PluginHostCapabilities, PluginPickedFileHost } from "./plugin-sdk-bridge.js";
 import { maxUserSoundBytes, UserSoundStore, userSoundMimeByExtension } from "./plugin-user-sound-store.js";
 import { classifyPluginError } from "./plugin-diagnostics.js";
+import { openExternalUrl } from "./external-url-opener.js";
 import { getAppStateSnapshot } from "./app-state.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { resolveTrustedPluginSprite } from "./plugin-assets.js";
@@ -299,7 +300,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
         let host: string | undefined;
         try { host = new URL(url).hostname; } catch { host = undefined; }
         debug("plugin", "system openExternal", { host });
-        await shell.openExternal(url);
+        await openExternalUrl(url);
       },
       async readClipboardText() {
         return clipboard.readText().slice(0, 64 * 1024);

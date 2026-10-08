@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow } from "electron";
 import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { debug, error as logError, warn } from "./logger.js";
 import { sessionIconPaths } from "./session-icons.js";
 import type { PluginSessionDescriptor, SessionInfo, SessionInfoSection } from "./plugin-session-descriptor.js";
+import { openExternalUrl } from "./external-url-opener.js";
 
 /**
  * The practice session Info window: a host-rendered, script-free page built
@@ -97,7 +98,9 @@ function openAllowedUrl(url: string): void {
     return;
   }
   debug("pet.session", "info window url opened", {});
-  void shell.openExternal(url);
+  void openExternalUrl(url).catch((error: unknown) => {
+    warn("pet.session", "info link open failed", { reason: error instanceof Error ? error.message : String(error) });
+  });
 }
 
 function collectAllowedUrls(info: SessionInfo): Set<string> {
