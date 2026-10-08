@@ -1,4 +1,4 @@
-import { Menu, shell, Tray, type MenuItemConstructorOptions } from "electron";
+import { Menu, Tray, type MenuItemConstructorOptions } from "electron";
 
 import { getAppStateSnapshot } from "./app-state.js";
 import { createTrayIcon } from "./assets.js";
@@ -12,6 +12,7 @@ import { getPluginVoiceOperation, subscribePluginVoiceOperation } from "./plugin
 import { createVoiceAssistantTalkMenuLabel, createVoiceMenuItems } from "./tray-voice-menu.js";
 import { openControlCenterWindow } from "./windows.js";
 import { getVoiceAssistantSnapshot, onVoiceAssistantEvent } from "./voice-assistant-host.js";
+import { openExternalUrl } from "./external-url-opener.js";
 
 let tray: Tray | null = null;
 let voiceOperationSubscriptionInstalled = false;
@@ -112,7 +113,11 @@ export function refreshTrayMenu(): void {
     { type: "separator" },
     {
       label: t("tray.website"),
-      click: () => { void shell.openExternal("https://openpets.dev/"); },
+      click: () => {
+        void openExternalUrl("https://openpets.dev/").catch((error: unknown) => {
+          warn("tray", "website open failed", { reason: error instanceof Error ? error.message : String(error) });
+        });
+      },
     },
     {
       label: t("tray.openLogsFolder"),
@@ -134,7 +139,11 @@ function createUpdateMenuItems(): MenuItemConstructorOptions[] {
   return [
     {
       label: t("tray.updateAvailable", { version: status.latestVersion ?? t("common.latest") }),
-      click: () => { void openUpdateReleasePage(); },
+      click: () => {
+        void openUpdateReleasePage().catch((error: unknown) => {
+          warn("tray", "release page open failed", { reason: error instanceof Error ? error.message : String(error) });
+        });
+      },
     },
   ];
 }

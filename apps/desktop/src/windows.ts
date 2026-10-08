@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, screen, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, screen, type WebContents } from "electron";
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
@@ -33,6 +33,7 @@ import { registerSessionMediaProtocol } from "./session-media-cache.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";
 import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-ipc.js";
 import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
+import { openExternalUrl } from "./external-url-opener.js";
 import { installControlCenterRemoteIpcHandlers } from "./control-center-remote-ipc.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
 import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
@@ -229,7 +230,7 @@ export function installInternalUiHandlers(): void {
       ? dialog.showOpenDialog(owner as BrowserWindow, options)
       : dialog.showOpenDialog(options),
     stat,
-    openExternal: (url) => shell.openExternal(url),
+    openExternal: (url) => openExternalUrl(url),
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
     getAppStateSnapshot,
     getSettingsStateSnapshot,
@@ -528,7 +529,7 @@ export function installInternalUiHandlers(): void {
 
   ipcMain.handle("openpets:open-organizations-page", async (event) => {
     assertAllowedSender(event, ["control-center"]);
-    await shell.openExternal("https://openpets.dev/organizations");
+    await openExternalUrl("https://openpets.dev/organizations");
   });
 
 }

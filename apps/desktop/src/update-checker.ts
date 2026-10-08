@@ -1,7 +1,8 @@
-import { app, shell } from "electron";
+import { app } from "electron";
 import https from "node:https";
 
 import { createParsedUpdateStatus, normalizeVersion } from "./update-version.js";
+import { openExternalUrl } from "./external-url-opener.js";
 
 export type UpdateStatusState = "idle" | "checking" | "available" | "current" | "error";
 
@@ -53,7 +54,7 @@ export async function checkForGitHubReleaseUpdate(): Promise<UpdateStatus> {
 
 export async function openUpdateReleasePage(): Promise<void> {
   const url = validateGitHubReleaseUrl(updateStatus.releaseUrl) || releasesPageUrl;
-  await shell.openExternal(url);
+  await openExternalUrl(url);
 }
 
 export function createUpdateStatusFromLatestRelease(currentVersion: string, release: GitHubReleaseResponse, checkedAt: number): UpdateStatus {

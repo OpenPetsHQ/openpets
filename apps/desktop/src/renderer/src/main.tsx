@@ -28,6 +28,13 @@ import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/gener
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
 import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
+import {
+  createCatalogSearchController,
+  initialCatalogSearchState,
+  type CatalogSearchFetchController,
+  type CatalogSearchState,
+  type SearchPetEntry,
+} from "./catalog-search-state.js";
 
 import {
   IntegrationsView,
@@ -44,7 +51,6 @@ import { StatusPill, statusPillToneClass, type StatusTone } from "./components/u
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
 type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
-type SearchPetEntry = Pick<PetEntry, "id" | "displayName" | "category" | "original" | "featured" | "spriteVersionNumber"> & { searchText?: string; catalogPage?: number };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -3716,7 +3722,15 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const [state, setState] = useState<StateSnapshot | null>(null);
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
   const [catalogPages, setCatalogPages] = useState<Record<number, PetEntry[]>>({});
-  const [catalogSearch, setCatalogSearch] = useState<SearchPetEntry[] | null>(null);
+  const [catalogSearchState, setCatalogSearchState] = useState<CatalogSearchState>(initialCatalogSearchState);
+  const catalogSearchControllerRef = useRef<CatalogSearchFetchController | null>(null);
+  if (!catalogSearchControllerRef.current) {
+    catalogSearchControllerRef.current = createCatalogSearchController(
+      initialCatalogSearchState,
+      setCatalogSearchState,
+    );
+  }
+  const catalogSearch = catalogSearchState.pets;
   const [catalogPage, setCatalogPage] = useState(0);
   const [codex, setCodex] = useState<CodexState>({ pets: [] });
   const [selectedId, setSelectedId] = useState("");
@@ -3897,14 +3911,24 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
     finally { setBusy(""); }
   }
 
+  function retryCatalogSearch() {
+    const controller = catalogSearchControllerRef.current;
+    if (!controller) return;
+    controller.retry();
+    if (currentRoute === "pets") {
+      void controller.startFetch("pets", () => api.getCatalogSearch());
+    }
+  }
+
   useEffect(() => {
-    if (currentRoute !== "pets") return;
-    if (catalogSearch) return;
-    void api.getCatalogSearch().then((result) => {
-      if (result.error) setError(result.error);
-      setCatalogSearch(result.pets ?? []);
-    }).catch((err) => setError(String(err?.message ?? err)));
-  }, [catalogSearch, currentRoute]);
+    const controller = catalogSearchControllerRef.current;
+    if (!controller) return;
+    controller.onRouteTransition(currentRoute);
+    if (currentRoute === "pets") {
+      void controller.startFetch("pets", () => api.getCatalogSearch());
+    }
+    return () => controller.cancelPending();
+  }, [currentRoute]);
 
   useEffect(() => {
     if (currentRoute !== "pets") return;
@@ -3990,6 +4014,21 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       </nav>
 
       {error && <div className="error">{error}</div>}
+
+      {currentRoute === "pets" && catalogSearchState.status === "error" && catalogSearchState.error && (
+        <div className="error flex items-center justify-between gap-3">
+          <span>{catalogSearchState.error}</span>
+          <Button
+            variant="secondary"
+            size="compact"
+            icon={<RefreshIcon />}
+            disabled={!!busy}
+            onClick={retryCatalogSearch}
+          >
+            {t("common.retry")}
+          </Button>
+        </div>
+      )}
 
       {currentRoute === "dashboard" ? (
         <DashboardView onNavigate={navigateToRoute} />

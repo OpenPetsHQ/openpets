@@ -47,11 +47,16 @@ v3 is **paginated** to keep each runtime fetch small. The flow the app follows:
 2. Fetch **pages** on demand. Each page entry carries install + render data:
    `id`, `displayName`, `description`, `thumbnail`, `spritesheet`, `zip`,
    `category`, optional `subcategory`, `featured`, `original`, and optional
-   `spriteVersionNumber: 2`. Older entries omit the field and retain V1
-   behavior; any other supplied value is invalid.
+   `spriteVersionNumber: 2`. Published entries may explicitly carry numeric
+   `1` for V1 pets; the remote catalog boundary normalizes that marker to an
+   omitted field internally. Omitted fields also retain V1 behavior. Only the
+   exact numeric values `1` and `2` are accepted when a marker is supplied;
+   strings, null, and other numbers are invalid.
 3. Use **search pages** for lightweight lookup: `id`, `displayName`,
    `searchText`, `category`, `catalogPage`, `featured`, `original`, and the
-   optional `spriteVersionNumber: 2`.
+   optional `spriteVersionNumber: 1 | 2` in published JSON. The remote
+   boundary normalizes numeric `1` to omission, matching the internal
+   optional-`2` type.
 
 Only pets with a valid `category` (`western` or `asian`) appear in v3 - the
 generator drops the rest and logs a warning. To keep the app UI clean, the
@@ -71,19 +76,31 @@ should never be the path real users hit online; it is a last-resort floor, not a
 shipping catalog.
 
 `catalog-remote.ts` owns remote HTTP requests, five-second deadlines, bounded
-streaming, final-URL checks, schema validation at the remote boundary, and the
-module-instance caches for the V3 index/pages/search data and V2 catalog. It
-keeps successful V3 pages cacheable while allowing a failed page request to be
-retried. `catalog.ts` remains the product façade: it owns fixture fallback,
+streaming, final-URL checks, schema validation and V1-marker normalization at
+the remote boundary, and the module-instance caches for the V3
+index/pages/search data and V2 catalog. Successful V3 data stays cacheable;
+failed V3 index, search, or page requests can be retried, while successful
+search/index data remains coalesced and cached. Local V2/fixture validation
+does not accept an explicit V1 marker; omission is the internal V1 form.
+`catalog.ts` remains the product façade: it owns fixture fallback,
 V3-only curated visibility, virtual pagination/search composition, and explicit
 lookup semantics. When V3 is unavailable, the validated V2 catalog and bundled
 fixture expose all of their validated pets for browsing and lookup/install;
 their V2-compatible entries do not require V3 `original`/`featured` metadata.
 The V3 → V2 → fixture precedence and error behavior remain unchanged.
 
-The legacy V2 catalog may also carry the optional exact numeric
-`spriteVersionNumber: 2`; desktop V3-to-compat and V2 fallback conversion
-preserve it. Omitted markers remain V1-compatible.
+Control Center search stays on V3. A failed search load is distinct from a
+successful empty index: it is not cached as an empty result. The user can retry
+the failed load, and returning to the Pets route can attempt it again. Successful
+search data remains cached; failures do not trigger an automatic retry loop.
+The Pets route presents a search-load failure in its retry banner independently
+from action errors, which remain in the plain error banner. Retrying search clears
+only the search failure; it does not dismiss an unrelated pet action error.
+
+The legacy V2 catalog may carry numeric `spriteVersionNumber: 1` or `2` in
+published JSON. The remote boundary strips `1`, retains `2`, and V3-to-compat
+conversion preserves the normalized optional-`2` representation. Local
+fixture/catalog validation remains strict and requires omission for V1.
 
 ## Pet generated artifacts
 

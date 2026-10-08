@@ -1,4 +1,4 @@
-import { BrowserWindow, shell, type Display } from "electron";
+import { BrowserWindow, type Display } from "electron";
 
 import { getAppStateSnapshot, getDefaultPetPositionState, recordDefaultPetPosition, resetDefaultPetPosition, updatePreferences } from "./app-state.js";
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
@@ -17,6 +17,7 @@ import { createPetTransientPresentation, type PetTransientPresentation } from ".
 import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { setWindowPosition } from "./window-position.js";
+import { openExternalUrl } from "./external-url-opener.js";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
@@ -400,7 +401,7 @@ function handleBubbleDismissed(dismissToken: string): void {
   const clickUrl = result.display?.clickUrl;
   if (clickUrl) {
     info("pet.default", "media bubble clicked", { windowId: defaultPetWindow?.id });
-    void shell.openExternal(clickUrl).catch((error: unknown) => {
+    void openExternalUrl(clickUrl).catch((error: unknown) => {
       debug("pet.default", "media bubble click open failed", { error: error instanceof Error ? error.message : String(error) });
     });
   }

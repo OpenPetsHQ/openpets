@@ -52,7 +52,7 @@ function fetchFromQueue(queue: Map<string, Array<Response | Error>>): { fetchImp
 const v2Payload = JSON.stringify({
   version: 2,
   generatedAt,
-  pets: [{ id: "legacy", displayName: "Legacy", description: "Legacy", preview: "https://openpets.dev/pets/legacy/thumb.webp", zip: "https://zip.openpets.dev/pets/legacy/legacy.zip" }],
+  pets: [{ id: "legacy", displayName: "Legacy", description: "Legacy", preview: "https://openpets.dev/pets/legacy/thumb.webp", zip: "https://zip.openpets.dev/pets/legacy/legacy.zip", spriteVersionNumber: 1 }],
 });
 
 const v3PagePayload = JSON.stringify({
@@ -68,6 +68,7 @@ const v3PagePayload = JSON.stringify({
     zip: "https://zip.openpets.dev/pets/malou/malou.zip",
     category: "western",
     original: true,
+    spriteVersionNumber: 1,
   }],
 });
 
@@ -80,37 +81,82 @@ async function testStickySuccessfulCaches(): Promise<void> {
   const { fetchImpl, calls } = fetchFromQueue(queue);
   const client = createCatalogRemoteClient({ v2Url, v3Url, fetchImpl });
 
-  await client.getV3Index();
-  await client.getV3Index();
-  await client.getV3Search({ ...index, total: 0, pages: [] });
-  await client.getV3Search({ ...index, total: 0, pages: [] });
-  await client.getV2Catalog();
-  await client.getV2Catalog();
+  await Promise.all([client.getV3Index(), client.getV3Index()]);
+  await Promise.all([
+    client.getV3Search({ ...index, total: 0, pages: [] }),
+    client.getV3Search({ ...index, total: 0, pages: [] }),
+  ]);
+  const v2Catalogs = await Promise.all([client.getV2Catalog(), client.getV2Catalog()]);
 
   assert.equal(calls.get(v3Url), 1);
   assert.equal(calls.get(searchUrl), 1);
   assert.equal(calls.get(v2Url), 1);
+  assert.equal(v2Catalogs[0]?.pets[0]?.id, "legacy");
+  assert.equal(Object.hasOwn(v2Catalogs[0]?.pets[0] ?? {}, "spriteVersionNumber"), false);
 }
 
-async function testStickyRejectedCaches(): Promise<void> {
+async function testV3IndexFailureRetries(): Promise<void> {
   const queue = new Map<string, Array<Response | Error>>([
-    [v3Url, [new Error("index failed")]],
-    [searchUrl, [new Error("search failed")]],
-    [v2Url, [new Error("v2 failed")]],
+    [v3Url, [new Error("index failed"), response(v3Url, JSON.stringify(index))]],
   ]);
   const { fetchImpl, calls } = fetchFromQueue(queue);
   const client = createCatalogRemoteClient({ v2Url, v3Url, fetchImpl });
 
   await assert.rejects(() => client.getV3Index(), /index failed/);
-  await assert.rejects(() => client.getV3Index(), /index failed/);
-  await assert.rejects(() => client.getV3Search(index), /search failed/);
-  await assert.rejects(() => client.getV3Search(index), /search failed/);
-  await assert.rejects(() => client.getV2Catalog(), /v2 failed/);
-  await assert.rejects(() => client.getV2Catalog(), /v2 failed/);
+  const recoveredIndex = await client.getV3Index();
 
-  assert.equal(calls.get(v3Url), 1);
-  assert.equal(calls.get(searchUrl), 1);
-  assert.equal(calls.get(v2Url), 1);
+  assert.deepEqual(recoveredIndex.pages, [pageUrl]);
+  assert.equal(calls.get(v3Url), 2);
+}
+
+async function testV3SearchIndexFailureRetries(): Promise<void> {
+  const queue = new Map<string, Array<Response | Error>>([
+    [searchUrl, [
+      new Error("search index failed"),
+      response(searchUrl, JSON.stringify({ version: 3, generatedAt, total: 1, pageSize: 1, pages: [searchPageOneUrl] })),
+    ]],
+    [searchPageOneUrl, [response(searchPageOneUrl, JSON.stringify({
+      version: 3,
+      page: 0,
+      pageSize: 1,
+      pets: [{ id: "recovered-search-index", displayName: "Recovered", searchText: "recovered", category: "western", catalogPage: 0 }],
+    }))]],
+  ]);
+  const { fetchImpl, calls } = fetchFromQueue(queue);
+  const client = createCatalogRemoteClient({ v2Url, v3Url, fetchImpl });
+
+  const searchIndex = { ...index, total: 1 };
+  await assert.rejects(() => client.getV3Search(searchIndex), /search index failed/);
+  const recoveredPets = await client.getV3Search(searchIndex);
+
+  assert.deepEqual(recoveredPets.map((pet) => pet.id), ["recovered-search-index"]);
+  assert.equal(calls.get(searchUrl), 2);
+}
+
+async function testV3SearchPageFailureRetries(): Promise<void> {
+  const searchIndexPayload = JSON.stringify({ version: 3, generatedAt, total: 1, pageSize: 1, pages: [searchPageOneUrl] });
+  const searchPagePayload = JSON.stringify({
+    version: 3,
+    page: 0,
+    pageSize: 1,
+    pets: [{ id: "recovered-search-page", displayName: "Recovered", searchText: "recovered", category: "western", catalogPage: 0, spriteVersionNumber: 1 }],
+  });
+  const queue = new Map<string, Array<Response | Error>>([
+    [searchUrl, [response(searchUrl, searchIndexPayload), response(searchUrl, searchIndexPayload)]],
+    [searchPageOneUrl, [new Error("search page failed"), response(searchPageOneUrl, searchPagePayload)]],
+  ]);
+  const { fetchImpl, calls } = fetchFromQueue(queue);
+  const client = createCatalogRemoteClient({ v2Url, v3Url, fetchImpl });
+  const searchIndex = { ...index, total: 1 };
+
+  await assert.rejects(() => client.getV3Search(searchIndex), /search page failed/);
+  const recoveredPets = await client.getV3Search(searchIndex);
+  await client.getV3Search(searchIndex);
+
+  assert.deepEqual(recoveredPets.map((pet) => pet.id), ["recovered-search-page"]);
+  assert.equal(Object.hasOwn(recoveredPets[0] ?? {}, "spriteVersionNumber"), false);
+  assert.equal(calls.get(searchUrl), 2);
+  assert.equal(calls.get(searchPageOneUrl), 2);
 }
 
 async function testPageCachingAndRetry(): Promise<void> {
@@ -125,6 +171,7 @@ async function testPageCachingAndRetry(): Promise<void> {
   const cachedPage = await client.getV3Page(0, index);
 
   assert.equal(page[0]?.id, "malou");
+  assert.equal(Object.hasOwn(page[0] ?? {}, "spriteVersionNumber"), false);
   assert.deepEqual(cachedPage, page);
   assert.equal(calls.get(pageUrl), 2);
 }
@@ -182,7 +229,9 @@ async function testEndpointAndByteLimits(): Promise<void> {
 }
 
 await testStickySuccessfulCaches();
-await testStickyRejectedCaches();
+await testV3IndexFailureRetries();
+await testV3SearchIndexFailureRetries();
+await testV3SearchPageFailureRetries();
 await testPageCachingAndRetry();
 await testConcurrentUncachedPagesDoNotCoalesce();
 await testSearchFlattenPreservesPageOrder();
