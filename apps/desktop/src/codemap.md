@@ -303,8 +303,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **UI**:
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
-- `external-url-opener.ts`: Shared ordinary external-browser opener; uses Linux `xdg-open` with `GDK_BACKEND` removed from a copied environment and Electron shell fallback, while preserving caller URL policy
-- `external-url-opener-core.ts`: Electron-free platform/environment policy for external-browser opening, with injected process and shell adapters
+- `external-url-opener.ts`: Shared ordinary external-browser opener; uses Linux `xdg-open` with `GDK_BACKEND` removed from a copied environment, force-terminates only the owned launcher after a 10-second timeout, and preserves caller URL policy
+- `external-url-opener-core.ts`: Electron-free platform/environment policy for external-browser opening; bounds launcher wait, avoids ambiguous-success fallback on timeout, and retains shell fallback for ordinary launcher errors
   - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics

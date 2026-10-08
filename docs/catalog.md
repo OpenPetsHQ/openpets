@@ -93,6 +93,9 @@ Control Center search stays on V3. A failed search load is distinct from a
 successful empty index: it is not cached as an empty result. The user can retry
 the failed load, and returning to the Pets route can attempt it again. Successful
 search data remains cached; failures do not trigger an automatic retry loop.
+The Pets route presents a search-load failure in its retry banner independently
+from action errors, which remain in the plain error banner. Retrying search clears
+only the search failure; it does not dismiss an unrelated pet action error.
 
 The legacy V2 catalog may carry numeric `spriteVersionNumber: 1` or `2` in
 published JSON. The remote boundary strips `1`, retains `2`, and V3-to-compat

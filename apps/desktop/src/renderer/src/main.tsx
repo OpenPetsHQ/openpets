@@ -3912,7 +3912,6 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   }
 
   function retryCatalogSearch() {
-    setError("");
     const controller = catalogSearchControllerRef.current;
     if (!controller) return;
     controller.retry();
@@ -3930,8 +3929,6 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
     }
     return () => controller.cancelPending();
   }, [currentRoute]);
-
-  const displayedError = error || (currentRoute === "pets" ? catalogSearchState.error : null);
 
   useEffect(() => {
     if (currentRoute !== "pets") return;
@@ -4016,20 +4013,20 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         })}
       </nav>
 
-      {displayedError && (
+      {error && <div className="error">{error}</div>}
+
+      {currentRoute === "pets" && catalogSearchState.status === "error" && catalogSearchState.error && (
         <div className="error flex items-center justify-between gap-3">
-          <span>{displayedError}</span>
-          {currentRoute === "pets" && catalogSearchState.status === "error" && (
-            <Button
-              variant="secondary"
-              size="compact"
-              icon={<RefreshIcon />}
-              disabled={!!busy}
-              onClick={retryCatalogSearch}
-            >
-              {t("common.retry")}
-            </Button>
-          )}
+          <span>{catalogSearchState.error}</span>
+          <Button
+            variant="secondary"
+            size="compact"
+            icon={<RefreshIcon />}
+            disabled={!!busy}
+            onClick={retryCatalogSearch}
+          >
+            {t("common.retry")}
+          </Button>
         </div>
       )}
 

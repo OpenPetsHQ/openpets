@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { createExternalUrlOpener } from "../src/external-url-opener-core.js";
+import { createExternalUrlOpener, ExternalUrlLaunchTimeoutError } from "../src/external-url-opener-core.js";
 
 const targetUrl = "https://example.test/path?query=exact";
 const parentEnvironment = {
@@ -16,6 +16,7 @@ const parentEnvironment = {
   const openUrl = createExternalUrlOpener({
     platform: "linux",
     environment: parentEnvironment,
+    xdgOpenTimeoutMs: 20,
     openWithXdg: async (url, environment) => {
       xdgUrl = url;
       xdgEnvironment = environment;
@@ -41,6 +42,7 @@ const parentEnvironment = {
   const openUrl = createExternalUrlOpener({
     platform: "linux",
     environment: {},
+    xdgOpenTimeoutMs: 20,
     openWithXdg: async () => {
       throw xdgError;
     },
@@ -64,6 +66,7 @@ const parentEnvironment = {
   const openUrl = createExternalUrlOpener({
     platform: "linux",
     environment: {},
+    xdgOpenTimeoutMs: 20,
     openWithXdg: async () => {
       throw new Error("xdg-open failed");
     },
@@ -79,10 +82,40 @@ const parentEnvironment = {
 }
 
 {
+  let launcherStopped = false;
+  let fallbackAttempted = false;
+  let reportedFailure: unknown;
+  const openUrl = createExternalUrlOpener({
+    platform: "linux",
+    environment: {},
+    xdgOpenTimeoutMs: 10,
+    openWithXdg: (_url, _environment, signal) => new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => {
+        launcherStopped = true;
+        reject(new Error("launcher stopped"));
+      }, { once: true });
+    }),
+    openWithShell: async () => {
+      fallbackAttempted = true;
+    },
+    onXdgFailure: (error) => {
+      reportedFailure = error;
+    },
+  });
+
+  await assert.rejects(openUrl(targetUrl), (error: unknown) => error instanceof ExternalUrlLaunchTimeoutError);
+
+  assert.equal(launcherStopped, true);
+  assert.equal(fallbackAttempted, false);
+  assert.ok(reportedFailure instanceof ExternalUrlLaunchTimeoutError);
+}
+
+{
   let shellUrl: string | undefined;
   const openUrl = createExternalUrlOpener({
     platform: "darwin",
     environment: { GDK_BACKEND: "unchanged" },
+    xdgOpenTimeoutMs: 20,
     openWithXdg: async () => assert.fail("xdg-open must be Linux-only"),
     openWithShell: async (url) => {
       shellUrl = url;

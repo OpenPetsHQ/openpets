@@ -239,10 +239,13 @@ pet keeps rendering during fullscreen video and games.
   the Dashboard snapshot, and defines the internal asset protocols.
 - `external-url-opener.ts` owns ordinary external browser launches across the
   desktop. Linux uses `xdg-open` with a copied environment that omits
-  `GDK_BACKEND`, then falls back to Electron's shell opener if needed; other
-  platforms use Electron's shell opener directly. Callers retain their own URL
-  validation and allowlists. macOS system-preference links are not browser URLs
-  and remain on their existing platform-specific path.
+  `GDK_BACKEND` and bounds the launcher to 10 seconds. A timeout force-terminates
+  only the owned `xdg-open` process, not any browser descendants, and rejects
+  without trying Electron's shell opener because the browser may already have
+  opened the URL. Other `xdg-open` failures fall back to Electron's shell opener;
+  other platforms use it directly. Callers retain their own URL validation and
+  allowlists. macOS system-preference links are not browser URLs and remain on
+  their existing platform-specific path.
 - `display.ts` provides screen-geometry helpers for positioning pet windows,
   including the permissive `clampToNearestDisplayIfOffscreen` helper that allows
   pets to roam across display seams while only snapping when fully off-screen.

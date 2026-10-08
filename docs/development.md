@@ -85,8 +85,12 @@ catch.
   and x86_64 launches are untested.
   Launches already carrying the canonical argument do
   not need the extra process. `OPENPETS_ALLOW_WAYLAND=1` opts out, and native
-  layer-shell keeps its separate backend path. See [Desktop app](/desktop) for
-  the scope and limitations of these checks.
+   layer-shell keeps its separate backend path. See [Desktop app](/desktop) for
+   the scope and limitations of these checks.
+   Ordinary external URLs on Linux use `xdg-open` with `GDK_BACKEND` removed from
+   a copied environment. The launch is bounded to 10 seconds; a timeout kills
+   only the owned launcher and does not retry through Electron's shell opener,
+   avoiding a possible duplicate browser launch.
 - Plugin authors using the installed app do not need this repo: open **Plugins →
   Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
   reload a standalone plugin folder.
