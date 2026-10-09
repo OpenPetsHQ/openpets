@@ -7,9 +7,9 @@ description: Connect Claude Code, OpenCode, Cursor, Zed, Devin, Pi, OpenClaw, an
 OpenPets reacts to coding agents. Most supported agents have an integration
 package that does two jobs: **configure** the agent to talk to OpenPets, and at
 runtime **translate** the agent's activity into safe pet reactions sent over
-local IPC or an explicitly configured remote client. Zed and Devin are
-intentionally configuration-only: they run the MCP server but OpenPets installs
-no lifecycle hooks for them. This doc covers Claude Code, MCP, OpenCode, Cursor,
+local IPC or an explicitly configured remote client. Zed is intentionally
+configuration-only: it runs the MCP server but provides no lifecycle hooks of
+its own. This doc covers Claude Code, MCP, OpenCode, Cursor,
 Zed, Devin, Pi, OpenClaw,
 and DSH, the shared speech-safety
 layer, and the CLI commands that orchestrate them.
@@ -244,7 +244,7 @@ recovery state is rejected rather than guessed.
 
 ## Devin - `@open-pets/devin`
 
-Pure global MCP config management for Devin, with no runtime hooks of its own.
+Global MCP config and lifecycle-hook management for Devin.
 Devin Desktop (the editor formerly called Windsurf) and the Devin CLI read the
 same user-scope MCP file, so one managed `mcpServers.openpets` entry serves
 both. The path is `$XDG_CONFIG_HOME/devin/mcp_config.json` when
@@ -266,11 +266,42 @@ never re-enables silently; replace does), `needs-update`, `conflict` (an
 `openpets` server OpenPets does not manage, which needs an explicit replace and
 is never removed), `invalid`, or `error`.
 
-The desktop Control Center manages this lifecycle through
-`apps/desktop/src/agent-setup-devin.ts`; the CLI configures it with
-`openpets configure --agent devin` (`--force` replaces conflicting or disabled
-entries). After a change, refresh MCP servers in Devin Desktop or start a new
-Devin CLI session.
+### Devin hooks
+
+The two Devin products have separate hook systems, and OpenPets manages both
+(`devin-hooks.ts`), always as the same command,
+`openpets hook --openpets-managed --agent devin [--pet <id>]` (pinned
+`npx -y @open-pets/cli@VERSION ...`, or Node.js plus the bundled/local CLI
+entry):
+
+| Product | File | Events (reaction) |
+|---------|------|-------------------|
+| Devin CLI (Devin Local agent) | `hooks` key of `~/.config/devin/config.json` (`%APPDATA%\devin\config.json`), Claude Code-compatible format, 5 s timeout | `UserPromptSubmit` (thinking), `PreToolUse` matched to `edit`/`write`/`apply_patch`/`notebook_edit`/`exec` (editing, or testing for test commands), `PermissionRequest` (waiting + permission speech), `Stop` (success) |
+| Devin Desktop (Cascade) | `~/.codeium/windsurf/hooks.json` | `pre_user_prompt` (thinking), `post_write_code` (editing), `pre_run_command` (testing for test commands), `post_cascade_response` (success) |
+
+`devin-hook-events.ts` maps both payload families from event and tool names
+only; prompt, code, response, and output text are never read or forwarded.
+The CLI runtime (`packages/cli/src/devin-hook.ts`) always exits 0, ignores
+oversized (>4 MiB) or malformed input, and sends the decision through the
+Claude package's shared `dispatchHookDecision()` (lease, validated canned
+speech, throttling). Hook edits reuse the same JSONC-preserving safe-write
+transaction as the MCP entry, replace only hooks whose command carries
+`--openpets-managed --agent devin`, and drop emptied event arrays. On Windows,
+Devin Desktop entries whose command starts with a quoted executable also get a
+`powershell` variant using the call operator.
+
+Devin CLI also loads Claude Code hooks from `~/.claude/settings.json` by
+default (`read_config_from.claude`). If OpenPets Claude Code hooks are installed
+too, both fire in Devin CLI; the shared throttle file suppresses most
+duplicate reactions.
+
+The desktop Control Center manages MCP and hooks through
+`apps/desktop/src/agent-setup-devin.ts` (hooks are an optional section of the
+Devin dialog; install/remove apply to both products). The CLI configures MCP
+and both hook files with `openpets configure --agent devin` (`--force`
+replaces conflicting or disabled MCP entries). After a change, refresh MCP
+servers in Devin Desktop or start a new Devin CLI session or Desktop
+conversation.
 
 ## Pi - `@open-pets/pi`
 
@@ -441,7 +472,7 @@ others. Commands:
 | `pets` | List installed pets |
 | `react <reaction>` / `say <message>` | Drive the active pet |
 | `mcp` | Launch the MCP stdio server |
-| `hook` | Run a Claude Code lifecycle hook |
+| `hook` | Run a Claude Code lifecycle hook, or a Devin CLI / Devin Desktop hook with `--agent devin` |
 | `plugin validate <dir>` | Validate a plugin before install/release |
 | `plugin new <name> --template <t>` | Scaffold an SDK v3 plugin |
 
@@ -465,6 +496,6 @@ discovery-based behavior unchanged.
 | OpenCode | `.opencode/` or `~/.config/opencode/` | plugin event hooks |
 | Cursor | `.cursor/mcp.json` + rules | MCP tools |
 | Zed | `~/.config/zed/settings.json` (platform-specific) | MCP tools |
-| Devin Desktop + Devin CLI | `~/.config/devin/mcp_config.json` (platform-specific) | MCP tools |
+| Devin Desktop + Devin CLI | `~/.config/devin/mcp_config.json`, `~/.config/devin/config.json`, `~/.codeium/windsurf/hooks.json` | MCP tools + lifecycle hooks |
 | Pi | `pi.extensions` | extension events + `/openpets` |
 | OpenClaw | OpenClaw plugin registry | native plugin hooks; local-only default-pet reactions |

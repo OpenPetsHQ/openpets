@@ -93,6 +93,13 @@ export function devinStatusTone(state: DevinSetupStatus["state"]): IntegrationSt
   return "slate";
 }
 
+export function devinHookStatusTone(state: DevinSetupStatus["hooks"]["cli"]["state"]): IntegrationStatusTone {
+  if (state === "configured") return "green";
+  if (state === "error") return "red";
+  if (state === "needs_update") return "orange";
+  return "blue";
+}
+
 export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
   const { t } = useI18n();
   const api = injectedApi ?? (window as unknown as { openPetsControlCenter: IntegrationsApi }).openPetsControlCenter;
@@ -1301,6 +1308,56 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
                     </div>
                   </section>
 
+                  <section className="plugin-section">
+                    <div className="plugin-section-title">
+                      <small>{t("integrations.optional")}</small>
+                      <strong>{t("integrations.devin.hooks")}</strong>
+                    </div>
+                    <p className="text-xs text-slatecopy leading-relaxed mb-2">{t("integrations.devin.hooksHelp")}</p>
+                    <div className="flex flex-col gap-2">
+                      {([
+                        ["integrations.devin.cliHooks", snapshot.devinStatus.hooks.cli],
+                        ["integrations.devin.desktopHooks", snapshot.devinStatus.hooks.desktop],
+                      ] as const).map(([labelKey, hookStatus]) => (
+                        <div
+                          key={labelKey}
+                          className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50"
+                        >
+                          <div className="flex flex-col min-w-0">
+                            <strong className="text-sm text-navy">{t(labelKey)}</strong>
+                            <code className="text-xs text-brand break-all">{hookStatus.path}</code>
+                            {hookStatus.state === "error" && (
+                              <small className="text-xs text-slatecopy">{hookStatus.details}</small>
+                            )}
+                          </div>
+                          <StatusPill tone={devinHookStatusTone(hookStatus.state)}>{hookStatus.label}</StatusPill>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      {snapshot.devinStatus.hooks.canInstall && (
+                        <Button
+                          variant="primary"
+                          icon={<HookIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.installingHooks"), "devin-install-hooks")}
+                        >
+                          {t("integrations.installHooks")}
+                        </Button>
+                      )}
+                      {snapshot.devinStatus.hooks.canRemove && (
+                        <Button
+                          variant="danger"
+                          icon={<RemoveIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.removingHooks"), "devin-remove-hooks")}
+                        >
+                          {t("integrations.removeHooks")}
+                        </Button>
+                      )}
+                    </div>
+                  </section>
+
                   <details className="plugin-section group">
                     <summary className="cursor-pointer list-none flex items-center justify-between">
                       <div className="plugin-section-title">
@@ -1313,6 +1370,21 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
                     </summary>
                     <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
                       {JSON.stringify({ mcpServers: { openpets: snapshot.devinPreview.mcpEntry } }, null, 2)}
+                    </pre>
+                  </details>
+
+                  <details className="plugin-section group">
+                    <summary className="cursor-pointer list-none flex items-center justify-between">
+                      <div className="plugin-section-title">
+                        <small>{t("integrations.advanced")}</small>
+                        <strong>{t("integrations.devin.hookCommandPreview")}</strong>
+                      </div>
+                      <span className="text-brand group-open:rotate-180 transition-transform">
+                        <NextIcon />
+                      </span>
+                    </summary>
+                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5 whitespace-pre-wrap break-all">
+                      {snapshot.devinPreview.hookCommand}
                     </pre>
                   </details>
                 </>

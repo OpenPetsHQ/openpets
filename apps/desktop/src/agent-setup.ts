@@ -6,14 +6,14 @@ import { createRequire } from "node:module";
 import { app } from "electron";
 import { createOpenPetsHookSettingsPreview, mapAsarPathToUnpacked, type ClaudeCommandSpec, type OpenPetsCommandMode } from "@open-pets/claude";
 import { buildOpenClawCommand, openClawMaxStructuredOutputBytes, type OpenClawCommandAction } from "@open-pets/openclaw/management";
-import { getDevinGlobalMcpConfigPath } from "@open-pets/devin";
+import { getDevinCliConfigPath, getDevinDesktopHooksPath, getDevinGlobalMcpConfigPath } from "@open-pets/devin";
 import { getZedGlobalSettingsPath, isValidZedNodeCommand } from "@open-pets/zed";
 
 import { getAppStateSnapshot, updatePreferences, type InstalledPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { buildExtraCommandPaths, resolveCommandMode } from "./agent-command-env.js";
 import { getDefaultOpenCodeCommand, getOpenCodeCommandCandidates } from "./opencode-command.js";
 import { getCursorSetup, installCursorGlobal, removeCursorGlobal, replaceCursorGlobal, type CursorSetupPreview, type CursorSetupStatus } from "./agent-setup-cursor.js";
-import { getDevinSetup as buildDevinSetup, installDevinGlobal, removeDevinGlobal, replaceDevinGlobal, type DevinSetupAction, type DevinSetupActionResult, type DevinSetupDependencies, type DevinSetupPreview, type DevinSetupStatus } from "./agent-setup-devin.js";
+import { getDevinSetup as buildDevinSetup, installDevinGlobal, installDevinHooks, removeDevinGlobal, removeDevinHooks, replaceDevinGlobal, type DevinSetupAction, type DevinSetupActionResult, type DevinSetupDependencies, type DevinSetupPreview, type DevinSetupStatus } from "./agent-setup-devin.js";
 import { getClaudeSetup as buildClaudeSetup, runClaudeAction as applyClaudeAction, type ClaudeCodeStatus, type ClaudeCommandResult, type ClaudeHookDoctorResult, type ClaudeMcpPreview, type ClaudeOpenPetsMemoryStatus, type ClaudeSetupAction, type ClaudeSetupDependencies, type ClaudeSetupJournalEntry } from "./agent-setup-claude.js";
 import { getOpenCodeConfigDir, getOpenCodeSetup as buildOpenCodeSetup, installOpenCodeGlobal as applyOpenCodeInstall, removeOpenCodeGlobal as applyOpenCodeRemove, type OpenCodeSetupPreview, type OpenCodeSetupStatus } from "./agent-setup-opencode.js";
 import { getOpenClawSetup as buildOpenClawSetup, mutateOpenClaw as applyOpenClawMutation, type OpenClawPluginStatus, type OpenClawSetupPreview } from "./agent-setup-openclaw.js";
@@ -25,7 +25,7 @@ export type { ZedSetupPreview, ZedSetupStatus } from "./agent-setup-zed.js";
 export type { DevinSetupPreview, DevinSetupStatus } from "./agent-setup-devin.js";
 export type { ClaudeCodeStatus } from "./agent-setup-claude.js";
 
-export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove" | "devin-install" | "devin-replace" | "devin-remove";
+export type AgentSetupAction = "configure" | "replace" | "remove" | "install-memory" | "doctor-hooks" | "install-hooks" | "uninstall-hooks" | "opencode-install" | "opencode-remove" | "cursor-install" | "cursor-replace" | "cursor-remove" | "openclaw-install" | "openclaw-update" | "openclaw-remove" | "zed-install" | "zed-replace" | "zed-remove" | "devin-install" | "devin-replace" | "devin-remove" | "devin-install-hooks" | "devin-remove-hooks";
 export type JournalAction = "configure" | "update" | "replace" | "remove";
 
 export interface AgentSetupPetOption {
@@ -199,6 +199,8 @@ async function runAction(action: AgentSetupAction, selectedPetId: string | undef
   if (action === "devin-install") return installDevinGlobal(getDevinSetupDependencies(selectedPetId, commandMode));
   if (action === "devin-replace") return replaceDevinGlobal(getDevinSetupDependencies(selectedPetId, commandMode));
   if (action === "devin-remove") return removeDevinGlobal(getDevinSetupDependencies(selectedPetId, commandMode));
+  if (action === "devin-install-hooks") return installDevinHooks(getDevinSetupDependencies(selectedPetId, commandMode));
+  if (action === "devin-remove-hooks") return removeDevinHooks(getDevinSetupDependencies(selectedPetId, commandMode));
   throw new Error("Unsupported agent setup action.");
 }
 
@@ -433,12 +435,17 @@ function finishZedAction(action: "zed-install" | "zed-replace" | "zed-remove", s
 
 function getDevinSetupDependencies(selectedPetId: string | undefined, commandMode: OpenPetsCommandMode): DevinSetupDependencies {
   const usesNode = commandMode !== "published";
+  const homeDir = app.getPath("home");
   return {
-    configPath: getDevinGlobalMcpConfigPath(process.env, app.getPath("home"), process.platform),
+    configPath: getDevinGlobalMcpConfigPath(process.env, homeDir, process.platform),
+    cliConfigPath: getDevinCliConfigPath(process.env, homeDir, process.platform),
+    desktopHooksPath: getDevinDesktopHooksPath(homeDir),
     selectedPetId,
     commandMode,
     mcpVersion: getMcpPackageVersion(),
     mcpEntryPath: usesNode ? getDesktopMcpEntryPath(commandMode) : undefined,
+    cliVersion: getCliPackageVersion(),
+    cliEntryPath: usesNode ? getDesktopCliEntryPath(commandMode) : undefined,
     nodeCommand: usesNode ? getPreferredNodeCommand() : undefined,
     formatUserPath,
     checkNodeCommand: () => checkDevinNodeCommand(commandMode),
@@ -458,6 +465,8 @@ function finishDevinAction(action: DevinSetupAction, selectedPetId: string | und
     "devin-install": "configure",
     "devin-replace": "replace",
     "devin-remove": "remove",
+    "devin-install-hooks": "configure",
+    "devin-remove-hooks": "remove",
   };
   const petArgs = selectedPetId ? ["--pet", selectedPetId] : [];
   writeActionJournal({

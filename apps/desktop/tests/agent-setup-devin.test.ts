@@ -3,18 +3,23 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDevinSetup, installDevinGlobal, removeDevinGlobal, replaceDevinGlobal, type DevinSetupAction, type DevinSetupDependencies } from "../src/agent-setup-devin.js";
+import { getDevinSetup, installDevinGlobal, installDevinHooks, removeDevinGlobal, removeDevinHooks, replaceDevinGlobal, type DevinSetupAction, type DevinSetupDependencies } from "../src/agent-setup-devin.js";
 
 // Protects the Control Center lifecycle for the user-scope MCP config shared by
 // Devin Desktop and Devin CLI, including the Node.js preflight for local modes.
 const rootDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-agent-setup-devin-"));
 const configPath = join(rootDir, "devin", "mcp_config.json");
+const cliConfigPath = join(rootDir, "devin", "config.json");
+const desktopHooksPath = join(rootDir, ".codeium", "windsurf", "hooks.json");
 const finished: DevinSetupAction[] = [];
 let nodeChecks = 0;
 const dependencies: DevinSetupDependencies = {
   configPath,
+  cliConfigPath,
+  desktopHooksPath,
   commandMode: "published",
   mcpVersion: "4.0.0",
+  cliVersion: "4.0.0",
   selectedPetId: "cat",
   formatUserPath: (path) => path,
   checkNodeCommand: async () => {
@@ -63,8 +68,23 @@ try {
   assert.equal(blocked.message, "Node.js is required.");
   assert.equal(readOpenPetsArgs(), undefined);
 
-  assert.equal(nodeChecks, 3, "install and replace preflight Node.js; remove does not");
-  assert.deepEqual(finished, ["devin-install", "devin-install", "devin-replace", "devin-remove", "devin-install"]);
+  // Hooks cover Devin CLI and Devin Desktop together and never touch the MCP entry.
+  assert.equal((await getDevinSetup(dependencies)).status.hooks.cli.state, "needs_setup");
+  const hooksInstalled = await installDevinHooks(dependencies);
+  assert.equal(hooksInstalled.ok, true);
+  const withHooks = await getDevinSetup(dependencies);
+  assert.equal(withHooks.status.hooks.cli.state, "configured");
+  assert.equal(withHooks.status.hooks.desktop.state, "configured");
+  assert.equal(withHooks.status.hooks.canInstall, false);
+  assert.match(readFileSync(desktopHooksPath, "utf8"), /--agent devin --pet cat/);
+  assert.equal(readOpenPetsArgs(), undefined);
+
+  const hooksRemoved = await removeDevinHooks(dependencies);
+  assert.equal(hooksRemoved.ok, true);
+  assert.equal((await getDevinSetup(dependencies)).status.hooks.desktop.state, "needs_setup");
+
+  assert.equal(nodeChecks, 4, "install, replace, and hook install preflight Node.js; removals do not");
+  assert.deepEqual(finished, ["devin-install", "devin-install", "devin-replace", "devin-remove", "devin-install", "devin-install-hooks", "devin-remove-hooks"]);
 } finally {
   rmSync(rootDir, { recursive: true, force: true });
 }

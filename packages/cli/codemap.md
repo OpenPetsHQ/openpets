@@ -32,7 +32,7 @@ Main developer CLI tool for OpenPets agent configuration and plugin/pet asset ma
 - **Cursor**: Generates MCP definitions in `.cursor/mcp.json` and updates MDC rule files (`.cursor/rules/openpets.mdc`).
 - **OpenClaw**: Runs the global native plugin ensure flow through `@open-pets/openclaw/management`; it has no project, pet, force, or local-dev mode.
 - **Zed**: Updates the global JSONC settings file's managed `context_servers.openpets` entry.
-- **Devin**: Updates the managed `mcpServers.openpets` entry in the user-scope `mcp_config.json` shared by Devin Desktop and Devin CLI.
+- **Devin**: Updates the managed `mcpServers.openpets` entry in the user-scope `mcp_config.json` shared by Devin Desktop and Devin CLI, and installs OpenPets lifecycle hooks in Devin CLI's `config.json` and Devin Desktop's `~/.codeium/windsurf/hooks.json`; `hook --agent devin` (`src/devin-hook.ts`) runs those hooks.
 
 **Safety Constraints**:
 - Enforces strict path checks preventing path traversals or symlink escapes on project folders.

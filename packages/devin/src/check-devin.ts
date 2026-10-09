@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   buildDevinMcpEntry,
   classifyDevinMcpStatus,
-  executeDevinMcpWrite,
+  executeDevinConfigWrite,
   getDevinGlobalMcpConfigPath,
   planDevinMcpInstall,
   planDevinMcpRemove,
@@ -15,6 +15,14 @@ import {
   type DevinConfigError,
   type DevinMcpPreviewOptions,
   type DevinPlannedWrite,
+  buildDevinHookCommand,
+  classifyDevinHooks,
+  getDevinCliConfigPath,
+  getDevinDesktopHooksPath,
+  mapDevinHookPayload,
+  planDevinHooksInstall,
+  planDevinHooksRemove,
+  type DevinHookCommandOptions,
 } from "./index.js";
 
 // macOS tmpdir() lives under /var -> /private/var; the symlink guard would
@@ -59,7 +67,7 @@ try {
   {
     const configPath = freshConfigPath();
     assert.equal(statusOf(configPath).status, "missing");
-    executeDevinMcpWrite(expectPlan(planDevinMcpInstall(configPath, options)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpInstall(configPath, options)));
     assert.deepEqual(readJson(configPath).mcpServers.openpets, { command: "npx", args: ["-y", "@open-pets/mcp@4.0.0", "--pet", "fixer"] });
     assert.equal(statusOf(configPath).status, "installed");
     expectBlocked(planDevinMcpInstall(configPath, options));
@@ -77,7 +85,7 @@ try {
 `;
     writeFileSync(configPath, original);
     const plan = expectPlan(planDevinMcpInstall(configPath, options));
-    executeDevinMcpWrite(plan);
+    executeDevinConfigWrite(plan);
     const written = readFileSync(configPath, "utf8");
     assert.match(written, /\/\/ team servers/);
     assert.match(written, /server-github/);
@@ -89,10 +97,10 @@ try {
   // A different pet is an update that install applies in place.
   {
     const configPath = freshConfigPath();
-    executeDevinMcpWrite(expectPlan(planDevinMcpInstall(configPath, options)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpInstall(configPath, options)));
     const otherPet = { ...options, petId: "sprout" };
     assert.equal(statusOf(configPath, otherPet).status, "needs-update");
-    executeDevinMcpWrite(expectPlan(planDevinMcpInstall(configPath, otherPet)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpInstall(configPath, otherPet)));
     assert.equal(statusOf(configPath, otherPet).status, "installed");
   }
 
@@ -102,7 +110,7 @@ try {
     writeFileSync(configPath, JSON.stringify({ mcpServers: { openpets: { ...buildDevinMcpEntry(options), disabled: true } } }));
     assert.equal(statusOf(configPath).status, "disabled");
     expectBlocked(planDevinMcpInstall(configPath, options));
-    executeDevinMcpWrite(expectPlan(planDevinMcpReplace(configPath, options)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpReplace(configPath, options)));
     assert.equal(readJson(configPath).mcpServers.openpets?.disabled, undefined);
     assert.equal(statusOf(configPath).status, "installed");
   }
@@ -115,7 +123,7 @@ try {
     assert.equal(status.status, "conflict");
     expectBlocked(planDevinMcpInstall(configPath, options));
     expectBlocked(planDevinMcpRemove(configPath));
-    executeDevinMcpWrite(expectPlan(planDevinMcpReplace(configPath, options)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpReplace(configPath, options)));
     assert.equal(statusOf(configPath).status, "installed");
   }
 
@@ -128,7 +136,7 @@ try {
       mcpEntryPath: join(root, "app", "node_modules", "@open-pets", "mcp", "dist", "index.js"),
       nodeCommand: join(root, "bin", "node"),
     };
-    executeDevinMcpWrite(expectPlan(planDevinMcpInstall(configPath, local)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpInstall(configPath, local)));
     assert.equal(statusOf(configPath, local).status, "installed");
     assert.equal(statusOf(configPath, options).status, "needs-update");
   }
@@ -137,7 +145,7 @@ try {
   {
     const configPath = freshConfigPath();
     writeFileSync(configPath, JSON.stringify({ theme: "dark", mcpServers: { openpets: buildDevinMcpEntry(options), other: { command: "other", args: [] } } }));
-    executeDevinMcpWrite(expectPlan(planDevinMcpRemove(configPath)));
+    executeDevinConfigWrite(expectPlan(planDevinMcpRemove(configPath)));
     const config = readJson(configPath);
     assert.equal(config.theme, "dark");
     assert.deepEqual(Object.keys(config.mcpServers), ["other"]);
@@ -170,8 +178,77 @@ try {
     writeFileSync(configPath, "{}");
     const plan = expectPlan(planDevinMcpInstall(configPath, options));
     writeFileSync(configPath, JSON.stringify({ mcpServers: { added: { command: "added", args: [] } } }));
-    assert.throws(() => executeDevinMcpWrite(plan), /changed/);
+    assert.throws(() => executeDevinConfigWrite(plan), /changed/);
     assert.deepEqual(Object.keys(readJson(configPath).mcpServers), ["added"]);
+  }
+
+  // Hook payloads map to reactions from event/tool names only.
+  assert.equal(mapDevinHookPayload({ hook_event_name: "UserPromptSubmit", prompt: "secret" })?.reaction, "thinking");
+  assert.equal(mapDevinHookPayload({ hook_event_name: "PreToolUse", tool_name: "edit" })?.reaction, "editing");
+  assert.equal(mapDevinHookPayload({ hook_event_name: "PreToolUse", tool_name: "exec", tool_input: { command: "pnpm test" } })?.reaction, "testing");
+  assert.equal(mapDevinHookPayload({ hook_event_name: "PreToolUse", tool_name: "exec", tool_input: { command: "ls" } })?.reaction, undefined);
+  assert.deepEqual(mapDevinHookPayload({ hook_event_name: "PermissionRequest", tool_name: "exec" }), { eventName: "PermissionRequest", reaction: "waiting", speechCategory: "permission" });
+  assert.equal(mapDevinHookPayload({ hook_event_name: "Stop" })?.reaction, "success");
+  assert.equal(mapDevinHookPayload({ agent_action_name: "pre_user_prompt", tool_info: { user_prompt: "secret" } })?.reaction, "thinking");
+  assert.equal(mapDevinHookPayload({ agent_action_name: "post_write_code", tool_info: { file_path: "/x" } })?.reaction, "editing");
+  assert.equal(mapDevinHookPayload({ agent_action_name: "pre_run_command", tool_info: { command_line: "cargo test" } })?.reaction, "testing");
+  assert.equal(mapDevinHookPayload({ agent_action_name: "post_cascade_response" })?.reaction, "success");
+  assert.equal(mapDevinHookPayload({ unrelated: true }), null);
+
+  // Hook files: Devin CLI config.json and Devin Desktop hooks.json.
+  assert.equal(getDevinCliConfigPath({ XDG_CONFIG_HOME: "/xdg" }, "/home/me", "linux"), join("/xdg", "devin", "config.json"));
+  assert.equal(getDevinDesktopHooksPath("/home/me"), join("/home/me", ".codeium", "windsurf", "hooks.json"));
+  const hookOptions: DevinHookCommandOptions = { cliVersion: "4.0.0", petId: "fixer" };
+  assert.equal(buildDevinHookCommand(hookOptions), "npx -y @open-pets/cli@4.0.0 hook --openpets-managed --agent devin --pet fixer");
+
+  // Devin CLI hooks keep comments, user hooks, and other settings; reinstall replaces only ours.
+  {
+    const configPath = join(freshConfigPath(), "..", "config.json");
+    writeFileSync(configPath, `{
+  // my settings
+  "agent": { "model": "swe-1-6-fast" },
+  "hooks": {
+    "PreToolUse": [{ "matcher": "exec", "hooks": [{ "type": "command", "command": "./check.sh" }] }],
+  },
+}
+`);
+    assert.equal(classifyDevinHooks("cli", configPath, hookOptions).status, "missing");
+    executeDevinConfigWrite(expectPlan(planDevinHooksInstall("cli", configPath, hookOptions)));
+    assert.equal(classifyDevinHooks("cli", configPath, hookOptions).status, "installed");
+    const installedText = readFileSync(configPath, "utf8");
+    assert.match(installedText, /\/\/ my settings/);
+    assert.match(installedText, /check\.sh/);
+    expectBlocked(planDevinHooksInstall("cli", configPath, hookOptions));
+
+    const otherPet = { ...hookOptions, petId: "sprout" };
+    assert.equal(classifyDevinHooks("cli", configPath, otherPet).status, "needs-update");
+    executeDevinConfigWrite(expectPlan(planDevinHooksInstall("cli", configPath, otherPet)));
+    assert.equal(classifyDevinHooks("cli", configPath, otherPet).status, "installed");
+    assert.equal((readFileSync(configPath, "utf8").match(/--openpets-managed/g) ?? []).length, 4);
+
+    executeDevinConfigWrite(expectPlan(planDevinHooksRemove("cli", configPath)));
+    const removedText = readFileSync(configPath, "utf8");
+    assert.doesNotMatch(removedText, /openpets-managed/);
+    assert.match(removedText, /check\.sh/);
+    assert.match(removedText, /swe-1-6-fast/);
+    expectBlocked(planDevinHooksRemove("cli", configPath));
+  }
+
+  // Devin Desktop hooks are flat command entries; removing the last one drops the hooks key.
+  {
+    const hooksPath = join(freshConfigPath(), "..", "hooks.json");
+    executeDevinConfigWrite(expectPlan(planDevinHooksInstall("desktop", hooksPath, hookOptions, "linux")));
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf8")) as { readonly hooks: Record<string, readonly Record<string, unknown>[]> };
+    assert.deepEqual(Object.keys(hooks.hooks), ["pre_user_prompt", "post_write_code", "pre_run_command", "post_cascade_response"]);
+    assert.deepEqual(hooks.hooks.pre_user_prompt, [{ command: buildDevinHookCommand(hookOptions), show_output: false }]);
+    assert.equal(classifyDevinHooks("desktop", hooksPath, hookOptions, "linux").status, "installed");
+    executeDevinConfigWrite(expectPlan(planDevinHooksRemove("desktop", hooksPath)));
+    assert.deepEqual(JSON.parse(readFileSync(hooksPath, "utf8")), {});
+
+    const brokenPath = join(freshConfigPath(), "..", "hooks.json");
+    writeFileSync(brokenPath, JSON.stringify({ hooks: { pre_user_prompt: {} } }));
+    assert.equal(classifyDevinHooks("desktop", brokenPath, hookOptions).status, "invalid");
+    expectBlocked(planDevinHooksInstall("desktop", brokenPath, hookOptions));
   }
 
   console.error("Devin validation passed.");

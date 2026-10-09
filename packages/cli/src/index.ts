@@ -12,11 +12,12 @@ import { homedir } from "node:os";
 import { allowedReactions, createOpenPetsClient, OpenPetsClientError, type OpenPetsPetListItem, type OpenPetsReaction } from "@open-pets/client";
 import { claudeHookEvents, doctorClaudeHooks, openPetsHookMarker, removeOpenPetsHooks, runClaudeHookFromStdin, validateOpenPetsPetArg } from "@open-pets/claude";
 import { buildCursorRulesPreview, buildOpenPetsOnlyPreview, classifyCursorMcpStatus, classifyCursorRulesStatus, executeCursorMcpWrite, executeCursorRulesWrite, getCursorProjectMcpPath, getCursorProjectRulesPath, planCursorMcpInstall, planCursorMcpReplace, planCursorRulesInstall, planCursorRulesRemove, planCursorRulesReplace, readCursorMcpConfig, readCursorOpenPetsRules } from "@open-pets/cursor";
-import { buildDevinMcpEntry, classifyDevinMcpStatus, executeDevinMcpWrite, getDevinGlobalMcpConfigPath, planDevinMcpInstall, planDevinMcpReplace, readDevinMcpConfig } from "@open-pets/devin";
+import { buildDevinMcpEntry, classifyDevinHooks, classifyDevinMcpStatus, executeDevinConfigWrite, getDevinCliConfigPath, getDevinDesktopHooksPath, getDevinGlobalMcpConfigPath, planDevinHooksInstall, planDevinMcpInstall, planDevinMcpReplace, readDevinMcpConfig, type DevinHookCommandOptions, type DevinHookTarget } from "@open-pets/devin";
 import { doctorOpenCodeGlobalSetup, getGlobalOpenCodeConfigDir, prepareOpenCodeGlobalSetup, prepareOpenCodeProjectSetup, writePreparedOpenCodeGlobalSetup, writePreparedOpenCodeProjectSetup } from "@open-pets/opencode";
 import { buildOpenClawCommand, classifyOpenClawStatus, openClawMaxStructuredOutputBytes, parseOpenClawVersion, planOpenClawMutation, type OpenClawCommandAction, type OpenClawPluginStatus } from "@open-pets/openclaw/management";
 import { buildZedMcpEntry, classifyZedMcpStatus, executeZedMcpWrite, getZedGlobalSettingsPath, planZedMcpInstall, planZedMcpReplace, readZedSettings } from "@open-pets/zed";
 
+import { runDevinHookFromStdin } from "./devin-hook.js";
 import { pluginTemplateNames, pluginTemplates, type PluginTemplateName } from "./plugin-templates.js";
 import { validatePluginFolder } from "./plugin-validate.js";
 
@@ -167,7 +168,11 @@ async function main(): Promise<void> {
       printHookUsage();
       return;
     }
-    const code = await runClaudeHookFromStdin(process.stdin, { configuredPetId: readPetArg(args), projectLocal: hasProjectLocalArg(args), debug: process.env.OPENPETS_DEBUG === "1" });
+    const debug = process.env.OPENPETS_DEBUG === "1";
+    const hookAgent = readHookAgentArg(args);
+    const code = hookAgent === "devin"
+      ? await runDevinHookFromStdin(process.stdin, { configuredPetId: readPetArg(args), debug })
+      : await runClaudeHookFromStdin(process.stdin, { configuredPetId: readPetArg(args), projectLocal: hasProjectLocalArg(args), debug });
     process.exitCode = code;
     return;
   }
@@ -380,26 +385,42 @@ async function configureZedGlobal(options: ConfigureOptions): Promise<void> {
 async function configureDevinGlobal(options: ConfigureOptions): Promise<void> {
   const client = createOpenPetsClient();
   const selectedPet = options.petId ? await resolveConfiguredPet(client, options.petId) : undefined;
+  const packageVersion = getPackageVersion();
   const previewOptions = {
-    mcpVersion: getPackageVersion(),
+    mcpVersion: packageVersion,
     petId: selectedPet?.id,
     commandMode: options.localDev ? "local" as const : "published" as const,
     mcpEntryPath: options.localDev ? require.resolve("@open-pets/mcp") : undefined,
+    nodeCommand: options.localDev ? process.execPath : undefined,
   };
+  const hookOptions: DevinHookCommandOptions = {
+    cliVersion: packageVersion,
+    petId: selectedPet?.id,
+    commandMode: previewOptions.commandMode,
+    cliEntryPath: options.localDev ? fileURLToPath(import.meta.url) : undefined,
+    nodeCommand: previewOptions.nodeCommand,
+  };
+
+  configureDevinMcp(previewOptions, options.force);
+  configureDevinHooks("cli", getDevinCliConfigPath(), hookOptions);
+  configureDevinHooks("desktop", getDevinDesktopHooksPath(), hookOptions);
+
+  const petMessage = selectedPet ? `Pet: ${sanitizeTerminalText(selectedPet.displayName)} (${selectedPet.id})\n` : "";
+  process.stdout.write(`OpenPets configured for Devin Desktop and Devin CLI.\n${petMessage}Refresh MCP servers in Devin Desktop, or start a new Devin CLI session, to load OpenPets.\n`);
+}
+
+function configureDevinMcp(previewOptions: Parameters<typeof buildDevinMcpEntry>[0], force: boolean): void {
   const configPath = getDevinGlobalMcpConfigPath();
   const status = classifyDevinMcpStatus(readDevinMcpConfig(configPath), configPath, previewOptions);
   const preview = status.previewEntry ?? buildDevinMcpEntry(previewOptions);
   process.stdout.write(`Devin MCP config: ${configPath}\nStatus: ${status.status} - ${status.message}\nOpenPets MCP preview:\n${JSON.stringify({ mcpServers: { openpets: preview } }, null, 2)}\n`);
 
-  if (status.status === "installed") {
-    process.stdout.write(`OpenPets is already configured for Devin Desktop and Devin CLI in ${configPath}.\nRefresh MCP servers in Devin if they are stale.\n`);
-    return;
-  }
+  if (status.status === "installed") return;
   if (status.status === "invalid" || status.status === "error") {
     throw new CliError(`${status.message} Fix ${configPath}, then rerun setup.`);
   }
   const requiresReplacement = !status.canInstall;
-  if (requiresReplacement && !options.force) {
+  if (requiresReplacement && !force) {
     throw new CliError(`${status.message} Rerun with --force to replace the Devin openpets entry.`);
   }
 
@@ -407,9 +428,24 @@ async function configureDevinGlobal(options: ConfigureOptions): Promise<void> {
     ? planDevinMcpReplace(configPath, previewOptions)
     : planDevinMcpInstall(configPath, previewOptions);
   if ("ok" in plan) throw new CliError(plan.message);
-  executeDevinMcpWrite(plan);
-  const petMessage = selectedPet ? `Pet: ${sanitizeTerminalText(selectedPet.displayName)} (${selectedPet.id})\n` : "";
-  process.stdout.write(`OpenPets configured for Devin Desktop and Devin CLI.\n${petMessage}${plan.backupPath ? `Backup: ${plan.backupPath}\n` : ""}Refresh MCP servers in Devin Desktop, or start a new Devin CLI session, to load OpenPets.\n`);
+  executeDevinConfigWrite(plan);
+  if (plan.backupPath) process.stdout.write(`Backup: ${plan.backupPath}\n`);
+}
+
+function configureDevinHooks(target: DevinHookTarget, path: string, hookOptions: DevinHookCommandOptions): void {
+  const name = target === "cli" ? "Devin CLI" : "Devin Desktop";
+  const status = classifyDevinHooks(target, path, hookOptions);
+  process.stdout.write(`${name} hooks: ${path}\nStatus: ${status.status} - ${status.message}\n`);
+
+  if (status.status === "installed") return;
+  if (status.status === "invalid" || status.status === "error") {
+    throw new CliError(`${status.message} Fix ${path}, then rerun setup.`);
+  }
+
+  const plan = planDevinHooksInstall(target, path, hookOptions);
+  if ("ok" in plan) throw new CliError(plan.message);
+  executeDevinConfigWrite(plan);
+  if (plan.backupPath) process.stdout.write(`Backup: ${plan.backupPath}\n`);
 }
 
 async function configureCursorProject(options: ConfigureOptions, projectDir: string): Promise<void> {
@@ -1083,6 +1119,14 @@ function readPetArg(args: readonly string[]): string | undefined {
   return value && value.length > 0 ? validateOpenPetsPetArg(value) : undefined;
 }
 
+function readHookAgentArg(args: readonly string[]): "claude" | "devin" {
+  const equals = args.find((arg) => arg.startsWith("--agent="));
+  const index = args.indexOf("--agent");
+  const value = equals ? equals.slice("--agent=".length) : index >= 0 ? args[index + 1] : "claude";
+  if (value === "claude" || value === "devin") return value;
+  throw new CliError(`Unsupported hook agent: ${value ?? ""}. Supported hook agents: claude, devin.`);
+}
+
 function hasProjectLocalArg(args: readonly string[]): boolean {
   return args.includes("--project-local");
 }
@@ -1168,7 +1212,7 @@ function printSayUsage(): void {
 }
 
 function printConfigureUsage(): void {
-  process.stdout.write("Usage:\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed|devin] [--pet <id>] [--cwd <path>] [--global] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n\nOptions:\n  --pet <id>           Pet id to use for this project. If omitted, prompts with installed pets. Cursor --rules-only/--remove-rules do not need a pet.\n  --agent <agent>      Agent to configure: claude, opencode, cursor, openclaw, zed, or devin. Defaults to claude.\n  --cwd <path>         Project directory to configure. Defaults to current directory. Cursor uses <cwd>/.cursor/mcp.json and <cwd>/.cursor/rules/openpets.mdc; global Cursor setup is not enabled here. Zed uses the global Zed settings file. Devin uses the user-scope Devin MCP config shared by Devin Desktop and Devin CLI. Cannot be combined with OpenCode --global.\n  --global             For OpenCode only, write the shared global OpenCode config (same location as desktop setup) instead of project-local .opencode/ files. Project-local remains the default.\n  --with-rules         For Cursor, install MCP config and project rules after preflighting both writes.\n  --rules-only         For Cursor, install/update only .cursor/rules/openpets.mdc.\n  --remove-rules       For Cursor, remove only managed .cursor/rules/openpets.mdc.\n  --yes, -y            Accepted for scripts; no confirmation prompt is shown.\n  --force              Replace supported managed entries where applicable. Required for conflicting or disabled Zed and Devin entries and conflicting Cursor rules.\n  --replace            Alias for --force.\n  --local-dev          Use local development command paths where supported.\n  -h, --help           Show this help.\n\nOpenClaw setup is global and accepts only --agent openclaw and optional --yes. Zed and Devin setup are global and ignore the project path.\n");
+  process.stdout.write("Usage:\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed|devin] [--pet <id>] [--cwd <path>] [--global] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n\nOptions:\n  --pet <id>           Pet id to use for this project. If omitted, prompts with installed pets. Cursor --rules-only/--remove-rules do not need a pet.\n  --agent <agent>      Agent to configure: claude, opencode, cursor, openclaw, zed, or devin. Defaults to claude.\n  --cwd <path>         Project directory to configure. Defaults to current directory. Cursor uses <cwd>/.cursor/mcp.json and <cwd>/.cursor/rules/openpets.mdc; global Cursor setup is not enabled here. Zed uses the global Zed settings file. Devin uses the user-scope Devin MCP config shared by Devin Desktop and Devin CLI, and also installs OpenPets lifecycle hooks for both. Cannot be combined with OpenCode --global.\n  --global             For OpenCode only, write the shared global OpenCode config (same location as desktop setup) instead of project-local .opencode/ files. Project-local remains the default.\n  --with-rules         For Cursor, install MCP config and project rules after preflighting both writes.\n  --rules-only         For Cursor, install/update only .cursor/rules/openpets.mdc.\n  --remove-rules       For Cursor, remove only managed .cursor/rules/openpets.mdc.\n  --yes, -y            Accepted for scripts; no confirmation prompt is shown.\n  --force              Replace supported managed entries where applicable. Required for conflicting or disabled Zed and Devin entries and conflicting Cursor rules.\n  --replace            Alias for --force.\n  --local-dev          Use local development command paths where supported.\n  -h, --help           Show this help.\n\nOpenClaw setup is global and accepts only --agent openclaw and optional --yes. Zed and Devin setup are global and ignore the project path.\n");
 }
 
 function printMcpUsage(): void {
@@ -1176,7 +1220,7 @@ function printMcpUsage(): void {
 }
 
 function printHookUsage(): void {
-  process.stdout.write("Usage:\n  openpets hook --openpets-managed [--pet <id>]\n\nRuns one Claude hook event from stdin. This command is written into Claude project hooks by `openpets configure`.\n");
+  process.stdout.write("Usage:\n  openpets hook --openpets-managed [--agent claude|devin] [--pet <id>]\n\nRuns one agent hook event from stdin and never blocks the agent. Claude Code hooks are written by `openpets configure`; Devin CLI and Devin Desktop hooks (--agent devin) are written by `openpets configure --agent devin`.\n");
 }
 
 function hasHelp(args: readonly string[]): boolean {

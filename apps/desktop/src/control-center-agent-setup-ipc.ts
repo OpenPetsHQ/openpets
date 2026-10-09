@@ -60,6 +60,8 @@ const supportedAgentSetupActions: readonly AgentSetupAction[] = [
   "devin-install",
   "devin-replace",
   "devin-remove",
+  "devin-install-hooks",
+  "devin-remove-hooks",
 ];
 
 export function installControlCenterAgentSetupIpcHandlers({

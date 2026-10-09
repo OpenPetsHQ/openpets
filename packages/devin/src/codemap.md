@@ -2,41 +2,39 @@
 
 ## Files
 
-- **index.ts**: Public barrel that re-exports the Devin MCP and status APIs.
-- **devin-mcp.ts**: Pure entry builder, pet/semver/Node.js command validation,
-  command modes, and platform-specific config path resolution.
-- **devin-status.ts**: JSONC parsing/editing, managed-entry detection, status
-  classification, install/replace/remove planning, path safety, backup, and
-  atomic write execution with a stale-source check.
+- **index.ts**: Public barrel for the MCP, hook config, hook mapping, and
+  config-write APIs.
+- **devin-config-file.ts**: Shared safe JSONC read/edit/plan/publish
+  transaction for every Devin file OpenPets touches.
+- **devin-mcp.ts**: Pure MCP entry builder, pet/semver/Node.js validation,
+  command modes, and config directory/path resolution.
+- **devin-status.ts**: MCP managed-entry detection, status classification, and
+  install/replace/remove planning.
+- **devin-hook-events.ts**: Pure Devin CLI / Devin Desktop hook payload →
+  reaction mapping and the subscribed event lists.
+- **devin-hooks.ts**: Hook command builder, hook file paths, per-product hook
+  formats, status classification, and install/remove planning.
 - **check-devin.ts**: Contract validation for the public behavior and safety
   boundaries; excluded from the implementation flow below.
 
 ## Module Dependencies
 
 ```
-devin-mcp.ts (pure helpers)
-    ↓
-devin-status.ts imports devin-mcp.ts + jsonc-parser + node fs/path APIs
-    ↓
-index.ts re-exports both modules
-check-devin.ts imports the public APIs for contract validation
+devin-config-file.ts (jsonc-parser + node fs/path)   devin-mcp.ts (pure)   devin-hook-events.ts (pure)
+        ↓                                                 ↓                        ↓
+devin-status.ts  ← devin-config-file + devin-mcp
+devin-hooks.ts   ← devin-config-file + devin-mcp + devin-hook-events
+        ↓
+index.ts re-exports the public APIs
 ```
 
 ## Public API Groups
 
-### `devin-mcp.ts`
-
-- `buildDevinMcpEntry()` builds the managed entry.
-- `getDevinConfigDir()` and `getDevinGlobalMcpConfigPath()` resolve the shared
-  user-scope location.
-- `isValidPetId()`, `validateOpenPetsPetId()`, `isValidOpenPetsPackageVersion()`,
-  `isValidDevinNodeCommand()`, and `isValidOpenPetsMcpScriptPath()` validate
-  command inputs.
-
-### `devin-status.ts`
-
-- `readDevinMcpConfig()` and `classifyDevinMcpStatus()` expose safe read/status
-  behavior.
-- `isManagedOpenPetsMcpEntry()` recognizes OpenPets-written entries.
-- `planDevinMcpInstall()`, `planDevinMcpReplace()`, and `planDevinMcpRemove()`
-  plan targeted edits; `executeDevinMcpWrite()` publishes them.
+- MCP: `buildDevinMcpEntry()`, `getDevinConfigDir()`,
+  `getDevinGlobalMcpConfigPath()`, `readDevinMcpConfig()`,
+  `classifyDevinMcpStatus()`, `isManagedOpenPetsMcpEntry()`,
+  `planDevinMcpInstall()` / `planDevinMcpReplace()` / `planDevinMcpRemove()`.
+- Hooks: `buildDevinHookCommand()`, `getDevinCliConfigPath()`,
+  `getDevinDesktopHooksPath()`, `readDevinHooksFile()`, `classifyDevinHooks()`,
+  `planDevinHooksInstall()` / `planDevinHooksRemove()`, `mapDevinHookPayload()`.
+- Writes: `executeDevinConfigWrite()`.

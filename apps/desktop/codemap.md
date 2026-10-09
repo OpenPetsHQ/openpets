@@ -55,7 +55,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
   - OpenCode: `~/.opencode/config.json`
   - Cursor: `~/.cursor/mcp.json`, `.cursor/rules/openpets.mdc`
   - Zed: `~/.config/zed/settings.json` (platform-specific global settings)
-  - Devin Desktop + Devin CLI: `~/.config/devin/mcp_config.json` (`%APPDATA%\devin\mcp_config.json` on Windows)
+  - Devin Desktop + Devin CLI: `~/.config/devin/mcp_config.json` and `config.json` hooks (`%APPDATA%\devin\` on Windows), plus Devin Desktop hooks in `~/.codeium/windsurf/hooks.json`
   - OpenClaw: `openclaw plugins` registry and Gateway lifecycle
   - Codex: `~/.codex/pets/` (local pet development)
   - IPC: Discovery file at platform-specific path, Unix socket/Windows named pipe/TCP

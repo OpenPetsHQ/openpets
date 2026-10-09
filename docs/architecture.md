@@ -31,8 +31,9 @@ There are three runtime worlds. Keep them distinct in your head.
     activity into pet commands and send them over local IPC unless an explicit
     remote endpoint/token configuration selects the separate remote protocol.
     OpenClaw is intentionally local-only and never selects that remote path. Zed
-    and Devin are configuration-only: the desktop app and CLI manage their global
-    settings files, while the agent itself runs the configured MCP server.
+    is configuration-only: the desktop app and CLI manage its global settings
+    file, while Zed itself runs the configured MCP server. Devin adds lifecycle
+    hooks that run `openpets hook --agent devin`.
    `@open-pets/dsh` is the strict local-only v1 exception: it always uses local
    IPC and the default pet and ignores all remote configuration.
 3. **The public web origin** (`openpets.dev`, source in `web/`) - static
@@ -91,7 +92,7 @@ Whisper-compatible transcription retain their distinct wire contracts.
 | `@open-pets/opencode` | OpenCode plugin runtime + config management | [Agent integrations](/agent-integrations) |
 | `@open-pets/cursor` | Cursor MCP config + project rules management | [Agent integrations](/agent-integrations) |
 | `@open-pets/zed` | Zed global MCP settings management | [Agent integrations](/agent-integrations) |
-| `@open-pets/devin` | Devin Desktop + Devin CLI shared global MCP config management | [Agent integrations](/agent-integrations) |
+| `@open-pets/devin` | Devin Desktop + Devin CLI global MCP config, lifecycle-hook config, and hook payload mapping | [Agent integrations](/agent-integrations) |
 | `@open-pets/pi` | Pi coding-agent extension + `/openpets` commands | [Agent integrations](/agent-integrations) |
 | `@open-pets/openclaw` | Native OpenClaw plugin and OpenClaw plugin lifecycle management | [Agent integrations](/agent-integrations) |
 | `@open-pets/agent-events` | Shared, validated speech pools for agent feedback | [Agent integrations](/agent-integrations) |
@@ -106,10 +107,12 @@ The dependency spine: every runtime integration, including `@open-pets/dsh` and
 dependency. The `cli` composes `claude`, `opencode`, `cursor`, `zed`, `devin`, `mcp`, and
 `openclaw` management. `claude`/`opencode`/`pi`/`dsh`/`openclaw` use curated
 speech for safe automatic feedback. OpenClaw management is a native OpenClaw
-plugin install, not an OpenPets SDK v3 catalog-plugin install. The Zed and
-Devin packages are configuration-only by design: the CLI and desktop Control
-Center manage their global settings files, while the agent itself runs the
-configured MCP server.
+plugin install, not an OpenPets SDK v3 catalog-plugin install. The Zed package
+is configuration-only by design: the CLI and desktop Control Center manage its
+global settings file, while Zed itself runs the configured MCP server. The
+Devin package manages config files and maps hook payloads; the CLI's
+`hook --agent devin` runtime dispatches through `@open-pets/claude`'s shared
+`dispatchHookDecision()`.
 `@open-pets/dsh` is strict local-only v1: it always uses local IPC and the
 default pet and ignores remote configuration.
 

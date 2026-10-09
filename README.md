@@ -162,7 +162,7 @@ If you want your development agent to drive your desktop companion, OpenPets pro
 When you configure an agent, OpenPets exposes standard MCP tools. The agent can trigger animations, change status, and display text bubbles locally:
 1. **Claude Code**: Installs OpenPets MCP, memory instructions in `~/.claude/CLAUDE.md`, and hooks in `~/.claude/settings.json`.
 2. **OpenCode**: Installs OpenPets MCP, custom project instruction files, and the `@open-pets/opencode` automatic hook plugin.
-3. **Devin Desktop + Devin CLI**: Adds OpenPets MCP to the shared `~/.config/devin/mcp_config.json` (`openpets configure --agent devin`).
+3. **Devin Desktop + Devin CLI**: Adds OpenPets MCP to the shared `~/.config/devin/mcp_config.json` plus lifecycle hooks for both (`openpets configure --agent devin`).
 4. **Cursor / Other MCP Clients**: Register OpenPets as a standard stdio or TCP MCP server.
 
 <p align="center">
@@ -253,7 +253,7 @@ packages/mcp              @open-pets/mcp (Model Context Protocol stdio server)
 packages/claude           @open-pets/claude (Claude integrations, memory, & hooks)
 packages/opencode         @open-pets/opencode (OpenCode plugins & instruction configs)
 packages/pi               @open-pets/pi (Pi CLI extension integration)
-packages/devin            @open-pets/devin (Devin Desktop + Devin CLI MCP config)
+packages/devin            @open-pets/devin (Devin Desktop + Devin CLI MCP config & hooks)
 packages/agent-events     Shared sanitizers and events helper package
 packages/cli              @open-pets/cli (User entry point CLI for configuration & scaffolding)
 packages/sdk              @open-pets/plugin-sdk (Plugin SDK v3 declarations & testing harness)

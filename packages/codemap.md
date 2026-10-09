@@ -14,7 +14,7 @@ Provides modular, reusable components for the OpenPets ecosystem:
 - **claude**: Claude Code integration (hook execution, config management)
 - **cursor**: Cursor editor integration (MCP configuration, project rules)
 - **zed**: Zed editor integration (global MCP configuration)
-- **devin**: Devin Desktop + Devin CLI integration (shared global MCP configuration)
+- **devin**: Devin Desktop + Devin CLI integration (shared global MCP configuration and lifecycle hooks)
 - **pi**: Pi coding-agent extension integration (event handling, slash commands)
 - **openclaw**: Native OpenClaw plugin integration, lifecycle management, and local-only reaction runtime
 - **install-pet**: Standalone pet installer from gallery catalog
@@ -95,7 +95,7 @@ SDK Type definitions & Test Harness (packages/sdk/)
 - `zod` - Schema validation in MCP tools
 
 **Desktop App Communication**:
-Runtime packages ultimately communicate with the OpenPets desktop app via the IPC protocol defined in `@open-pets/client` (using Unix sockets, Windows named pipes, or TCP for cross-platform/WSL). Zed and Devin are configuration-only and do not use IPC; their MCP server makes the runtime connection after the agent launches it.
+Runtime packages ultimately communicate with the OpenPets desktop app via the IPC protocol defined in `@open-pets/client` (using Unix sockets, Windows named pipes, or TCP for cross-platform/WSL). Zed is configuration-only and does not use IPC; its MCP server makes the runtime connection after Zed launches it. Devin hooks run `openpets hook --agent devin`, which reacts over IPC.
 
 ## Directory Map
 

@@ -55,9 +55,21 @@ export async function handleClaudeHookPayload(raw: string, options: ClaudeHookOp
   if (!decision?.reaction) return decision;
   if (!options.projectLocal && hasProjectLocalOpenPetsHook()) return decision;
 
+  await dispatchHookDecision(decision, options);
+  return decision;
+}
+
+/**
+ * Sends a mapped hook decision to the pet: throttled per reaction/speech
+ * category through a throttle file shared by every OpenPets agent hook, using
+ * only validated canned speech, and never throwing.
+ */
+export async function dispatchHookDecision(decision: ClaudeHookDecision, options: ClaudeHookOptions = {}): Promise<void> {
+  if (!decision.reaction) return;
+
   const shouldSpeak = decision.speechCategory ? shouldSendSpeech(decision.speechCategory, options) : false;
   const shouldReact = shouldSendReaction(decision.reaction, options);
-  if (!shouldSpeak && !shouldReact) return decision;
+  if (!shouldSpeak && !shouldReact) return;
 
   const client = options.client ?? createOpenPetsClient({ connectTimeoutMs: 500, responseTimeoutMs: 500 });
   const lease = options.configuredPetId ? await acquireHookLease(client, options.configuredPetId, options.debug) : undefined;
@@ -70,10 +82,9 @@ export async function handleClaudeHookPayload(raw: string, options: ClaudeHookOp
     }
   } catch (error) {
     if (!(error instanceof OpenPetsClientError) && options.debug) {
-      process.stderr.write(`OpenPets Claude hook client error: ${sanitizeDebugError(error)}\n`);
+      process.stderr.write(`OpenPets hook client error: ${sanitizeDebugError(error)}\n`);
     }
   }
-  return decision;
 }
 
 export function hasProjectLocalOpenPetsHook(projectDir = process.env.CLAUDE_PROJECT_DIR): boolean {

@@ -27,7 +27,8 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 - `configureOpenCodeProject()` - OpenCode project-local config setup (default)
 - `configureOpenCodeGlobal()` - OpenCode shared global setup via existing global preparation path
 - `configureZedGlobal()` - Zed global JSONC settings setup
-- `configureDevinGlobal()` - Devin Desktop + Devin CLI shared MCP config setup
+- `configureDevinGlobal()` - Devin Desktop + Devin CLI shared MCP config and lifecycle hook setup
+- `devin-hook.ts` - `runDevinHookFromStdin()`: bounded stdin read, `mapDevinHookPayload()`, shared `dispatchHookDecision()`, always exits 0
 - Claude: Hook settings + MCP via `claude mcp add-json`
 
 **Safety Checks:**
