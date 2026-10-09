@@ -10,6 +10,7 @@ const {
   transitionChatDraft,
 } = require("./src/pet-chat-view-state.ts");
 const { installDefaultPetSession } = require("./pet-session/session-overlay-view.cjs");
+const { createPetContentStageController } = require("./src/pet-content-stage.cjs");
 
 // The pet window's preload runs sandboxed, where `require()` cannot load
 // arbitrary local modules. `pet-tts-helper.cjs` is only loadable when the
@@ -51,6 +52,7 @@ let closeDefaultPetCheckInPanel = () => {};
 let handleCheckInCarrierCollapsed = () => {};
 let currentDefaultPetCarrierState = "collapsed";
 let renderDefaultPetCheckIn = () => {};
+const petContentStage = createPetContentStageController(document);
 
 let latestVoiceSnapshot = {
   sessionId: 0,
@@ -178,23 +180,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
       updateAssistantHeader(state.displayName, state.assetName);
     }
     document.documentElement.dataset.reactionState = state.reactionState;
-    const currentStage = document.querySelector(".stage");
-    if (currentStage) {
-      try {
-        const template = document.createElement("template");
-        template.innerHTML = state.bodyHtml.trim();
-        const newStage = template.content && template.content.firstElementChild;
-        if (newStage && newStage.classList && newStage.classList.contains("stage")) {
-          currentStage.replaceWith(newStage);
-        } else {
-          currentStage.outerHTML = state.bodyHtml;
-        }
-      } catch {
-        currentStage.outerHTML = state.bodyHtml;
-      }
-    } else {
-      document.body.insertAdjacentHTML("afterbegin", state.bodyHtml);
-    }
+    petContentStage.replaceStage(state.bodyHtml);
     if (spriteOverrideElement) {
       const shell = document.querySelector(".pet-shell");
       if (shell && !shell.contains(spriteOverrideElement)) {
@@ -2061,10 +2047,7 @@ ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
 });
 
 ipcRenderer.on("openpets:pet-scale-override", (_event, scale) => {
-  const value = Number(scale);
-  if (!Number.isFinite(value) || value < 0.25 || value > 3) return;
-  const sprite = document.querySelector(".sprite, .installed-sprite");
-  if (sprite) sprite.style.transform = `scale(${value})`;
+  petContentStage.setScaleOverride(scale);
 });
 
 // --- Plugin audio (named WebAudio recipes + bundled data URLs) ---------------

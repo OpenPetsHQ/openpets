@@ -326,7 +326,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
-- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
+- `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, gaze configuration, and plugin scale override updates; companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
+- `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override to the currently rendered sprite
 - `x11-pet-window-state.ts`: X11 client adapter that subscribes to StructureNotify before show, waits for matching MapNotify, sends post-map EWMH state additions, and observes `_NET_WM_STATE` until standard exclusion atoms and the KDE switcher atom when advertised by root `_NET_SUPPORTED` are present
 - `x11-pet-window-state-core.ts`: Electron-free EWMH atom/property helpers for merging existing state and checking required atoms
 - `pet-window-x11-map-core.ts`: Electron-free matching/cancellation state for the target window's MapNotify transition

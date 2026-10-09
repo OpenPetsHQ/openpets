@@ -392,6 +392,12 @@ drives a short glance: the current direction is held while the cursor is moving
 and for about 1.2 seconds afterward, then eligible idle V2 pets return to
 neutral. No additional blink frames are used.
 
+The main-process gaze controller owns the active per-window plugin scale
+override and replays it after full renderer loads. The pet preload applies that
+host-owned value to the current sprite node and retains the received value for
+in-place stage replacement. This keeps the rendered sprite scale aligned with
+custom gaze-anchor geometry without a second main-process scale owner.
+
 Catalog V2 entries may declare the same version with an exact numeric
 `spriteVersionNumber: 2`; the desktop carries that marker into Pets previews so
 their 8×11 layout is resolved consistently with imported/local V2 pets. Older

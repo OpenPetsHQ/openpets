@@ -70,7 +70,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `renderer/`: React/Tailwind Control Center for Dashboard, Pets, Integrations, Plugins, Settings, and Teams; Manager Check-in submission remains in the default pet card
 - `local-ipc.ts`: TCP/Unix socket server for CLI communication
 - `lease-manager.ts`: Pet routing lease lifecycle
-- `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze with optional per-pet normalized frame anchors and plugin scale override synchronization, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
+- `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze with optional per-pet normalized frame anchors and plugin scale override geometry, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
 - `pet-window-interaction.ts`: Pet-window mouse passthrough, manual/native drag bridge, renderer lifecycle recovery/watchdog, IPC event bridge, dragging state, and speech-completion subscriptions
 - `wayland-layer-backend.ts`/`wayland-layer-protocol.ts`: Native layer-shell Electron adapter plus its Electron-free length-prefixed protocol, incremental decoding, cropped BGRA frame handling, and pointer replay mapping
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
@@ -114,7 +114,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `logger.ts`: Structured logging with scopes (app, ipc, lease, pet, state, tray, ui)
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping with user overrides and the bundled V2 Hoodie Cat atlas metadata
 - `reaction-messages.ts`: Message pools for each reaction type
-- `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, attached chat panel, and private Manager Check-in card), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
+- `control-center-preload.cjs`/`pet-preload.cjs`/`plugin-sdk-preload.cjs`: Narrow contextBridge and DOM controller APIs for the Control Center, pet windows (hit-testing, launcher affordance, attached chat panel, private Manager Check-in card, and renderer retention/application of host-owned scale overrides), and plugin SDK host; the legacy `preload.cjs` task-window bridge, `companion-chat-window.ts`, and `plugins-window.ts` UI have been removed
 - `electron-builder.yml`: Packaging configuration
 - `scripts/release-local.mjs`: macOS-local release automation as resumable checkpointed stages, with target-aware temporary and actual-artifact payload validation, SHA-256 checkpoint output digests, and GitHub draft creation
 - `contracts/catalog-fixture.contract.ts`: Catalog V2 validation contract tests against fixture data
