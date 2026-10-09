@@ -19,7 +19,9 @@ A pet package is small and asset-driven:
 
 - **`pet.json`** - metadata: `id`, `displayName`, `description`,
   `spritesheetPath`, and optional `category` / `subcategory` / `sourceUrl` /
-  `xHandle`. (Catalog entries carry the same identity plus hosting URLs - see
+  `xHandle` / `spriteVersionNumber` / `gazeAnchor`. `gazeAnchor`, when present,
+  is an `{ x, y }` pair of finite normalized values in `[0, 1]`, measured from
+  the top-left of one sprite frame before horizontal flipping. (Catalog entries carry the same identity plus hosting URLs - see
   [Catalogs](/catalog).)
 - **`spritesheet.webp`** - a grid of animation frames. Frames are at least
   `192x208`; thumbnails are derived from the spritesheet.
@@ -364,7 +366,20 @@ never prevents the desktop app from starting.
 
 V2's sixteen look-direction cells (rows 9–10) are retained in the imported
 atlas and selected while an installed V2 pet is visually idle. OpenPets samples
-the global cursor around the pet carrier's bottom-center anchor, quantizes the
+the global cursor around the pet carrier's bottom-center anchor by default,
+preserving the existing behavior when `gazeAnchor` is omitted. A manifest may
+instead define the target within one frame; the host resolves that normalized
+point against the rendered sprite's frame dimensions and pet scale, excluding
+carrier padding and the shared pinned-HUD lift, and mirrors its x coordinate when
+the sprite is horizontally flipped. The shell/card origin remains positioned by
+the render's base pet scale; plugin `pet.setScale` changes only the installed
+sprite's transform scale within that fixed layout. Gaze geometry therefore uses
+the base scale for the shell/card origin and the override scale for the frame
+anchor, matching the renderer's top-left transform origin. The host reapplies an
+active per-window override after renderer reload; without an override, the
+current render scale positions both. The installed ZIP's validated `pet.json` is authoritative for this
+runtime setting, so a catalog entry that omits it does not discard the package
+value. OpenPets quantizes the
 direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
 inside a small dead zone. Reactions, movement, dragging, plugin sprite
 overrides, and paused pets suspend gaze; V1 pets retain their existing idle
@@ -376,6 +391,12 @@ changing reactions, movement, or V1 behavior. When enabled, cursor movement
 drives a short glance: the current direction is held while the cursor is moving
 and for about 1.2 seconds afterward, then eligible idle V2 pets return to
 neutral. No additional blink frames are used.
+
+The main-process gaze controller owns the active per-window plugin scale
+override and replays it after full renderer loads. The pet preload applies that
+host-owned value to the current sprite node and retains the received value for
+in-place stage replacement. This keeps the rendered sprite scale aligned with
+custom gaze-anchor geometry without a second main-process scale owner.
 
 Catalog V2 entries may declare the same version with an exact numeric
 `spriteVersionNumber: 2`; the desktop carries that marker into Pets previews so

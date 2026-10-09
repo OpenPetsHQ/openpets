@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import sharp from "sharp";
 
-import { codexV2GazeDeadZonePx, codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition, getCodexV2GazeSpritePosition, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, validateCodexPetMetadata, validateCodexPetSpritesheet } from "../src/codex-pets-core.js";
+import { codexV2GazeDeadZonePx, codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition, getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, validateCodexPetMetadata, validateCodexPetSpritesheet } from "../src/codex-pets-core.js";
 import { getConfiguredSpriteStates } from "../src/reaction-animation-mapping.js";
 import { codexV1Fixture, codexV2Fixture } from "./codex-pet-fixtures.js";
 
@@ -12,12 +12,18 @@ assert.deepEqual(valid, {
   ...codexV1Fixture,
   spritesheetPath: "spritesheet.webp",
 });
+assert.equal(valid.gazeAnchor, undefined, "pets without a gaze anchor retain the legacy behavior");
+const anchoredV2 = validateCodexPetMetadata({ ...codexV2Fixture, gazeAnchor: { x: 0.5, y: 0.25, ignored: true } }, "malou");
+assert.deepEqual(anchoredV2.gazeAnchor, { x: 0.5, y: 0.25 }, "validated metadata preserves the normalized anchor and strips unknown fields");
 
 assert.throws(() => validateCodexPetMetadata({ id: "other", displayName: "Other", description: "Nope", spritesheetPath: "spritesheet.webp" }, "fixer"));
 assert.throws(() => validateCodexPetMetadata({ id: "builtin", displayName: "Built-in", description: "Reserved", spritesheetPath: "spritesheet.webp" }, "builtin"));
 assert.throws(() => validateCodexPetMetadata({ id: "bad/id", displayName: "Bad", description: "Bad", spritesheetPath: "spritesheet.webp" }, "bad/id"));
 assert.throws(() => validateCodexPetMetadata({ id: "fixer", displayName: "Fixer", description: "Nope", spritesheetPath: "../spritesheet.webp" }, "fixer"));
 assert.throws(() => validateCodexPetMetadata({ id: "fixer", displayName: "", description: "Nope", spritesheetPath: "spritesheet.webp" }, "fixer"));
+for (const gazeAnchor of [null, {}, { x: 0.5 }, { x: -0.1, y: 0.5 }, { x: 1.1, y: 0.5 }, { x: 0.5, y: Number.NaN }, { x: "0.5", y: 0.5 }]) {
+  assert.throws(() => validateCodexPetMetadata({ ...codexV2Fixture, gazeAnchor }, "malou"), "malformed gaze anchors are rejected");
+}
 
 assert.equal(maxCodexSpritesheetBytes, 100 * 1024 * 1024);
 assert.equal(maxCodexThumbnailSourceBytes, 24 * 1024 * 1024);
@@ -38,6 +44,46 @@ assert.deepEqual(getCodexPetSpritePosition(codexV2SpriteLayout, configuredStates
 assert.deepEqual(getCodexPetSpritePosition(getCodexPetSpriteLayout(valid), configuredStates.idle), { row: 0, startColumn: 0, endColumn: 6, animated: true });
 
 const gazeAnchor = { x: 100, y: 100 };
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.5, null, undefined, false, 28),
+  { x: 160, y: 420 },
+  "an omitted custom anchor keeps the existing carrier bottom-center anchor",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.5, null, { x: 0.5, y: 0.25 }, false, 28),
+  { x: 160, y: 314 },
+  "custom anchor coordinates use the rendered frame's scaled geometry, excluding carrier padding",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.5, null, { x: 0.25, y: 0.25 }, true, 28),
+  { x: 184, y: 314 },
+  "horizontal flipping mirrors the normalized x coordinate within the sprite frame",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.75, 1.5, { x: 0.25, y: 0.25 }, false, 28),
+  { x: 160, y: 314 },
+  "a scale override changes the sprite anchor without moving the base-scale shell origin",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.75, 1.5, { x: 0.25, y: 0.25 }, true, 28),
+  { x: 160, y: 314 },
+  "flipped override geometry mirrors within the base-scale shell origin",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.75, 1.5, { x: 0.125, y: 0.25 }, true, 28),
+  { x: 196, y: 314 },
+  "flipped asymmetric anchors use the override transform around the base-scale layout",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.75, null, { x: 0.125, y: 0.25 }, false, 28),
+  { x: 106, y: 275 },
+  "clearing an override restores the current render scale as the sprite transform",
+);
+assert.deepEqual(
+  getCodexV2GazeAnchorPoint({ x: 10, y: 20, width: 300, height: 400 }, { width: 192, height: 208 }, 0.5, 1.5, { x: 0.125, y: 0.25 }, false, 28),
+  { x: 148, y: 366 },
+  "a renderer reload can update layout origin while a window scale override remains active",
+);
 assert.equal(quantizeCodexV2GazeDirection({ x: 100, y: 50 }, gazeAnchor), 0);
 assert.equal(quantizeCodexV2GazeDirection({ x: 150, y: 100 }, gazeAnchor), 4);
 assert.equal(quantizeCodexV2GazeDirection({ x: 100, y: 150 }, gazeAnchor), 8);

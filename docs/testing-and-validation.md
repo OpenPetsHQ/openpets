@@ -38,7 +38,9 @@ dist checks. The dist-check step wipes `dist/` and rebuilds the full app
 
 - **Behavior** (`apps/desktop/tests/*.test.ts`): lease manager, app state,
   version checking, ZIP safety, Codex pets, Claude memory, reaction-animation
-  mapping, catalog remote transport/cache behavior and V2/fixture fallback behavior, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
+  mapping, pet gaze-anchor validation/geometry plus folder, Codex, and catalog ZIP
+  metadata preservation, catalog remote transport/cache behavior and V2/fixture
+  fallback behavior, plugin bridge/gateway guards, and `voice-lifecycle.test.ts` for live
   microphone-track accounting, capture cancellation/cleanup races, separate timeouts,
   empty transcripts, and shutdown behavior. `remote-control.test.ts` covers
   secure opt-in configuration, verifier-only persistence, authentication,

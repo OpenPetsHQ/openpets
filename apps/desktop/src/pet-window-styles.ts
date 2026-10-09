@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexV2GazeSpritePosition, getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { compactComposerGeometry } from "./pet-window-shape.js";
+import { compactComposerGeometry, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
 import {
   calculateChatPanelBottom,
   calculateSessionOrbRadius,
@@ -23,13 +23,12 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
   const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
   const scaledHeight = Math.ceil(defaultPetSprite.frameHeight * scale);
   const petBottom = 22;
-  const hitPadding = 28;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
   const compactComposerBottom = Math.ceil(petBottom + scaledHeight + compactComposerGeometry.bottomGap);
   const chatPanelBottom = calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap);
   // The pet and transient bubbles are lifted above the pinned plugin bubble
   // (HUD); the lift grows with the HUD's own scale so they never overlap.
-  const pinnedLift = Math.round(28 * hudScale);
+  const pinnedLift = getPetWindowPinnedLift(true, hudScale);
   const buttonPreferences = getAppStateSnapshot().preferences;
   const petButtonsSide = buttonPreferences.petButtonsPosition === "left" ? "left" : "right";
   const petButtonSizePx = buttonPreferences.petButtonsSize === "small" ? 18 : buttonPreferences.petButtonsSize === "large" ? 28 : 22;
@@ -134,7 +133,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     html[data-check-in-expanded="true"] .openpets-pet-buttons {
       display: none !important;
     }
-    .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - hitPadding)}px; z-index: 1; width: ${scaledWidth + hitPadding * 2}px; height: ${scaledHeight + hitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
+    .pet-hitbox { position: absolute; left: 50%; bottom: ${Math.max(0, petBottom - petWindowHitPadding)}px; z-index: 1; width: ${scaledWidth + petWindowHitPadding * 2}px; height: ${scaledHeight + petWindowHitPadding * 2}px; display: grid; place-items: center; transform: translateX(-50%); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     .pet-shell { position: relative; width: ${scaledWidth}px; height: ${scaledHeight}px; display: block; opacity: var(--pet-opacity); filter: ${petShellFilter}; transition-property: opacity, filter; transition-duration: 180ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); pointer-events: auto; -webkit-app-region: ${petDragRegion}; cursor: grab; }
     html[data-flip-x="true"] .pet-shell { transform: scaleX(-1); }
     .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 92px; max-width: min(220px, calc(100vw - 18px)); max-height: 128px; padding: 10px 12px; background: linear-gradient(135deg, rgba(239, 246, 255, 0.97), rgba(237, 233, 254, 0.96)); color: #172033; font: 760 11px/14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; border: 1px solid rgba(255, 255, 255, 0.78); border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82); white-space: normal; overflow-wrap: break-word; word-break: normal; overflow: visible; pointer-events: auto; -webkit-app-region: no-drag; opacity: 1; backdrop-filter: ${bubbleBackdropFilter}; transform: translateX(-50%); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
@@ -230,7 +229,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     .bubble.is-pinned.accent-red { background: linear-gradient(135deg, rgba(254, 226, 226, 0.94), rgba(254, 202, 202, 0.92)); }
     .bubble.is-pinned.accent-pink { background: linear-gradient(135deg, rgba(252, 231, 243, 0.94), rgba(251, 207, 232, 0.92)); }
     .bubble.is-pinned.accent-slate { background: linear-gradient(135deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.92)); }
-    .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - hitPadding) + pinnedLift}px; }
+    .stage.has-pinned .pet-hitbox { bottom: ${Math.max(0, petBottom - petWindowHitPadding) + pinnedLift}px; }
     .stage.has-pinned .bubble:not(.is-pinned) { bottom: ${bubbleBottom + pinnedLift}px; }
     .stage.has-pinned ~ .openpets-compact-composer { bottom: ${compactComposerBottom + pinnedLift}px; }
     .stage.has-pinned ~ .openpets-chat-panel,

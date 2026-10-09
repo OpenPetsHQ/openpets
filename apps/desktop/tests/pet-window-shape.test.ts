@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 
-import { calculatePetInteractiveShape, compactComposerGeometry, isRectangleContained } from "../src/pet-window-shape.js";
+import { calculatePetInteractiveShape, compactComposerGeometry, getPetWindowPinnedLift, getPetWindowSpriteBottomInset, isRectangleContained } from "../src/pet-window-shape.js";
 import { defaultPetWindowSize } from "../src/display.js";
 import { calculateChatPanelBottom, defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default-pet-chat-geometry.js";
+
+assert.equal(getPetWindowPinnedLift(false, 1.25), 0);
+assert.equal(getPetWindowPinnedLift(true, 1.25), 35);
+assert.equal(getPetWindowSpriteBottomInset(true, 1.25), 63);
 
 // --- Collapsed Pet Interactive Shape ---
 
