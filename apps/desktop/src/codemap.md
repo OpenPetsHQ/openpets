@@ -134,12 +134,14 @@ windows.ts (IPC handler adaptation)
         ├── agent-setup-opencode.ts (OpenCode global config lifecycle adapter; receives façade-computed paths, versions, detection, and formatting inputs)
         ├── agent-setup-openclaw.ts (OpenClaw global management status/preview/mutation adapter; receives command and runner inputs)
         ├── agent-setup-zed.ts (Zed global MCP settings lifecycle adapter; receives façade paths, command inputs, preflight, and journal completion callbacks)
+        ├── agent-setup-devin.ts (Devin Desktop + Devin CLI shared global MCP config and lifecycle-hook adapter; receives façade path, command inputs, Node preflight, and journal completion callbacks)
         ├── runAgentSetupAction() (global action lock, validation, and adapter dispatch)
         │   └── Claude lifecycle actions delegate to agent-setup-claude.ts
         ├── OpenCode global config façade orchestration (detection, bundled Node preflight, and action locking)
         ├── Cursor global MCP config management (@open-pets/cursor)
         ├── OpenClaw façade orchestration (command lookup, runner policy, and action locking)
-        └── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
+        ├── Zed global MCP façade orchestration (settings lookup, Node preflight, action locking, and journal completion)
+        └── Devin global MCP façade orchestration (config path lookup, Node preflight, action locking, and journal completion)
 ```
 
 **Pet Installation Flow**:
@@ -264,11 +266,12 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `@open-pets/cursor`: `planCursorMcpInstall`, `executeCursorMcpWrite`, `buildCursorRulesPreview`, etc.
   - `@open-pets/openclaw`: `buildOpenClawCommand`, `classifyOpenClawStatus`, and `planOpenClawMutation` for native plugin management
   - `@open-pets/zed`: `getZedSetup`, `planZedMcpInstall`, `planZedMcpReplace`, `planZedMcpRemove`, etc.
+  - `@open-pets/devin`: MCP (`classifyDevinMcpStatus`, `planDevinMcp*`), hooks (`classifyDevinHooks`, `planDevinHooksInstall`, `planDevinHooksRemove`), and `executeDevinConfigWrite`
   - `@open-pets/cli`: Version lookup for bundled mode
   - `@open-pets/plugin-sdk`: Published SDK contract mirrored by the desktop bridge and conformance checks
 
 - **To System**:
-  - File system: `app.getPath("userData")`, `userData/plugins/`, `userData/plugins-dev/`, plugin storage JSON, `~/.codex/pets/`, `~/.claude/`, `~/.opencode/`, platform-specific Zed settings
+  - File system: `app.getPath("userData")`, `userData/plugins/`, `userData/plugins-dev/`, plugin storage JSON, `~/.codex/pets/`, `~/.claude/`, `~/.opencode/`, platform-specific Zed settings, platform-specific Devin `mcp_config.json` and `config.json`, `~/.codeium/windsurf/hooks.json`
   - Network: `fetch()` to openpets.dev, GitHub API, plugin catalog at `https://openpets.dev/plugins/catalog.v1.json`, plugin ZIPs restricted to `https://zip.openpets.dev/plugins/`
   - Processes: `spawn()` for `claude`, `opencode`, `openclaw`, `node`
 

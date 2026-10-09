@@ -1,9 +1,9 @@
 import claudeLogoUrl from "../../../../assets/integrations/claude.svg";
 import opencodeLogoUrl from "../../../../assets/integrations/opencode.svg";
 import cursorLogoUrl from "../../../../assets/integrations/cursor.svg";
+import devinLogoUrl from "../../../../assets/integrations/devin.svg";
 import piLogoUrl from "../../../../assets/integrations/pi.svg";
 import vscodeLogoUrl from "../../../../assets/integrations/vscode.svg";
-import windsurfLogoUrl from "../../../../assets/integrations/windsurf.svg";
 import zedLogoUrl from "../../../../assets/integrations/zed.svg";
 import type { IntegrationIconProps } from "./types.js";
 
@@ -21,9 +21,9 @@ const INTEGRATION_LOGOS: Record<string, string> = {
   claude: claudeLogoUrl,
   opencode: opencodeLogoUrl,
   cursor: cursorLogoUrl,
+  devin: devinLogoUrl,
   pi: piLogoUrl,
   vscode: vscodeLogoUrl,
-  windsurf: windsurfLogoUrl,
   zed: zedLogoUrl,
 };
 

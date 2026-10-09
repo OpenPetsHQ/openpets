@@ -58,6 +58,7 @@
     "@open-pets/claude": "workspace:*",
     "@open-pets/cli": "workspace:*",
     "@open-pets/cursor": "workspace:*",
+    "@open-pets/devin": "workspace:*",
     "@open-pets/mcp": "workspace:*",
     "@open-pets/openclaw": "workspace:*",
     "@open-pets/opencode": "workspace:*",

@@ -132,6 +132,7 @@ Each package runs its own `check`/`test`. Notable contract/boundary coverage:
   artifact loads as the DSH Cordis bundle and its automatic dispatch wiring is
   available without model tools or MCP setup. See [Agent integrations](/agent-integrations).
 - `packages/cursor/src/check-cursor.ts`, `packages/zed/src/check-zed.ts`,
+  `packages/devin/src/check-devin.ts`,
   `packages/opencode` checks, etc. - validate the safe config-write behavior
   (status classification, redaction, symlink/oversize rejection, atomic writes,
   interrupted-write recovery, uninstall preserving user entries).

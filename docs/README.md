@@ -42,7 +42,7 @@ Docs here are the *narrative* layer on top of those maps.
 ## Agent integrations
 
 - **[agent-integrations.md](agent-integrations.md)** - how Claude Code, MCP,
-  OpenCode, Cursor, Zed, Pi, and OpenClaw are configured and how each turns
+  OpenCode, Cursor, Zed, Devin, Pi, and OpenClaw are configured and how each turns
   agent activity into pet reactions, plus the CLI that ties them together.
 
 ## Plugins & SDK

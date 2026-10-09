@@ -1,21 +1,17 @@
 {
-  "name": "@open-pets/cli",
+  "name": "@open-pets/devin",
   "version": "4.0.0",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/OpenPetsHQ/openpets.git",
-    "directory": "packages/cli"
+    "directory": "packages/devin"
   },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": {
-    "openpets": "dist/index.js"
-  },
   "files": [
-    "dist",
-    "schemas"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
@@ -27,23 +23,16 @@
     }
   },
   "scripts": {
-    "test": "node dist/check-cli-contract.js",
+    "test": "node dist/check-devin.js",
     "check": "pnpm typecheck && pnpm build && pnpm test",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
   },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  },
   "devDependencies": {
     "@types/node": "^25.6.2",
     "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "@open-pets/client": "workspace:*",
-    "@open-pets/claude": "workspace:*",
-    "@open-pets/cursor": "workspace:*",
-    "@open-pets/devin": "workspace:*",
-    "@open-pets/mcp": "workspace:*",
-    "@open-pets/openclaw": "workspace:*",
-    "@open-pets/opencode": "workspace:*",
-    "@open-pets/zed": "workspace:*"
   }
 }

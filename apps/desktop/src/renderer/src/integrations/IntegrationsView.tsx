@@ -22,6 +22,7 @@ import type {
   AgentSetupSnapshot,
   ClaudeCodeStatus,
   CursorSetupStatus,
+  DevinSetupStatus,
   IntegrationsApi,
   IntegrationsViewProps,
   IntegrationStatusTone,
@@ -82,6 +83,21 @@ export function zedStatusTone(state: ZedSetupStatus["state"]): IntegrationStatus
   if (state === "disabled" || state === "needs_update") return "orange";
   if (state === "needs_setup") return "blue";
   return "slate";
+}
+
+export function devinStatusTone(state: DevinSetupStatus["state"]): IntegrationStatusTone {
+  if (state === "configured") return "green";
+  if (state === "error" || state === "conflict") return "red";
+  if (state === "disabled" || state === "needs_update") return "orange";
+  if (state === "needs_setup") return "blue";
+  return "slate";
+}
+
+export function devinHookStatusTone(state: DevinSetupStatus["hooks"]["cli"]["state"]): IntegrationStatusTone {
+  if (state === "configured") return "green";
+  if (state === "error") return "red";
+  if (state === "needs_update") return "orange";
+  return "blue";
 }
 
 export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
@@ -210,6 +226,14 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
       description: t("integrations.zed.description"),
     },
     {
+      id: "devin",
+      name: t("integrations.devin.name"),
+      icon: "devin",
+      status: snapshot.devinStatus.label,
+      tone: devinStatusTone(snapshot.devinStatus.state),
+      description: t("integrations.devin.description"),
+    },
+    {
       id: "pi",
       name: t("integrations.pi.name"),
       icon: "pi",
@@ -219,10 +243,7 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
     },
   ] as const;
 
-  const soon = [
-    { name: t("integrations.soon.vscode"), icon: "vscode" },
-    { name: t("integrations.soon.windsurf"), icon: "windsurf" },
-  ];
+  const soon = [{ name: t("integrations.soon.vscode"), icon: "vscode" }];
 
   const selectedIntegrationName =
     selectedId === "pi"
@@ -326,6 +347,17 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
                     icon={<InstallIcon />}
                     disabled={isBusy}
                     onClick={() => run(t("integrations.busy.installing"), "zed-install")}
+                  >
+                    {t("integrations.install")}
+                  </Button>
+                )}
+                {item.id === "devin" && snapshot.devinStatus.canInstall && (
+                  <Button
+                    variant="primary"
+                    size="compact"
+                    icon={<InstallIcon />}
+                    disabled={isBusy}
+                    onClick={() => run(t("integrations.busy.installing"), "devin-install")}
                   >
                     {t("integrations.install")}
                   </Button>
@@ -1165,6 +1197,194 @@ export function IntegrationsView({ api: injectedApi }: IntegrationsViewProps) {
                     </summary>
                     <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
                       {JSON.stringify({ context_servers: { openpets: snapshot.zedPreview.mcpEntry } }, null, 2)}
+                    </pre>
+                  </details>
+                </>
+              )}
+
+              {selectedId === "devin" && (
+                <>
+                  <section className="plugin-section">
+                    <div className="plugin-section-title">
+                      <small>{t("integrations.connection")}</small>
+                      <strong>{t("integrations.globalMcp")}</strong>
+                    </div>
+                    <p className="text-xs text-slatecopy leading-relaxed mb-2">{t("integrations.devin.sharedConfig")}</p>
+                    <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50">
+                      <div className="flex flex-col">
+                        <strong className="text-sm text-navy">{snapshot.devinStatus.label}</strong>
+                        <small className="text-xs text-slatecopy">{snapshot.devinStatus.details}</small>
+                      </div>
+                      <StatusPill tone={devinStatusTone(snapshot.devinStatus.state)}>
+                        {snapshot.devinStatus.state}
+                      </StatusPill>
+                    </div>
+                    <div className="mt-2">
+                      <label className="text-xs font-bold text-slatecopy uppercase tracking-wider mb-1 block">
+                        {t("integrations.petRouting")}
+                      </label>
+                      <select
+                        className="settings-select w-full"
+                        value={snapshot.selectedPetId || ""}
+                        onChange={(e) => void load(e.target.value)}
+                        disabled={isBusy}
+                      >
+                        <option value="">{t("integrations.defaultPet")}</option>
+                        {snapshot.petOptions.map((pet) => (
+                          <option key={pet.id} value={pet.id}>
+                            {pet.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-1">
+                      <span className="text-xs font-bold text-slatecopy uppercase tracking-wider">
+                        {t("integrations.devin.configPath")}
+                      </span>
+                      <code className="text-xs text-brand break-all">{snapshot.devinStatus.configPath}</code>
+                    </div>
+                  </section>
+
+                  {snapshot.commandMode !== "published" && (
+                    <section className="plugin-section">
+                      <div className="plugin-section-title">
+                        <small>{t("integrations.configuration")}</small>
+                        <strong>{t("integrations.commandPaths")}</strong>
+                      </div>
+                      <PathField
+                        label={t("integrations.nodeCommand")}
+                        value={snapshot.commandPaths.node}
+                        placeholder="node"
+                        onSave={(v) => updatePath("node", v)}
+                        disabled={isBusy}
+                      />
+                    </section>
+                  )}
+
+                  <section className="plugin-section">
+                    <div className="plugin-section-title">
+                      <small>{t("integrations.actions")}</small>
+                      <strong>{t("integrations.management")}</strong>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {snapshot.devinStatus.canInstall && (
+                        <Button
+                          variant="primary"
+                          icon={<InstallIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.installing"), "devin-install")}
+                        >
+                          {t("integrations.installMcp")}
+                        </Button>
+                      )}
+                      {snapshot.devinStatus.canReplace && (
+                        <Button
+                          variant="warning"
+                          icon={<ReplaceIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.replacing"), "devin-replace")}
+                        >
+                          {t("integrations.replaceMcp")}
+                        </Button>
+                      )}
+                      {snapshot.devinStatus.canRemove && (
+                        <Button
+                          variant="danger"
+                          icon={<RemoveIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.removing"), "devin-remove")}
+                        >
+                          {t("integrations.removeMcp")}
+                        </Button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        icon={<RefreshIcon />}
+                        disabled={isBusy}
+                        onClick={() => void load()}
+                      >
+                        {t("integrations.refreshStatus")}
+                      </Button>
+                    </div>
+                  </section>
+
+                  <section className="plugin-section">
+                    <div className="plugin-section-title">
+                      <small>{t("integrations.optional")}</small>
+                      <strong>{t("integrations.devin.hooks")}</strong>
+                    </div>
+                    <p className="text-xs text-slatecopy leading-relaxed mb-2">{t("integrations.devin.hooksHelp")}</p>
+                    <div className="flex flex-col gap-2">
+                      {([
+                        ["integrations.devin.cliHooks", snapshot.devinStatus.hooks.cli],
+                        ["integrations.devin.desktopHooks", snapshot.devinStatus.hooks.desktop],
+                      ] as const).map(([labelKey, hookStatus]) => (
+                        <div
+                          key={labelKey}
+                          className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-blue-50/50 border border-blue-100/50"
+                        >
+                          <div className="flex flex-col min-w-0">
+                            <strong className="text-sm text-navy">{t(labelKey)}</strong>
+                            <code className="text-xs text-brand break-all">{hookStatus.path}</code>
+                            {hookStatus.state === "error" && (
+                              <small className="text-xs text-slatecopy">{hookStatus.details}</small>
+                            )}
+                          </div>
+                          <StatusPill tone={devinHookStatusTone(hookStatus.state)}>{hookStatus.label}</StatusPill>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      {snapshot.devinStatus.hooks.canInstall && (
+                        <Button
+                          variant="primary"
+                          icon={<HookIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.installingHooks"), "devin-install-hooks")}
+                        >
+                          {t("integrations.installHooks")}
+                        </Button>
+                      )}
+                      {snapshot.devinStatus.hooks.canRemove && (
+                        <Button
+                          variant="danger"
+                          icon={<RemoveIcon />}
+                          disabled={isBusy}
+                          onClick={() => run(t("integrations.busy.removingHooks"), "devin-remove-hooks")}
+                        >
+                          {t("integrations.removeHooks")}
+                        </Button>
+                      )}
+                    </div>
+                  </section>
+
+                  <details className="plugin-section group">
+                    <summary className="cursor-pointer list-none flex items-center justify-between">
+                      <div className="plugin-section-title">
+                        <small>{t("integrations.advanced")}</small>
+                        <strong>{t("integrations.mcpEntryPreview")}</strong>
+                      </div>
+                      <span className="text-brand group-open:rotate-180 transition-transform">
+                        <NextIcon />
+                      </span>
+                    </summary>
+                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5">
+                      {JSON.stringify({ mcpServers: { openpets: snapshot.devinPreview.mcpEntry } }, null, 2)}
+                    </pre>
+                  </details>
+
+                  <details className="plugin-section group">
+                    <summary className="cursor-pointer list-none flex items-center justify-between">
+                      <div className="plugin-section-title">
+                        <small>{t("integrations.advanced")}</small>
+                        <strong>{t("integrations.devin.hookCommandPreview")}</strong>
+                      </div>
+                      <span className="text-brand group-open:rotate-180 transition-transform">
+                        <NextIcon />
+                      </span>
+                    </summary>
+                    <pre className="mt-3 p-3 rounded-xl bg-navy/5 text-[10px] font-mono overflow-x-auto border border-navy/5 whitespace-pre-wrap break-all">
+                      {snapshot.devinPreview.hookCommand}
                     </pre>
                   </details>
                 </>

@@ -36,7 +36,7 @@
 - **Desktop pets**: animated companions that idle, wander, react, and keep your workspace from feeling empty.
 - **Official plugins**: focus timers, reminders, mood check-ins, mini games, launch shortcuts, hydration nudges, and virtual-pet stats.
 - **Plugin SDK v3**: a sandboxed JavaScript/TypeScript runtime for building new pet abilities with permissions, quotas, storage, schedules, commands, panels, events, audio, notifications, and more.
-- **Optional agent layer**: Claude Code, OpenCode, Cursor, Pi, and MCP clients can drive local pet reactions without exposing prompts, code, paths, logs, or secrets in speech bubbles.
+- **Optional agent layer**: Claude Code, OpenCode, Cursor, Devin, Pi, and MCP clients can drive local pet reactions without exposing prompts, code, paths, logs, or secrets in speech bubbles.
 
 ---
 
@@ -162,7 +162,8 @@ If you want your development agent to drive your desktop companion, OpenPets pro
 When you configure an agent, OpenPets exposes standard MCP tools. The agent can trigger animations, change status, and display text bubbles locally:
 1. **Claude Code**: Installs OpenPets MCP, memory instructions in `~/.claude/CLAUDE.md`, and hooks in `~/.claude/settings.json`.
 2. **OpenCode**: Installs OpenPets MCP, custom project instruction files, and the `@open-pets/opencode` automatic hook plugin.
-3. **Cursor / Other MCP Clients**: Register OpenPets as a standard stdio or TCP MCP server.
+3. **Devin Desktop + Devin CLI**: Adds OpenPets MCP to the shared `~/.config/devin/mcp_config.json` plus lifecycle hooks for both (`openpets configure --agent devin`).
+4. **Cursor / Other MCP Clients**: Register OpenPets as a standard stdio or TCP MCP server.
 
 <p align="center">
   <img src="assets/claude.png" alt="Claude Code integration with OpenPets" width="100%" />
@@ -252,6 +253,7 @@ packages/mcp              @open-pets/mcp (Model Context Protocol stdio server)
 packages/claude           @open-pets/claude (Claude integrations, memory, & hooks)
 packages/opencode         @open-pets/opencode (OpenCode plugins & instruction configs)
 packages/pi               @open-pets/pi (Pi CLI extension integration)
+packages/devin            @open-pets/devin (Devin Desktop + Devin CLI MCP config & hooks)
 packages/agent-events     Shared sanitizers and events helper package
 packages/cli              @open-pets/cli (User entry point CLI for configuration & scaffolding)
 packages/sdk              @open-pets/plugin-sdk (Plugin SDK v3 declarations & testing harness)
@@ -267,7 +269,7 @@ docs/                     Technical specifications and architecture documentatio
 Explore detailed architectural and platform documentation inside the `docs/` folder:
 - [`docs/architecture.md`](docs/architecture.md) - The one-page mental model: runtime topology, package spine, end-to-end flows.
 - [`docs/desktop.md`](docs/desktop.md) - The Electron app: process model, tray-first UX, Control Center, security model.
-- [`docs/agent-integrations.md`](docs/agent-integrations.md) - How Claude Code, MCP, OpenCode, Cursor, and Pi are configured.
+- [`docs/agent-integrations.md`](docs/agent-integrations.md) - How Claude Code, MCP, OpenCode, Cursor, Devin, and Pi are configured.
 - [`docs/plugins.md`](docs/plugins.md) - Plugin platform SDK v3 manifest, permissions, and sandboxed runtime.
 - [`docs/sdk.md`](docs/sdk.md) - Public SDK v3 contract for plugin authors: capability namespaces, permission surface, test harness.
 - [`docs/catalog.md`](docs/catalog.md) - Pet and plugin catalog contracts: v3/v2, pagination, install artifacts.

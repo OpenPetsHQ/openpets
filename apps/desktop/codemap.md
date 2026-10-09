@@ -34,7 +34,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 **Installation**: Catalog fetch (V3 with pagination fallback to V2) → ZIP download → `yauzl` extraction → validation → `pet-install-transaction.ts` orchestrates filesystem promotion, state mutation, rollback, recovery, and side effects using the pure `pet-install-transaction-protocol.ts` journal/schema/naming/recovery policy → tray refresh
 
-**Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
+**Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed/Devin setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
 
 **Control Center**: Tray route → `openControlCenterWindow(route)` → `windows.ts` loads Vite renderer and sends route events → `control-center-preload.cjs` exposes narrow page APIs → React Dashboard/Pets/Integrations/Plugins/Settings/Teams routes render snapshots and invoke actions, including host-owned personality preferences, conversation archive management (list, single-delete, clear), atomic provider configuration saves, and Manager Check-ins sync/history/pause controls. Manager Check-in submission is owned by the private pet card, not Control Center.
 
@@ -42,7 +42,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 ## Integration Points
 
-- **Workspace Packages**: `@open-pets/agent-events`, `@open-pets/claude`, `@open-pets/cli`, `@open-pets/cursor`, `@open-pets/mcp`, `@open-pets/opencode`, `@open-pets/openclaw`, `@open-pets/zed`
+- **Workspace Packages**: `@open-pets/agent-events`, `@open-pets/claude`, `@open-pets/cli`, `@open-pets/cursor`, `@open-pets/mcp`, `@open-pets/opencode`, `@open-pets/openclaw`, `@open-pets/zed`, `@open-pets/devin`
 - **External Services**: 
   - `https://openpets.dev/pets/catalog.v2.json` (pet catalog V2)
   - `https://openpets.dev/pets/catalog.v3.json` (pet catalog V3 with pagination)
@@ -55,6 +55,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
   - OpenCode: `~/.opencode/config.json`
   - Cursor: `~/.cursor/mcp.json`, `.cursor/rules/openpets.mdc`
   - Zed: `~/.config/zed/settings.json` (platform-specific global settings)
+  - Devin Desktop + Devin CLI: `~/.config/devin/mcp_config.json` and `config.json` hooks (`%APPDATA%\devin\` on Windows), plus Devin Desktop hooks in `~/.codeium/windsurf/hooks.json`
   - OpenClaw: `openclaw plugins` registry and Gateway lifecycle
   - Codex: `~/.codex/pets/` (local pet development)
   - IPC: Discovery file at platform-specific path, Unix socket/Windows named pipe/TCP
@@ -89,7 +90,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `pet-assistant-host.ts`/`pet-assistant-service.ts`: Host-owned provider-neutral assistant lifecycle, readable provider-safe capability names, friendly action presentation metadata, and terminal-turn coordination
 - `pet-assistant-memory.ts`: Electron-/filesystem-free owner of completed-turn active context, archive-plus-active prompt selection, canonical terminal-text archive appends, and archive management delegation
 - `pet-assistant-archive.ts`: Atomic local archive with 200-message/30-day/512KiB retention, 64KiB entry cap, quarantine recovery, and bounded prompt-window support
-- `agent-setup.ts`: Claude/OpenCode/Cursor/Zed integration logic plus OpenClaw management/status actions
+- `agent-setup.ts`: Claude/OpenCode/Cursor/Zed/Devin integration logic plus OpenClaw management/status actions
 - `plugin-service.ts`: Plugin orchestration for snapshots, enable/config/reload, command execution, catalog install/update/uninstall, local loading, permission approval, JavaScript host wiring, and runtime reloads
 - `plugin-manifest.ts`: `openpets.plugin.json` v1/v2 schema/types/validator for declarative timer plugins and JavaScript SDK plugins, config fields, permissions, commands/status/network, and actions
 - `plugin-runtime.ts`: Runtime that compiles enabled declarative timers and starts JavaScript plugin hosts for approved pet/schedule/storage/command/status/network actions

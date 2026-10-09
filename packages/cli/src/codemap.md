@@ -10,7 +10,7 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 
 **Commands:**
 - `install <pet-id>` - Install pet via running desktop app
-- `configure` - Interactive project setup for Claude, OpenCode, or Cursor, plus global Zed MCP setup and OpenCode `--global` setup
+- `configure` - Interactive project setup for Claude, OpenCode, or Cursor, plus global Zed and Devin MCP setup and OpenCode `--global` setup
 - `doctor` - Read-only diagnostics for Claude hooks, Cursor project MCP, global OpenCode setup, and app reachability
 - `status` - Check OpenPets desktop app connectivity
 - `pets` - List installed pets
@@ -27,6 +27,8 @@ Main CLI entry point. Command routing, argument parsing, project configuration, 
 - `configureOpenCodeProject()` - OpenCode project-local config setup (default)
 - `configureOpenCodeGlobal()` - OpenCode shared global setup via existing global preparation path
 - `configureZedGlobal()` - Zed global JSONC settings setup
+- `configureDevinGlobal()` - Devin Desktop + Devin CLI shared MCP config and lifecycle hook setup
+- `devin-hook.ts` - `runDevinHookFromStdin()`: bounded stdin read, `mapDevinHookPayload()`, shared `dispatchHookDecision()`, always exits 0
 - Claude: Hook settings + MCP via `claude mcp add-json`
 
 **Safety Checks:**
@@ -77,6 +79,7 @@ Contract validation and integration checks. Runtime assertions for CLI behavior.
 - OpenCode project configuration scenarios
 - Cursor project configuration (MCP + rules)
 - Zed global configuration (JSONC MCP settings)
+- Devin global configuration (shared MCP config)
 - Error handling and edge cases
 
 **Safety Tests:**

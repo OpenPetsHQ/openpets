@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -1 64 64" role="img" aria-label="Devin">
+  <mask id="devin-notch">
+    <rect x="-5" y="-1" width="64" height="64" fill="#fff" />
+    <circle cx="22" cy="31" r="6.3" fill="#000" />
+  </mask>
+  <g fill="#1A1A1A" stroke="#1A1A1A" stroke-width="1.2" stroke-linejoin="round" mask="url(#devin-notch)">
+    <path d="M13 1.5 24.5 8V21L13 27.5 1.5 21V8Z" />
+    <path d="M41 17.5l11.5 6.7v13.6L41 44.5l-11.5-6.7V24.2Z" />
+    <path d="M13 34.5 24.5 41V54L13 60.5 1.5 54V41Z" />
+    <path d="M24.5 21 29.5 24.2V37.8L24.5 41 22 39.6V22.4Z" />
+    <path d="M24.5 16Q25.5 21.6 33 21.5L29.5 24.2 24.5 21Z" />
+    <path d="M24.5 46Q25.5 40.4 33 40.5L29.5 37.8 24.5 41Z" />
+  </g>
+</svg>
