@@ -117,23 +117,32 @@ export function classifyDevinHooks(
   const hooks = isRecord(existing.config.hooks) ? existing.config.hooks : {};
   const command = buildDevinHookCommand(options);
   let managedCount = 0;
-  let currentCount = 0;
+  let isCurrent = true;
 
-  for (const [event, entries] of Object.entries(hooks)) {
-    if (!Array.isArray(entries)) continue;
-    const expected = format.events.includes(event) ? JSON.stringify(format.buildEntry(event, command)) : undefined;
-    for (const entry of entries) {
-      if (format.withoutManagedHooks(entry) === entry) continue;
-      managedCount += 1;
-      if (JSON.stringify(entry) === expected) currentCount += 1;
+  // Installed means each required event holds exactly one managed entry equal
+  // to the current hook, and no other event holds a managed entry.
+  for (const event of new Set([...Object.keys(hooks), ...format.events])) {
+    const entries: unknown = hooks[event];
+    const managedEntries = Array.isArray(entries)
+      ? entries.filter((entry) => format.withoutManagedHooks(entry) !== entry)
+      : [];
+    managedCount += managedEntries.length;
+
+    if (!format.events.includes(event)) {
+      if (managedEntries.length > 0) isCurrent = false;
+      continue;
     }
+
+    const expected = JSON.stringify(format.buildEntry(event, command));
+    const hasOnlyCurrentHook = managedEntries.length === 1 && JSON.stringify(managedEntries[0]) === expected;
+    if (!hasOnlyCurrentHook) isCurrent = false;
   }
 
   const name = target === "cli" ? "Devin CLI" : "Devin Desktop";
   if (managedCount === 0) {
     return { target, status: "missing", message: `OpenPets hooks are not installed for ${name}.`, path, canInstall: true, canRemove: false };
   }
-  if (managedCount === format.events.length && currentCount === format.events.length) {
+  if (isCurrent) {
     return { target, status: "installed", message: `OpenPets hooks are installed for ${name}.`, path, canInstall: false, canRemove: true };
   }
   return { target, status: "needs-update", message: `OpenPets hooks for ${name} need an update.`, path, canInstall: true, canRemove: true };

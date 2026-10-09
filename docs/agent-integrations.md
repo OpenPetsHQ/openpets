@@ -257,10 +257,13 @@ The entry uses Devin's stdio schema (`command` + `args`, no `type` field): a
 pinned `npx -y @open-pets/mcp@VERSION [--pet <id>]`, or for local/bundled
 command modes the configured Node.js command running the OpenPets MCP entry
 script. Edits are JSONC-aware targeted edits, so comments, trailing commas,
-unrelated servers, and other top-level settings survive. Writes refuse
-symlinked paths, back up the previous file byte-for-byte, publish through an
-exclusive temp file and atomic rename, and are rejected if the file changed
-after planning (for example, through `devin mcp add`). Status is `missing`,
+unrelated servers, and other top-level settings survive. Updating an entry
+OpenPets already manages changes only `command` and `args` (and clears
+`disabled` on replace), so user fields such as `env` survive. Writes refuse
+symlinked paths, back up the previous file byte-for-byte, stage the content in
+an exclusive temp file, and are rejected if the file changed after planning
+(for example, through `devin mcp add`), checked right before the atomic rename.
+Status is `missing`,
 `installed`, `disabled` (a managed entry with `"disabled": true`, which install
 never re-enables silently; replace does), `needs-update`, `conflict` (an
 `openpets` server OpenPets does not manage, which needs an explicit replace and
@@ -286,7 +289,9 @@ oversized (>4 MiB) or malformed input, and sends the decision through the
 Claude package's shared `dispatchHookDecision()` (lease, validated canned
 speech, throttling). Hook edits reuse the same JSONC-preserving safe-write
 transaction as the MCP entry, replace only hooks whose command carries
-`--openpets-managed --agent devin`, and drop emptied event arrays. On Windows,
+`--openpets-managed --agent devin`, and drop emptied event arrays. Hooks
+report `installed` only when every required event holds exactly one current
+OpenPets hook. On Windows,
 Devin Desktop entries whose command starts with a quoted executable also get a
 `powershell` variant using the call operator.
 

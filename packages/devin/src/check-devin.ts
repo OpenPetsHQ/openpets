@@ -104,6 +104,19 @@ try {
     assert.equal(statusOf(configPath, otherPet).status, "installed");
   }
 
+  // Updating or re-enabling a managed entry keeps the user's own fields such as `env`.
+  {
+    const configPath = freshConfigPath();
+    const env = { OPENPETS_TOKEN: "keep-me" };
+    writeFileSync(configPath, JSON.stringify({ mcpServers: { openpets: { ...buildDevinMcpEntry(options), env, disabled: true } } }));
+    executeDevinConfigWrite(expectPlan(planDevinMcpReplace(configPath, options)));
+    assert.deepEqual(readJson(configPath).mcpServers.openpets?.env, env);
+
+    const otherPet = { ...options, petId: "sprout" };
+    executeDevinConfigWrite(expectPlan(planDevinMcpInstall(configPath, otherPet)));
+    assert.deepEqual(readJson(configPath).mcpServers.openpets, { ...buildDevinMcpEntry(otherPet), env });
+  }
+
   // A managed entry the user disabled is never silently re-enabled by install.
   {
     const configPath = freshConfigPath();
@@ -232,6 +245,18 @@ try {
     assert.match(removedText, /check\.sh/);
     assert.match(removedText, /swe-1-6-fast/);
     expectBlocked(planDevinHooksRemove("cli", configPath));
+  }
+
+  // Duplicate hooks on one event do not hide a missing event.
+  {
+    const configPath = join(freshConfigPath(), "..", "config.json");
+    executeDevinConfigWrite(expectPlan(planDevinHooksInstall("cli", configPath, hookOptions)));
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as { hooks: Record<string, unknown[]> };
+    const promptHook = config.hooks.UserPromptSubmit?.[0];
+    delete config.hooks.Stop;
+    config.hooks.UserPromptSubmit = [promptHook, promptHook];
+    writeFileSync(configPath, JSON.stringify(config));
+    assert.equal(classifyDevinHooks("cli", configPath, hookOptions).status, "needs-update");
   }
 
   // Devin Desktop hooks are flat command entries; removing the last one drops the hooks key.

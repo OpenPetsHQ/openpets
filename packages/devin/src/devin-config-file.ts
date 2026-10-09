@@ -89,21 +89,17 @@ export function planDevinConfigWrite(path: string, existing: DevinConfigReadResu
 }
 
 /**
- * Publishes a planned write: refuses when the file changed since planning,
- * keeps a byte-for-byte backup of the previous file, and replaces the target
- * through an exclusive temp file and an atomic rename.
+ * Publishes a planned write: keeps a byte-for-byte backup of the previous
+ * file, stages the new content in an exclusive temp file, then refuses when
+ * the target changed since planning and otherwise replaces it with an atomic
+ * rename. The stale check runs after the slow file writes so the window in
+ * which another writer's save could be overwritten is as small as possible.
  */
 export function executeDevinConfigWrite(plan: DevinPlannedWrite): void {
   const label = "Devin config";
   const parent = dirname(plan.targetPath);
   const parentSafety = assertSafeParentDirectory(parent, label);
   if (!parentSafety.ok) throw new Error(parentSafety.message);
-
-  const current = readDevinConfigFile(plan.targetPath, label);
-  if (!current.ok) throw new Error(current.message);
-  if (current.exists !== plan.sourceExists || current.content !== plan.sourceContent) {
-    throw new Error(`${plan.targetPath} changed while OpenPets was updating it. Try again.`);
-  }
 
   const validated = parseDevinConfigText(plan.content, label);
   if (!validated.ok) throw new Error(validated.message);
@@ -116,9 +112,11 @@ export function executeDevinConfigWrite(plan: DevinPlannedWrite): void {
 
   writeExclusiveFile(plan.tempPath, plan.content);
   try {
+    assertUnchangedSincePlanning(plan, label);
     renameSync(plan.tempPath, plan.targetPath);
   } catch (error) {
     rmSync(plan.tempPath, { force: true });
+    if (plan.backupPath) rmSync(plan.backupPath, { force: true });
     throw error;
   }
 
@@ -158,6 +156,14 @@ function parseDevinConfigText(
     return { ok: false, message: `${label} ${schemaError}`, reason: "invalid-schema" };
   }
   return { ok: true, value: parsed };
+}
+
+function assertUnchangedSincePlanning(plan: DevinPlannedWrite, label: string): void {
+  const current = readDevinConfigFile(plan.targetPath, label);
+  if (!current.ok) throw new Error(current.message);
+  if (current.exists !== plan.sourceExists || current.content !== plan.sourceContent) {
+    throw new Error(`${plan.targetPath} changed while OpenPets was updating it. Try again.`);
+  }
 }
 
 function writeExclusiveFile(path: string, content: string): void {

@@ -172,14 +172,35 @@ export function planDevinMcpRemove(configPath: string): DevinPlannedWrite | Devi
   return planDevinConfigWrite(configPath, existing, edited);
 }
 
+/**
+ * Writes the OpenPets entry. An entry OpenPets already manages is updated in
+ * place: only `command` and `args` change and `disabled` is cleared, so user
+ * fields such as `env` survive. Any other entry is replaced as a whole.
+ */
 function planEntryWrite(
   configPath: string,
   existing: DevinConfigReadResult,
   entry: DevinMcpEntry,
 ): DevinPlannedWrite | DevinConfigError {
-  const edited = editDevinConfigText(existing.content, ["mcpServers", devinMcpServerName], entry, mcpConfigLabel, validateMcpConfigShape);
-  if (typeof edited !== "string") return edited;
-  return planDevinConfigWrite(configPath, existing, edited);
+  const entryPath = ["mcpServers", devinMcpServerName];
+  const mcpServers = isRecord(existing.config.mcpServers) ? existing.config.mcpServers : undefined;
+  const updatesManagedEntry = isManagedOpenPetsMcpEntry(mcpServers?.[devinMcpServerName]);
+
+  const edits: readonly (readonly [readonly string[], unknown])[] = updatesManagedEntry
+    ? [
+        [[...entryPath, "command"], entry.command],
+        [[...entryPath, "args"], entry.args],
+        [[...entryPath, "disabled"], undefined],
+      ]
+    : [[entryPath, entry]];
+
+  let content = existing.content;
+  for (const [path, value] of edits) {
+    const edited = editDevinConfigText(content, path, value, mcpConfigLabel, validateMcpConfigShape);
+    if (typeof edited !== "string") return edited;
+    content = edited;
+  }
+  return planDevinConfigWrite(configPath, existing, content);
 }
 
 function validateMcpConfigShape(config: Record<string, unknown>): string | undefined {
