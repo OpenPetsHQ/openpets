@@ -94,7 +94,7 @@ without `--pet` share the single default pet.
 ## Safe speech: `@open-pets/agent-events`
 
 `packages/agent-events/` is the shared guardrail. It provides curated speech
-pools by category - `thinking`, `success`, `error`, `permission` - and the
+pools by category - `thinking`, `success`, `error`, `permission`, `question` - and the
 validators that keep messages safe: single line, 1–140 chars, and rejecting
 code, URLs, file paths, and secret-like tokens. `pickHookSpeech(category)`
 selects a message; `validateHookSpeech()` enforces the rules. `claude`,
@@ -117,7 +117,9 @@ The deepest integration, because Claude Code has a rich hook system.
   `~/.claude/settings.json` for the lifecycle events `UserPromptSubmit`,
   `PreToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`. Each
   managed entry carries the `--openpets-managed` marker. `runClaudeHookFromStdin()`
-  maps an event to a reaction: prompt submit → thinking, permission → waiting,
+  maps an event to a reaction: prompt submit → thinking, permission → waiting
+  (a `PermissionRequest` for `AskUserQuestion` speaks "Question for you"-style
+  question speech instead of "Approval needed", since it asks, not approves),
   stop → success, stop-failure → error, and `PreToolUse` is classified by tool
   (Edit/Write/MultiEdit → editing, Bash test commands → testing).
 - **Project-local awareness**: if a project defines its own OpenPets hook

@@ -4,15 +4,16 @@ Speech pools and validation for agent feedback messages.
 
 ## Responsibility
 
-Provides categorized speech pools (thinking, success, error, permission) and validation logic for agent-facing messages. Ensures messages are safe (no code, URLs, paths, secrets) and appropriately sized (1-140 chars, single line).
+Provides categorized speech pools (thinking, success, error, permission, question) and validation logic for agent-facing messages. Ensures messages are safe (no code, URLs, paths, secrets) and appropriately sized (1-140 chars, single line).
 
 ## Design
 
-**Category-Based Pools**: Four speech categories with curated message pools:
+**Category-Based Pools**: Five speech categories with curated message pools:
 - `thinking`: "Thinking it through", "Let me check", etc.
 - `success`: "Done", "That worked", etc.
 - `error`: "Something failed", "Needs another look", etc.
 - `permission`: "Approval needed"
+- `question`: "Question for you", "Quick question", "Need your input"
 
 **Validation Strategy**: Regex-based validation rejecting:
 - Multi-line content (`\r|\n`)

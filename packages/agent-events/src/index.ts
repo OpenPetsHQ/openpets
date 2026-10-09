@@ -1,10 +1,11 @@
-export type HookSpeechCategory = "thinking" | "success" | "error" | "permission";
+export type HookSpeechCategory = "thinking" | "success" | "error" | "permission" | "question";
 
 export const hookSpeechPools: Record<HookSpeechCategory, readonly string[]> = {
   thinking: ["Thinking it through", "Let me check", "On it", "Working it out"],
   success: ["Done", "That worked", "All set", "Nice, finished"],
   error: ["Something failed", "Needs another look", "Hit a snag", "Not quite there"],
   permission: ["Approval needed"],
+  question: ["Question for you", "Quick question", "Need your input"],
 };
 
 export function pickHookSpeech(category: HookSpeechCategory, random: () => number = Math.random): string {
