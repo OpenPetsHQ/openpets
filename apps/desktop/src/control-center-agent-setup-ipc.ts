@@ -57,6 +57,9 @@ const supportedAgentSetupActions: readonly AgentSetupAction[] = [
   "zed-install",
   "zed-replace",
   "zed-remove",
+  "devin-install",
+  "devin-replace",
+  "devin-remove",
 ];
 
 export function installControlCenterAgentSetupIpcHandlers({

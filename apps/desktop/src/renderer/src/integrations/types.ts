@@ -16,7 +16,10 @@ export type AgentSetupAction =
   | "openclaw-remove"
   | "zed-install"
   | "zed-replace"
-  | "zed-remove";
+  | "zed-remove"
+  | "devin-install"
+  | "devin-replace"
+  | "devin-remove";
 
 export type AgentSetupPetOption = {
   readonly id: string;
@@ -150,6 +153,23 @@ export type ZedSetupPreview = {
   readonly commandMode: "published" | "local" | "bundled";
 };
 
+export type DevinSetupStatus = {
+  readonly state: "configured" | "needs_setup" | "disabled" | "needs_update" | "conflict" | "error";
+  readonly label: string;
+  readonly details: string;
+  readonly configPath: string;
+  readonly canInstall: boolean;
+  readonly canReplace: boolean;
+  readonly canRemove: boolean;
+};
+
+export type DevinSetupPreview = {
+  readonly global: true;
+  readonly configPath: string;
+  readonly mcpEntry: Record<string, unknown>;
+  readonly commandMode: "published" | "local" | "bundled";
+};
+
 export type AgentSetupCommandPaths = {
   readonly claude: string;
   readonly node: string;
@@ -184,6 +204,8 @@ export type AgentSetupSnapshot = {
   readonly openclawPreview: OpenClawSetupPreview;
   readonly zedStatus: ZedSetupStatus;
   readonly zedPreview: ZedSetupPreview;
+  readonly devinStatus: DevinSetupStatus;
+  readonly devinPreview: DevinSetupPreview;
   readonly commandPaths: AgentSetupCommandPaths;
   readonly busy: boolean;
   readonly lastAction?: AgentSetupActionResult;

@@ -23,6 +23,7 @@ assert.equal(parseConfigureArgs(["--pet=fixer"]).petId, "fixer");
 assert.equal(parseConfigureArgs(["--agent", "opencode", "--pet", "fixer"]).agent, "opencode");
 assert.equal(parseConfigureArgs(["--agent", "cursor", "--pet", "fixer"]).agent, "cursor");
 assert.equal(parseConfigureArgs(["--agent", "zed", "--pet", "fixer"]).agent, "zed");
+assert.equal(parseConfigureArgs(["--agent", "devin", "--pet", "fixer"]).agent, "devin");
 assert.equal(parseConfigureArgs(["--agent", "cursor", "--pet", "fixer"]).cwd, process.cwd());
 assert.equal(parseConfigureArgs(["--agent", "cursor", "--rules-only"]).cursorRulesMode, "only");
 assert.equal(parseConfigureArgs(["--agent", "cursor", "--remove-rules"]).cursorRulesMode, "remove");
@@ -39,6 +40,7 @@ assert.throws(() => parseConfigureArgs(["--agent", "opencode", "--global", `--cw
 assert.throws(() => parseConfigureArgs(["--agent", "claude", "--global"]));
 assert.throws(() => parseConfigureArgs(["--agent", "cursor", "--global"]));
 assert.throws(() => parseConfigureArgs(["--agent", "zed", "--global"]));
+assert.throws(() => parseConfigureArgs(["--agent", "devin", "--global"]));
 assert.throws(() => parseConfigureArgs(["--agent", "cursor", "--with-rules", "--rules-only"]));
 assert.throws(() => parseConfigureArgs(["--agent", "claude", "--rules-only"]));
 assert.throws(() => parseConfigureArgs(["--pet", "bad/pet"]));
@@ -400,6 +402,33 @@ process.exit(0);
     assert.equal(zedRemoteCorrected.context_servers?.openpets?.remote, undefined);
   } finally {
     for (const [key, value] of previousZedEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  // Devin Desktop and Devin CLI share the user-scope Devin MCP config.
+  const devinRoot = join(dir, "devin-global");
+  mkdirSync(devinRoot);
+  const devinEnvKeys = process.platform === "win32" ? ["APPDATA"] : ["XDG_CONFIG_HOME"];
+  const previousDevinEnv = new Map(devinEnvKeys.map((key) => [key, process.env[key]]));
+  if (process.platform === "win32") process.env.APPDATA = devinRoot;
+  else process.env.XDG_CONFIG_HOME = devinRoot;
+  try {
+    const devinConfigPath = join(devinRoot, "devin", "mcp_config.json");
+    await configureProject({ agent: "devin", cwd: join(dir, "ignored-project"), yes: true, force: false, localDev: false });
+    const devinConfig = JSON.parse(readFileSync(devinConfigPath, "utf8")) as { readonly mcpServers?: Record<string, { readonly command?: string; readonly args?: readonly string[] }> };
+    assert.equal(devinConfig.mcpServers?.openpets?.command, "npx");
+    assert.deepEqual(devinConfig.mcpServers?.openpets?.args, ["-y", `@open-pets/mcp@${packageVersion}`]);
+
+    writeFileSync(devinConfigPath, JSON.stringify({ mcpServers: { openpets: { url: "https://example.test/mcp" }, other: { command: "other", args: [] } } }, null, 2), "utf8");
+    await assert.rejects(() => configureProject({ agent: "devin", petId: "fixer", cwd: process.cwd(), yes: true, force: false, localDev: false }));
+    await configureProject({ agent: "devin", petId: "fixer", cwd: process.cwd(), yes: true, force: true, localDev: false });
+    const devinReplaced = JSON.parse(readFileSync(devinConfigPath, "utf8")) as { readonly mcpServers?: Record<string, { readonly command?: string; readonly args?: readonly string[] }> };
+    assert.deepEqual(devinReplaced.mcpServers?.other?.args, []);
+    assert.deepEqual(devinReplaced.mcpServers?.openpets?.args, ["-y", `@open-pets/mcp@${packageVersion}`, "--pet", "fixer"]);
+  } finally {
+    for (const [key, value] of previousDevinEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }

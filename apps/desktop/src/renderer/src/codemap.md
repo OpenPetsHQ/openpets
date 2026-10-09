@@ -25,9 +25,9 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/manager-check-ins/manager-check-ins-state.ts`: Pure renderer helpers for fixed feelings, bounded display state, labels, dates, and history presentation.
 - **Dashboard**: Reads a narrowed dashboard snapshot for default pet preview, install/catalog counts, plugin health, update status, and activity totals.
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, and version-aware V1/V2 sprite previews, including the static V2 neutral cell.
-- **Integrations**: Modularized under `integrations/` for card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows:
-  - `integrations/IntegrationsView.tsx`: Top-level orchestrator rendering agent cards, status pills, action buttons, command mode switching, error/toast handling, and guided configuration dialogs for Claude Code, OpenCode, Cursor, OpenClaw, Zed, and Pi.
-  - `integrations/IntegrationIcon.tsx`: Brand and tool iconography supporting Claude, OpenCode, Cursor, Pi, VS Code, Windsurf, and Zed, with a consistent SVG fallback glyph.
+- **Integrations**: Modularized under `integrations/` for card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Devin, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows:
+  - `integrations/IntegrationsView.tsx`: Top-level orchestrator rendering agent cards, status pills, action buttons, command mode switching, error/toast handling, and guided configuration dialogs for Claude Code, OpenCode, Cursor, OpenClaw, Zed, Devin, and Pi.
+  - `integrations/IntegrationIcon.tsx`: Brand and tool iconography supporting Claude, OpenCode, Cursor, Devin, Pi, VS Code, and Zed, with a consistent SVG fallback glyph.
   - `integrations/PathField.tsx`: Dedicated executable path input with dirty tracking and inline save action.
   - `integrations/types.ts`: TypeScript contracts for agent setup actions, snapshots, command paths, status descriptors, and integration preload bridge APIs.
   - `integrations/icons.tsx`: Dedicated SVG icons matching Control Center design conventions for install, replace, remove, refresh, hook, memory, and configure actions.

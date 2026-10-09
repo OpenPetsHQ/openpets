@@ -1,5 +1,5 @@
 ---
-description: Connect Claude Code, OpenCode, Cursor, Zed, Pi, OpenClaw, and MCP-capable assistants to OpenPets through local companion events.
+description: Connect Claude Code, OpenCode, Cursor, Zed, Devin, Pi, OpenClaw, and MCP-capable assistants to OpenPets through local companion events.
 ---
 
 # Agent integrations
@@ -7,9 +7,10 @@ description: Connect Claude Code, OpenCode, Cursor, Zed, Pi, OpenClaw, and MCP-c
 OpenPets reacts to coding agents. Most supported agents have an integration
 package that does two jobs: **configure** the agent to talk to OpenPets, and at
 runtime **translate** the agent's activity into safe pet reactions sent over
-local IPC or an explicitly configured remote client. Zed is intentionally
-configuration-only: it runs the MCP server but provides no lifecycle hooks of
-its own. This doc covers Claude Code, MCP, OpenCode, Cursor, Zed, Pi, OpenClaw,
+local IPC or an explicitly configured remote client. Zed and Devin are
+intentionally configuration-only: they run the MCP server but OpenPets installs
+no lifecycle hooks for them. This doc covers Claude Code, MCP, OpenCode, Cursor,
+Zed, Devin, Pi, OpenClaw,
 and DSH, the shared speech-safety
 layer, and the CLI commands that orchestrate them.
 
@@ -241,6 +242,36 @@ prepared; publication uses a temporary claim and no-clobber hard link, and an
 interrupted claim is restored from the journal on the next attempt. Ambiguous
 recovery state is rejected rather than guessed.
 
+## Devin - `@open-pets/devin`
+
+Pure global MCP config management for Devin, with no runtime hooks of its own.
+Devin Desktop (the editor formerly called Windsurf) and the Devin CLI read the
+same user-scope MCP file, so one managed `mcpServers.openpets` entry serves
+both. The path is `$XDG_CONFIG_HOME/devin/mcp_config.json` when
+`XDG_CONFIG_HOME` is set, otherwise `~/.config/devin/mcp_config.json` on macOS
+and Linux, and `%APPDATA%\devin\mcp_config.json` on Windows. OpenPets does not
+write project `.devin/mcp_config.json` files or the legacy
+`~/.codeium/windsurf/mcp_config.json`.
+
+The entry uses Devin's stdio schema (`command` + `args`, no `type` field): a
+pinned `npx -y @open-pets/mcp@VERSION [--pet <id>]`, or for local/bundled
+command modes the configured Node.js command running the OpenPets MCP entry
+script. Edits are JSONC-aware targeted edits, so comments, trailing commas,
+unrelated servers, and other top-level settings survive. Writes refuse
+symlinked paths, back up the previous file byte-for-byte, publish through an
+exclusive temp file and atomic rename, and are rejected if the file changed
+after planning (for example, through `devin mcp add`). Status is `missing`,
+`installed`, `disabled` (a managed entry with `"disabled": true`, which install
+never re-enables silently; replace does), `needs-update`, `conflict` (an
+`openpets` server OpenPets does not manage, which needs an explicit replace and
+is never removed), `invalid`, or `error`.
+
+The desktop Control Center manages this lifecycle through
+`apps/desktop/src/agent-setup-devin.ts`; the CLI configures it with
+`openpets configure --agent devin` (`--force` replaces conflicting or disabled
+entries). After a change, refresh MCP servers in Devin Desktop or start a new
+Devin CLI session.
+
 ## Pi - `@open-pets/pi`
 
 A Pi coding-agent extension (declared in `pi.extensions`). It maps Pi lifecycle
@@ -403,7 +434,7 @@ others. Commands:
 
 | Command | Does |
 |---------|------|
-| `configure` | Configure Claude / OpenCode / Cursor for a project, OpenCode globally with `--global`, Zed globally, or ensure the global OpenClaw plugin is installed and enabled |
+| `configure` | Configure Claude / OpenCode / Cursor for a project, OpenCode globally with `--global`, Zed or Devin globally, or ensure the global OpenClaw plugin is installed and enabled |
 | `doctor` | Read-only diagnostics for Claude hooks, Cursor project MCP, global OpenCode setup, and app reachability (human and `--json` output) |
 | `install <pet-id>` | Install a pet via the client |
 | `status` | Print app/pet status JSON over IPC |
@@ -434,5 +465,6 @@ discovery-based behavior unchanged.
 | OpenCode | `.opencode/` or `~/.config/opencode/` | plugin event hooks |
 | Cursor | `.cursor/mcp.json` + rules | MCP tools |
 | Zed | `~/.config/zed/settings.json` (platform-specific) | MCP tools |
+| Devin Desktop + Devin CLI | `~/.config/devin/mcp_config.json` (platform-specific) | MCP tools |
 | Pi | `pi.extensions` | extension events + `/openpets` |
 | OpenClaw | OpenClaw plugin registry | native plugin hooks; local-only default-pet reactions |

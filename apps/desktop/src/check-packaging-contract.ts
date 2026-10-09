@@ -33,6 +33,7 @@ assert.equal(packageJson.dependencies?.["@open-pets/cursor"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/mcp"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/opencode"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/zed"], "workspace:*");
+assert.equal(packageJson.dependencies?.["@open-pets/devin"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@open-pets/agent-events"], "workspace:*");
 assert.equal(packageJson.dependencies?.["@img/sharp-win32-x64"], undefined, "sharp platform binaries must stay optional transitive deps, not direct host-breaking dependencies.");
 assert.match(workspaceConfig, /supportedArchitectures:[\s\S]*?os:[\s\S]*?- darwin[\s\S]*?- win32[\s\S]*?- linux/, "pnpm must install optional sharp binaries for desktop release OS targets.");
@@ -71,7 +72,7 @@ assert.ok(existsSync(join(appDir, "assets", "app-icon.ico")), "Windows app icon 
 assertNonEmptyFile(join(appDir, "assets", "default-pet-spritesheet.webp"), "default pet spritesheet must exist for packaging.");
 assertNonEmptyFile(join(appDir, "assets", "default-pet-thumbnail.png"), "default pet thumbnail must exist for Pet Manager preview.");
 assertNonEmptyFile(join(appDir, "assets", "NotoColorEmoji.ttf"), "pet windows must bundle an emoji font so fresh Linux installs render plugin emoji icons.");
-for (const icon of ["claude.svg", "cursor.svg", "opencode.svg", "pi.svg", "vscode.svg", "windsurf.svg", "zed.svg"]) {
+for (const icon of ["claude.svg", "cursor.svg", "opencode.svg", "pi.svg", "vscode.svg", "devin.svg", "zed.svg"]) {
   assertSafeBundledSvg(join(appDir, "assets", "integrations", icon), `integration icon must be safe and packaged: ${icon}`);
 }
 assert.ok(!existsSync(join(appDir, "src", "analytics.ts")), "desktop PostHog analytics module must be removed.");
@@ -127,7 +128,7 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assert.ok(existsSync(join(appContents, "node_modules", "yauzl", "fd-slicer.js")), "packaged yauzl fd-slicer helper is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "buffer-crc32", "index.js")), "packaged yauzl transitive dependency buffer-crc32 is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "pend", "index.js")), "packaged yauzl transitive dependency pend is missing.");
-  assert.ok(existsSync(join(appContents, "node_modules", "jsonc-parser", "lib", "umd", "main.js")), "packaged Zed JSONC runtime dependency is missing.");
+  assert.ok(existsSync(join(appContents, "node_modules", "jsonc-parser", "lib", "umd", "main.js")), "packaged Zed/Devin JSONC runtime dependency is missing.");
   assert.ok(existsSync(join(appContents, "node_modules", "sharp", "lib", "index.js")), "packaged sharp runtime is missing.");
   assertTargetSharpNative(appContents, target);
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "mcp", "dist", "index.js"));
@@ -135,6 +136,7 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "claude", "dist", "cli.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js"));
+  assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "devin", "dist", "index.js"));
   assertCommandSmoke(appContents);
 }
 
