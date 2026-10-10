@@ -15,10 +15,10 @@ Provides Claude Code editor integration via MCP configuration and lifecycle hook
 
 **Hook Execution** (`hooks.ts`):
 - `runClaudeHookFromStdin()` - Main entry for Claude hook protocol
-- Event mapping: `UserPromptSubmit` → thinking, `PermissionRequest` → waiting, `Stop` → success, `StopFailure` → error, `PreToolUse` → tool-specific
+- Event mapping: `UserPromptSubmit` → thinking, `PermissionRequest` → waiting (question speech for `AskUserQuestion`, approval speech otherwise), `Stop` → success, `StopFailure` → error, `PreToolUse` → tool-specific
 - Tool classification: Edit/Write/MultiEdit → "editing", Bash with test commands → "testing"
 - Project-local detection: Checks `.claude/settings.local.json` for `--openpets-managed --project-local`
-- Throttling: 20s speech, 3s permission, 10s reaction cooldowns via JSON state file
+- Throttling: 20s speech, 3s permission/question, 10s reaction cooldowns via JSON state file
 - Lease acquisition for targeted pets
 - Error handling: Debug logging, graceful degradation
 

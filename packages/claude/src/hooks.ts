@@ -131,7 +131,7 @@ export function parseHookPayload(raw: string): Record<string, unknown> {
 export function mapClaudeHookEvent(payload: Record<string, unknown>): ClaudeHookDecision | null {
   const eventName = typeof payload.hook_event_name === "string" ? payload.hook_event_name : undefined;
   if (eventName === "UserPromptSubmit") return { eventName, reaction: "thinking" };
-  if (eventName === "PermissionRequest") return { eventName, reaction: "waiting", speechCategory: "permission" };
+  if (eventName === "PermissionRequest") return { eventName, reaction: "waiting", speechCategory: classifyPermissionSpeech(payload) };
   if (eventName === "Notification") return { eventName };
   if (eventName === "Stop") return { eventName, reaction: "success" };
   if (eventName === "StopFailure") return { eventName, reaction: "error", speechCategory: "error" };
@@ -154,6 +154,12 @@ export function getDefaultThrottlePath(): string {
   return join(tmpdir(), `openpets-${uid}`, "claude-hook-throttle.json");
 }
 
+// Claude Code raises PermissionRequest for AskUserQuestion too, but that tool
+// asks the user a question rather than for approval.
+function classifyPermissionSpeech(payload: Record<string, unknown>): HookSpeechCategory {
+  return payload.tool_name === "AskUserQuestion" ? "question" : "permission";
+}
+
 function classifyToolReaction(payload: Record<string, unknown>): OpenPetsReaction | undefined {
   const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
   if (toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit") return "editing";
@@ -170,7 +176,7 @@ function extractBashCommand(value: unknown): string {
 
 function shouldSendSpeech(category: HookSpeechCategory, options: ClaudeHookOptions): boolean {
   const now = options.now?.() ?? Date.now();
-  const cooldown = category === "permission" ? permissionCooldownMs : speechCooldownMs;
+  const cooldown = category === "permission" || category === "question" ? permissionCooldownMs : speechCooldownMs;
   return shouldSendThrottleKey(category, cooldown, now, options.throttlePath ?? getDefaultThrottlePath());
 }
 
@@ -194,7 +200,7 @@ function readThrottleState(path: string): Record<string, number> {
     if (!isRecord(parsed)) return {};
     const state: Record<string, number> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if ((key === "thinking" || key === "success" || key === "error" || key === "permission" || key.startsWith("reaction:")) && typeof value === "number" && Number.isFinite(value)) state[key] = value;
+      if ((key === "thinking" || key === "success" || key === "error" || key === "permission" || key === "question" || key.startsWith("reaction:")) && typeof value === "number" && Number.isFinite(value)) state[key] = value;
     }
     return state;
   } catch {

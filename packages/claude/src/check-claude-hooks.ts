@@ -15,6 +15,9 @@ assert.equal(mapClaudeHookEvent({ hook_event_name: "PreToolUse", tool_name: "Bas
 assert.equal(mapClaudeHookEvent({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } })?.reaction, undefined);
 assert.equal(mapClaudeHookEvent({ hook_event_name: "PreToolUse", tool_name: "Read" })?.reaction, undefined);
 assert.equal(mapClaudeHookEvent({ hook_event_name: "PermissionRequest" })?.speechCategory, "permission");
+assert.equal(mapClaudeHookEvent({ hook_event_name: "PermissionRequest", tool_name: "Bash" })?.speechCategory, "permission");
+assert.equal(mapClaudeHookEvent({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" })?.speechCategory, "question");
+assert.equal(mapClaudeHookEvent({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" })?.reaction, "waiting");
 assert.equal(mapClaudeHookEvent({ hook_event_name: "Notification" })?.reaction, undefined);
 assert.equal(mapClaudeHookEvent({ hook_event_name: "Stop" })?.reaction, "success");
 assert.equal(mapClaudeHookEvent({ hook_event_name: "Stop" })?.speechCategory, undefined);
@@ -62,6 +65,13 @@ assert.equal(calls.length, beforeSilentBash);
 await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" } }), { client, throttlePath: join(dir, "throttle.json"), now: () => 102_000 });
 assert.equal(calls.length, beforeSilentBash, "duplicate testing reaction should be throttled");
 await handleClaudeHookPayload("not json", { client, throttlePath: join(dir, "throttle.json") });
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" }), { client, throttlePath: join(dir, "throttle.json"), now: () => 104_000, random: () => 0 });
+assert.deepEqual(calls.at(-1), { kind: "say", value: "Question for you", leaseId: undefined });
+const beforeQuestionRepeat = calls.length;
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" }), { client, throttlePath: join(dir, "throttle.json"), now: () => 106_999, random: () => 0 });
+assert.equal(calls.length, beforeQuestionRepeat, "question speech repeated inside the 3s cooldown should be throttled");
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" }), { client, throttlePath: join(dir, "throttle.json"), now: () => 107_000, random: () => 0 });
+assert.deepEqual(calls.at(-1), { kind: "say", value: "Question for you", leaseId: undefined });
 
 const projectDir = join(dir, "project-with-local-hook");
 mkdirSync(join(projectDir, ".claude"), { recursive: true });
