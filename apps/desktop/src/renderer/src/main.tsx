@@ -67,7 +67,7 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; pinnedPets?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
@@ -1332,6 +1332,12 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
     });
   }
 
+  function togglePinnedPet(petId: string, pinned: boolean) {
+    const current = settings?.preferences.pinnedPets ?? [];
+    const next = pinned ? [...current, petId] : current.filter((id) => id !== petId);
+    patchPreferences({ pinnedPets: next }, t("settings.toast.pinnedPetsSaved"));
+  }
+
   async function handleSelectInputDevice(deviceId: string | null) {
     await run(t("settings.voiceDevices.busy.saving"), async () => {
       try {
@@ -1552,6 +1558,30 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     onChangeOrder={updatePetPoolOrder}
                   />
                 </div>
+              </div>
+
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.pinnedPets.label")}</strong>
+                    <small>{t("settings.pinnedPets.description")}</small>
+                  </div>
+                </div>
+                {(settings?.petPoolCandidates ?? []).length === 0 ? (
+                  <p className="px-5 py-4 text-xs opacity-70">{t("settings.pinnedPets.empty")}</p>
+                ) : (
+                  (settings?.petPoolCandidates ?? []).map((candidate) => (
+                    <ToggleRow
+                      key={candidate.id}
+                      title={candidate.displayName}
+                      description={candidate.id}
+                      checked={(settings?.preferences.pinnedPets ?? []).includes(candidate.id)}
+                      disabled={!settings || !!busy}
+                      testId={`pinned-pet-${candidate.id}`}
+                      onChange={(checked) => togglePinnedPet(candidate.id, checked)}
+                    />
+                  ))
+                )}
               </div>
 
               <div className="settings-actions">

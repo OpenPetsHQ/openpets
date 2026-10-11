@@ -8,6 +8,8 @@
  *     petGravityEnabled, petCrossDisplayEnabled (the key added in FIX H1).
  *   - Each accepts true and false and lands in the returned patch.
  *   - Each throws on a non-boolean value.
+ *   - pinnedPets accepts a list of pet IDs, sanitises it, and accepts an empty list
+ *     (which unpins everything) but rejects a non-array.
  *   - Non-object input throws.
  *   - Unknown keys are silently ignored.
  */
@@ -232,6 +234,21 @@ for (const { key, errMsg } of booleanKeys) {
   assert.throws(() => validatePreferencePatch({ voiceAssistantShortcut: "Ctrl+Shift+Space" }), /Invalid voice assistant shortcut/);
   assert.throws(() => validatePreferencePatch({ voiceAssistantShortcut: "Space" }), /Invalid voice assistant shortcut/);
   console.log("validatePreferencePatch: Talk shortcut validation — PASS");
+}
+
+// Pinned pets: a full replacement list of pet IDs; an empty array clears the preference.
+{
+  assert.deepEqual(validatePreferencePatch({ pinnedPets: ["fox", "azure"] }).pinnedPets, ["fox", "azure"]);
+  assert.deepEqual(validatePreferencePatch({ pinnedPets: [] }).pinnedPets, [], "empty array unpins every pet");
+  assert.deepEqual(
+    validatePreferencePatch({ pinnedPets: ["fox", "fox", "../bad", "  "] }).pinnedPets,
+    ["fox"],
+    "duplicates, unsafe IDs and blanks are dropped",
+  );
+  assert.deepEqual(validatePreferencePatch({ pinnedPets: [1, null] }).pinnedPets, [], "non-string entries leave nothing pinned");
+  assert.throws(() => validatePreferencePatch({ pinnedPets: "fox" }), /Invalid pinned-pets value/, "non-array throws");
+  assert.equal("pinnedPets" in validatePreferencePatch({}), false, "absent key stays absent");
+  console.log("validatePreferencePatch: pinned pets — PASS");
 }
 
 console.log("\nAll preference-patch tests passed.");

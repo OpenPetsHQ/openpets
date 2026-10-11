@@ -392,7 +392,11 @@ function tryResolveFromPool(): { readonly petId: string } | null {
   if (!pool || pool.length === 0) return null;
 
   const defaultPet = getCurrentDefaultPet();
-  const eligiblePetIds = getEligiblePoolPetIds(state.pets.installed, builtInPet.id, defaultPet.id);
+  // A pinned pet already owns a persistent window, so the pool must not assign it to a
+  // session as well — that would draw the same pet in two windows. When every eligible
+  // pet is pinned the pool resolves to null and the session falls back to the default pet.
+  const pinnedPets = new Set(state.preferences.pinnedPets ?? []);
+  const eligiblePetIds = getEligiblePoolPetIds(state.pets.installed, builtInPet.id, defaultPet.id).filter((petId) => !pinnedPets.has(petId));
   return resolvePoolAssignment({
     orderedPool: pool,
     eligiblePetIds,

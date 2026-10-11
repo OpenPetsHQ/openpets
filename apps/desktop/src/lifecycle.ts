@@ -5,6 +5,7 @@ import { info } from "./logger.js";
 import { stopLocalIpcServer } from "./local-ipc.js";
 import { stopRemoteControlService } from "./remote-control-service.js";
 import { closeAllLanVisitingPets } from "./lan-pet-controller.js";
+import { closeAllPinnedPets } from "./pinned-pet-controller.js";
 import { stopPluginService } from "./plugin-service.js";
 import { stopPetAssistantHost } from "./pet-assistant-host.js";
 import { stopVoiceAssistantHost } from "./voice-assistant-host.js";
@@ -78,6 +79,7 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
       stopLocalIpcServer();
       closeAllLanVisitingPets();
       closeAllAgentPets();
+      closeAllPinnedPets();
       destroyDefaultPet();
       cleanupFinished = true;
       app.quit();

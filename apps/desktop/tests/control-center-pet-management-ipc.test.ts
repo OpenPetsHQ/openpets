@@ -110,6 +110,7 @@ function createHarness() {
     broadcastDashboardRefresh: () => record("broadcastDashboardRefresh"),
     normalizePetPoolOrder: (ids) => { record("normalizePetPoolOrder", ids); return undefined; },
     setPetPoolOrder: (ids) => record("setPetPoolOrder", ids),
+    syncPinnedPets: () => record("syncPinnedPets"),
     installPet: (petId) => mutate("installPet", petId),
     installPetFromFolder: (path) => mutate("installPetFromFolder", path),
     installPetFromZipFile: (path) => mutate("installPetFromZipFile", path),
@@ -242,12 +243,22 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
   assert.deepEqual(installed, { from: "installPet" });
   assert.equal(harness.calls.some(({ method }) => method === "getAppStateSnapshot"), false);
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), false);
+  assert.equal(
+    harness.calls.some(({ method }) => method === "syncPinnedPets"),
+    true,
+    "installing a pet reconciles the pinned pet windows",
+  );
   const imported = await getHandler(harness, "openpets:import-codex-pet")(event, "personal");
   assert.deepEqual(imported, { from: "importCodexPet" });
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), false);
   const removed = await getHandler(harness, "openpets:remove-pet")(event, "personal");
   assert.deepEqual(removed, { from: "removePet" });
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), true);
+  assert.equal(
+    harness.calls.some(({ method }) => method === "syncPinnedPets"),
+    true,
+    "removing a pet reconciles the pinned pet windows",
+  );
   await assert.rejects(async () => getHandler(harness, "openpets:install-pet")(event, 1), /Invalid pet id\./);
   await assert.rejects(async () => getHandler(harness, "openpets:remove-pet")(event, null), /Invalid pet id\./);
 }

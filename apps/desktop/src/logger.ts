@@ -15,6 +15,7 @@ export type LogScope =
   | "pet.wayland"
   | "pet.chat"
   | "pet.session"
+  | "pet.pinned"
   | "plugin"
   | "state"
   | "tray"

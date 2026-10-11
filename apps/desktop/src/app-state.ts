@@ -6,7 +6,7 @@ import { isValidZedNodeCommand } from "@open-pets/zed";
 
 import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import { normalizeDefaultPetPositionState, normalizePosition, recordDefaultPetPositionState, resetDefaultPetPositionState, type DefaultPetPositionState } from "./default-pet-position-state.js";
+import { normalizeDefaultPetPositionState, normalizePosition, recordDefaultPetPositionState, resetDefaultPetPositionState, type DefaultPetPosition, type DefaultPetPositionState } from "./default-pet-position-state.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
 import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
 import {
@@ -15,6 +15,7 @@ import {
   getTeamPetDir,
 } from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
+import { normalizePinnedPetIds, normalizePinnedPetPositions } from "./pinned-pets.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -112,6 +113,14 @@ export interface OpenPetsStateV1 {
     readonly petButtonsSize: PetButtonsSize;
     /** Per-pet horizontal flip (mirroring) state. Persisted per pet ID. */
     readonly petHorizontalFlip?: Readonly<Record<string, boolean>>;
+    /** Ordered list of pet IDs the user pinned to the desktop. Pinned pets are owned by
+     * the user, not by a session: they keep their window until unpinned, and they are
+     * never bound to a lease. Undefined / empty keeps the legacy single-pet behaviour.
+     * Eligibility follows the pet pool (installed, non-broken, not built-in, not the
+     * current default pet), so the same pet is never rendered twice. */
+    readonly pinnedPets?: readonly string[];
+    /** Last known window position per pinned pet ID, restored when the app restarts. */
+    readonly pinnedPetPositions?: Readonly<Record<string, DefaultPetPosition>>;
   };
   readonly pets: {
     readonly installed: readonly InstalledPetState[];
@@ -254,6 +263,60 @@ export function setPetPoolOrder(ids: readonly string[]): OpenPetsStateV1 {
   });
   commitState(nextState);
   return getAppStateSnapshot();
+}
+
+/**
+ * Replace the pinned-pet list. Unsafe / duplicate IDs are dropped during normalisation,
+ * and remembered positions of pets that are no longer pinned are pruned.
+ * Pass an empty array to unpin everything and return to the legacy single-pet behaviour.
+ */
+export function setPinnedPets(ids: readonly string[]): OpenPetsStateV1 {
+  const current = getInitializedState();
+  const pinnedPets = normalizePinnedPetIds(ids);
+  const nextState = normalizeState({
+    ...current,
+    preferences: {
+      ...current.preferences,
+      pinnedPets,
+      pinnedPetPositions: prunePinnedPetPositions(current.preferences.pinnedPetPositions, pinnedPets),
+    },
+  });
+  commitState(nextState);
+  return getAppStateSnapshot();
+}
+
+/**
+ * Remember the window position of one pinned pet so it is restored on the next launch.
+ * Positions for pets that are not pinned are ignored.
+ */
+export function recordPinnedPetPosition(petId: string, position: unknown): OpenPetsStateV1 {
+  const normalizedPosition = normalizePosition(position);
+  if (!normalizedPosition) return getAppStateSnapshot();
+
+  const current = getInitializedState();
+  if (!(current.preferences.pinnedPets ?? []).includes(petId)) return getAppStateSnapshot();
+
+  const positions = { ...(current.preferences.pinnedPetPositions ?? {}), [petId]: normalizedPosition };
+  const nextState = normalizeState({
+    ...current,
+    preferences: {
+      ...current.preferences,
+      pinnedPetPositions: normalizePinnedPetPositions(positions),
+    },
+  });
+  commitState(nextState);
+  return getAppStateSnapshot();
+}
+
+/** Keep only the positions of pets that are still pinned. */
+function prunePinnedPetPositions(
+  positions: Readonly<Record<string, DefaultPetPosition>> | undefined,
+  pinnedPets: readonly string[] | undefined,
+): Readonly<Record<string, DefaultPetPosition>> | undefined {
+  if (!positions || !pinnedPets || pinnedPets.length === 0) return undefined;
+  const pinned = new Set(pinnedPets);
+  const kept = Object.entries(positions).filter(([petId]) => pinned.has(petId));
+  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
 }
 
 export function getDefaultPetPositionState(): DefaultPetPositionState {
@@ -608,6 +671,8 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petButtonsPosition: normalizePetButtonsPosition(value.petButtonsPosition),
     petButtonsSize: normalizePetButtonsSize(value.petButtonsSize),
     petHorizontalFlip: normalizePetHorizontalFlip(value.petHorizontalFlip),
+    pinnedPets: normalizePinnedPetIds(value.pinnedPets),
+    pinnedPetPositions: normalizePinnedPetPositions(value.pinnedPetPositions),
   };
 }
 
@@ -713,6 +778,8 @@ function createDefaultState(): OpenPetsStateV1 {
       petButtonsPosition: defaultPetButtonsPosition,
       petButtonsSize: defaultPetButtonsSize,
       petHorizontalFlip: undefined,
+      pinnedPets: undefined,
+      pinnedPetPositions: undefined,
     },
     pets: {
       installed: [builtInPet],

@@ -84,6 +84,8 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly broadcastDashboardRefresh: () => void;
   readonly normalizePetPoolOrder: (ids: unknown) => readonly string[] | undefined;
   readonly setPetPoolOrder: (ids: readonly string[]) => unknown;
+  /** Reconcile the pinned pet windows with the updated installed-pet set. */
+  readonly syncPinnedPets: () => void;
   readonly installPet: (petId: string) => unknown | Promise<unknown>;
   readonly installPetFromFolder: (path: string) => unknown | Promise<unknown>;
   readonly installPetFromZipFile: (path: string) => unknown | Promise<unknown>;
@@ -116,6 +118,8 @@ export function installControlCenterPetManagementIpcHandlers({
   broadcastDashboardRefresh,
   normalizePetPoolOrder,
   setPetPoolOrder,
+  /** Bring pinned pet windows in line with the pinned-pet preference after install/remove. */
+  syncPinnedPets,
   installPet,
   installPetFromFolder,
   installPetFromZipFile,
@@ -177,6 +181,7 @@ export function installControlCenterPetManagementIpcHandlers({
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await installPet(petId);
+    syncPinnedPets();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
       : state;
@@ -227,6 +232,7 @@ export function installControlCenterPetManagementIpcHandlers({
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await importCodexPet(petId);
+    syncPinnedPets();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
       : state;
@@ -237,6 +243,7 @@ export function installControlCenterPetManagementIpcHandlers({
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await removePet(petId);
+    syncPinnedPets();
     refreshDefaultPetContent();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)

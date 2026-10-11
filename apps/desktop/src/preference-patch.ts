@@ -10,6 +10,7 @@ import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
 import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 import { validateVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
+import { normalizePinnedPetIds } from "./pinned-pets.js";
 
 export type PreferencePatch = {
   openDefaultPetOnLaunch?: boolean;
@@ -21,6 +22,8 @@ export type PreferencePatch = {
   idleCursorGazeEnabled?: boolean;
   reactionAnimationOverrides?: ReturnType<typeof validateReactionAnimationOverrides>;
   petPoolEnabled?: boolean;
+  /** Full replacement list of pinned pet IDs; an empty array unpins every pet. */
+  pinnedPets?: readonly string[];
   petConfinementEnabled?: boolean;
   petCrossDisplayEnabled?: boolean;
   petGravityEnabled?: boolean;
@@ -60,6 +63,11 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
   if ("petPoolEnabled" in value) {
     if (typeof value.petPoolEnabled !== "boolean") throw new Error("Invalid pet-pool-enabled value.");
     patch.petPoolEnabled = value.petPoolEnabled;
+  }
+
+  if ("pinnedPets" in value) {
+    if (!Array.isArray(value.pinnedPets)) throw new Error("Invalid pinned-pets value.");
+    patch.pinnedPets = normalizePinnedPetIds(value.pinnedPets) ?? [];
   }
 
   if ("petConfinementEnabled" in value) {
