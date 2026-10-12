@@ -99,7 +99,15 @@ state returns that visitor to its owner.
 While a pet is click-through it only learns that the cursor is over it through
 *forwarded* mouse events (`setIgnoreMouseEvents(true, { forward: true })`), which
 Electron delivers on macOS and Windows but not on Linux (Linux pet windows are
-kept interactive instead). Both compositors can silently stop forwarding - macOS
+kept interactive instead). Hovering the rectangular sprite box is not enough to
+grab the pet: the preload's hit test samples the sprite sheet's alpha channel at
+the cursor (`pet-alpha-hit-test.ts`, fed bytes by the `openpets:pet-sprite-bytes`
+IPC in `pet-sprite-bytes.ts`), so fully transparent corners, the hitbox padding
+ring, and faint drop shadows let clicks reach windows behind the pet, while
+sufficiently opaque artwork stays clickable and draggable. The test accounts for
+the animated background-position frame, display scale, and horizontal flip, and
+fails open (interactive) whenever pixels are unavailable so a broken hit test
+can never make the pet ungrabbable. Both compositors can silently stop forwarding - macOS
 across Space switches, display sleep, and fullscreen transitions; Windows after
 rapid pet reloads and fullscreen sweeps - which would leave the pet stuck
 click-through and impossible to grab. A cursor-probe watchdog in
