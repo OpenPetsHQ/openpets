@@ -61,7 +61,7 @@ const {
   updatePreferences,
 } = await import("../src/app-state.js");
 
-const { createPetBodyMarkup } = await import("../src/pet-window-render.js");
+const { createBuiltInPetRender, createPetBodyMarkup } = await import("../src/pet-window-render.js");
 const { createCodexV2GazeCss, createInstalledSpriteStateCss, createPetWindowCss, createSpriteStateCss } = await import("../src/pet-window-styles.js");
 const { codexV1SpriteLayout, codexV2SpriteLayout, getCodexV2GazeSpritePosition } = await import("../src/codex-pets-core.js");
 const { getConfiguredSpriteStates } = await import("../src/reaction-animation-mapping.js");
@@ -100,6 +100,57 @@ function assertV2IdleSpriteRules(): void {
   assert.equal(v1Css.includes('data-paused="true"'), false, "V1 idle does not gain the paused neutral cell");
   assert.equal(v1Css.includes("data-codex-gaze-index"), false, "V1 idle does not gain V2 glance rules");
   assertAnimatedLoop(ruleBlock(v1Css, `html[data-reaction-state="idle"] .installed-sprite`), 0, states.idle.frames, codexV1SpriteLayout.frameWidth, codexV1SpriteLayout.frameHeight);
+}
+
+function assertBuiltInRenderOutput(paused: boolean): void {
+  const render = createBuiltInPetRender(
+    paused,
+    null,
+    null,
+    0.75,
+    "test:builtin",
+    "builtin",
+    undefined,
+    null,
+    "default",
+    "no-drag",
+  );
+  const style = render.html.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+  assert.ok(style, "built-in render includes its generated stylesheet");
+
+  const spriteBase = ruleBlock(style, ".sprite");
+  assert.ok(
+    declaration(spriteBase, "animation").includes("var(--sprite-animation"),
+    "built-in sprite animation uses the state-selected animation variable",
+  );
+  assert.equal(declaration(spriteBase, "animation-play-state"), "var(--play-state)");
+
+  assert.ok(
+    /@keyframes pet-frames\s*\{\s*from\s*\{\s*background-position:\s*var\(--sprite-offset-x\) var\(--sprite-row-y\);\s*\}\s*to\s*\{\s*background-position:\s*var\(--sprite-end-offset-x\) var\(--sprite-row-y\);/.test(style),
+    "generated sprite keyframes use the selected start and end frame offsets",
+  );
+
+  if (paused) {
+    const pausedIdle = ruleBlock(style, 'html[data-reaction-state="idle"][data-paused="true"] .sprite');
+    assertStaticCell(
+      pausedIdle,
+      0,
+      codexV2SpriteLayout.neutralPose?.column ?? -1,
+      codexV2SpriteLayout.frameWidth,
+      codexV2SpriteLayout.frameHeight,
+    );
+    assert.match(style, /--play-state:\s*paused/);
+    return;
+  }
+
+  const idle = ruleBlock(style, 'html[data-reaction-state="idle"] .sprite');
+  assertAnimatedLoop(
+    idle,
+    0,
+    getConfiguredSpriteStates().idle.frames,
+    codexV2SpriteLayout.frameWidth,
+    codexV2SpriteLayout.frameHeight,
+  );
 }
 
 function attributeCount(selector: string): number {
@@ -154,6 +205,8 @@ function ruleBlock(css: string, selector: string): string {
 try {
   initializeAppState();
   updatePreferences({ showChatButton: true, showTalkButton: true, petButtonsSize: "medium" });
+  assertBuiltInRenderOutput(false);
+  assertBuiltInRenderOutput(true);
 
   const defaultBody = createPetBodyMarkup("OpenPets default pet", "", `<div class="sprite"></div>`, "", false, "default");
   assert.ok(defaultBody.includes("openpets-pet-buttons"), "Chat/Talk stack must exist so the Check-in action can sit beside them");
