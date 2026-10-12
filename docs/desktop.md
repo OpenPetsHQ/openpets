@@ -499,12 +499,14 @@ per-pet `pinnedPetPositions` map, written through the dedicated
 `petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
 preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
 `voiceAssistantShortcut` accelerator. Idle cursor gaze defaults to enabled and
-is configurable in Control Center → Settings → General. Eligible V2 pets treat
-cursor movement as a short glance: they follow direction changes and return to
-neutral after about 1.2 seconds without movement. Disabling it promptly returns
-eligible V2 pets to their neutral idle pose and stops the shared gaze ticker;
-enabling it resumes tracking. Reactions, motion, dragging, pausing, explicit
-presentation overrides, and V1 pets are unaffected. That duration is normalized to `1010` ms (Normal) or `2200` ms
+is configurable in Control Center → Settings → General. Eligible V2 pets play
+the six-frame row 0 breathing loop, and cursor movement selects a static
+look-direction cell while the cursor is moving and for about 1.2 seconds
+afterward. Expiration, the dead zone, and disabling the setting resume that
+loop and, when disabled, stop the shared gaze ticker; enabling it resumes
+tracking. A paused V2 pet holds the static neutral cell instead. Reactions,
+motion, dragging, explicit presentation overrides, Control Center neutral
+previews, and V1 pets are unaffected. That duration is normalized to `1010` ms (Normal) or `2200` ms
 (Relaxed), with `1010` ms as the default. `app-state-core.ts` and
 `pet-assistant-personality.ts` hold pure normalization helpers that are testable
 without Electron.

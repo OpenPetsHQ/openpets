@@ -79,11 +79,13 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
             background-size: ${defaultPetSprite.frameWidth * defaultPetSprite.columns}px ${defaultPetSprite.frameHeight * defaultPetSprite.rows}px;
             background-repeat: no-repeat;
             --sprite-row-y: 0px;
+            --sprite-offset-x: 0px;
+            --sprite-end-offset-x: 0px;
             --sprite-frames: ${stateRows.idle.frames};
             --sprite-duration: ${stateRows.idle.durationMs}ms;
             --sprite-iterations: ${stateRows.idle.iterations};
-            background-position: 0 var(--sprite-row-y);
-            animation: pet-frames var(--sprite-duration) steps(var(--sprite-frames)) var(--sprite-iterations);
+            background-position: var(--sprite-offset-x) var(--sprite-row-y);
+            animation: var(--sprite-animation, pet-frames var(--sprite-duration) steps(var(--sprite-frames)) var(--sprite-iterations));
             animation-play-state: var(--play-state);
             transform: scale(${scale});
             transform-origin: top left;
@@ -91,8 +93,8 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
           ${createSpriteStateCss(".sprite", stateRows, defaultPetSprite)}
           ${createCodexV2GazeCss(".sprite", defaultPetSprite)}
           @keyframes pet-frames {
-            from { background-position: 0 var(--sprite-row-y); }
-            to { background-position: calc(-${defaultPetSprite.frameWidth}px * var(--sprite-frames)) var(--sprite-row-y); }
+            from { background-position: var(--sprite-offset-x) var(--sprite-row-y); }
+            to { background-position: var(--sprite-end-offset-x) var(--sprite-row-y); }
           }
         </style>
       </head>

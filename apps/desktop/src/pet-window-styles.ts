@@ -1467,19 +1467,31 @@ export function createSpriteStateCss(selector: ".sprite" | ".installed-sprite", 
   // A flipped pet is mirrored with scaleX(-1), which visually reverses the
   // directional run rows; emit a flip-specific variant that plays the
   // opposite row so the on-screen direction stays correct.
-  const rulesFor = (attributeClause: string, state: UniversalSpriteState, neutralPose?: { readonly row: number; readonly column: number }): string => {
+  const rulesFor = (attributeClause: string, state: UniversalSpriteState, useNeutralPose = false): string => {
     const mirrored = mirrorDirectionalSpriteState(state);
     if (mirrored === state) {
-      return createSpriteRule(`html${attributeClause} ${selector}`, state, stateRows, layout, neutralPose);
+      return createSpriteRule(`html${attributeClause} ${selector}`, state, stateRows, layout, useNeutralPose);
     }
     return [
-      createSpriteRule(`html:not([data-flip-x="true"])${attributeClause} ${selector}`, state, stateRows, layout, neutralPose),
-      createSpriteRule(`html[data-flip-x="true"]${attributeClause} ${selector}`, mirrored, stateRows, layout, neutralPose),
+      createSpriteRule(`html:not([data-flip-x="true"])${attributeClause} ${selector}`, state, stateRows, layout, useNeutralPose),
+      createSpriteRule(`html[data-flip-x="true"]${attributeClause} ${selector}`, mirrored, stateRows, layout, useNeutralPose),
     ].join("\n");
   };
 
-  const reactionRules = Object.keys(stateRows).map((state) =>
-    rulesFor(`[data-reaction-state="${state}"]`, state as UniversalSpriteState, state === "idle" ? layout.neutralPose : undefined));
+  const reactionRules = Object.keys(stateRows).flatMap((state) => {
+    const spriteState = state as UniversalSpriteState;
+    if (spriteState !== "idle" || !layout.neutralPose) {
+      return [rulesFor(`[data-reaction-state="${state}"]`, spriteState)];
+    }
+    // Animated idle stays at normal reaction specificity so movement rules
+    // still win. Paused neutral is only a more specific override, and it sets
+    // sprite variables rather than the animation property so a later movement
+    // rule can replace it.
+    return [
+      rulesFor(`[data-reaction-state="idle"]`, spriteState),
+      rulesFor(`[data-reaction-state="idle"][data-paused="true"]`, spriteState, true),
+    ];
+  });
   const motionRules = (Object.entries(motionToSpriteState) as Array<[PetMotionState, UniversalSpriteState]>)
     .filter(([motion]) => motion !== "idle")
     .map(([motion, state]) => rulesFor(`[data-motion-state="${motion}"]`, state));
@@ -1502,10 +1514,10 @@ export function createCodexV2GazeCss(selector: ".sprite" | ".installed-sprite", 
   }).join("\n");
 }
 
-export function createSpriteRule(selector: string, state: UniversalSpriteState, stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout, neutralPose?: { readonly row: number; readonly column: number }): string {
+export function createSpriteRule(selector: string, state: UniversalSpriteState, stateRows: Readonly<Record<UniversalSpriteState, SpriteStateDefinition>>, layout: CodexPetSpriteLayout, useNeutralPose = false): string {
   const row = stateRows[state];
   const iterations = "iterations" in row ? row.iterations : "infinite";
-  const position = getCodexPetSpritePosition(layout, row, neutralPose !== undefined);
+  const position = getCodexPetSpritePosition(layout, row, useNeutralPose);
   const startOffset = -(position.startColumn * layout.frameWidth);
   const endOffset = -(position.endColumn * layout.frameWidth);
   const animation = position.animated

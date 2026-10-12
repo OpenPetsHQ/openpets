@@ -330,6 +330,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Pets**:
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, gaze configuration, and plugin scale override updates; companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
+- `pet-window-styles.ts`: Pet-window CSS generation for reaction/movement sprite states and V2 cursor-glance atlas overrides; V2 idle keeps its animated row-zero loop outside an active glance, and paused V2 idle holds the static neutral cell
 - `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override to the currently rendered sprite
 - `x11-pet-window-state.ts`: X11 client adapter that subscribes to StructureNotify before show, waits for matching MapNotify, sends post-map EWMH state additions, and observes `_NET_WM_STATE` until standard exclusion atoms and the KDE switcher atom when advertised by root `_NET_SUPPORTED` are present
 - `x11-pet-window-state-core.ts`: Electron-free EWMH atom/property helpers for merging existing state and checking required atoms
@@ -339,7 +340,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
 - `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
 - `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, plugin command layout (root commands grouped per plugin above the plugin submenus), and plugin command form handling
-- `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-gaze controller, including renderer/window lifecycle, cursor tracking, custom manifest gaze-anchor geometry synchronized with renderer scale overrides, gaze eligibility, and gaze IPC updates
+- `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-glance controller; active glances select static gaze cells while expiration, dead-zone, and disable reset the sprite to animated idle, including custom manifest gaze-anchor geometry and flipped gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat and Manager Check-in coordinator managing expanded/collapsed carrier states, IPC authorization, conversation transcript streams, Talk subscriptions, and the private check-in card lifecycle
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
