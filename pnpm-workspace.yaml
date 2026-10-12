@@ -17,6 +17,7 @@ allowBuilds:
   esbuild: true
   get-windows: true
   koffi: true
+  msgpackr-extract: true
   openclaw: false
   protobufjs: true
   sharp: true
