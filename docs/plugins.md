@@ -47,6 +47,19 @@ alert, a scheduled job, a stored value), and the host validates and renders it.
 This is the "companion-first" stance: plugins never inject UI into pet windows
 directly; they hand the host descriptors and the host owns layout and lifecycle.
 
+### Plugin panels
+
+For an interaction that needs a larger surface than a pet-menu command or
+host-rendered bubble, a plugin can declare a local HTML panel in its manifest
+and open it with the existing `ctx.ui.panel` SDK surface. The desktop hosts the
+panel in its plugin sandbox; plugin and panel messages cross the panel bridge,
+and the plugin remains responsible for closing the panel during stop. Panels do
+not grant access to the real desktop: a panel must not be described as capturing
+the screen or editing the user's files unless a separate, explicitly granted
+host capability provides that behavior. Desktop Playground is an example of a
+standalone fictional desktop toy drawn only inside its own panel canvas. It uses
+the existing panel messaging/config APIs, not a new SDK capability.
+
 ```
 openpets.plugin.json ──validate──▶ plugin-service ──▶ plugin-runtime
                                                           │

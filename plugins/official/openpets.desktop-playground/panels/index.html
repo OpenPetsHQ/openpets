@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desktop Playground</title>
+  <style>
+    :root {
+      --bg-gradient: radial-gradient(circle at 50% 25%, #181926 0%, #0f1016 100%);
+      --accent: #ff2d55;
+      --accent-glow: rgba(255, 45, 85, 0.4);
+      --teal: #30cfd0;
+      --purple: #c471ed;
+      --text: #f8f9fa;
+      --text-dim: #94a3b8;
+      --panel-bg: rgba(22, 24, 35, 0.88);
+      --border: rgba(255, 255, 255, 0.14);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text);
+    }
+
+    #desktop-bg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(196, 113, 237, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 85% 80%, rgba(48, 207, 208, 0.12) 0%, transparent 45%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 2px, transparent 2px, transparent 24px);
+      z-index: 0;
+    }
+
+    .desk-icon {
+      position: absolute;
+      width: 76px;
+      text-align: center;
+      cursor: default;
+      opacity: 0.55;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 10px;
+      transition: background 0.2s;
+    }
+    .desk-icon:hover {
+      background: rgba(255, 255, 255, 0.04);
+      opacity: 0.85;
+    }
+    .desk-icon svg { width: 34px; height: 34px; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6)); }
+    .desk-icon span { font-size: 11px; font-weight: 500; color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    #subtitle-badge {
+      position: absolute;
+      top: 16px;
+      left: 130px;
+      background: rgba(22, 24, 35, 0.65);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: var(--text-dim);
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
+    #subtitle-badge strong { color: var(--teal); font-weight: 500; }
+
+    #dock-container {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      z-index: 10;
+      width: calc(100% - 32px);
+      max-width: 680px;
+      pointer-events: none;
+    }
+
+    #toolbar, #options-bar {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+    }
+
+    #options-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 16px;
+      border-radius: 16px;
+      opacity: 0;
+      transform: translateY(6px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    #options-bar.visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-radius: 22px;
+    }
+
+    .tool-group {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .tool-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-dim);
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .tool-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    .tool-btn.active {
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      color: #ffffff;
+      border-color: transparent;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .divider {
+      width: 1px;
+      height: 24px;
+      background: var(--border);
+    }
+
+    .action-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .opt-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .color-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .color-dot:hover { transform: scale(1.15); }
+    .color-dot.active { border-color: #fff; transform: scale(1.1); box-shadow: 0 0 8px rgba(255,255,255,0.5); }
+
+    .size-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--text);
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .size-btn.active { background: var(--teal); color: #0f1016; border-color: transparent; }
+
+    .stamp-opt {
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+    .stamp-opt:hover, .stamp-opt.active { background: rgba(255,255,255,0.15); }
+
+    #hud {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      gap: 14px;
+      z-index: 10;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    #hud span strong {
+      color: var(--teal);
+    }
+
+    #info-modal {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 11, 16, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    #info-modal.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-card {
+      background: #1b1e2e;
+      border: 1px solid var(--border);
+      width: 400px;
+      max-width: 90vw;
+      padding: 24px;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+    }
+    .modal-card h3 { font-size: 18px; margin-bottom: 12px; color: var(--text); }
+    .modal-card p { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 20px; }
+    .modal-close {
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    @media (max-width: 450px) {
+      #subtitle-badge { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="desktop-bg">
+    <div class="desk-icon" style="top: 40px; left: 40px;" title="Work.app" data-i18n-title="panel.desktop.work">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#30cfd0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <span id="desktop-work-label">Work.app</span>
+    </div>
+    <div class="desk-icon" style="top: 140px; left: 40px;" title="Files" data-i18n-title="panel.desktop.files">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#c471ed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span id="desktop-files-label">Files</span>
+    </div>
+    <div class="desk-icon" style="top: 240px; left: 40px;" title="Notes" data-i18n-title="panel.desktop.notes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span id="desktop-notes-label">Notes.txt</span>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <div id="subtitle-badge">
+    <span><span id="subtitle-title">A pretend desktop.</span> <span id="subtitle-hint">Click or drag to play.</span> <strong id="subtitle-safety">Your real files stay untouched.</strong></span>
+  </div>
+
+  <div id="hud">
+    <span id="label-tool"><span id="label-tool-prefix">Tool:</span> <strong id="curr-tool">Smash</strong></span>
+    <span id="label-score"><span id="label-score-prefix">Score:</span> <strong id="score-val">0</strong></span>
+  </div>
+
+  <div id="dock-container">
+    <div id="options-bar">
+      <!-- Paint options -->
+      <div id="opt-paint" class="opt-group" style="display:none;">
+         <span id="label-color">Color:</span>
+         <div class="color-dot active" style="background:#30cfd0;" data-color="#30cfd0" data-i18n-title="panel.color.teal" title="Teal"></div>
+         <div class="color-dot" style="background:#ff2d55;" data-color="#ff2d55" data-i18n-title="panel.color.red" title="Red"></div>
+         <div class="color-dot" style="background:#c471ed;" data-color="#c471ed" data-i18n-title="panel.color.purple" title="Purple"></div>
+         <div class="color-dot" style="background:#ffd700;" data-color="#ffd700" data-i18n-title="panel.color.yellow" title="Yellow"></div>
+         <div class="color-dot" style="background:#ffffff;" data-color="#ffffff" data-i18n-title="panel.color.white" title="White"></div>
+         <span id="label-paint-size" style="margin-left:6px;">Size:</span>
+         <button class="size-btn" data-size="2" data-i18n-title="panel.size.small" title="Small">S</button>
+         <button class="size-btn active" data-size="6" data-i18n-title="panel.size.medium" title="Medium">M</button>
+         <button class="size-btn" data-size="14" data-i18n-title="panel.size.large" title="Large">L</button>
+      </div>
+      <!-- Stamp options -->
+      <div id="opt-stamp" class="opt-group" style="display:none;">
+         <span id="label-symbol">Symbol:</span>
+         <span class="stamp-opt active" data-symbol="⭐" data-i18n-title="panel.symbol.star" title="Star">⭐</span>
+         <span class="stamp-opt" data-symbol="💖" data-i18n-title="panel.symbol.heart" title="Heart">💖</span>
+         <span class="stamp-opt" data-symbol="🔥" data-i18n-title="panel.symbol.fire" title="Fire">🔥</span>
+         <span class="stamp-opt" data-symbol="💎" data-i18n-title="panel.symbol.gem" title="Gem">💎</span>
+         <span class="stamp-opt" data-symbol="🚀" data-i18n-title="panel.symbol.rocket" title="Rocket">🚀</span>
+         <span class="stamp-opt" data-symbol="✨" data-i18n-title="panel.symbol.sparkles" title="Sparkles">✨</span>
+      </div>
+      <!-- Erase options -->
+      <div id="opt-erase" class="opt-group" style="display:none;">
+         <span id="label-eraser-radius">Eraser radius:</span>
+         <button class="size-btn" data-eradius="15" data-i18n-title="panel.size.small" title="Small">S</button>
+         <button class="size-btn active" data-eradius="35" data-i18n-title="panel.size.medium" title="Medium">M</button>
+         <button class="size-btn" data-eradius="65" data-i18n-title="panel.size.large" title="Large">L</button>
+      </div>
+    </div>
+
+    <div id="toolbar">
+      <div class="tool-group">
+        <button class="tool-btn active" data-tool="smash" id="btn-smash">💥 Smash</button>
+        <button class="tool-btn" data-tool="paint" id="btn-paint">🖌️ Paint</button>
+        <button class="tool-btn" data-tool="stamp" id="btn-stamp">⭐ Stamp</button>
+        <button class="tool-btn" data-tool="erase" id="btn-erase">🧹 Erase</button>
+      </div>
+      <div class="divider"></div>
+      <button class="action-btn" id="sound-btn" title="Mute sound" aria-label="Mute sound">🔊</button>
+      <button class="action-btn" id="info-btn" title="Safety instructions" aria-label="Safety instructions">ℹ️</button>
+      <button class="action-btn" id="reset-btn" title="Clear canvas" aria-label="Clear canvas">↺</button>
+    </div>
+  </div>
+
+  <div id="info-modal">
+    <div class="modal-card">
+      <h3 id="modal-title">Sandbox safety</h3>
+      <p id="modal-desc">Click or drag to smash, paint, stamp, or erase here. This is a pretend desktop; your real files, windows, and system stay untouched.</p>
+      <button class="modal-close" id="modal-close-btn">Got it</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    let dpr = window.devicePixelRatio || 1;
+    let animationFrameId = null;
+    let isVisible = !document.hidden;
+    let isTornDown = false;
+
+    function invalidate() {
+      if (isTornDown || !isVisible || animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(animate);
+    }
+
+    function resizeCanvas() {
+      dpr = window.devicePixelRatio || 1;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      invalidate();
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    let currentTool = "smash";
+    let score = 0;
+    let soundEnabled = true;
+
+    // Custom tool parameters
+    let paintColor = "#30cfd0";
+    let paintSize = 6;
+    let stampSymbol = "⭐";
+    let eraserRadius = 35;
+
+    const scoreValEl = document.getElementById("score-val");
+    const currToolEl = document.getElementById("curr-tool");
+    const soundBtn = document.getElementById("sound-btn");
+    const infoBtn = document.getElementById("info-btn");
+    const infoModal = document.getElementById("info-modal");
+    const modalCloseBtn = document.getElementById("modal-close-btn");
+    const optionsBar = document.getElementById("options-bar");
+    const optPaint = document.getElementById("opt-paint");
+    const optStamp = document.getElementById("opt-stamp");
+    const optErase = document.getElementById("opt-erase");
+    const toolButtons = [...document.querySelectorAll(".tool-btn")];
+    const localizedToolNames = {
+      smash: "Smash",
+      paint: "Paint",
+      stamp: "Stamp",
+      erase: "Erase",
+    };
+    const localizedStrings = {
+      "panel.sound.mute": "Mute sound",
+      "panel.sound.enable": "Enable sound",
+    };
+
+    function applyLocalizedText(element, key, strings) {
+      if (typeof strings[key] === "string") element.textContent = strings[key];
+    }
+
+    function applyLocalizedButtonLabel(button, key, strings) {
+      if (typeof strings[key] !== "string") return;
+      button.title = strings[key];
+      button.setAttribute("aria-label", strings[key]);
+    }
+
+    function updateSoundControl() {
+      const label = soundEnabled
+        ? localizedStrings["panel.sound.mute"]
+        : localizedStrings["panel.sound.enable"];
+      soundBtn.textContent = soundEnabled ? "🔊" : "🔇";
+      soundBtn.title = label;
+      soundBtn.setAttribute("aria-label", label);
+    }
+
+    function selectTool(tool) {
+      if (!["smash", "paint", "stamp", "erase"].includes(tool)) return;
+      currentTool = tool;
+      currToolEl.textContent = localizedToolNames[tool];
+      toolButtons.forEach((button) => {
+        button.classList.toggle("active", button.getAttribute("data-tool") === tool);
+      });
+      updateOptionsBar();
+    }
+
+    function updateOptionsBar() {
+      optPaint.style.display = currentTool === "paint" ? "flex" : "none";
+      optStamp.style.display = currentTool === "stamp" ? "flex" : "none";
+      optErase.style.display = currentTool === "erase" ? "flex" : "none";
+      if (currentTool === "smash") {
+        optionsBar.classList.remove("visible");
+      } else {
+        optionsBar.classList.add("visible");
+      }
+    }
+
+    soundBtn.addEventListener("click", () => {
+      soundEnabled = !soundEnabled;
+      updateSoundControl();
+      playTone(600, "sine", 0.05);
+    });
+
+    infoBtn.addEventListener("click", () => {
+      infoModal.classList.add("visible");
+    });
+    modalCloseBtn.addEventListener("click", () => {
+      infoModal.classList.remove("visible");
+    });
+
+    // Audio Context Setup with user gesture lazily
+    let audioCtx = null;
+    let audioContextClosePromise = null;
+    let audioWarningShown = false;
+    const recentAudioStarts = [];
+
+    function reportAudioError(operation, error) {
+      if (audioWarningShown) return;
+      audioWarningShown = true;
+      console.warn(`Desktop Playground audio ${operation} failed.`, error);
+    }
+
+    function getAudioContext() {
+      if (!audioCtx && (window.AudioContext || window.webkitAudioContext)) {
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextConstructor) audioCtx = new AudioContextConstructor();
+      }
+      return audioCtx;
+    }
+
+    function closeAudioContext() {
+      if (audioContextClosePromise) return audioContextClosePromise;
+      if (!audioCtx) return Promise.resolve();
+      const closingContext = audioCtx;
+      audioCtx = null;
+      audioContextClosePromise = Promise.resolve()
+        .then(() => closingContext.close())
+        .catch((error) => reportAudioError("shutdown", error));
+      return audioContextClosePromise;
+    }
+
+    function playTone(freq, type = "sine", duration = 0.08) {
+      if (!soundEnabled || isTornDown) return;
+      const now = performance.now();
+      while (recentAudioStarts.length > 0 && recentAudioStarts[0] <= now - 1000) {
+        recentAudioStarts.shift();
+      }
+      if (recentAudioStarts.length >= 25) return;
+      recentAudioStarts.push(now);
+
+      let oscillator;
+      let gain;
+      try {
+        const ac = getAudioContext();
+        if (!ac) return;
+        if (ac.state === "suspended") {
+          ac.resume().catch((error) => reportAudioError("resume", error));
+        }
+        oscillator = ac.createOscillator();
+        gain = ac.createGain();
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(freq, ac.currentTime);
+        gain.gain.setValueAtTime(0.08, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + duration);
+        oscillator.connect(gain);
+        gain.connect(ac.destination);
+        oscillator.addEventListener("ended", () => {
+          oscillator.disconnect();
+          gain.disconnect();
+        }, { once: true });
+        oscillator.start();
+        oscillator.stop(ac.currentTime + duration);
+      } catch (error) {
+        oscillator?.disconnect();
+        gain?.disconnect();
+        reportAudioError("playback", error);
+      }
+    }
+
+    // Tool selection
+    toolButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        selectTool(btn.getAttribute("data-tool"));
+        playTone(440, "triangle", 0.06);
+      });
+    });
+
+    // Color options
+    document.querySelectorAll(".color-dot").forEach(dot => {
+      dot.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".color-dot").forEach(d => d.classList.remove("active"));
+        dot.classList.add("active");
+        paintColor = dot.getAttribute("data-color");
+        playTone(550, "sine", 0.04);
+      });
+    });
+
+    // Size options
+    document.querySelectorAll(".size-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sizeVal = btn.getAttribute("data-size");
+        const eradiusVal = btn.getAttribute("data-eradius");
+        if (sizeVal) {
+          btn.parentElement.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          paintSize = parseInt(sizeVal, 10);
+        } else if (eradiusVal) {
+          btn.parentElement.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          eraserRadius = parseInt(eradiusVal, 10);
+        }
+        playTone(480, "sine", 0.04);
+      });
+    });
+
+    // Stamp symbol options
+    document.querySelectorAll(".stamp-opt").forEach(opt => {
+      opt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".stamp-opt").forEach(o => o.classList.remove("active"));
+        opt.classList.add("active");
+        stampSymbol = opt.getAttribute("data-symbol");
+        playTone(700, "triangle", 0.06);
+      });
+    });
+
+    document.getElementById("reset-btn").addEventListener("click", () => {
+      particles = [];
+      strokes = [];
+      stamps = [];
+      cracks = [];
+      score = 0;
+      scoreValEl.textContent = score;
+      playTone(220, "sawtooth", 0.15);
+      invalidate();
+    });
+
+    let particles = [];
+    let strokes = [];
+    let stamps = [];
+    let cracks = [];
+    let isDrawing = false;
+    let activePointerId = null;
+    let lastX = 0;
+    let lastY = 0;
+
+    const MAX_PARTICLES = 4_000;
+    const MAX_STROKES = 4_000;
+    const MAX_STAMPS = 300;
+    const MAX_CRACKS = 80;
+
+    function pushBounded(collection, value, capacity) {
+      if (collection.length >= capacity) collection.shift();
+      collection.push(value);
+    }
+
+    class Particle {
+      constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 12;
+        this.vy = (Math.random() - 0.5) * 12 - 4;
+        this.size = Math.random() * 7 + 3;
+        this.color = color;
+        this.alpha = 1;
+        this.decay = 0.025;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.45;
+        this.alpha -= this.decay;
+      }
+      draw(c) {
+        if (this.alpha <= 0) return;
+        c.save();
+        c.globalAlpha = Math.max(0, this.alpha);
+        c.fillStyle = this.color;
+        c.fillRect(this.x, this.y, this.size, this.size);
+        c.restore();
+      }
+    }
+
+    class Crack {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.lines = [];
+        // Generate radiating fracture branches
+        const branchCount = Math.floor(Math.random() * 3) + 4;
+        for (let i = 0; i < branchCount; i++) {
+          const angle = (Math.PI * 2 / branchCount) * i + (Math.random() - 0.5) * 0.5;
+          const length = Math.random() * 60 + 40;
+          const segments = [];
+          let cx = x;
+          let cy = y;
+          let segsCount = Math.floor(Math.random() * 3) + 3;
+          for (let s = 0; s < segsCount; s++) {
+            const segLen = length / segsCount;
+            const nextAngle = angle + (Math.random() - 0.5) * 0.8;
+            const nx = cx + Math.cos(nextAngle) * segLen;
+            const ny = cy + Math.sin(nextAngle) * segLen;
+            segments.push({ x1: cx, y1: cy, x2: nx, y2: ny });
+            cx = nx;
+            cy = ny;
+          }
+          this.lines.push(segments);
+        }
+      }
+      draw(c) {
+        c.save();
+        c.strokeStyle = "rgba(255, 255, 255, 0.45)";
+        c.lineWidth = 1.5;
+        c.shadowColor = "rgba(0, 0, 0, 0.8)";
+        c.shadowBlur = 4;
+        for (const branch of this.lines) {
+          c.beginPath();
+          for (const seg of branch) {
+            c.moveTo(seg.x1, seg.y1);
+            c.lineTo(seg.x2, seg.y2);
+          }
+          c.stroke();
+        }
+        c.restore();
+      }
+    }
+
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
+      canvas.setPointerCapture(e.pointerId);
+      activePointerId = e.pointerId;
+      isDrawing = true;
+      lastX = Math.max(0, Math.min(width, e.clientX));
+      lastY = Math.max(0, Math.min(height, e.clientY));
+      handleAction(lastX, lastY, true);
+      invalidate();
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (!isDrawing || e.pointerId !== activePointerId) return;
+      const x = Math.max(0, Math.min(width, e.clientX));
+      const y = Math.max(0, Math.min(height, e.clientY));
+      handleAction(x, y, false);
+      lastX = x;
+      lastY = y;
+      invalidate();
+    });
+
+    function cancelPointer(pointerId, releaseCapture) {
+      if (pointerId !== activePointerId) return;
+      activePointerId = null;
+      isDrawing = false;
+      if (releaseCapture && canvas.hasPointerCapture(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    }
+    canvas.addEventListener("pointerup", (e) => cancelPointer(e.pointerId, true));
+    canvas.addEventListener("pointercancel", (e) => cancelPointer(e.pointerId, true));
+    canvas.addEventListener("lostpointercapture", (e) => cancelPointer(e.pointerId, false));
+    window.addEventListener("blur", () => {
+      if (activePointerId !== null) cancelPointer(activePointerId, true);
+    });
+
+    function distanceToSegment(px, py, x1, y1, x2, y2) {
+      const l2 = (x2 - x1)**2 + (y2 - y1)**2;
+      if (l2 === 0) return Math.hypot(px - x1, py - y1);
+      let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+    }
+
+    function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+      const cross = (ax, ay, bx, by) => ax * by - ay * bx;
+      const onSegment = (ax, ay, bx, by, px, py) => (
+        px >= Math.min(ax, bx) - 1e-8
+        && px <= Math.max(ax, bx) + 1e-8
+        && py >= Math.min(ay, by) - 1e-8
+        && py <= Math.max(ay, by) + 1e-8
+      );
+      const abx = x2 - x1;
+      const aby = y2 - y1;
+      const cdx = x4 - x3;
+      const cdy = y4 - y3;
+      const denominator = cross(abx, aby, cdx, cdy);
+      const acx = x3 - x1;
+      const acy = y3 - y1;
+
+      if (Math.abs(denominator) < 1e-8) {
+        if (Math.abs(cross(acx, acy, abx, aby)) >= 1e-8) return false;
+        return onSegment(x1, y1, x2, y2, x3, y3)
+          || onSegment(x1, y1, x2, y2, x4, y4)
+          || onSegment(x3, y3, x4, y4, x1, y1)
+          || onSegment(x3, y3, x4, y4, x2, y2);
+      }
+
+      const t = cross(acx, acy, cdx, cdy) / denominator;
+      const u = cross(acx, acy, abx, aby) / denominator;
+      return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    }
+
+    function segmentDistance(ax, ay, bx, by, cx, cy, dx, dy) {
+      if (segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy)) return 0;
+      return Math.min(
+        distanceToSegment(ax, ay, cx, cy, dx, dy),
+        distanceToSegment(bx, by, cx, cy, dx, dy),
+        distanceToSegment(cx, cy, ax, ay, bx, by),
+        distanceToSegment(dx, dy, ax, ay, bx, by),
+      );
+    }
+
+    function handleAction(x, y, isClick) {
+      if (currentTool === "smash") {
+        if (isClick) {
+          score += 15;
+          scoreValEl.textContent = score;
+          playTone(180, "sawtooth", 0.12);
+          pushBounded(cracks, new Crack(x, y), MAX_CRACKS);
+          const colors = ["#ff2d55", "#30cfd0", "#c471ed", "#ffd700", "#ffffff"];
+          for (let i = 0; i < 20; i++) {
+            pushBounded(
+              particles,
+              new Particle(x, y, colors[Math.floor(Math.random() * colors.length)]),
+              MAX_PARTICLES,
+            );
+          }
+        }
+      } else if (currentTool === "paint") {
+        pushBounded(
+          strokes,
+          { x1: lastX, y1: lastY, x2: x, y2: y, color: paintColor, width: paintSize },
+          MAX_STROKES,
+        );
+        if (isClick || Math.random() < 0.35) {
+          playTone(520 + paintSize * 15, "sine", 0.04);
+          score += 1;
+          scoreValEl.textContent = score;
+        }
+      } else if (currentTool === "stamp") {
+        if (isClick) {
+          pushBounded(stamps, { x, y, symbol: stampSymbol }, MAX_STAMPS);
+          playTone(680, "triangle", 0.09);
+          score += 5;
+          scoreValEl.textContent = score;
+        }
+      } else if (currentTool === "erase") {
+        const r = eraserRadius;
+        const eraserDistance = (pointX, pointY) => (
+          distanceToSegment(pointX, pointY, lastX, lastY, x, y)
+        );
+        particles = particles.filter((particle) => (
+          eraserDistance(particle.x, particle.y) > r + particle.size / 2
+        ));
+        stamps = stamps.filter((stamp) => eraserDistance(stamp.x, stamp.y) > r + 16);
+        cracks = cracks.filter((crack) => !crack.lines.some((branch) => (
+          branch.some((segment) => segmentDistance(
+            lastX,
+            lastY,
+            x,
+            y,
+            segment.x1,
+            segment.y1,
+            segment.x2,
+            segment.y2,
+          ) <= r + 1
+          )
+        )));
+        strokes = strokes.filter((stroke) => (
+          segmentDistance(lastX, lastY, x, y, stroke.x1, stroke.y1, stroke.x2, stroke.y2)
+          > r + stroke.width / 2
+        ));
+      }
+    }
+
+    function animate() {
+      animationFrameId = null;
+      if (isTornDown || !isVisible) return;
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw cracks
+      for (const crack of cracks) {
+        crack.draw(ctx);
+      }
+
+      // Draw paint strokes
+      for (const st of strokes) {
+        ctx.strokeStyle = st.color;
+        ctx.lineWidth = st.width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        if (st.x1 === st.x2 && st.y1 === st.y2) {
+          ctx.fillStyle = st.color;
+          ctx.beginPath();
+          ctx.arc(st.x1, st.y1, st.width / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.moveTo(st.x1, st.y1);
+          ctx.lineTo(st.x2, st.y2);
+          ctx.stroke();
+        }
+      }
+
+      // Draw stamps
+      for (const st of stamps) {
+        ctx.font = "32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(st.symbol, st.x, st.y);
+      }
+
+      // Draw particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.update();
+        p.draw(ctx);
+        if (p.alpha <= 0) particles.splice(i, 1);
+      }
+
+      if (particles.length > 0) invalidate();
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      isVisible = !document.hidden;
+      if (isVisible) {
+        invalidate();
+      } else {
+        if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        if (activePointerId !== null) cancelPointer(activePointerId, true);
+      }
+    });
+
+    invalidate();
+
+    let lastConfiguredDefaultTool = null;
+
+    function applyPanelInit(message) {
+      if (!message || message.type !== "init") return;
+      if (message.strings && typeof message.strings === "object") {
+        const strings = message.strings;
+        for (const tool of ["smash", "paint", "stamp", "erase"]) {
+          if (typeof strings[`tool.${tool}`] === "string") {
+            localizedToolNames[tool] = strings[`tool.${tool}`];
+          }
+        }
+
+        applyLocalizedText(document.getElementById("label-tool-prefix"), "panel.hud.tool", strings);
+        applyLocalizedText(document.getElementById("label-score-prefix"), "panel.hud.score", strings);
+        applyLocalizedText(document.getElementById("subtitle-title"), "panel.subtitle.title", strings);
+        applyLocalizedText(document.getElementById("subtitle-hint"), "panel.subtitle.hint", strings);
+        applyLocalizedText(document.getElementById("subtitle-safety"), "panel.subtitle.safety", strings);
+        applyLocalizedText(document.getElementById("desktop-work-label"), "panel.desktop.work", strings);
+        applyLocalizedText(document.getElementById("desktop-files-label"), "panel.desktop.files", strings);
+        applyLocalizedText(document.getElementById("desktop-notes-label"), "panel.desktop.notes", strings);
+        applyLocalizedText(document.getElementById("label-color"), "panel.option.color", strings);
+        applyLocalizedText(document.getElementById("label-paint-size"), "panel.option.size", strings);
+        applyLocalizedText(document.getElementById("label-symbol"), "panel.option.symbol", strings);
+        applyLocalizedText(document.getElementById("label-eraser-radius"), "panel.option.eraserRadius", strings);
+        applyLocalizedButtonLabel(infoBtn, "panel.button.help", strings);
+        applyLocalizedButtonLabel(document.getElementById("reset-btn"), "panel.button.clearCanvas", strings);
+        applyLocalizedText(document.getElementById("modal-title"), "panel.help.heading", strings);
+        applyLocalizedText(document.getElementById("modal-desc"), "panel.help.description", strings);
+        applyLocalizedText(modalCloseBtn, "panel.help.close", strings);
+        document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+          const key = element.getAttribute("data-i18n-title");
+          if (typeof strings[key] !== "string") return;
+          element.title = strings[key];
+          if (element.classList.contains("size-btn")) {
+            element.setAttribute("aria-label", strings[key]);
+          }
+        });
+
+        for (const key of ["panel.sound.mute", "panel.sound.enable"]) {
+          if (typeof strings[key] === "string") localizedStrings[key] = strings[key];
+        }
+        if (typeof strings["plugin.name"] === "string") document.title = strings["plugin.name"];
+
+        const toolButtonEmojis = {
+          smash: "💥",
+          paint: "🖌️",
+          stamp: "⭐",
+          erase: "🧹",
+        };
+        for (const tool of Object.keys(toolButtonEmojis)) {
+          document.getElementById(`btn-${tool}`).textContent = `${toolButtonEmojis[tool]} ${localizedToolNames[tool]}`;
+        }
+        selectTool(currentTool);
+      }
+      if (!message.config || typeof message.config !== "object") return;
+
+      if (typeof message.config.soundEnabled === "boolean") {
+        soundEnabled = message.config.soundEnabled;
+        updateSoundControl();
+      }
+
+      const defaultTool = message.config.defaultTool;
+      if (
+        ["smash", "paint", "stamp", "erase"].includes(defaultTool)
+        && defaultTool !== lastConfiguredDefaultTool
+      ) {
+        lastConfiguredDefaultTool = defaultTool;
+        selectTool(defaultTool);
+      }
+    }
+
+    let unsubscribePanelMessage = null;
+    const panelBridge = window.openPetsPanel;
+    if (panelBridge) {
+      unsubscribePanelMessage = panelBridge.onMessage(applyPanelInit);
+      panelBridge.postMessage({ type: "ready" });
+    }
+
+    function teardown() {
+      if (isTornDown) return audioContextClosePromise ?? Promise.resolve();
+      isTornDown = true;
+      isVisible = false;
+      window.removeEventListener("pagehide", teardown);
+      window.removeEventListener("beforeunload", teardown);
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      if (activePointerId !== null) cancelPointer(activePointerId, true);
+      if (unsubscribePanelMessage) {
+        const unsubscribe = unsubscribePanelMessage;
+        unsubscribePanelMessage = null;
+        unsubscribe();
+      }
+      return closeAudioContext();
+    }
+
+    window.addEventListener("pagehide", teardown, { once: true });
+    window.addEventListener("beforeunload", teardown, { once: true });
+  </script>
+</body>
+</html>

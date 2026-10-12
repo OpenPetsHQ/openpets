@@ -1,0 +1,43 @@
+{
+  "manifestVersion": 3,
+  "id": "openpets.desktop-playground",
+  "name": "$t:plugin.name",
+  "description": "$t:plugin.description",
+  "version": "1.0.0",
+  "runtime": "javascript",
+  "icon": "plugin",
+  "sdkVersion": "3.0.0",
+  "entry": "index.js",
+  "assets": {
+    "icons": {
+      "desktop-playground": "assets/icon.svg"
+    }
+  },
+  "panels": {
+    "playground": "panels/index.html"
+  },
+  "permissions": [
+    "commands",
+    "ui:panel"
+  ],
+  "configSchema": {
+    "soundEnabled": {
+      "type": "boolean",
+      "default": true,
+      "label": "$t:config.soundEnabled.label",
+      "description": "$t:config.soundEnabled.description"
+    },
+    "defaultTool": {
+      "type": "select",
+      "default": "smash",
+      "label": "$t:config.defaultTool.label",
+      "description": "$t:config.defaultTool.description",
+      "options": [
+        { "value": "smash", "label": "$t:tool.smash" },
+        { "value": "paint", "label": "$t:tool.paint" },
+        { "value": "stamp", "label": "$t:tool.stamp" },
+        { "value": "erase", "label": "$t:tool.erase" }
+      ]
+    }
+  }
+}

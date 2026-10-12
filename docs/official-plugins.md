@@ -25,7 +25,8 @@ see [Plugin platform](/plugins). For the author-facing API, see
 ## Current catalog lineup
 
 The public plugin catalog is `web/public/plugins/catalog.v2.json`. The current
-catalog contains thirteen official plugins and five community plugins.
+generated catalog contains fourteen official plugins and five community
+plugins (nineteen total).
 
 | Plugin | Type | What it does |
 | --- | --- | --- |
@@ -42,6 +43,7 @@ catalog contains thirteen official plugins and five community plugins.
 | Virtual Pet | Official | Adds Tamagotchi-style state, actions, and a pinned HUD. |
 | Water Reminder | Official | Runs hydration reminders on a configurable cadence. |
 | System Resources | Official | Reports host CPU, RAM, optional GPU and system-volume Disk metrics in an integrated pinned HUD, with optional battery/network reporting and configurable alerts. |
+| Desktop Playground | Official | Opens an original, sandboxed fictional desktop toy panel with Smash, Paint, Stamp, and Erase tools. |
 | Vocabulary Drag & Drop | Community | Drag words to see definitions and translations in a natively scrollable HUD card. |
 | Higgsfield Watch | Community | Catalog-listed community plugin. |
 | Spotify Buddy | Community | Catalog-listed community plugin. |
@@ -74,6 +76,12 @@ when the user opens one of those practices, then serves it from the local cache.
 
 Everything else is installable from the catalog, not preloaded into a fresh app
 install.
+
+Desktop Playground is catalog-installable and is not bundled or enabled by
+default. Its **Open playground** command appears in that plugin's right-click
+submenu. It renders an imagined desktop only inside its plugin panel; it does not
+capture the real screen or edit desktop files. Its settings choose the default
+tool and whether the panel synthesizes playful sound effects.
 
 The bundled plugins below expose their useful operations as typed Pet
 Assistant capabilities when enabled. Their assistant operations use the same

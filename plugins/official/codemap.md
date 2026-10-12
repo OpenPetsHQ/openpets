@@ -9,6 +9,7 @@ First-party SDK v3 plugin product source. These plugins are the reviewed default
 - **Uniform Plugin Package Shape**: Every plugin folder contains `openpets.plugin.json` and `index.js`; most also provide `assets/*.svg`, `locales/*.json`, and `test.js` for deterministic SDK harness coverage.
 - **Localization by Reference**: Manifests use `$t:` labels/descriptions and runtime code uses `ctx.t(key, vars)` so strings resolve through plugin `locales/en.json` with locale fallback.
 - **Host-Rendered Interaction**: Plugins register right-click commands and render speech, alert, HUD, and action UI through `ctx.ui`/`ctx.pet`; the host owns validation, layout, and lifecycle.
+- **Sandboxed Plugin Panels**: A plugin may declare a local HTML panel and use the existing panel messaging/config APIs for a standalone interaction surface; the panel remains separate from the real desktop and plugin-owned resources are closed during stop.
 - **Persistent Companion State**: Stateful plugins keep reminders, routines, mood history, focus sessions, and virtual-pet stats in `ctx.storage` and reconcile with schedules after restart/sleep.
 
 ## Data & Control Flow
@@ -36,6 +37,7 @@ First-party SDK v3 plugin product source. These plugins are the reviewed default
 | `openpets.anxiety-aid-tools` | Calm-practice companion of anxietyaidtools.com; drives host-rendered Calm 4-6 breathing and progressive muscle relaxation (PMR) session overlays with tense/release pose illustrations around the pet, the science-backed Info window (AAT logo, linked studies), practice switching, and pause/resume/stop pet-menu controls. Fully localized (7 locales). | `ui.session`, `commands`, `ui.menu`, `assets`, `storage` |
 | `openpets.virtual-pet` | Tamagotchi-style companion state machine with hunger/energy/happiness/affection decay, pinned HUD, click handling, and action commands. | `events`, `schedule`, `storage`, `ui.bubble`, `commands`, `pet.react`, `assets`, `audio`, `config` |
 | `openpets.system-resources` | Integrated pinned HUD for host CPU, RAM, optional GPU and system-volume Disk metrics, with optional battery/network reporting and configurable alerts. | `system:metrics`, `schedule`, `storage`, `status`, `commands`, `pet.speak`, `pet.reaction`, `pet.pin`, `events`, `assets`, `config` |
+| `openpets.desktop-playground` | Catalog-installable fictional desktop-toy panel with Smash, Paint, Stamp, and Erase tools, configurable default tool, and optional synthesized sound; it neither captures the real screen nor edits files. | `commands`, `ui:panel`, `config`, `assets` |
 
 ## Integration Points
 
