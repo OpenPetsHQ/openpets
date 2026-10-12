@@ -44,7 +44,7 @@ import { invalidateDisplayCache } from "./display.js";
 import { reclampAgentPetWindows } from "./agent-pet-controller.js";
 import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
-import { syncPinnedPets } from "./pinned-pet-controller.js";
+import { reclampPinnedPetWindows, syncPinnedPets } from "./pinned-pet-controller.js";
 import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
@@ -252,6 +252,7 @@ if (!gotSingleInstanceLock) {
       invalidateDisplayCache,
       reclampDefaultPetWindow,
       reclampAgentPetWindows,
+      reclampPinnedPetWindows,
       reclampLanVisitingPetWindows,
       reclampPluginPetWindows,
       recoverDefaultPetMouseInterop,

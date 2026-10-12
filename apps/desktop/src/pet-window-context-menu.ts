@@ -165,6 +165,15 @@ function handlePetHorizontalFlipToggle(petId: string): void {
         error instanceof Error ? error : { error },
       );
     });
+  void import("./pinned-pet-controller.js")
+    .then(({ refreshPinnedPetContent }) => refreshPinnedPetContent(petId))
+    .catch((error) => {
+      logError(
+        "pet.window",
+        "refresh pinned pet on flip failed",
+        error instanceof Error ? error : { error },
+      );
+    });
 }
 
 export function handlePetScaleChange(scale: PetScaleValue): void {
@@ -196,6 +205,15 @@ export function handlePetScaleChange(scale: PetScaleValue): void {
       logError(
         "pet.window",
         "refresh agent pet on scale change failed",
+        error instanceof Error ? error : { error },
+      );
+    });
+  void import("./pinned-pet-controller.js")
+    .then(({ refreshPinnedPetContent }) => refreshPinnedPetContent())
+    .catch((error) => {
+      logError(
+        "pet.window",
+        "refresh pinned pet on scale change failed",
         error instanceof Error ? error : { error },
       );
     });
