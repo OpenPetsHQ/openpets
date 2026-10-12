@@ -20,7 +20,10 @@ export const PET_ALPHA_HIT_THRESHOLD = 64;
 export const PET_ALPHA_SAMPLE_RADIUS = 1;
 
 /** Decoded sheets larger than this are rejected so a hostile/huge sheet cannot exhaust renderer memory. */
-export const MAX_SPRITE_SHEET_PIXELS = 64 * 1024 * 1024;
+export const MAX_SPRITE_SHEET_PIXELS = 32 * 1024 * 1024;
+
+/** Total decoded RGBA bytes one pet renderer may retain; least-recently-used sheets are evicted beyond it. */
+export const MAX_SPRITE_PIXEL_CACHE_BYTES = 256 * 1024 * 1024;
 
 export interface SpriteSheetPixels {
   readonly width: number;
@@ -86,6 +89,10 @@ export function mapClientPointToSpritePixel(input: SpriteHitMappingInput): { rea
   let fractionX = (input.clientX - rect.left) / rect.width;
   const fractionY = (input.clientY - rect.top) / rect.height;
   if (input.flipped) fractionX = 1 - fractionX;
+  // A fraction of exactly 1 (the flipped sprite's left edge) would floor into
+  // the first pixel of the adjacent sheet frame; clamp to the displayed frame's
+  // last pixel instead.
+  fractionX = Math.min(fractionX, 1 - 1e-9);
 
   const elementX = fractionX * input.elementWidth;
   const elementY = fractionY * input.elementHeight;
@@ -191,16 +198,39 @@ export function createPetAlphaHitTester(options: {
 }): PetAlphaHitTester {
   const { document } = options;
   const threshold = options.threshold ?? PET_ALPHA_HIT_THRESHOLD;
+  // LRU by insertion order: hits re-insert their entry at the tail, eviction
+  // drops from the head. Decoded sheets are several MB each and plugins can
+  // cycle sprite overrides, so the cache must stay bounded.
   const cache = new Map<string, SpriteCacheEntry>();
+  let cacheBytes = 0;
+
+  const evictOverflow = (): void => {
+    for (const [url, entry] of cache) {
+      if (cacheBytes <= MAX_SPRITE_PIXEL_CACHE_BYTES) return;
+      if (entry.status !== "ready") continue;
+      cache.delete(url);
+      cacheBytes -= entry.pixels.data.byteLength;
+    }
+  };
 
   const getPixels = (url: string): SpriteSheetPixels | null => {
     const existing = cache.get(url);
-    if (existing) return existing.status === "ready" ? existing.pixels : null;
-    const entry: SpriteCacheEntry = { status: "loading" };
-    cache.set(url, entry);
+    if (existing) {
+      if (existing.status !== "ready") return null;
+      cache.delete(url);
+      cache.set(url, existing);
+      return existing.pixels;
+    }
+    cache.set(url, { status: "loading" });
     options.loadSpritePixels(url).then((pixels) => {
+      if (!cache.has(url)) return;
+      cache.delete(url);
       cache.set(url, { status: "ready", pixels });
+      cacheBytes += pixels.data.byteLength;
+      evictOverflow();
     }).catch(() => {
+      if (!cache.has(url)) return;
+      cache.delete(url);
       cache.set(url, { status: "error" });
     });
     return null;

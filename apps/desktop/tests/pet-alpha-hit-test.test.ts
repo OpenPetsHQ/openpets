@@ -3,11 +3,13 @@ import { describe, it } from "node:test";
 
 import {
   PET_ALPHA_HIT_THRESHOLD,
+  createPetAlphaHitTester,
   isSpritePixelOpaque,
   mapClientPointToSpritePixel,
   parseCssBackgroundImageUrl,
   parseCssBackgroundSize,
   parseCssPixelLength,
+  type PetAlphaHitTestDocument,
   type SpriteSheetPixels,
 } from "../src/pet-alpha-hit-test.js";
 
@@ -90,8 +92,16 @@ describe("mapClientPointToSpritePixel", () => {
   });
 
   it("mirrors x when the shell flips horizontally", () => {
+    const point = mapClientPointToSpritePixel({ ...base, clientX: 150, clientY: 50, flipped: true });
+    assert.deepEqual(point, { x: 100, y: 0 });
+  });
+
+  it("keeps the flipped left edge inside the displayed frame", () => {
+    // Regression: fractionX becomes exactly 1 at the flipped sprite's left edge,
+    // which used to floor into the first pixel of the adjacent sheet frame and
+    // could make a transparent edge interactive on a neighbor's alpha.
     const point = mapClientPointToSpritePixel({ ...base, clientX: 50, clientY: 50, flipped: true });
-    assert.deepEqual(point, { x: 200, y: 0 });
+    assert.deepEqual(point, { x: 199, y: 0 });
   });
 
   it("lands outside the sheet over no-repeat areas beyond the image", () => {
@@ -121,5 +131,148 @@ describe("isSpritePixelOpaque", () => {
     assert.equal(isSpritePixelOpaque(pixels, 0, 0), false);
     assert.equal(isSpritePixelOpaque(pixels, -1, 4), false);
     assert.equal(isSpritePixelOpaque(pixels, 4, 100), false);
+  });
+});
+
+// ─── tester factory wiring ───────────────────────────────────────────────────
+// These protect the DOM wiring the helpers alone cannot: sprite selection
+// (plugin override vs hidden base), the padding ring outside the artwork box,
+// and fail-open behavior while pixels load or fail to load.
+
+type FakeSpriteElement = {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  readonly style: {
+    readonly backgroundImage: string;
+    readonly backgroundPositionX: string;
+    readonly backgroundPositionY: string;
+    readonly backgroundSize: string;
+  };
+};
+
+const makeFakeDocument = (
+  sprites: Record<string, FakeSpriteElement | null>,
+  dataset: Record<string, string> = {},
+): PetAlphaHitTestDocument => {
+  const elements = new WeakMap<object, FakeSpriteElement>();
+  return {
+    querySelector: (selector: string) => {
+      const sprite = sprites[selector];
+      if (!sprite) return null;
+      const element = {
+        getBoundingClientRect: () => ({
+          left: sprite.left,
+          top: sprite.top,
+          right: sprite.left + sprite.width,
+          bottom: sprite.top + sprite.height,
+          width: sprite.width,
+          height: sprite.height,
+        }),
+        offsetWidth: sprite.width,
+        offsetHeight: sprite.height,
+      };
+      elements.set(element, sprite);
+      return element;
+    },
+    defaultView: {
+      getComputedStyle: (element) => {
+        const sprite = elements.get(element);
+        if (!sprite) throw new Error("unknown element");
+        return sprite.style;
+      },
+    },
+    documentElement: { dataset },
+    createElement: () => {
+      throw new Error("canvas is not needed for hit-tester tests");
+    },
+  };
+};
+
+const spriteStyle = {
+  backgroundImage: 'url("file:///pets/sheet.png")',
+  backgroundPositionX: "0px",
+  backgroundPositionY: "0px",
+  backgroundSize: "10px 10px",
+};
+
+const makeSprite = (left: number, top: number, size = 10, imageUrl = "file:///pets/sheet.png"): FakeSpriteElement => ({
+  left,
+  top,
+  width: size,
+  height: size,
+  style: { ...spriteStyle, backgroundImage: `url("${imageUrl}")` },
+});
+
+const settleAsync = () => new Promise((resolve) => setImmediate(resolve));
+
+describe("createPetAlphaHitTester", () => {
+  it("reports transparent artwork as non-interactive and opaque artwork as interactive", async () => {
+    const tester = createPetAlphaHitTester({
+      document: makeFakeDocument({ ".pet-shell .sprite": makeSprite(0, 0) }),
+      loadSpritePixels: async () => makePixels(10, 10, [[5, 5, 255]]),
+    });
+    assert.equal(tester.isOpaqueAt(5, 5), true); // first call warms the cache, fails open
+    await settleAsync();
+    assert.equal(tester.isOpaqueAt(5, 5), true);
+    assert.equal(tester.isOpaqueAt(1, 1), false);
+  });
+
+  it("treats the hitbox padding ring outside the artwork box as transparent", async () => {
+    const tester = createPetAlphaHitTester({
+      document: makeFakeDocument({ ".pet-shell .sprite": makeSprite(28, 28) }),
+      loadSpritePixels: async () => makePixels(10, 10, [[2, 2, 255]]),
+    });
+    tester.isOpaqueAt(30, 30); // warm the pixel cache
+    await settleAsync();
+    assert.equal(tester.isOpaqueAt(0, 0), false);
+    assert.equal(tester.isOpaqueAt(30, 30), true);
+  });
+
+  it("samples the plugin override instead of the hidden base sprite", async () => {
+    const tester = createPetAlphaHitTester({
+      document: makeFakeDocument({
+        ".pet-shell .plugin-sprite-override": makeSprite(0, 0, 10, "file:///pets/override.png"),
+        ".pet-shell .sprite": makeSprite(0, 0, 10, "file:///pets/base.png"),
+      }),
+      loadSpritePixels: async (url) => url.includes("override")
+        ? makePixels(10, 10, [])
+        : makePixels(10, 10, [[5, 5, 255]]),
+    });
+    tester.isOpaqueAt(5, 5); // warm the pixel cache
+    await settleAsync();
+    // The base sprite is opaque at this point; the override's empty sheet
+    // proves the override won selection.
+    assert.equal(tester.isOpaqueAt(5, 5), false);
+  });
+
+  it("fails open while pixels load and after a load failure", async () => {
+    let release: (pixels: SpriteSheetPixels) => void = () => undefined;
+    const pendingTester = createPetAlphaHitTester({
+      document: makeFakeDocument({ ".pet-shell .sprite": makeSprite(0, 0) }),
+      loadSpritePixels: async () => new Promise<SpriteSheetPixels>((resolve) => { release = resolve; }),
+    });
+    assert.equal(pendingTester.isOpaqueAt(1, 1), true);
+
+    const failingTester = createPetAlphaHitTester({
+      document: makeFakeDocument({ ".pet-shell .sprite": makeSprite(0, 0) }),
+      loadSpritePixels: async () => { throw new Error("sprite bytes unavailable"); },
+    });
+    assert.equal(failingTester.isOpaqueAt(1, 1), true);
+    await settleAsync();
+    assert.equal(failingTester.isOpaqueAt(1, 1), true);
+
+    release(makePixels(10, 10, []));
+    await settleAsync();
+    assert.equal(pendingTester.isOpaqueAt(1, 1), false);
+  });
+
+  it("fails open when no sprite element exists", () => {
+    const tester = createPetAlphaHitTester({
+      document: makeFakeDocument({}),
+      loadSpritePixels: async () => makePixels(10, 10, []),
+    });
+    assert.equal(tester.isOpaqueAt(5, 5), true);
   });
 });

@@ -227,16 +227,30 @@ const getPetAlphaHitTester = () => {
   return petAlphaHitTester;
 };
 
+// Wayland native drag (`-webkit-app-region: drag`) starts a window move
+// without consulting this preload, so transparent-pixel hovers must also lift
+// the CSS drag region itself (see pet-window-styles.ts).
+const markAlphaTransparency = (transparent) => {
+  const root = document.documentElement;
+  if (!root) return;
+  const next = transparent ? "true" : "false";
+  if (root.dataset.petAlphaTransparent !== next) root.dataset.petAlphaTransparent = next;
+};
+
 const isOpaquePetSurfaceHit = (target, clientX, clientY) => {
-  if (!(target instanceof Element)) return false;
-  if (isInteractivePanelOrBubble(target)) return true;
-  if (!target.closest(".pet-hitbox, .pet-shell")) return false;
+  if (!(target instanceof Element) || isInteractivePanelOrBubble(target) || !target.closest(".pet-hitbox, .pet-shell")) {
+    markAlphaTransparency(false);
+    return target instanceof Element && isInteractivePanelOrBubble(target);
+  }
+  let opaque;
   try {
-    return getPetAlphaHitTester().isOpaqueAt(clientX, clientY);
+    opaque = getPetAlphaHitTester().isOpaqueAt(clientX, clientY);
   } catch {
     // A hit-test failure must never make the pet ungrabbable.
-    return true;
+    opaque = true;
   }
+  markAlphaTransparency(!opaque);
+  return opaque;
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -2367,6 +2381,7 @@ const installMouseInterop = () => {
   });
 
   document.addEventListener("mouseleave", () => {
+    markAlphaTransparency(false);
     if (!dragging) setInteractiveHit(false);
   }, { passive: true });
 

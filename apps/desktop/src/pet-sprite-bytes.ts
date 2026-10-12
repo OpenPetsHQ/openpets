@@ -1,6 +1,7 @@
 import { app, ipcMain, type WebContents } from "electron";
-import { readFile, stat } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { warn } from "./logger.js";
@@ -28,10 +29,39 @@ export function trackPetSpriteBytesWebContents(contents: WebContents): void {
   ensureHandler();
 }
 
-function isAllowedSpritePath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  const roots = [resolve(join(app.getAppPath(), "assets")), resolve(app.getPath("userData"))];
-  return roots.some((root) => resolved === root || resolved.startsWith(`${root}${sep}`));
+const canonicalRootCache = new Map<string, string>();
+
+async function canonicalRoot(root: string): Promise<string | null> {
+  const cached = canonicalRootCache.get(root);
+  if (cached) return cached;
+  try {
+    const canonical = await realpath(root);
+    canonicalRootCache.set(root, canonical);
+    return canonical;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Containment must be decided on canonical paths: `resolve()` is purely
+ * lexical, so a symlink inside userData could otherwise point a "confined"
+ * sprite request at an arbitrary file. Roots are canonicalized too (macOS
+ * resolves paths such as /var through /private/var).
+ */
+async function resolveAllowedSpritePath(filePath: string): Promise<string | null> {
+  let canonical: string;
+  try {
+    canonical = await realpath(filePath);
+  } catch {
+    return null;
+  }
+  const roots = await Promise.all([
+    canonicalRoot(join(app.getAppPath(), "assets")),
+    canonicalRoot(app.getPath("userData")),
+  ]);
+  const allowed = roots.some((root) => root !== null && (canonical === root || canonical.startsWith(`${root}${sep}`)));
+  return allowed ? canonical : null;
 }
 
 function ensureHandler(): void {
@@ -48,16 +78,24 @@ function ensureHandler(): void {
     } catch {
       return null;
     }
-    if (!allowedSpriteExtensions.has(extname(filePath).toLowerCase())) return null;
-    if (!isAllowedSpritePath(filePath)) {
+    const canonical = await resolveAllowedSpritePath(filePath);
+    if (!canonical) {
       warn("pet.window", "sprite bytes request outside allowed roots", { filePath });
       return null;
     }
+    if (!allowedSpriteExtensions.has(extname(canonical).toLowerCase())) return null;
 
+    // O_NOFOLLOW keeps the canonical containment decision honest: the final
+    // component cannot be swapped for a symlink between the check and the read.
     try {
-      const info = await stat(filePath);
-      if (!info.isFile() || info.size <= 0 || info.size > MAX_SPRITE_BYTES) return null;
-      return await readFile(filePath);
+      const handle = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const info = await handle.stat();
+        if (!info.isFile() || info.size <= 0 || info.size > MAX_SPRITE_BYTES) return null;
+        return await handle.readFile();
+      } finally {
+        await handle.close();
+      }
     } catch {
       return null;
     }
