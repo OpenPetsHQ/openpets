@@ -38,6 +38,38 @@ const petWindowFocusPolicy = new WeakMap<BrowserWindow, boolean>();
 const petWindowShowCoordinators = new WeakMap<BrowserWindow, PetWindowShowCoordinator>();
 const petWindowLayerShellBackends = new WeakMap<BrowserWindow, boolean>();
 const petWindowX11MapLifecycles = new WeakMap<BrowserWindow, PetWindowX11MapLifecycle>();
+
+/** All live pet windows participating in the shared always-on-top contract. */
+const trackedPetWindows = new Set<BrowserWindow>();
+const loggedWaylandTopmost = new WeakSet<BrowserWindow>();
+let petWindowAlwaysOnTopTimer: NodeJS.Timeout | null = null;
+
+function reassertAllPetWindows(): void {
+  for (const candidate of [...trackedPetWindows]) {
+    if (candidate.isDestroyed()) {
+      trackedPetWindows.delete(candidate);
+      continue;
+    }
+    if (!candidate.isVisible()) continue;
+    applyPetAlwaysOnTop(candidate);
+  }
+}
+
+function ensurePetWindowAlwaysOnTopTimer(): void {
+  if (petWindowAlwaysOnTopTimer) return;
+  const cadence = process.platform === "win32" ? 1_000 : 2_000;
+  petWindowAlwaysOnTopTimer = setInterval(() => {
+    for (const candidate of [...trackedPetWindows]) {
+      if (candidate.isDestroyed()) trackedPetWindows.delete(candidate);
+    }
+    reassertAllPetWindows();
+    if (trackedPetWindows.size === 0 && petWindowAlwaysOnTopTimer) {
+      clearInterval(petWindowAlwaysOnTopTimer);
+      petWindowAlwaysOnTopTimer = null;
+    }
+  }, cadence);
+  petWindowAlwaysOnTopTimer.unref?.();
+}
 export { isPetWindowDragging, recoverPetMouseInterop, subscribePetWindowSpeechCompletion } from "./pet-window-interaction.js";
 
 /**
@@ -286,35 +318,21 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
     },
   });
   petWindowLayerShellBackends.set(window, useLayerShell);
-  window.once("closed", () => cancelPetWindowX11MapLifecycle(window));
+  trackedPetWindows.add(window);
+  ensurePetWindowAlwaysOnTopTimer();
+  window.once("closed", () => {
+    cancelPetWindowX11MapLifecycle(window);
+    trackedPetWindows.delete(window);
+  });
   pinPetWindowZoom(window);
 
   petWindowFocusPolicy.set(window, focusable);
   window.setMenu(null);
   applyPetAlwaysOnTop(window);
-  window.on("show", () => applyPetAlwaysOnTop(window));
-  window.on("restore", () => applyPetAlwaysOnTop(window));
-
-  // Windows silently strips HWND_TOPMOST from other windows when an app
-  // enters fullscreen (browser video, games) and never restores it, and no
-  // Electron event fires when that happens — the pet stays buried behind
-  // normal windows until the user manually toggles it. Periodic re-assertion
-  // is the only reliable recovery, and matches the macOS visibleOnFullScreen
-  // intent below. The shell's demotion sweep re-strips the flag every ~2-4s
-  // while a fullscreen app is foreground (measured: a forced re-assert held
-  // for ~2-3s before being swept), so a 1s cadence keeps the pet on top of
-  // fullscreen content with sub-second gaps at worst; the two SetWindowPos
-  // calls per tick are negligible.
-  if (process.platform === "win32") {
-    const topmostTimer = setInterval(() => {
-      if (window.isDestroyed()) {
-        clearInterval(topmostTimer);
-        return;
-      }
-      if (window.isVisible()) applyPetAlwaysOnTop(window);
-    }, 1_000);
-    window.on("closed", () => clearInterval(topmostTimer));
-  }
+  window.on("show", () => reassertAllPetWindows());
+  window.on("restore", () => reassertAllPetWindows());
+  window.on("focus", () => reassertAllPetWindows());
+  window.on("blur", () => reassertAllPetWindows());
 
   // Show the pet window on all macOS Spaces (desktop workspaces).
   // Without this, the window is bound to the Space where it was created
@@ -387,19 +405,27 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
 function applyPetAlwaysOnTop(window: BrowserWindow): void {
   if (window.isDestroyed()) return;
 
-  // On Windows the shell strips WS_EX_TOPMOST behind Electron's back
-  // (fullscreen apps), but Electron's cached always-on-top state still says
-  // "on", so a plain setAlwaysOnTop(true) short-circuits without reaching the
-  // OS — verified live: the flag stayed off for minutes of re-asserts. Drop
-  // the cached flag first so the re-assert issues a real SetWindowPos.
-  if (process.platform === "win32" && window.isAlwaysOnTop()) {
-    window.setAlwaysOnTop(false);
+  // Layer-shell pets (Wayland) rely on the native helper for Z-order; Electron's
+  // setAlwaysOnTop is a no-op there. Degrade gracefully and record this instead of
+  // silently claiming success, so a helper failure is observable in the logs.
+  if (petWindowLayerShellBackends.get(window) === true) {
+    if (!loggedWaylandTopmost.has(window)) {
+      loggedWaylandTopmost.add(window);
+      info("pet.window", "always-on-top delegated to Wayland layer-shell helper", { windowId: window.id });
+    }
+    return;
   }
 
-  window.setAlwaysOnTop(true, process.platform === "linux" ? "screen-saver" : "floating");
-
-  if (process.platform === "linux") {
-    window.setVisibleOnAllWorkspaces(true);
+  try {
+    if (process.platform === "win32" && window.isAlwaysOnTop()) {
+      window.setAlwaysOnTop(false);
+    }
+    window.setAlwaysOnTop(true, process.platform === "linux" ? "screen-saver" : "floating");
+    if (process.platform === "linux") {
+      window.setVisibleOnAllWorkspaces(true);
+    }
+  } catch (error) {
+    logError("pet.window", "always-on-top could not be honored", { windowId: window.id, platform: process.platform, error: error instanceof Error ? error.message : String(error) });
   }
 }
 
