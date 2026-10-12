@@ -61,10 +61,10 @@ in Control Center under Settings → Remote.
 
 ## Pet pool: multiple agents, multiple pets
 
-By default every agent session that does not pass `--pet <id>` shares the single
-default pet. The **pet pool** preference (Control Center → Settings → General,
-`petPoolEnabled`, off by default) changes this so concurrent sessions each get
-their own pet from a user-configured ordered list.
+When the pet pool is disabled, every agent session that does not pass
+`--pet <id>` shares the single default pet. The **pet pool** preference (Control
+Center → Settings → General, `petPoolEnabled`, on by default) changes this so
+concurrent sessions each get their own pet from a user-configured ordered list.
 
 **How it works when enabled:**
 
@@ -74,13 +74,17 @@ their own pet from a user-configured ordered list.
 - When a new session starts without `--pet`, the lease manager assigns it the
   first pool slot not currently held by an active session.
 - Once every pool slot is occupied, additional sessions are assigned a random
-  eligible pet (installed, non-broken, excluding the built-in default).
+  eligible pet (installed, non-broken, excluding the built-in default and any
+  pet the user has pinned to the desktop).
 - When a session ends its lease, its pet slot is freed and available to the next
   session.
 - **`--pet <id>` always takes priority** and bypasses the pool entirely - unchanged from current behavior.
 
-**Eligible pool pets** are installed, non-broken pets excluding the built-in
-default. Broken or uninstalled pets are skipped silently.
+**Eligible pool pets** are installed, non-broken pets other than the built-in or
+current default pet, with any pet currently pinned by the user also excluded.
+Broken or uninstalled pets are skipped silently. If no eligible pet remains after
+excluding pins, the session falls back to the default pet instead of opening a
+second window for a pinned pet.
 
 **Cross-platform and agent-agnostic.** Pool assignment is pure lease logic with
 no platform dependency - it works on macOS, Windows, and Linux. Any agent that
