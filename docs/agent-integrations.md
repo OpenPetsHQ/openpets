@@ -74,8 +74,9 @@ concurrent sessions each get their own pet from a user-configured ordered list.
 - Pool assignment walks the configured list in order and assigns the first eligible pet
   without an active lease.
 - If no eligible pet in that ordered list is free, the session uses the default pet
-  until a listed slot frees up. It does not choose a random installed pet outside the list.
-- When a session ends its lease, its pet slot is freed and available to the next
+  for its lease. It does not move to a pool pet if a listed slot later becomes free.
+  It does not choose a random installed pet outside the list.
+- When a session ends its lease, its pet slot is freed and available to a new
   session.
 - **`--pet <id>` always takes priority** and bypasses the pool entirely - unchanged from current behavior.
 
@@ -83,7 +84,8 @@ concurrent sessions each get their own pet from a user-configured ordered list.
 current default pet, with any pet currently pinned by the user also excluded.
 Broken or uninstalled pets are skipped silently. Only pets listed in the configured
 pool order can be assigned; if none of those eligible entries is free, the session
-uses the default pet until a listed slot frees up.
+uses the default pet for its lease and does not move to a pool pet when a slot later
+frees up. That freed slot is available to a new lease.
 
 **Cross-platform and agent-agnostic.** Pool assignment is pure lease logic with
 no platform dependency - it works on macOS, Windows, and Linux. Any agent that
