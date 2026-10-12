@@ -95,7 +95,9 @@ dist checks. The dist-check step wipes `dist/` and rebuilds the full app
     canonical bundled official plugin as extra resources, each plugin's
     manifest, entry, declared assets, and locales exist, every unpacked
     `@open-pets/*` integration runtime entry (including OpenClaw) exists, and
-    the pet-window CSP allows the bundled emoji font, etc. This is the guard
+    the pet-window CSP allows the bundled emoji font, etc. The OpenCode smoke
+    imports the packaged package root and requires the V2 `setup` export, not a
+    private `dist/plugin.js` entry or a V1 `server` hook. This is the guard
     that a _packaged_ build is actually shippable.
   - `check-opencode-desktop-setup.ts` - verifies the bundled OpenCode setup
     preview matches expectations.

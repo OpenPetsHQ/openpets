@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
 
 import { allowedReactions } from "./local-ipc-protocol.js";
-import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
+import { assertBundledOfficialPlugins, assertOpenCodePluginExport, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames, type PackagingTarget, type PackagingPlatform } from "./packaging-contract.js";
 import { assertNoEscapingPackageOutputSymlinks, assertNoForbiddenPackageOutput } from "./packaging-output-contract.js";
 import { pickReactionMessage, reactionMessagePools } from "./reaction-messages.js";
 
@@ -95,7 +95,7 @@ assert.ok(existsSync(join(repoRoot, "packages", "claude", "dist", "index.js")), 
 assert.ok(existsSync(join(repoRoot, "packages", "client", "dist", "index.js")), "@open-pets/client must be built before packaging.");
 assert.ok(existsSync(join(repoRoot, "packages", "mcp", "dist", "index.js")), "@open-pets/mcp must be built before packaging.");
 assert.ok(existsSync(join(repoRoot, "packages", "cli", "dist", "index.js")), "@open-pets/cli must be built before packaging.");
-assert.ok(existsSync(join(repoRoot, "packages", "opencode", "dist", "plugin.js")), "@open-pets/opencode plugin must be built before packaging.");
+assert.ok(existsSync(join(repoRoot, "packages", "opencode", "dist", "index.js")), "@open-pets/opencode public export must be built before packaging.");
 assert.ok(existsSync(join(repoRoot, "packages", "agent-events", "dist", "index.js")), "@open-pets/agent-events must be built before packaging.");
 
 if (process.argv.includes("--output")) {
@@ -133,7 +133,7 @@ function checkPackageOutput(outputDir: string, target: PackagingTarget): void {
   assertTargetSharpNative(appContents, target);
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "mcp", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "cli", "dist", "index.js"));
-  assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js"));
+  assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "opencode", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "claude", "dist", "cli.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "zed", "dist", "index.js"));
   assertRegularNonSymlink(join(appContents, "node_modules", "@open-pets", "devin", "dist", "index.js"));
@@ -222,9 +222,7 @@ function assertCommandSmoke(appContents: string): void {
   assert.equal(hook.status, 0, `packaged Claude hook command smoke failed: ${hook.stderr || hook.stdout}`);
   assert.equal(hook.stdout, "");
 
-  const opencodePlugin = join(appContents, "node_modules", "@open-pets", "opencode", "dist", "plugin.js");
-  const plugin = spawnSync(process.execPath, ["--input-type=module", "--eval", `const mod = await import(${JSON.stringify(`file://${opencodePlugin}`)}); if (!mod.default?.server || !mod.default?.id) process.exit(2);`], { encoding: "utf8" });
-  assert.equal(plugin.status, 0, `packaged OpenCode plugin smoke failed: ${plugin.stderr || plugin.stdout}`);
+  assertOpenCodePluginExport(join(appContents, "node_modules", "@open-pets", "opencode"));
 }
 
 function getOutputDirectoryArgument(): string | null {

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { bundledOfficialPluginIds } from "./bundled-plugins.js";
 
@@ -61,6 +64,36 @@ export function assertBundledOfficialPlugins(resourceDir: string, sourceDir: str
       parseJson(join(packagedPluginDir, "locales", locale), `packaged bundled plugin locale is invalid: ${id}/${locale}`);
     }
   }
+}
+
+export function assertOpenCodePluginExport(packageDir: string): void {
+  const packageJson = parseJson(join(packageDir, "package.json"), "OpenCode plugin package metadata is missing") as JsonRecord;
+  assert.equal(packageJson.name, "@open-pets/opencode", "OpenCode package metadata must identify the public package.");
+  const entry = createRequire(join(packageDir, "package.json")).resolve("@open-pets/opencode");
+  assertRegularNonSymlink(entry, "OpenCode plugin public export is missing");
+  const result = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const mod = await import(${JSON.stringify(pathToFileURL(entry).href)});
+const plugin = mod.default;
+if (!plugin || typeof plugin !== "object") {
+  console.error("OpenCode package root has no default export");
+  process.exit(2);
+}
+if (plugin.id !== "open-pets-opencode") {
+  console.error("unexpected OpenCode plugin id: " + plugin.id);
+  process.exit(3);
+}
+if (typeof plugin.setup !== "function") {
+  console.error("OpenCode package root default export has no V2 setup");
+  process.exit(4);
+}
+if ("server" in plugin) {
+  console.error("OpenCode package root still exports V1 server");
+  process.exit(5);
+}`,
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 0, `OpenCode plugin public export smoke failed: ${result.stderr || result.stdout}`);
 }
 
 export function assertUnpackedIntegrationRuntimes(appContents: string, packageNames: readonly string[], sourcePackagesDir?: string): void {

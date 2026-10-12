@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import type { OpenPetsClient, OpenPetsReaction } from "@open-pets/client";
+import type { Context } from "@opencode/plugin/promise/plugin";
+import type { SessionHooks } from "@opencode/plugin/promise/session";
+import type { Error as OpenCodeToolError } from "@opencode/plugin/promise/tool";
 
 import plugin, { openPetsOpenCodePluginId } from "./plugin.js";
 import { classifyOpenCodeBusEvent, classifyOpenCodeToolReaction, createOpenPetsOpenCodeRuntime, getDefaultOpenCodeThrottlePath, isReactionExcluded, shouldIgnoreOpenPetsTool } from "./opencode-plugin-runtime.js";
@@ -484,24 +488,285 @@ await assert.rejects(
   }
 }
 
+{
+  await withPluginIpc(async (requests, stateRoot, waitForIpc) => {
+    setThrottleRoot(join(stateRoot, "reactions"));
+    const hooks: RegisteredHooks = { names: [] };
+    const cleanup = await plugin.setup(pluginContext({ pet: "fixer", hooks }));
+    if (typeof cleanup !== "function") throw new Error("OpenCode plugin setup did not return cleanup.");
+    try {
+      assert.deepEqual(hooks.names, ["session.prompt", "tool.execute.before", "tool.execute.after"]);
+      assertRegisteredHooks(hooks);
+      hooks.prompt(sessionPrompt("wire the prompt hook"));
+      hooks.before(toolBeforeEvent("edit", { filePath: "README.md" }));
+      hooks.before(toolBeforeEvent("bash", { command: "pnpm test" }));
+      hooks.before(toolBeforeEvent("openpets_openpets_say", {}));
+      await Promise.all([
+        waitForIpc((request) => request.method === "pet.react" && request.params?.reaction === "thinking"),
+        waitForIpc((request) => request.method === "pet.react" && request.params?.reaction === "editing"),
+        waitForIpc((request) => request.method === "pet.react" && request.params?.reaction === "testing"),
+      ]);
+    } finally {
+      await cleanup();
+    }
+
+    assert.equal(requests.filter((request) => request.method === "pet.react" && request.params?.reaction === "editing").length, 1);
+
+    setThrottleRoot(join(stateRoot, "openpets-tools"));
+    const ownToolHooks: RegisteredHooks = { names: [] };
+    const ownToolCleanup = await plugin.setup(pluginContext({ pet: "fixer", hooks: ownToolHooks }));
+    if (typeof ownToolCleanup !== "function") throw new Error("OpenCode plugin setup did not return cleanup.");
+    try {
+      assertRegisteredHooks(ownToolHooks);
+      ownToolHooks.after(toolAfterError("openpets_openpets_status", "pet ipc failed"));
+      ownToolHooks.after(toolAfterError("openpets_openpets_say", "pet ipc failed"));
+      ownToolHooks.after(toolAfterError("openpets_openpets_react", "pet ipc failed"));
+      ownToolHooks.after(toolAfterError("openpets_say", "pet ipc failed"));
+      ownToolHooks.before(toolBeforeEvent("edit", { filePath: "README.md" }));
+      await waitForIpc((request) => request.method === "pet.react" && request.params?.reaction === "editing");
+    } finally {
+      await ownToolCleanup();
+    }
+    assert.equal(
+      requests.filter((request) => request.method === "pet.say" || request.params?.reaction === "error").length,
+      0,
+      "OpenPets MCP tool failures must not dispatch error feedback",
+    );
+
+    setThrottleRoot(join(stateRoot, "foreign-tool"));
+    const errorHooks: RegisteredHooks = { names: [] };
+    const errorCleanup = await plugin.setup(pluginContext({ pet: "fixer", hooks: errorHooks }));
+    if (typeof errorCleanup !== "function") throw new Error("OpenCode plugin setup did not return cleanup.");
+    try {
+      assertRegisteredHooks(errorHooks);
+      errorHooks.after(toolAfterError("bash", "command failed"));
+      await waitForIpc((request) => request.method === "pet.say" && request.params?.reaction === "error");
+    } finally {
+      await errorCleanup();
+    }
+    const errorSpeeches = requests.filter((request) => request.method === "pet.say");
+    assert.equal(errorSpeeches.length, 1, "foreign tool failures must emit error speech");
+    assert.notEqual(errorSpeeches[0]?.params?.message, "command failed", "tool errors use curated speech rather than the tool error text");
+  });
+}
+
+function assertRegisteredHooks(hooks: RegisteredHooks): asserts hooks is RegisteredHooks & Required<Pick<RegisteredHooks, "prompt" | "before" | "after">> {
+  assert.ok(hooks.prompt, "V2 session.prompt callback must be registered");
+  assert.ok(hooks.before, "V2 tool.execute.before callback must be registered");
+  assert.ok(hooks.after, "V2 tool.execute.after callback must be registered");
+}
+
 function pluginContext(overrides: {
   readonly pet?: unknown;
+  readonly hooks?: RegisteredHooks;
   readonly subscribe?: (options?: { readonly signal?: AbortSignal }) => AsyncIterable<unknown>;
-  readonly sessionHook?: () => Promise<{ dispose: () => Promise<void> }>;
-  readonly toolHook?: () => Promise<{ dispose: () => Promise<void> }>;
-}): Parameters<typeof plugin.setup>[0] {
-  return {
+  readonly sessionHook?: Context["session"]["hook"];
+  readonly toolHook?: Context["tool"]["hook"];
+}): Context {
+  const host = {
     options: overrides.pet === undefined ? {} : { pet: overrides.pet },
     event: {
       subscribe: overrides.subscribe ?? (() => emptyEvents()),
     },
     session: {
-      hook: overrides.sessionHook ?? (async () => ({ dispose: async () => {} })),
+      hook: overrides.sessionHook ?? recordingSessionHook(overrides.hooks),
     },
     tool: {
-      hook: overrides.toolHook ?? (async () => ({ dispose: async () => {} })),
+      hook: overrides.toolHook ?? recordingToolHook(overrides.hooks),
     },
-  } as unknown as Parameters<typeof plugin.setup>[0];
+  };
+  return host as unknown as Context;
+}
+
+function recordingSessionHook(hooks: RegisteredHooks | undefined): Context["session"]["hook"] {
+  return async (name, callback) => {
+    hooks?.names.push(`session.${name}`);
+    // The SDK generic keeps Name indexed, so narrowing the event name does not narrow callback's input type.
+    if (hooks && name === "prompt") hooks.prompt = callback as PromptHook;
+    return { dispose: async () => {} };
+  };
+}
+
+function recordingToolHook(hooks: RegisteredHooks | undefined): Context["tool"]["hook"] {
+  return async (name, callback) => {
+    hooks?.names.push(`tool.${name}`);
+    // Tool hook event types are private to the SDK's generic Context declaration.
+    if (hooks && name === "execute.before") hooks.before = callback as ToolBeforeHook;
+    if (hooks && name === "execute.after") hooks.after = callback as ToolAfterHook;
+    return { dispose: async () => {} };
+  };
+}
+
+type PromptHook = (input: SessionHooks["prompt"]) => void | Promise<void>;
+type ToolBeforeEvent = {
+  tool: string;
+  readonly sessionID: string;
+  readonly agent: string;
+  readonly messageID: string;
+  readonly id: string;
+  input: unknown;
+};
+type ToolAfterEvent = {
+  readonly tool: string;
+  readonly sessionID: string;
+  readonly agent: string;
+  readonly messageID: string;
+  readonly id: string;
+  readonly input: unknown;
+  readonly status: "error";
+  readonly error: OpenCodeToolError;
+};
+type ToolBeforeHook = (input: ToolBeforeEvent) => void | Promise<void>;
+type ToolAfterHook = (input: ToolAfterEvent) => void | Promise<void>;
+type RegisteredHooks = {
+  readonly names: string[];
+  prompt?: PromptHook;
+  before?: ToolBeforeHook;
+  after?: ToolAfterHook;
+};
+
+function sessionPrompt(text: string): SessionHooks["prompt"] {
+  return {
+    sessionID: "ses_wire" as SessionHooks["prompt"]["sessionID"],
+    messageID: "msg_wire" as SessionHooks["prompt"]["messageID"],
+    prompt: { text } as SessionHooks["prompt"]["prompt"],
+    delivery: "steer",
+  };
+}
+
+function toolBeforeEvent(tool: string, input: unknown): ToolBeforeEvent {
+  return {
+    tool,
+    sessionID: "ses_wire" as ToolBeforeEvent["sessionID"],
+    agent: "build" as ToolBeforeEvent["agent"],
+    messageID: "msg_wire" as ToolBeforeEvent["messageID"],
+    id: "call_wire" as ToolBeforeEvent["id"],
+    input,
+  };
+}
+
+function toolAfterError(tool: string, message: string): ToolAfterEvent {
+  return {
+    tool,
+    sessionID: "ses_wire" as ToolAfterEvent["sessionID"],
+    agent: "build" as ToolAfterEvent["agent"],
+    messageID: "msg_wire" as ToolAfterEvent["messageID"],
+    id: "call_wire" as ToolAfterEvent["id"],
+    input: {},
+    status: "error",
+    error: Object.assign(new Error(message), { _tag: "Tool.Error" }) as OpenCodeToolError,
+  };
+}
+
+type IpcRequest = {
+  readonly method?: string;
+  readonly params?: { readonly reaction?: string; readonly message?: string };
+};
+
+async function withPluginIpc(run: (
+  requests: IpcRequest[],
+  stateRoot: string,
+  waitForIpc: (predicate: (request: IpcRequest) => boolean) => Promise<void>,
+) => Promise<void>): Promise<void> {
+  const discoveryDir = mkdtempSync(join(tmpdir(), "openpets-opencode-wire-"));
+  const discoveryPath = join(discoveryDir, "ipc.json");
+  const requests: IpcRequest[] = [];
+  const waiters = new Set<{
+    readonly predicate: (request: IpcRequest) => boolean;
+    readonly resolve: () => void;
+    readonly reject: (error: Error) => void;
+    readonly timeout: NodeJS.Timeout;
+  }>();
+  const server = createServer((socket) => {
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf("\n");
+        if (!line.trim()) continue;
+        const request = JSON.parse(line) as { readonly id?: string; readonly method?: string; readonly params?: IpcRequest["params"] };
+        const received: IpcRequest = { method: request.method, params: request.params };
+        requests.push(received);
+        for (const waiter of waiters) {
+          if (!waiter.predicate(received)) continue;
+          clearTimeout(waiter.timeout);
+          waiters.delete(waiter);
+          waiter.resolve();
+        }
+        const result = request.method === "lease.acquire"
+          ? { leaseId: "wire-lease", expiresAt: Date.now() + 60_000, targetKind: "explicit", actualTargetPetId: "fixer", actualTargetPetName: "Fixer", usingDefaultPet: false, leaseActive: true }
+          : request.method === "lease.release"
+            ? { released: true }
+            : { ok: true };
+        socket.write(`${JSON.stringify({ id: request.id ?? null, ok: true, result })}\n`);
+      }
+    });
+  });
+  const previousDiscovery = process.env.OPENPETS_DISCOVERY_FILE;
+  const previousState = process.env.XDG_STATE_HOME;
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  try {
+    let endpoint: string | undefined;
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.once("listening", () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("OpenPets test IPC server did not bind a TCP address."));
+          return;
+        }
+        endpoint = `tcp://127.0.0.1:${address.port}`;
+        resolve();
+      });
+      server.listen(0, "127.0.0.1");
+    });
+    assert.ok(endpoint, "OpenPets test IPC server must have an endpoint.");
+    writeFileSync(discoveryPath, `${JSON.stringify({
+      protocolVersion: 1,
+      protocol: "openpets-ipc",
+      endpoint,
+      token: "openpets-plugin-wire-token",
+      appVersion: "test",
+      pid: process.pid,
+      platform: process.platform,
+    })}\n`);
+    process.env.OPENPETS_DISCOVERY_FILE = discoveryPath;
+    const waitForIpc = (predicate: (request: IpcRequest) => boolean): Promise<void> => {
+      if (requests.some(predicate)) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          waiters.delete(waiter);
+          reject(new Error("Timed out waiting for the expected OpenPets IPC request."));
+        }, 2_000);
+        const waiter = { predicate, resolve, reject, timeout };
+        waiters.add(waiter);
+      });
+    };
+    await run(requests, discoveryDir, waitForIpc);
+  } finally {
+    if (previousDiscovery === undefined) delete process.env.OPENPETS_DISCOVERY_FILE;
+    else process.env.OPENPETS_DISCOVERY_FILE = previousDiscovery;
+    if (previousState === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = previousState;
+    if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previousLocalAppData;
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(new Error("OpenPets IPC fixture closed before the expected request."));
+    }
+    waiters.clear();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(discoveryDir, { recursive: true, force: true });
+  }
+}
+
+function setThrottleRoot(root: string): void {
+  process.env.XDG_STATE_HOME = join(root, "xdg-state");
+  process.env.LOCALAPPDATA = join(root, "local-app-data");
 }
 
 async function flushScheduledWork(): Promise<void> {
