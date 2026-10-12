@@ -11,6 +11,7 @@ const {
 } = require("./src/pet-chat-view-state.ts");
 const { installDefaultPetSession } = require("./pet-session/session-overlay-view.cjs");
 const { createPetContentStageController } = require("./src/pet-content-stage.cjs");
+const { createPetAlphaHitTester, decodeSpriteSheetPixels } = require("./src/pet-alpha-hit-test.ts");
 
 // The pet window's preload runs sandboxed, where `require()` cannot load
 // arbitrary local modules. `pet-tts-helper.cjs` is only loadable when the
@@ -112,8 +113,7 @@ const dismissBubble = (event) => {
   bubble.remove();
 
   const newTarget = document.elementFromPoint(event.clientX, event.clientY);
-  const stillInteractive = Boolean(newTarget && newTarget.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-check-in-panel, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons")) || dragging;
-  reportInteractiveHit(stillInteractive, "bubble-dismiss", true);
+  reportInteractiveHit(isOpaquePetSurfaceHit(newTarget, event.clientX, event.clientY) || dragging, "bubble-dismiss", true);
 
   ipcRenderer.send("openpets:bubble-dismissed", dismissToken);
 };
@@ -209,9 +209,48 @@ function updateAssistantHeader(displayName, assetName) {
   );
 }
 
-const getInteractiveTarget = (event) => {
-  const target = document.elementFromPoint(event.clientX, event.clientY);
-  return target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu");
+// Pixel-accurate pet hit testing: the sprite box is rectangular, but only
+// sufficiently opaque artwork pixels should capture the mouse — transparent
+// corners and faint shadows must let clicks reach windows behind the pet.
+let petAlphaHitTester = null;
+const getPetAlphaHitTester = () => {
+  if (!petAlphaHitTester) {
+    petAlphaHitTester = createPetAlphaHitTester({
+      document,
+      loadSpritePixels: async (url) => {
+        const bytes = await ipcRenderer.invoke("openpets:pet-sprite-bytes", url);
+        if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) throw new Error("Sprite bytes unavailable.");
+        return decodeSpriteSheetPixels(bytes, document);
+      },
+    });
+  }
+  return petAlphaHitTester;
+};
+
+// Wayland native drag (`-webkit-app-region: drag`) starts a window move
+// without consulting this preload, so transparent-pixel hovers must also lift
+// the CSS drag region itself (see pet-window-styles.ts).
+const markAlphaTransparency = (transparent) => {
+  const root = document.documentElement;
+  if (!root) return;
+  const next = transparent ? "true" : "false";
+  if (root.dataset.petAlphaTransparent !== next) root.dataset.petAlphaTransparent = next;
+};
+
+const isOpaquePetSurfaceHit = (target, clientX, clientY) => {
+  if (!(target instanceof Element) || isInteractivePanelOrBubble(target) || !target.closest(".pet-hitbox, .pet-shell")) {
+    markAlphaTransparency(false);
+    return target instanceof Element && isInteractivePanelOrBubble(target);
+  }
+  let opaque;
+  try {
+    opaque = getPetAlphaHitTester().isOpaqueAt(clientX, clientY);
+  } catch {
+    // A hit-test failure must never make the pet ungrabbable.
+    opaque = true;
+  }
+  markAlphaTransparency(!opaque);
+  return opaque;
 };
 
 const reportInteractiveHit = (interactive, source, force = false) => {
@@ -226,7 +265,8 @@ const setInteractiveHit = (interactive, source = "mouse") => {
 };
 
 const updateInteractiveHit = (event) => {
-  setInteractiveHit(Boolean(getInteractiveTarget(event)) || dragging);
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  setInteractiveHit(isOpaquePetSurfaceHit(target, event.clientX, event.clientY) || dragging);
 };
 
 ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
@@ -234,7 +274,7 @@ ipcRenderer.on("openpets:pet-probe-hit-test", (_event, point) => {
   const clientX = point.clientX;
   const clientY = point.clientY;
   const target = document.elementFromPoint(clientX, clientY);
-  reportInteractiveHit(Boolean(target && target.closest(".pet-hitbox, .pet-shell, .bubble, .openpets-compact-composer, .openpets-chat-panel, .openpets-check-in-panel, .openpets-session-overlay, [data-openpets-companion-launcher], [data-openpets-check-in-button], .openpets-pet-buttons, .openpets-context-menu")) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
+  reportInteractiveHit(isOpaquePetSurfaceHit(target, clientX, clientY) || dragging, typeof point.reason === "string" ? point.reason.slice(0, 80) : "probe", true);
 });
 
 // --- Plugin bubble interactions (actions, inline inputs) -------------------
@@ -2311,9 +2351,10 @@ const installMouseInterop = () => {
   }, { passive: true });
 
   document.addEventListener("mousedown", (event) => {
-    const target = event.target instanceof Element ? event.target : getInteractiveTarget(event);
-    setInteractiveHit(Boolean(getInteractiveTarget(event)));
-    if (event.button !== 0 || !target) return;
+    const target = event.target instanceof Element ? event.target : document.elementFromPoint(event.clientX, event.clientY);
+    const interactive = isOpaquePetSurfaceHit(target, event.clientX, event.clientY);
+    setInteractiveHit(interactive);
+    if (event.button !== 0 || !interactive || !(target instanceof Element)) return;
     if (isInteractivePanelOrBubble(target)) return;
     if (!target.closest(".pet-hitbox, .pet-shell")) return;
     if (usesNativePetDrag()) {
@@ -2340,6 +2381,7 @@ const installMouseInterop = () => {
   });
 
   document.addEventListener("mouseleave", () => {
+    markAlphaTransparency(false);
     if (!dragging) setInteractiveHit(false);
   }, { passive: true });
 

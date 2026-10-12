@@ -3,6 +3,7 @@ import { ipcMain, screen, type BrowserWindow, type IpcMainEvent } from "electron
 import type { Point } from "./display.js";
 import { debug } from "./logger.js";
 import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForwardedMouseEvents } from "./mouse-forwarding.js";
+import { trackPetSpriteBytesWebContents } from "./pet-sprite-bytes.js";
 import { resetPetGazeWindow, setPetGazeDragging, setPetGazeRendererReady, suspendPetGazeForMovement } from "./pet-window-gaze.js";
 import type { PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 
@@ -447,6 +448,7 @@ export function installPetWindowInteraction(
   };
 
   petMouseInteropRecovery.set(window, scheduleMouseInteropRecovery);
+  trackPetSpriteBytesWebContents(webContents);
 
   ipcMain.on("openpets:pet-ready", handleReady);
   ipcMain.on("openpets:pet-hit-test", handleHitTest);
