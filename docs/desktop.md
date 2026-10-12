@@ -494,7 +494,8 @@ installed.
 installed pets, the default-pet config, reaction→animation overrides, onboarding
 state, locale preference, the pet pool preference (ordered pet list +
 `petPoolEnabled` toggle), the pinned-pet preference (ordered `pinnedPets` list plus the
-per-pet `pinnedPetPositions` map), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
+per-pet `pinnedPetPositions` map, written through the dedicated
+`openpets:set-pet-pinned` / `setPinnedPets` paths rather than the preference patch), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
 `petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
 preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
 `voiceAssistantShortcut` accelerator. Idle cursor gaze defaults to enabled and
@@ -554,17 +555,34 @@ Settings → General, which stores the ordered `pinnedPets` list in app state, s
 pets come back on the next launch. Pin candidates are the same eligible set the pool
 uses (installed, non-broken, not the built-in default, and not the current default
 pet), which keeps a single pet from being drawn by two windows at once. At most eight
-pets can be pinned, because every pin is a real OS window.
+pets can be pinned, because every pin is a real OS window. At the cap the remaining
+toggles are disabled and the page says so, rather than accepting a ninth pin that the
+list normalizer would silently drop.
+
+Pin toggles go through their own `openpets:set-pet-pinned` channel
+(`{ petId, pinned }`), the same shape the pool order uses, instead of the
+`pinnedPets` preference patch. The handler applies the change against the **saved**
+list and returns the fresh settings snapshot, so a page holding a stale snapshot -
+for example one that says pet A is still pinned after the user closed A's window -
+can never resurrect that pin.
 
 Every pinned pet remembers its own window position (`pinnedPetPositions`, restored on
-launch), and closing a pinned pet window unpins that pet. `pinned-pet-controller.ts`
-reconciles the preference with the live windows (`syncPinnedPets()`) at startup, after a
-`pinnedPets` preference update, and after a pet is installed or removed, so
-uninstalling a pinned pet - or promoting it to the default pet - closes its window
-with the rest of the list. Pinning is independent of the pool: a pinned
-pet keeps its window for the whole session and is never released by the lease liveness
-sweep, because it holds no lease. The reverse is also true - the pool never assigns a
-pinned pet to a session, so one pet is never drawn by two windows.
+launch, clamped to a connected display before the window is created; the map is pruned
+against `pinnedPets` during preference normalization, so no unpin path can leave a
+stale entry). The last position is written before the window is destroyed, so a move
+inside the debounce window is not lost on quit. `pinned-pet-controller.ts` reconciles
+the preference with the live windows (`syncPinnedPets()`) at startup, on a pin change,
+and after any pet-management action that can change eligibility - install (catalog,
+folder, ZIP), Codex import, removal, and default-pet selection - so uninstalling a
+pinned pet, or promoting it to the default pet, closes its window with the rest of the
+list. Uninstalling keeps the pin, so reinstalling the pet brings its window back.
+Pinned windows also take part in display recovery: the display coordinator calls
+`reclampPinnedPetWindows()` on display add/remove/metrics change, and the pet context
+menu (size, flip) and the appearance settings reload their content like every other
+pet owner. Closing a pinned pet window unpins that pet. Pinning is independent of the
+pool: a pinned pet keeps its window for the whole session and is never released by the
+lease liveness sweep, because it holds no lease. The reverse is also true - the pool
+never assigns a pinned pet to a session, so one pet is never drawn by two windows.
 
 ### Plugin subsystem
 
