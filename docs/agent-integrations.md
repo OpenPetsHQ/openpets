@@ -71,20 +71,19 @@ concurrent sessions each get their own pet from a user-configured ordered list.
 - The user configures an ordered list of installed pets in Settings. Slot 1 is
   the primary/default pet; subsequent slots are assigned to additional concurrent
   sessions in order.
-- When a new session starts without `--pet`, the lease manager assigns it the
-  first pool slot not currently held by an active session.
-- Once every pool slot is occupied, additional sessions are assigned a random
-  eligible pet (installed, non-broken, excluding the built-in default and any
-  pet the user has pinned to the desktop).
+- Pool assignment walks the configured list in order and assigns the first eligible pet
+  without an active lease.
+- If no eligible pet in that ordered list is free, the session uses the default pet
+  until a listed slot frees up. It does not choose a random installed pet outside the list.
 - When a session ends its lease, its pet slot is freed and available to the next
   session.
 - **`--pet <id>` always takes priority** and bypasses the pool entirely - unchanged from current behavior.
 
 **Eligible pool pets** are installed, non-broken pets other than the built-in or
 current default pet, with any pet currently pinned by the user also excluded.
-Broken or uninstalled pets are skipped silently. If no eligible pet remains after
-excluding pins, the session falls back to the default pet instead of opening a
-second window for a pinned pet.
+Broken or uninstalled pets are skipped silently. Only pets listed in the configured
+pool order can be assigned; if none of those eligible entries is free, the session
+uses the default pet until a listed slot frees up.
 
 **Cross-platform and agent-agnostic.** Pool assignment is pure lease logic with
 no platform dependency - it works on macOS, Windows, and Linux. Any agent that
@@ -92,7 +91,7 @@ acquires a lease through the shared OpenPets client benefits automatically: Clau
 Code CLI, opencode, Cursor, and any other MCP client all go through the same
 `lease.acquire` path.
 
-When the pool is disabled (the default), behavior is unchanged: all sessions
+When the pool is disabled, behavior is unchanged: all sessions
 without `--pet` share the single default pet.
 
 ## Safe speech: `@open-pets/agent-events`
