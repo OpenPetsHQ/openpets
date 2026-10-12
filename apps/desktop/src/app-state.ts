@@ -15,7 +15,7 @@ import {
   getTeamPetDir,
 } from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
-import { normalizePinnedPetIds, normalizePinnedPetPositions } from "./pinned-pets.js";
+import { normalizePinnedPetIds, normalizePinnedPetPositions, prunePinnedPetPositions } from "./pinned-pets.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -267,22 +267,34 @@ export function setPetPoolOrder(ids: readonly string[]): OpenPetsStateV1 {
 
 /**
  * Replace the pinned-pet list. Unsafe / duplicate IDs are dropped during normalisation,
- * and remembered positions of pets that are no longer pinned are pruned.
+ * which also prunes the remembered positions of pets that are no longer pinned.
  * Pass an empty array to unpin everything and return to the legacy single-pet behaviour.
  */
 export function setPinnedPets(ids: readonly string[]): OpenPetsStateV1 {
   const current = getInitializedState();
-  const pinnedPets = normalizePinnedPetIds(ids);
   const nextState = normalizeState({
     ...current,
     preferences: {
       ...current.preferences,
-      pinnedPets,
-      pinnedPetPositions: prunePinnedPetPositions(current.preferences.pinnedPetPositions, pinnedPets),
+      pinnedPets: normalizePinnedPetIds(ids),
     },
   });
   commitState(nextState);
   return getAppStateSnapshot();
+}
+
+/**
+ * Pin or unpin one pet against the CURRENT saved list, so a caller holding a stale
+ * snapshot cannot resurrect a pin that was removed in the meantime (for example by the
+ * user closing that pet's window). The list cap is applied by normalisation.
+ */
+export function setPetPinned(petId: string, pinned: boolean): OpenPetsStateV1 {
+  const current = getInitializedState();
+  const pinnedPets = current.preferences.pinnedPets ?? [];
+  const nextPinnedPets = pinned
+    ? [...pinnedPets, petId]
+    : pinnedPets.filter((id) => id !== petId);
+  return setPinnedPets(nextPinnedPets);
 }
 
 /**
@@ -306,17 +318,6 @@ export function recordPinnedPetPosition(petId: string, position: unknown): OpenP
   });
   commitState(nextState);
   return getAppStateSnapshot();
-}
-
-/** Keep only the positions of pets that are still pinned. */
-function prunePinnedPetPositions(
-  positions: Readonly<Record<string, DefaultPetPosition>> | undefined,
-  pinnedPets: readonly string[] | undefined,
-): Readonly<Record<string, DefaultPetPosition>> | undefined {
-  if (!positions || !pinnedPets || pinnedPets.length === 0) return undefined;
-  const pinned = new Set(pinnedPets);
-  const kept = Object.entries(positions).filter(([petId]) => pinned.has(petId));
-  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
 }
 
 export function getDefaultPetPositionState(): DefaultPetPositionState {
@@ -634,8 +635,9 @@ function normalizeTimestamp(value: unknown): number | undefined {
 
 function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): OpenPetsStateV1["preferences"] {
   const defaultState = createDefaultState();
+  const pinnedPets = normalizePinnedPetIds(value.pinnedPets);
 
-  return {
+  const preferences: OpenPetsStateV1["preferences"] = {
     defaultPetId: typeof value.defaultPetId === "string" ? value.defaultPetId : builtInPet.id,
     openDefaultPetOnLaunch: typeof value.openDefaultPetOnLaunch === "boolean"
       ? value.openDefaultPetOnLaunch
@@ -671,9 +673,13 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petButtonsPosition: normalizePetButtonsPosition(value.petButtonsPosition),
     petButtonsSize: normalizePetButtonsSize(value.petButtonsSize),
     petHorizontalFlip: normalizePetHorizontalFlip(value.petHorizontalFlip),
-    pinnedPets: normalizePinnedPetIds(value.pinnedPets),
-    pinnedPetPositions: normalizePinnedPetPositions(value.pinnedPetPositions),
+    pinnedPets,
+    // Pruned here, in the one place every write path goes through, so the unpin paths
+    // cannot disagree about which positions are still meaningful.
+    pinnedPetPositions: prunePinnedPetPositions(normalizePinnedPetPositions(value.pinnedPetPositions), pinnedPets),
   };
+
+  return preferences;
 }
 
 function normalizeLocalePreference(value: unknown): LocalePreference {

@@ -4,12 +4,13 @@
  * Covers:
  *   - normalizePinnedPetIds: shape filtering, trimming, dedup, cap, safe-id check.
  *   - normalizePinnedPetPositions: per-pet position validation.
+ *   - prunePinnedPetPositions: positions of unpinned pets never survive a write.
  *   - planPinnedPets: which pinned windows must open / close, and that a pin for a pet
  *     that is no longer eligible never opens a window.
  */
 import assert from "node:assert/strict";
 
-import { maxPinnedPets, normalizePinnedPetIds, normalizePinnedPetPositions, planPinnedPets } from "../src/pinned-pets.js";
+import { maxPinnedPets, normalizePinnedPetIds, normalizePinnedPetPositions, planPinnedPets, prunePinnedPetPositions } from "../src/pinned-pets.js";
 
 // ---------------------------------------------------------------------------
 // normalizePinnedPetIds
@@ -122,6 +123,29 @@ assert.deepEqual(
   planPinnedPets({ pinnedPets: ["luna"], openPinnedPets: ["fox"], eligiblePetIds: eligible }),
   { spawn: ["luna"], close: ["fox"] },
   "replacing a pin swaps the window",
+);
+
+// ---------------------------------------------------------------------------
+// prunePinnedPetPositions
+// ---------------------------------------------------------------------------
+const positions = { fox: { x: 10, y: 20 }, luna: { x: 30, y: 40 } };
+assert.deepEqual(
+  prunePinnedPetPositions(positions, ["fox"]),
+  { fox: { x: 10, y: 20 } },
+  "positions of unpinned pets are dropped",
+);
+assert.equal(prunePinnedPetPositions(positions, []), undefined, "no pins -> no positions");
+assert.equal(prunePinnedPetPositions(undefined, ["fox"]), undefined, "no positions -> undefined");
+assert.equal(prunePinnedPetPositions(positions, undefined), undefined, "no pinned list -> undefined");
+assert.deepEqual(
+  prunePinnedPetPositions(positions, ["fox", "luna", "gone"]),
+  positions,
+  "positions of pets that are still pinned survive",
+);
+assert.deepEqual(
+  prunePinnedPetPositions(positions, ["gone"]),
+  undefined,
+  "dropping the last pinned pet clears every position",
 );
 
 console.log("pinned-pets (plan + normalisation) validation passed.");

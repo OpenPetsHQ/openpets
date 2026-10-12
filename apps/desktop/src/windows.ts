@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, screen, type WebContents
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPinned, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
@@ -21,6 +21,7 @@ import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
 import { refreshPinnedPetContent, syncPinnedPets } from "./pinned-pet-controller.js";
+import { maxPinnedPets } from "./pinned-pets.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
 import {
@@ -97,6 +98,8 @@ function getSettingsStateSnapshot(): {
   hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
+  /** Maximum number of pets that can be pinned at the same time. */
+  pinnedPetsLimit: number;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
   chatShortcutStatus: ReturnType<typeof getChatShortcutSnapshot>;
   petToggleShortcutStatus: ReturnType<typeof getPetToggleShortcutSnapshot>;
@@ -131,6 +134,7 @@ function getSettingsStateSnapshot(): {
     petPoolCandidates: state.pets.installed
       .filter((p) => !p.builtIn && !p.broken && p.id !== state.preferences.defaultPetId)
       .map(({ id, displayName }) => ({ id, displayName })),
+    pinnedPetsLimit: maxPinnedPets,
     voiceAssistantShortcutStatus: getVoiceAssistantShortcutSnapshot(),
     chatShortcutStatus: getChatShortcutSnapshot(),
     petToggleShortcutStatus: getPetToggleShortcutSnapshot(),
@@ -247,6 +251,7 @@ export function installInternalUiHandlers(): void {
     broadcastDashboardRefresh,
     normalizePetPoolOrder,
     setPetPoolOrder,
+    setPetPinned,
     syncPinnedPets,
     installPet,
     installPetFromFolder,
@@ -461,7 +466,6 @@ export function installInternalUiHandlers(): void {
       effectivePatch = { ...effectivePatch, petToggleShortcut: resolvePetToggleShortcutPreference(currentPetToggleShortcut, validatedPatch.petToggleShortcut, petToggleSnapshot) };
     }
     const state = updatePreferences(effectivePatch);
-    if (validatedPatch.pinnedPets !== undefined) syncPinnedPets();
     if (validatedPatch.personality) debug("ui", "Pet Assistant personality preferences updated", { fields: Object.keys(validatedPatch.personality) });
     const nextOverrides = JSON.stringify(state.preferences.reactionAnimationOverrides ?? {});
     const petButtonPrefsChanged = validatedPatch.showChatButton !== undefined
@@ -729,7 +733,7 @@ function broadcastPluginRecordsRefresh(): void {
 }
 
 /** Tell the open Control Center to re-fetch the dashboard snapshot (e.g. after personality or default pet changes). */
-function broadcastDashboardRefresh(): void {
+export function broadcastDashboardRefresh(): void {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.webContents.send("openpets:dashboard-refresh");
   }

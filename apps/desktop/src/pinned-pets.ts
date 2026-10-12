@@ -101,3 +101,18 @@ export function normalizePinnedPetPositions(value: unknown): Readonly<Record<str
   }
   return Object.keys(result).length > 0 ? result : undefined;
 }
+
+/**
+ * Keep only the positions of pets that are still pinned, so no unpin path can leave a
+ * stale entry behind. Called from preference normalisation, which every writer goes
+ * through, and therefore the single owner of this cleanup.
+ */
+export function prunePinnedPetPositions(
+  positions: Readonly<Record<string, DefaultPetPosition>> | undefined,
+  pinnedPets: readonly string[] | undefined,
+): Readonly<Record<string, DefaultPetPosition>> | undefined {
+  if (!positions || !pinnedPets || pinnedPets.length === 0) return undefined;
+  const pinned = new Set(pinnedPets);
+  const kept = Object.entries(positions).filter(([petId]) => pinned.has(petId));
+  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
+}
