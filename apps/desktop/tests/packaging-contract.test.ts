@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { bundledOfficialPluginIds } from "../src/bundled-plugins.js";
-import { assertBundledOfficialPlugins, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames } from "../src/packaging-contract.js";
+import { assertBundledOfficialPlugins, assertOpenCodePluginExport, assertTargetSharpNative, assertUnpackedIntegrationRuntimes, getRequiredUnpackedRuntimePackageNames } from "../src/packaging-contract.js";
 import { extractArtifactPayload } from "../src/artifact-payload.js";
 
 const desktopDir = process.env.OPENPETS_DESKTOP_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -88,6 +88,15 @@ assert.throws(
   /@open-pets\/openclaw runtime is missing/,
   "a package missing the OpenClaw runtime must fail before publication",
 );
+
+assertOpenCodePluginExport(join(repoRoot, "packages", "opencode"));
+const v1PluginFixture = join(desktopDir, ".test-packaging-opencode-v1");
+rmSync(v1PluginFixture, { recursive: true, force: true });
+mkdirSync(join(v1PluginFixture, "dist"), { recursive: true });
+writeFileSync(join(v1PluginFixture, "package.json"), `${JSON.stringify({ name: "@open-pets/opencode", type: "module", exports: { ".": { default: "./dist/index.js" } } })}\n`);
+writeFileSync(join(v1PluginFixture, "dist", "index.js"), "export default { id: \"open-pets-opencode\", server() {} };\n");
+assert.throws(() => assertOpenCodePluginExport(v1PluginFixture), /no V2 setup/, "a V1 server export must not pass the packaged OpenCode smoke");
+rmSync(v1PluginFixture, { recursive: true, force: true });
 
 rmSync(fixtureRoot, { recursive: true, force: true });
 rmSync(missingPluginFixture, { recursive: true, force: true });

@@ -58,9 +58,12 @@ export interface BuildOpenCodePluginPreviewOptions {
   readonly excludeReactions?: readonly string[];
 }
 
-export function sanitizeOpenCodeExcludedReactions(excludeReactions?: readonly string[]): readonly OpenPetsReaction[] {
+export function sanitizeOpenCodeExcludedReactions(excludeReactions?: readonly unknown[]): readonly OpenPetsReaction[] {
   if (!excludeReactions) return [];
-  return [...new Set(excludeReactions.filter((reaction): reaction is OpenPetsReaction => typeof reaction === "string" && allowedReactions.includes(reaction as OpenPetsReaction)))];
+  const recognized = excludeReactions.filter((reaction): reaction is OpenPetsReaction => {
+    return typeof reaction === "string" && allowedReactions.includes(reaction as OpenPetsReaction);
+  });
+  return [...new Set(recognized)];
 }
 
 export function buildOpenCodePluginPreview(options?: BuildOpenCodePluginPreviewOptions): OpenCodePluginSpec {

@@ -28,12 +28,14 @@ export interface OpenCodePluginDecision {
   readonly speechCategory?: HookSpeechCategory;
 }
 
-export type OpenCodeHooks = {
-  readonly event: (input: { readonly event: unknown }) => void;
-  readonly "chat.message": (input: unknown, output: unknown) => void;
-  readonly "tool.execute.before": (input: { readonly tool?: string }, output: { readonly args?: unknown }) => void;
-  readonly "tool.execute.after": (input: { readonly tool?: string }, output: unknown) => void;
-};
+export interface OpenCodePluginRuntime {
+  readonly event: (event: unknown) => void;
+  readonly prompt: () => void;
+  readonly toolBefore: (tool: string, input: unknown) => void;
+  readonly toolAfter: (event: unknown) => void;
+  readonly reportError: (scope: string, error: unknown) => void;
+  readonly cleanup: () => Promise<void>;
+}
 
 const speechCooldownMs = 20_000;
 const permissionCooldownMs = 3_000;
@@ -43,7 +45,7 @@ export function isReactionExcluded(reaction: OpenPetsReaction, excludedSet: Read
   return excludedSet.has(reaction);
 }
 
-export function createOpenPetsOpenCodeHooks(options: OpenCodePluginRuntimeOptions = {}): OpenCodeHooks {
+export function createOpenPetsOpenCodeRuntime(options: OpenCodePluginRuntimeOptions = {}): OpenCodePluginRuntime {
   const pet = options.pet === undefined ? undefined : validateOpenPetsPetArg(options.pet);
   const clientFactory = options.clientFactory ?? (() => createOpenPetsClient({ connectTimeoutMs: 500, responseTimeoutMs: 500 }));
   const schedule = options.schedule ?? defaultSchedule;
@@ -52,64 +54,120 @@ export function createOpenPetsOpenCodeHooks(options: OpenCodePluginRuntimeOption
   const excludedReactions = buildExcludedReactionsSet(options.excludeReactions);
   let client: OpenPetsClient | undefined;
   let lease: { readonly leaseId: string; readonly expiresAt?: number } | undefined;
+  let closed = false;
+  let cleanupPromise: Promise<void> | undefined;
+  let dispatchTail: Promise<void> = Promise.resolve();
+  const activeWork = new Set<Promise<void>>();
+
+  const enqueue = (task: () => Promise<void>): Promise<void> => {
+    const run = dispatchTail.then(task, task);
+    dispatchTail = run.then(() => undefined, () => undefined);
+    return run;
+  };
 
   const run = (decision: OpenCodePluginDecision | undefined): void => {
-    if (!decision?.reaction) return;
+    if (closed || !decision?.reaction) return;
     if (isReactionExcluded(decision.reaction, excludedReactions)) return;
     const reaction = decision.reaction;
     try {
-      schedule(async () => {
-        try {
-          const shouldSpeak = decision.speechCategory ? shouldSendSpeech(decision.speechCategory, options) : false;
-          const shouldReact = shouldSendReaction(reaction, options);
-          if (!shouldSpeak && !shouldReact) return;
-
-          client ??= clientFactory();
-          const leaseId = pet ? await getLeaseId(client, pet) : undefined;
-          if (decision.speechCategory && shouldSpeak) {
-            await client.say(validateHookSpeech(pickHookSpeech(decision.speechCategory, options.random)), { reaction, leaseId });
-            return;
-          }
-          await client.react(reaction, { leaseId });
-        } catch (error) {
-          debugLog(`OpenPets OpenCode plugin ignored error: ${sanitizeDebugError(error)}`);
-        }
+      schedule(() => {
+        if (closed) return Promise.resolve();
+        const pending = enqueue(() => dispatchReaction(decision, reaction));
+        activeWork.add(pending);
+        void pending.finally(() => activeWork.delete(pending));
+        return pending;
       });
     } catch (error) {
       debugLog(`OpenPets OpenCode plugin scheduling ignored error: ${sanitizeDebugError(error)}`);
     }
   };
 
-  const getLeaseId = async (hit: OpenPetsClient, requestedPetId: string): Promise<string | undefined> => {
-    if (lease && (!lease.expiresAt || lease.expiresAt - Date.now() > 2_000)) return lease.leaseId;
+  const dispatchReaction = async (decision: OpenCodePluginDecision, reaction: OpenPetsReaction): Promise<void> => {
+    if (closed) return;
     try {
-      const next = await hit.acquireLease({ requestedPetId });
-      lease = { leaseId: next.leaseId, expiresAt: next.expiresAt };
-      return next.leaseId;
+      const shouldSpeak = decision.speechCategory ? shouldSendSpeech(decision.speechCategory, options) : false;
+      const shouldReact = shouldSendReaction(reaction, options);
+      if (!shouldSpeak && !shouldReact) return;
+
+      client ??= clientFactory();
+      const leaseId = pet ? await getLeaseId(client, pet) : undefined;
+      if (closed) return;
+      if (decision.speechCategory && shouldSpeak) {
+        await client.say(validateHookSpeech(pickHookSpeech(decision.speechCategory, options.random)), { reaction, leaseId });
+        return;
+      }
+      await client.react(reaction, { leaseId });
+    } catch (error) {
+      debugLog(`OpenPets OpenCode plugin ignored error: ${sanitizeDebugError(error)}`);
+    }
+  };
+
+  const getLeaseId = async (hit: OpenPetsClient, requestedPetId: string): Promise<string | undefined> => {
+    if (closed) return undefined;
+    if (lease && (!lease.expiresAt || lease.expiresAt - Date.now() > 2_000)) return lease.leaseId;
+    const previous = lease;
+    let next: { readonly leaseId: string; readonly expiresAt?: number };
+    try {
+      next = await hit.acquireLease({ requestedPetId });
     } catch (error) {
       debugLog(`OpenPets OpenCode lease unavailable: ${sanitizeDebugError(error)}`);
       return undefined;
     }
+    lease = { leaseId: next.leaseId, expiresAt: next.expiresAt };
+    if (previous && previous.leaseId !== next.leaseId) {
+      await releaseLease(hit, previous.leaseId);
+    }
+    if (closed) return undefined;
+    return next.leaseId;
+  };
+
+  const releaseLease = async (hit: OpenPetsClient, leaseId: string): Promise<void> => {
+    try {
+      await hit.releaseLease(leaseId);
+    } catch (error) {
+      debugLog(`OpenPets OpenCode lease release failed: ${sanitizeDebugError(error)}`);
+    }
+  };
+
+  const finishCleanup = async (): Promise<void> => {
+    await Promise.allSettled([...activeWork]);
+    await dispatchTail;
+    const activeLease = lease;
+    const activeClient = client;
+    lease = undefined;
+    if (!activeLease || !activeClient) return;
+    await releaseLease(activeClient, activeLease.leaseId);
   };
 
   return {
-    event(input) {
+    event(event) {
       try {
-        run(classifyOpenCodeBusEvent(input.event));
+        run(classifyOpenCodeBusEvent(event));
       } catch (error) {
         debugLog(`OpenPets OpenCode event ignored error: ${sanitizeDebugError(error)}`);
       }
     },
-    "chat.message"() {
+    prompt() {
       run({ reaction: "thinking" });
     },
-    "tool.execute.before"(input, output) {
-      const tool = typeof input.tool === "string" ? input.tool : "";
+    toolBefore(tool, input) {
       if (shouldIgnoreOpenPetsTool(tool)) return;
-      run({ reaction: classifyOpenCodeToolReaction(tool, output.args) });
+      run({ reaction: classifyOpenCodeToolReaction(tool, input) });
     },
-    "tool.execute.after"() {
-      // Intentionally quiet for now; session.error/session.status events provide less noisy completion signals.
+    toolAfter(event) {
+      if (!isRecord(event) || event.status !== "error") return;
+      const tool = typeof event.tool === "string" ? event.tool : "";
+      if (tool && shouldIgnoreOpenPetsTool(tool)) return;
+      run({ reaction: "error", speechCategory: "error" });
+    },
+    reportError(scope, error) {
+      process.stderr.write(`OpenPets OpenCode ${scope}: ${sanitizeDebugError(error)}\n`);
+    },
+    cleanup() {
+      if (cleanupPromise) return cleanupPromise;
+      closed = true;
+      cleanupPromise = finishCleanup();
+      return cleanupPromise;
     },
   };
 }
@@ -123,9 +181,9 @@ export function classifyOpenCodeToolReaction(toolName: string, args?: unknown): 
 
 export function classifyOpenCodeBusEvent(event: unknown): OpenCodePluginDecision | undefined {
   const type = getEventType(event);
-  if (type === "permission.asked") return shouldIgnoreOpenPetsTool(getEventPermission(event) ?? "") ? undefined : { reaction: "waiting", speechCategory: "permission" };
-  if (type === "session.error") return { reaction: "error", speechCategory: "error" };
-  if (type === "session.status" && getEventStatusType(event) === "idle") return { reaction: "success" };
+  if (type === "permission.asked") return getEventPermissions(event).some(shouldIgnoreOpenPetsTool) ? undefined : { reaction: "waiting", speechCategory: "permission" };
+  if (type === "session.execution.failed") return { reaction: "error", speechCategory: "error" };
+  if (type === "session.idle") return { reaction: "success" };
   return undefined;
 }
 
@@ -176,26 +234,17 @@ function isTestLikeToolArgs(args: unknown): boolean {
 function getEventType(event: unknown): string | undefined {
   if (!isRecord(event)) return undefined;
   if (typeof event.type === "string") return event.type;
-  if (isRecord(event.payload) && typeof event.payload.type === "string") return event.payload.type;
   return undefined;
 }
 
-function getEventStatusType(event: unknown): string | undefined {
-  if (!isRecord(event)) return undefined;
-  const properties = isRecord(event.properties) ? event.properties : isRecord(event.payload) && isRecord(event.payload.properties) ? event.payload.properties : undefined;
-  const status = isRecord(properties?.status) ? properties.status : undefined;
-  return typeof status?.type === "string" ? status.type : undefined;
-}
-
-function getEventPermission(event: unknown): string | undefined {
-  if (!isRecord(event)) return undefined;
-  const properties = isRecord(event.properties) ? event.properties : isRecord(event.payload) && isRecord(event.payload.properties) ? event.payload.properties : undefined;
-  if (typeof properties?.permission === "string") return properties.permission;
-  if (Array.isArray(properties?.patterns)) {
-    const hit = properties.patterns.find((pattern) => typeof pattern === "string" && shouldIgnoreOpenPetsTool(pattern));
-    if (typeof hit === "string") return hit;
+function getEventPermissions(event: unknown): readonly string[] {
+  if (!isRecord(event)) return [];
+  const data = isRecord(event.data) ? event.data : undefined;
+  const permissions = typeof data?.action === "string" ? [data.action] : [];
+  if (Array.isArray(data?.resources)) {
+    permissions.push(...data.resources.filter((resource): resource is string => typeof resource === "string"));
   }
-  return undefined;
+  return permissions;
 }
 
 function readThrottleState(path: string): Record<string, number> {

@@ -20,10 +20,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./server": {
-      "types": "./dist/plugin.d.ts",
-      "default": "./dist/plugin.js"
     }
   },
   "scripts": {
@@ -35,6 +31,7 @@
   "dependencies": {
     "@open-pets/agent-events": "workspace:*",
     "@open-pets/client": "workspace:*",
+    "@opencode/plugin": "2.0.26",
     "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
