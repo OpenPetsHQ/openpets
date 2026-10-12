@@ -9,17 +9,19 @@ Provides comprehensive OpenCode editor integration including: MCP server configu
 ## Design
 
 **Plugin Architecture** (`plugin.ts`):
-- Default export: `{ id, server }` object
-- Server factory: `createOpenPetsOpenCodeHooks(options)`
+- Default export: `Plugin.define({ id, setup })` for the OpenCode 2.0 V2 plugin API
+- Setup reads plugin options, subscribes to V2 event envelopes, and registers session/tool hooks
+- Cleanup aborts the event stream, disposes hook registrations, drains active work, and releases the lease
 - Plugin ID: `open-pets-opencode`
 
 **Plugin Runtime** (`opencode-plugin-runtime.ts`):
-- Event hooks: `event`, `chat.message`, `tool.execute.before`, `tool.execute.after`
-- Event classification: Maps OpenCode bus events to reactions/speech
+- Runtime adapters: V2 events, session prompt, and single-event tool execute hooks
+- Event classification: Maps V2 event envelopes (`type` + `data`) to reactions/speech
 - Tool classification: Edit → "editing", Bash test commands → "testing"
-- Lease management: Acquires on first use, 2s buffer before expiry
+- Lease management: serialized dispatch, one in-flight acquisition, 2s renewal buffer, previous lease released when the id changes
 - Throttling: 20s speech cooldown, 3s permission cooldown, 10s reaction cooldown
-- Async scheduling via `queueMicrotask`
+- Async scheduling via `queueMicrotask`; cleanup waits for in-flight acquisition and releases it; queued work after unload does not acquire again
+- Tool failures from OpenPets' own MCP tools are ignored so a pet reaction cannot loop on itself
 
 **Config Management** (`opencode-config.ts`):
 - JSONC parsing with `jsonc-parser` (comments, trailing commas)
@@ -89,13 +91,14 @@ writePreparedOpenCodeProjectSetup() → Execute writes atomically
 
 **Dependencies**:
 - `@open-pets/client` - IPC for plugin runtime
+- `@opencode/plugin` 2.0.26 - OpenCode V2 plugin definition and runtime types
 - `@open-pets/agent-events` - Speech pools and validation
 - `jsonc-parser` - JSONC config parsing and editing
 
 **Package Surface**:
-- Package version: `2.1.1`
-- Main export (`.`): setup, config, preview, status, and runtime APIs from `dist/index.js`
-- Server export (`./server`): OpenCode plugin default export from `dist/plugin.js`
+- Package version: `4.0.0`
+- Main export (`.`): setup, config, preview, status, and runtime APIs plus the
+  OpenCode V2 plugin default export from `dist/index.js`
 
 **Consumers**:
 - `@open-pets/cli` - `configure` command for OpenCode projects plus

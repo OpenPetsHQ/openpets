@@ -3,8 +3,8 @@
 ## Files
 
 - **index.ts**: Barrel export. Re-exports all public modules including path-safety helpers.
-- **plugin.ts**: OpenCode plugin definition (10 lines). Default export with `id` and `server` factory.
-- **opencode-plugin-runtime.ts**: Plugin hook implementations (229 lines). `createOpenPetsOpenCodeHooks()`, event classification, tool reaction mapping, lease management, throttling.
+- **plugin.ts**: OpenCode 2.0 V2 `Plugin.define({ id, setup })` entry point. Owns event subscription, prompt/tool hook registration, option validation, and teardown (abort, dispose, drain, lease release).
+- **opencode-plugin-runtime.ts**: `createOpenPetsOpenCodeRuntime()`, V2 event classification, tool reaction mapping, serialized lease acquisition, throttling, and unload cleanup.
 - **opencode-config.ts**: Config file management. Path resolution, JSONC parsing, safe file operations, atomic writes with backups, actionable symlink/parent diagnostics.
 - **opencode-path-safety.ts**: Shared safety message builders. Symlink target display, scope-aware (`global`/`project`) config/instruction/parent/directory error formatters, lstat-based existence helpers, and full-ancestor symlink rejection for global roots.
 - **opencode-project-setup.ts**: Project-level setup. `prepareOpenCodeProjectSetup()`, `writePreparedOpenCodeProjectSetup()`, instruction block management with path-aware safety errors.

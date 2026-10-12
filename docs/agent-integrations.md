@@ -187,12 +187,34 @@ Ships both a config manager and a runtime plugin.
   writes the shared global config through the same preparation path as desktop
   setup. `openpets doctor` reports global OpenCode status read-only and exits
   non-zero on genuine diagnostic errors.
-- **Runtime** (`opencode-plugin-runtime.ts`, plugin id `open-pets-opencode`):
-  hooks `event`, `chat.message`, `tool.execute.before/after`, classifies them to
-  reactions/speech, manages a lease (renew with a 2s buffer), and applies the
-  same throttle windows as Claude. The optional `excludeReactions` plugin option is an
-  array of reactions to suppress before IPC or throttling. It can be used without a
-  `pet` target: `["@open-pets/opencode", { "excludeReactions": ["success", "thinking"] }]`.
+- **Runtime** (`plugin.ts` + `opencode-plugin-runtime.ts`, plugin id
+  `open-pets-opencode`): uses the OpenCode 2.0 V2 `Plugin.define({ id, setup })`
+  contract. Setup reads plugin options from `ctx.options`, subscribes to public
+  V2 event envelopes (`type` + `data`) through an abortable async iterator, and
+  registers `session.hook('prompt')` plus `tool.hook('execute.before'/'execute.after')`.
+  Prompt starts thinking; before-tool classifies edit/write and test commands;
+  failed foreign tools and `session.execution.failed` emit error; OpenPets' own
+  MCP tool failures are ignored; permission requests wait; and `session.idle`
+  emits success. Prompt and tool dispatches are serialized so they share one
+  lease acquisition. Unload aborts the event stream, disposes hook registrations,
+  waits for an in-flight acquisition, and releases that lease. Work that was
+  only queued does not acquire after unload. The lease is renewed with a 2s
+  buffer, and the same throttle windows as Claude apply. The optional
+  `excludeReactions` option is an array of reactions to suppress before IPC or
+  throttling. OpenCode 2.0 reads it from a native `plugins` entry, including
+  without a `pet` target:
+
+  ```json
+  {
+    "package": "@open-pets/opencode",
+    "options": { "excludeReactions": ["success", "thinking"] }
+  }
+  ```
+
+  OpenCode 2.0 normalizes a legacy `plugin` tuple into that same shape. Current
+  `openpets configure` still writes the tuple; the options object the plugin
+  reads is the same either way. Invalid `pet` values fail setup instead of being
+  dropped; unrecognized exclusion names are ignored.
 - **Windows detection**: the desktop app checks user and global Scoop shim
   directories before falling back to `opencode` / `opencode.cmd` on `PATH`, so
   a Scoop installation is detectable even when Electron inherited an older
