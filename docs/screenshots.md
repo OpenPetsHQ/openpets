@@ -190,8 +190,8 @@ the instance adds a second tray icon while it runs.
 
 - The instance forces the sRGB color profile. Without it macOS renders in the
   display's P3 space, and PNGs, which carry no profile, look washed out.
-- Idle cursor gaze is switched off so the pet faces forward instead of toward
-  your mouse.
+- Idle cursor gaze is switched off so the pet plays its forward idle loop
+  instead of looking toward your mouse.
 - Pixels at or below alpha 8 count as background when trimming, so invisible
   hit areas don't widen the crop. Everything else, including soft shadows, is
   kept exactly as rendered.

@@ -30,7 +30,7 @@ There are three sources a pet can come from at runtime:
 
 1. **Built-in pet** (`built-in-pet.ts`) - the bundled V2 Hoodie Cat spritesheet
    that always works as a fallback, even offline with nothing installed. It uses
-   the exact 8×11 atlas and row 0, column 6 neutral pose, including V2 idle gaze.
+   the exact 8×11 atlas, animated row 0 idle loop, and V2 cursor-glance cells.
 2. **Catalog pets** - downloaded from the public catalog and extracted into
    `userData/pets/{id}/`.
 3. **Codex pets** - locally-developed pets imported from `~/.codex/pets/`
@@ -344,8 +344,9 @@ asset is a fully decodable, single-image, alpha-enabled WebP with the exact `153
 or a mismatched V2 atlas is rejected before the atomic import writes anything.
 
 The V2 adapter uses the unchanged standard rows 0–8 for OpenPets reactions and
-horizontal run motion, and uses V2's neutral pose (row 0, column 6) whenever
-the existing runtime is idle. This matches the released
+horizontal run motion. Normal idle plays the six-frame breathing loop in row 0;
+the neutral pose (row 0, column 6) remains available to explicit Control Center
+previews. This matches the released
 [Malou V2 manifest](https://raw.githubusercontent.com/mySebbe/malou-codex-pet/v2.0.0/dist/malou/pet.json)
 and its [8×11 atlas specification](https://raw.githubusercontent.com/mySebbe/malou-codex-pet/v2.0.0/metadata/atlas.json).
 
@@ -365,7 +366,8 @@ repaired/skipped counts, and skip reasons are logged, and a migration problem
 never prevents the desktop app from starting.
 
 V2's sixteen look-direction cells (rows 9–10) are retained in the imported
-atlas and selected while an installed V2 pet is visually idle. OpenPets samples
+atlas and selected while an installed V2 pet is visually idle and the cursor
+glance is active. Outside a glance, the row 0 breathing loop plays. OpenPets samples
 the global cursor around the pet carrier's bottom-center anchor by default,
 preserving the existing behavior when `gazeAnchor` is omitted. A manifest may
 instead define the target within one frame; the host resolves that normalized
@@ -380,17 +382,18 @@ active per-window override after renderer reload; without an override, the
 current render scale positions both. The installed ZIP's validated `pet.json` is authoritative for this
 runtime setting, so a catalog entry that omits it does not discard the package
 value. OpenPets quantizes the
-direction into sixteen clockwise 22.5° sectors, and returns to the neutral pose
-inside a small dead zone. Reactions, movement, dragging, plugin sprite
+direction into sixteen clockwise 22.5° sectors, and resumes the idle loop inside
+a small dead zone. Reactions, movement, dragging, plugin sprite
 overrides, and paused pets suspend gaze; V1 pets retain their existing idle
-behavior. Horizontal flips compensate the selected atlas cell so the pet still
+behavior. A paused V2 pet retains the static neutral pose. Horizontal flips
+compensate the selected atlas cell so the pet still
 looks toward the cursor. Control Center → Settings → General exposes the
 persisted **Idle cursor gaze** setting, enabled by default; disabling it keeps
-all V2 pets on the neutral idle pose and stops the shared ticker, without
+all V2 pets on the animated idle loop and stops the shared ticker, without
 changing reactions, movement, or V1 behavior. When enabled, cursor movement
 drives a short glance: the current direction is held while the cursor is moving
-and for about 1.2 seconds afterward, then eligible idle V2 pets return to
-neutral. No additional blink frames are used.
+and for about 1.2 seconds afterward, then eligible idle V2 pets resume the
+row 0 breathing loop. No additional blink frames are used.
 
 The main-process gaze controller owns the active per-window plugin scale
 override and replays it after full renderer loads. The pet preload applies that
