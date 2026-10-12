@@ -18,6 +18,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - **Pet Architecture**: 
   - Default pet (always visible when enabled)
   - Agent pets (lease-based, appear on explicit agent requests)
+  - Pinned pets (user-owned windows, persistent across launches, independent of leases and plugins)
   - Built-in fallback pet (bundled spritesheet)
   - Speech bubbles with reaction messages and status badges
   - User-configurable reaction-to-animation mapping
@@ -83,6 +84,8 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `pet-display-coordinator.ts`: Electron-free display/power event coordinator; owns listener lifecycle, per-reason debounce, cache invalidation, and ordered live-pet reclamping/recovery fanout
 - `default-pet-controller.ts`/`agent-pet-controller.ts`: Pet visibility/state management with transient displays; `reclampDefaultPetWindow()` and the agent reclamp leaf retain window-specific geometry work
+- `pinned-pet-controller.ts`: User-owned persistent pet windows — `syncPinnedPets()` reconciles the `preferences.pinnedPets` list with open windows (spawn/close), clamps a remembered position to a connected display, `reclampPinnedPetWindows()` is wired into the display coordinator, `refreshPinnedPetContent()` reloads scale/flip changes, flushes the pending position save before a window is destroyed, and unpins a pet when its window is closed
+- `pinned-pets.ts`: Pure pinned-pet decisions — `planPinnedPets()` spawn/close diff, `normalizePinnedPetIds()` (dedup, safe-id check, 8-pet cap), `normalizePinnedPetPositions()` and `prunePinnedPetPositions()` (positions of unpinned pets never survive a write)
 - `pet-roaming-controller.ts`: Host-side roaming orchestrator — registers every live pet (default + agent) with the motion engine and applies the active physics configuration (gravity + bounce). Unregisters before window destroy to prevent the shared ticker from touching closed windows.
 - `pet-motion-engine.ts`: Shared-ticker motion engine (~60 fps) — `Map<petHandleId, MotionState>`, single `setInterval` for all pets, sub-pixel fractional accumulators, bottom-center gravity-floor anchor, `registerPet`/`unregisterPet` seams, sole continuous position writer.
 - `display.ts`: Screen-geometry helpers — `getDefaultPetInitialPosition`, `clampToVisibleWorkArea` (legacy single-display), `clampToNearestDisplayIfOffscreen` (permissive multi-display), `isOnAnyDisplay`, `setCrossDisplayRoamingEnabled`/`isCrossDisplayRoamingEnabled` flag; display list cache with `invalidateDisplayCache()`

@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, screen, type WebContents
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPinned, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
@@ -20,6 +20,8 @@ import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
+import { refreshPinnedPetContent, syncPinnedPets } from "./pinned-pet-controller.js";
+import { maxPinnedPets } from "./pinned-pets.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { debug, error as logError, warn } from "./logger.js";
 import {
@@ -91,11 +93,13 @@ function syncDockVisibilityForInternalUi(): void {
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "pinnedPets" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
   hudScaleOptions: typeof hudScaleOptions;
   /** Non-broken, non-built-in installed pets available for pool selection. */
   petPoolCandidates: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
+  /** Maximum number of pets that can be pinned at the same time. */
+  pinnedPetsLimit: number;
   voiceAssistantShortcutStatus: ReturnType<typeof getVoiceAssistantShortcutSnapshot>;
   chatShortcutStatus: ReturnType<typeof getChatShortcutSnapshot>;
   petToggleShortcutStatus: ReturnType<typeof getPetToggleShortcutSnapshot>;
@@ -112,6 +116,7 @@ function getSettingsStateSnapshot(): {
       reactionAnimationOverrides: state.preferences.reactionAnimationOverrides,
       petPoolOrder: state.preferences.petPoolOrder,
       petPoolEnabled: state.preferences.petPoolEnabled,
+      pinnedPets: state.preferences.pinnedPets,
       petConfinementEnabled: state.preferences.petConfinementEnabled,
       petCrossDisplayEnabled: state.preferences.petCrossDisplayEnabled,
       petGravityEnabled: state.preferences.petGravityEnabled,
@@ -129,6 +134,7 @@ function getSettingsStateSnapshot(): {
     petPoolCandidates: state.pets.installed
       .filter((p) => !p.builtIn && !p.broken && p.id !== state.preferences.defaultPetId)
       .map(({ id, displayName }) => ({ id, displayName })),
+    pinnedPetsLimit: maxPinnedPets,
     voiceAssistantShortcutStatus: getVoiceAssistantShortcutSnapshot(),
     chatShortcutStatus: getChatShortcutSnapshot(),
     petToggleShortcutStatus: getPetToggleShortcutSnapshot(),
@@ -245,6 +251,8 @@ export function installInternalUiHandlers(): void {
     broadcastDashboardRefresh,
     normalizePetPoolOrder,
     setPetPoolOrder,
+    setPetPinned,
+    syncPinnedPets,
     installPet,
     installPetFromFolder,
     installPetFromZipFile,
@@ -472,6 +480,7 @@ export function installInternalUiHandlers(): void {
     if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
+      refreshPinnedPetContent();
     }
     if (state.preferences.idleCursorGazeEnabled !== previousIdleCursorGazeEnabled) {
       refreshPetGazePreference();
@@ -724,7 +733,7 @@ function broadcastPluginRecordsRefresh(): void {
 }
 
 /** Tell the open Control Center to re-fetch the dashboard snapshot (e.g. after personality or default pet changes). */
-function broadcastDashboardRefresh(): void {
+export function broadcastDashboardRefresh(): void {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.webContents.send("openpets:dashboard-refresh");
   }

@@ -84,6 +84,7 @@ const api = {
   getCodexPets: () => ipcRenderer.invoke("openpets:get-codex-pets"),
   setDefaultPet: (petId) => ipcRenderer.invoke("openpets:set-default-pet", petId),
   setPetPoolOrder: (ids) => ipcRenderer.invoke("openpets:set-pet-pool-order", ids),
+  setPetPinned: (petId, pinned) => ipcRenderer.invoke("openpets:set-pet-pinned", { petId, pinned }),
   installPet: (petId) => ipcRenderer.invoke("openpets:install-pet", petId),
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),
   importCodexPet: (petId) => ipcRenderer.invoke("openpets:import-codex-pet", petId),

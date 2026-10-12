@@ -9,6 +9,7 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:get-codex-pets"
   | "openpets:set-default-pet"
   | "openpets:set-pet-pool-order"
+  | "openpets:set-pet-pinned"
   | "openpets:install-pet"
   | "openpets:install-local-pet"
   | "openpets:open-gallery"
@@ -84,6 +85,10 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly broadcastDashboardRefresh: () => void;
   readonly normalizePetPoolOrder: (ids: unknown) => readonly string[] | undefined;
   readonly setPetPoolOrder: (ids: readonly string[]) => unknown;
+  /** Pin or unpin a single pet against the current saved list. */
+  readonly setPetPinned: (petId: string, pinned: boolean) => unknown;
+  /** Reconcile the pinned pet windows with the updated installed-pet set. */
+  readonly syncPinnedPets: () => void;
   readonly installPet: (petId: string) => unknown | Promise<unknown>;
   readonly installPetFromFolder: (path: string) => unknown | Promise<unknown>;
   readonly installPetFromZipFile: (path: string) => unknown | Promise<unknown>;
@@ -116,6 +121,9 @@ export function installControlCenterPetManagementIpcHandlers({
   broadcastDashboardRefresh,
   normalizePetPoolOrder,
   setPetPoolOrder,
+  setPetPinned,
+  /** Bring pinned pet windows in line with the pinned-pet preference after install/remove. */
+  syncPinnedPets,
   installPet,
   installPetFromFolder,
   installPetFromZipFile,
@@ -159,6 +167,9 @@ export function installControlCenterPetManagementIpcHandlers({
     recoverDefaultPetMouseInterop("default-pet-changed");
     setTimeout(() => recoverDefaultPetMouseInterop("default-pet-changed+500ms"), 500).unref?.();
     broadcastDashboardRefresh();
+    // The default pet is not eligible to be pinned, so a pinned pet that becomes the
+    // default must lose its pinned window.
+    syncPinnedPets();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
       : state;
@@ -172,11 +183,25 @@ export function installControlCenterPetManagementIpcHandlers({
     return getSettingsStateSnapshot();
   });
 
+  registerHandle("openpets:set-pet-pinned", (event, payload: unknown) => {
+    authorizeSender(event);
+    if (typeof payload !== "object" || payload === null) throw new Error("Invalid pin request: expected an object.");
+    const { petId, pinned } = payload as { readonly petId?: unknown; readonly pinned?: unknown };
+    if (typeof petId !== "string" || petId.length === 0) throw new Error("Invalid pin request: expected a pet id.");
+    if (typeof pinned !== "boolean") throw new Error("Invalid pin request: expected a pinned flag.");
+    // Applied against the saved list, not a list sent by the renderer: a stale snapshot
+    // must not resurrect a pin that a closed pet window already removed.
+    setPetPinned(petId, pinned);
+    syncPinnedPets();
+    return getSettingsStateSnapshot();
+  });
+
   registerHandle("openpets:install-pet", async (event, petId: unknown) => {
     authorizeSender(event);
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await installPet(petId);
+    syncPinnedPets();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
       : state;
@@ -208,6 +233,8 @@ export function installControlCenterPetManagementIpcHandlers({
         : await installPetFromZipFile(selectedPath);
       logger.debug("local pet import succeeded", { kind: selectedStats.isDirectory() ? "folder" : "zip" });
       refreshDefaultPetContent();
+      // A freshly imported pet that is already pinned gets its window back.
+      syncPinnedPets();
       return isCurrentControlCenterSender(event)
         ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
         : state;
@@ -227,6 +254,7 @@ export function installControlCenterPetManagementIpcHandlers({
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await importCodexPet(petId);
+    syncPinnedPets();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
       : state;
@@ -237,6 +265,7 @@ export function installControlCenterPetManagementIpcHandlers({
     if (typeof petId !== "string") throw new Error("Invalid pet id.");
 
     const state = await removePet(petId);
+    syncPinnedPets();
     refreshDefaultPetContent();
     return isCurrentControlCenterSender(event)
       ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)

@@ -44,6 +44,7 @@ import { invalidateDisplayCache } from "./display.js";
 import { reclampAgentPetWindows } from "./agent-pet-controller.js";
 import { reclampLanVisitingPetWindows } from "./lan-pet-controller.js";
 import { reclampPluginPetWindows } from "./plugin-pet-registry.js";
+import { reclampPinnedPetWindows, syncPinnedPets } from "./pinned-pet-controller.js";
 import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
@@ -251,6 +252,7 @@ if (!gotSingleInstanceLock) {
       invalidateDisplayCache,
       reclampDefaultPetWindow,
       reclampAgentPetWindows,
+      reclampPinnedPetWindows,
       reclampLanVisitingPetWindows,
       reclampPluginPetWindows,
       recoverDefaultPetMouseInterop,
@@ -328,6 +330,9 @@ if (!gotSingleInstanceLock) {
     if (shouldOpenDefaultPetOnLaunch()) {
       showDefaultPet();
     }
+    // Pinned pets are user-owned windows: they come back on every launch, independent of
+    // launcher visibility and of any agent session.
+    syncPinnedPets();
     startLanController();
     try {
       await remoteControlService.start();

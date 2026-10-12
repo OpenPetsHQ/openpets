@@ -15,6 +15,7 @@ const channels = [
   "openpets:get-codex-pets",
   "openpets:set-default-pet",
   "openpets:set-pet-pool-order",
+  "openpets:set-pet-pinned",
   "openpets:install-pet",
   "openpets:install-local-pet",
   "openpets:open-gallery",
@@ -110,6 +111,8 @@ function createHarness() {
     broadcastDashboardRefresh: () => record("broadcastDashboardRefresh"),
     normalizePetPoolOrder: (ids) => { record("normalizePetPoolOrder", ids); return undefined; },
     setPetPoolOrder: (ids) => record("setPetPoolOrder", ids),
+    setPetPinned: (petId, pinned) => record("setPetPinned", petId, pinned),
+    syncPinnedPets: () => record("syncPinnedPets"),
     installPet: (petId) => mutate("installPet", petId),
     installPetFromFolder: (path) => mutate("installPetFromFolder", path),
     installPetFromZipFile: (path) => mutate("installPetFromZipFile", path),
@@ -161,7 +164,13 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
     authorizeSender: () => { throw new Error("unauthorized"); },
   });
   for (const channel of channels) {
-    const args = channel.includes("pet") && !channel.includes("pets-state") && !channel.includes("pool") ? ["pet"] : channel === "openpets:set-pet-pool-order" ? [[]] : [];
+    const args = channel === "openpets:set-pet-pool-order"
+      ? [[]]
+      : channel === "openpets:set-pet-pinned"
+        ? [{ petId: "pet", pinned: true }]
+        : channel.includes("pet") && !channel.includes("pets-state") && !channel.includes("pool")
+          ? ["pet"]
+          : [];
     await assert.rejects(async () => getHandler(harness, channel)(event, ...args), /unauthorized/);
   }
   assert.deepEqual(harness.calls, [], "authorization is first for every channel");
@@ -186,8 +195,8 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
 {
   const harness = createHarness();
   await getHandler(harness, "openpets:set-default-pet")(event, "personal");
-  assert.deepEqual(harness.calls.slice(0, 8).map(({ method }) => method), [
-    "authorize", "setDefaultInstalledPet", "refreshDefaultPetContent", "recoverDefaultPetMouseInterop", "setTimeout", "unref", "broadcastDashboardRefresh", "getAppStateSnapshot",
+  assert.deepEqual(harness.calls.slice(0, 9).map(({ method }) => method), [
+    "authorize", "setDefaultInstalledPet", "refreshDefaultPetContent", "recoverDefaultPetMouseInterop", "setTimeout", "unref", "broadcastDashboardRefresh", "syncPinnedPets", "getAppStateSnapshot",
   ]);
   assert.deepEqual(harness.calls.find(({ method }) => method === "setDefaultInstalledPet")?.args, ["personal"]);
   assert.deepEqual(harness.calls.find(({ method }) => method === "setTimeout")?.args, [500]);
@@ -218,9 +227,15 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
   harness.setMessageResponse(1);
   harness.setOpenDialogResult({ canceled: false, filePaths: ["/tmp/pet-folder"] });
   harness.setSelectedIsDirectory(true);
+  const syncsBeforeFolderInstall = harness.calls.filter(({ method }) => method === "syncPinnedPets").length;
   await getHandler(harness, "openpets:install-local-pet")(event);
   assert.equal(harness.calls.some(({ method, args }) => method === "installPetFromFolder" && args[0] === "/tmp/pet-folder"), true);
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), true);
+  assert.equal(
+    harness.calls.filter(({ method }) => method === "syncPinnedPets").length,
+    syncsBeforeFolderInstall + 1,
+    "a local install reconciles the pinned pet windows",
+  );
 
   harness.setMessageResponse(0);
   harness.setOpenDialogResult({ canceled: false, filePaths: ["/tmp/pet.zip"] });
@@ -242,12 +257,22 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
   assert.deepEqual(installed, { from: "installPet" });
   assert.equal(harness.calls.some(({ method }) => method === "getAppStateSnapshot"), false);
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), false);
+  assert.equal(
+    harness.calls.some(({ method }) => method === "syncPinnedPets"),
+    true,
+    "installing a pet reconciles the pinned pet windows",
+  );
   const imported = await getHandler(harness, "openpets:import-codex-pet")(event, "personal");
   assert.deepEqual(imported, { from: "importCodexPet" });
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), false);
   const removed = await getHandler(harness, "openpets:remove-pet")(event, "personal");
   assert.deepEqual(removed, { from: "removePet" });
   assert.equal(harness.calls.some(({ method }) => method === "refreshDefaultPetContent"), true);
+  assert.equal(
+    harness.calls.some(({ method }) => method === "syncPinnedPets"),
+    true,
+    "removing a pet reconciles the pinned pet windows",
+  );
   await assert.rejects(async () => getHandler(harness, "openpets:install-pet")(event, 1), /Invalid pet id\./);
   await assert.rejects(async () => getHandler(harness, "openpets:remove-pet")(event, null), /Invalid pet id\./);
 }
@@ -263,6 +288,24 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
   assert.deepEqual(await getHandler(harness, "openpets:reset-default-pet-position")(event), harness.state);
   await getHandler(harness, "openpets:open-gallery")(event);
   assert.deepEqual(harness.calls.at(-1), { method: "openExternal", args: ["https://openpets.dev/gallery"] });
+}
+
+{
+  const harness = createHarness();
+  assert.deepEqual(await getHandler(harness, "openpets:set-pet-pinned")(event, { petId: "personal", pinned: true }), harness.settings);
+  assert.deepEqual(harness.calls.find(({ method }) => method === "setPetPinned")?.args, ["personal", true]);
+  assert.deepEqual(harness.calls.slice(-2).map(({ method }) => method), ["syncPinnedPets", "getSettingsStateSnapshot"]);
+  await getHandler(harness, "openpets:set-pet-pinned")(event, { petId: "personal", pinned: false });
+  assert.deepEqual(harness.calls.filter(({ method }) => method === "setPetPinned").at(-1)?.args, ["personal", false]);
+  await assert.rejects(async () => getHandler(harness, "openpets:set-pet-pinned")(event, null), /Invalid pin request/);
+  await assert.rejects(async () => getHandler(harness, "openpets:set-pet-pinned")(event, { petId: 5, pinned: true }), /Invalid pin request/);
+  await assert.rejects(async () => getHandler(harness, "openpets:set-pet-pinned")(event, { petId: "", pinned: true }), /Invalid pin request/);
+  await assert.rejects(async () => getHandler(harness, "openpets:set-pet-pinned")(event, { petId: "personal", pinned: "yes" }), /Invalid pin request/);
+  assert.equal(
+    harness.calls.filter(({ method }) => method === "setPetPinned").length,
+    2,
+    "invalid payloads never reach the state writer",
+  );
 }
 
 console.log("control-center pet management IPC handlers passed.");

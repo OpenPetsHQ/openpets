@@ -117,6 +117,7 @@ function createCoordinator() {
     invalidateDisplayCache: () => invalidated.push("invalidate"),
     reclampDefaultPetWindow: (reason, display) => calls.push(`default:${reason}:${display?.id ?? "none"}`),
     reclampAgentPetWindows: (reason) => calls.push(`agent:${reason}`),
+    reclampPinnedPetWindows: (reason) => calls.push(`pinned:${reason}`),
     reclampLanVisitingPetWindows: () => calls.push("lan"),
     reclampPluginPetWindows: (reason) => calls.push(`plugin:${reason}`),
     recoverDefaultPetMouseInterop: (reason) => calls.push(`resume:${reason}`),
@@ -141,10 +142,12 @@ describe("pet display coordinator", () => {
     assert.deepEqual(calls, [
       "default:display-added:added-2",
       "agent:display-added",
+      "pinned:display-added",
       "lan",
       "plugin:display-added",
       "default:display-removed:removed-1",
       "agent:display-removed",
+      "pinned:display-removed",
       "lan",
       "plugin:display-removed",
     ], "each lane fans out synchronously in controller order");

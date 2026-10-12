@@ -23,6 +23,7 @@ export interface PetDisplayCoordinatorOptions<Display> {
   readonly invalidateDisplayCache: () => void;
   readonly reclampDefaultPetWindow: (reason: DisplayChangeReason, changedDisplay?: Display) => void;
   readonly reclampAgentPetWindows: (reason: DisplayChangeReason) => void;
+  readonly reclampPinnedPetWindows: (reason: DisplayChangeReason) => void;
   readonly reclampLanVisitingPetWindows: () => void;
   readonly reclampPluginPetWindows: (reason: DisplayChangeReason) => void;
   readonly recoverDefaultPetMouseInterop: (reason: string) => void;
@@ -116,6 +117,7 @@ export class PetDisplayCoordinator<Display> {
   private fanoutDisplayChange(reason: DisplayChangeReason, changedDisplay: Display | undefined): void {
     this.options.reclampDefaultPetWindow(reason, changedDisplay);
     this.options.reclampAgentPetWindows(reason);
+    this.options.reclampPinnedPetWindows(reason);
     this.options.reclampLanVisitingPetWindows();
     this.options.reclampPluginPetWindows(reason);
   }
