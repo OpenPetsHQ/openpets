@@ -17,6 +17,20 @@ const tickIntervalMs = 16;
 /** A stalled event loop must not teleport the pet across the screen. */
 const maxStepSeconds = 0.05;
 
+interface ActiveThrow {
+  readonly size: { readonly width: number; readonly height: number };
+  readonly options: ThrowOptions;
+  /** The display the pet was released on; its work area is re-read every tick so topology changes apply. */
+  readonly displayId: number;
+  state: ThrowState;
+  lastTick: number;
+}
+
+const activeThrows = new Map<BrowserWindow, ActiveThrow>();
+
+/** One timer drives every active throw, started with the first throw and stopped with the last. */
+let sharedTimer: NodeJS.Timeout | null = null;
+
 export interface PetThrowPhysics {
   readonly gravityEnabled: boolean;
   /** Fraction of fall speed kept after landing (0–1). */
@@ -25,18 +39,55 @@ export interface PetThrowPhysics {
   readonly floorFriction: number;
 }
 
-const activeThrows = new WeakMap<BrowserWindow, NodeJS.Timeout>();
-
 export function isPetWindowThrown(window: BrowserWindow): boolean {
   return activeThrows.has(window);
 }
 
 /** Stops an in-flight throw, leaving the window where it is. */
 export function cancelPetThrow(window: BrowserWindow): void {
-  const timer = activeThrows.get(window);
-  if (!timer) return;
-  clearInterval(timer);
   activeThrows.delete(window);
+  if (activeThrows.size === 0 && sharedTimer) {
+    clearInterval(sharedTimer);
+    sharedTimer = null;
+  }
+}
+
+function boundsForThrow(active: ActiveThrow): ThrowBounds {
+  const center = {
+    x: Math.round(active.state.x + active.size.width / 2),
+    y: Math.round(active.state.y + active.size.height / 2),
+  };
+  const display = screen.getAllDisplays().find((candidate) => candidate.id === active.displayId)
+    ?? screen.getDisplayNearestPoint(center);
+  return {
+    minX: display.workArea.x,
+    minY: display.workArea.y,
+    maxX: display.workArea.x + display.workArea.width - active.size.width,
+    maxY: display.workArea.y + display.workArea.height - active.size.height,
+  };
+}
+
+function tickThrows(): void {
+  const now = Date.now();
+  for (const [window, active] of [...activeThrows]) {
+    if (window.isDestroyed()) {
+      cancelPetThrow(window);
+      continue;
+    }
+
+    const dtSeconds = Math.min((now - active.lastTick) / 1000, maxStepSeconds);
+    active.lastTick = now;
+
+    const next = stepThrow(active.state, dtSeconds, boundsForThrow(active), active.options);
+    if (!next) {
+      debug("pet.window", "throw settled", { windowId: window.id });
+      cancelPetThrow(window);
+      continue;
+    }
+
+    active.state = next;
+    window.setBounds({ x: Math.round(next.x), y: Math.round(next.y), width: active.size.width, height: active.size.height }, false);
+  }
 }
 
 export function startPetThrow(
@@ -53,45 +104,24 @@ export function startPetThrow(
     x: start.x + Math.round(size.width / 2),
     y: start.y + Math.round(size.height / 2),
   });
-  const bounds: ThrowBounds = {
-    minX: display.workArea.x,
-    minY: display.workArea.y,
-    maxX: display.workArea.x + display.workArea.width - size.width,
-    maxY: display.workArea.y + display.workArea.height - size.height,
+  const active: ActiveThrow = {
+    size,
+    displayId: display.id,
+    options: {
+      gravity: physics.gravityEnabled ? gravityAcceleration : 0,
+      floorRestitution: physics.bounciness,
+      floorImpactFriction: 1 - physics.floorFriction,
+    },
+    state: { x: start.x, y: start.y, vx: velocity.x, vy: velocity.y },
+    lastTick: Date.now(),
   };
+  const bounds = boundsForThrow(active);
   if (!(bounds.maxX > bounds.minX) || !(bounds.maxY > bounds.minY)) return;
 
-  const options: ThrowOptions = {
-    gravity: physics.gravityEnabled ? gravityAcceleration : 0,
-    floorRestitution: physics.bounciness,
-    floorImpactFriction: 1 - physics.floorFriction,
-  };
-  let state: ThrowState = { x: start.x, y: start.y, vx: velocity.x, vy: velocity.y };
-  let lastTick = Date.now();
   debug("pet.window", "throw start", { windowId: window.id, velocity, bounds, physics });
-
-  const tick = (): void => {
-    if (window.isDestroyed()) {
-      cancelPetThrow(window);
-      return;
-    }
-
-    const now = Date.now();
-    const dtSeconds = Math.min((now - lastTick) / 1000, maxStepSeconds);
-    lastTick = now;
-
-    const next = stepThrow(state, dtSeconds, bounds, options);
-    if (!next) {
-      debug("pet.window", "throw settled", { windowId: window.id });
-      cancelPetThrow(window);
-      return;
-    }
-
-    state = next;
-    window.setBounds({ x: Math.round(next.x), y: Math.round(next.y), width: size.width, height: size.height }, false);
-  };
-
-  const timer = setInterval(tick, tickIntervalMs);
-  timer.unref?.();
-  activeThrows.set(window, timer);
+  activeThrows.set(window, active);
+  if (!sharedTimer) {
+    sharedTimer = setInterval(tickThrows, tickIntervalMs);
+    sharedTimer.unref?.();
+  }
 }
