@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 
-import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
 import { normalizeDefaultPetPositionState, normalizePosition, recordDefaultPetPositionState, resetDefaultPetPositionState, type DefaultPetPosition, type DefaultPetPositionState } from "./default-pet-position-state.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
@@ -91,6 +91,10 @@ export interface OpenPetsStateV1 {
      * pet (default + agent). When false (default), no gravity is applied — the
      * Walkabout plugin's per-session physics path governs gravity instead. */
     readonly petGravityEnabled: boolean;
+    /** 0–1: how much fall speed a pet keeps after landing (thrown or falling). */
+    readonly petBounciness: number;
+    /** 0–1: how much sideways speed a thrown pet sheds each time it lands. */
+    readonly petFloorFriction: number;
     /** Owner-authored communication preferences for the host Pet Assistant. */
     readonly personality: PetAssistantPersonality;
      /** Canonical Electron accelerator used to start the bounded Talk session. */
@@ -366,6 +370,16 @@ export function resetDefaultPetPosition(position: unknown): OpenPetsStateV1 {
 
 export function getPetGravityEnabled(): boolean {
   return getInitializedState().preferences.petGravityEnabled;
+}
+
+export function getPetBounciness(): number {
+  return getInitializedState().preferences.petBounciness;
+}
+
+/** Settings a thrown pet needs, read fresh at release so preference changes apply immediately. */
+export function getPetThrowPhysics(): { readonly gravityEnabled: boolean; readonly bounciness: number; readonly floorFriction: number } {
+  const { petGravityEnabled, petBounciness, petFloorFriction } = getInitializedState().preferences;
+  return { gravityEnabled: petGravityEnabled, bounciness: petBounciness, floorFriction: petFloorFriction };
 }
 
 export function setPetGravityEnabled(value: boolean): OpenPetsStateV1 {
@@ -662,6 +676,8 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     petConfinementEnabled: normalizePetConfinementEnabled(value.petConfinementEnabled, defaultState.preferences.petConfinementEnabled),
     petCrossDisplayEnabled: normalizePetCrossDisplayEnabled(value.petCrossDisplayEnabled, defaultState.preferences.petCrossDisplayEnabled),
     petGravityEnabled: normalizePetGravityEnabled(value.petGravityEnabled, defaultState.preferences.petGravityEnabled),
+    petBounciness: normalizePetPhysicsFraction(value.petBounciness, defaultState.preferences.petBounciness),
+    petFloorFriction: normalizePetPhysicsFraction(value.petFloorFriction, defaultState.preferences.petFloorFriction),
     personality: normalizePetAssistantPersonality(value.personality),
      voiceAssistantShortcut: value.voiceAssistantShortcut === "" ? "" : isCanonicalVoiceAssistantShortcut(value.voiceAssistantShortcut) ? value.voiceAssistantShortcut : defaultState.preferences.voiceAssistantShortcut,
      preferredVoiceInputDeviceId: normalizeVoiceDeviceId(value.preferredVoiceInputDeviceId),
@@ -773,6 +789,8 @@ function createDefaultState(): OpenPetsStateV1 {
       petConfinementEnabled: true,
       petCrossDisplayEnabled: false,
       petGravityEnabled: false,
+      petBounciness: defaultPetBounciness,
+      petFloorFriction: defaultPetFloorFriction,
       personality: defaultPetAssistantPersonality,
       voiceAssistantShortcut: DEFAULT_VOICE_ASSISTANT_SHORTCUT,
       preferredVoiceInputDeviceId: null,

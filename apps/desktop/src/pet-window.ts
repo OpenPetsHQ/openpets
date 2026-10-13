@@ -3,7 +3,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
+import { getAppStateSnapshot, getPetThrowPhysics, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { t } from "./i18n/index.js";
@@ -134,6 +134,7 @@ function installDefaultPetWindow(window: BrowserWindow, options: DefaultPetWindo
   installPetWindowInteraction(window, {
     useWaylandNativeDrag: shouldUseWaylandNativePetDrag(),
     readWindowPosition,
+    getThrowPhysics: getPetThrowPhysics,
   }, options);
   installMotionStatePublisher(window);
   installPetContextMenu(window, { label: t("pet.menu.hidePet"), click: options.onHideRequested, defaultPet: true }, shouldUseLayerShellBackend);
@@ -181,6 +182,7 @@ function installAgentPetWindow(window: BrowserWindow, options: AgentPetWindowOpt
   installPetWindowInteraction(window, {
     useWaylandNativeDrag: shouldUseWaylandNativePetDrag(),
     readWindowPosition,
+    getThrowPhysics: getPetThrowPhysics,
   }, options);
   installMotionStatePublisher(window);
   installPetContextMenu(window, { label: t("pet.menu.closePet"), click: options.onCloseRequested, focusSessionWindow: options.onFocusSessionWindow, petId: options.petId }, shouldUseLayerShellBackend);

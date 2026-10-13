@@ -67,7 +67,7 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; pinnedPets?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; pinnedPetsLimit: number; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; pinnedPets?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; petBounciness: number; petFloorFriction: number; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; pinnedPetsLimit: number; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
@@ -1065,6 +1065,48 @@ function PetPoolOrderList({
   );
 }
 
+function SliderRow({ title, description, value, disabled, onCommit, testId }: { title: string; description: string; value: number; disabled?: boolean; onCommit: (value: number) => void; testId?: string }) {
+  const [draft, setDraft] = useState(value);
+  const pointerDown = useRef(false);
+  const keyboardTimer = useRef<number | undefined>(undefined);
+  const savedValue = useRef(value);
+  useEffect(() => { setDraft(value); savedValue.current = value; }, [value]);
+  useEffect(() => () => window.clearTimeout(keyboardTimer.current), []);
+
+  const commit = (next: number) => {
+    window.clearTimeout(keyboardTimer.current);
+    if (next !== savedValue.current) onCommit(next);
+  };
+  // Pointer drags commit on release. Keyboard and assistive-technology steps wait for a pause, since
+  // saving disables the control and would otherwise drop focus after the first arrow press.
+  const commitSoon = (next: number) => {
+    window.clearTimeout(keyboardTimer.current);
+    keyboardTimer.current = window.setTimeout(() => commit(next), 400);
+  };
+
+  return <label className={`settings-row ${disabled ? "opacity-60" : ""}`}>
+    <div className="settings-row-info"><strong>{title}</strong><small>{description}</small></div>
+    <input
+      type="range"
+      min={0}
+      max={1}
+      step={0.05}
+      value={draft}
+      disabled={disabled}
+      data-testid={testId}
+      onPointerDown={() => { pointerDown.current = true; }}
+      onPointerUp={(event) => { pointerDown.current = false; commit(Number(event.currentTarget.value)); }}
+      onPointerCancel={() => { pointerDown.current = false; }}
+      onBlur={() => { pointerDown.current = false; }}
+      onChange={(event) => {
+        const next = Number(event.target.value);
+        setDraft(next);
+        if (!pointerDown.current) commitSoon(next);
+      }}
+    />
+  </label>;
+}
+
 function ToggleRow({ title, description, checked, disabled, onChange, testId }: { title: string; description: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void; testId?: string }) {
   return <label className={`settings-row ${disabled ? "opacity-60" : ""}`}>
     <div className="settings-row-info"><strong>{title}</strong><small>{description}</small></div>
@@ -1528,6 +1570,22 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                   disabled={!settings || !!busy}
                   testId="setting-pet-gravity-toggle"
                   onChange={(checked) => patchPreferences({ petGravityEnabled: checked }, t("settings.toast.gravitySaved"))}
+                />
+                <SliderRow
+                  title={t("settings.petBounciness.label")}
+                  description={t("settings.petBounciness.description")}
+                  value={settings?.preferences.petBounciness ?? 0.5}
+                  disabled={!settings || !!busy}
+                  testId="setting-pet-bounciness-slider"
+                  onCommit={(value) => patchPreferences({ petBounciness: value }, t("settings.toast.physicsSaved"))}
+                />
+                <SliderRow
+                  title={t("settings.petFloorFriction.label")}
+                  description={t("settings.petFloorFriction.description")}
+                  value={settings?.preferences.petFloorFriction ?? 0.3}
+                  disabled={!settings || !!busy}
+                  testId="setting-pet-floor-friction-slider"
+                  onCommit={(value) => patchPreferences({ petFloorFriction: value }, t("settings.toast.physicsSaved"))}
                 />
                 <div className="settings-row">
                   <div className="settings-row-info">

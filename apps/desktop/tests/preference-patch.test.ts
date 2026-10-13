@@ -234,4 +234,11 @@ for (const { key, errMsg } of booleanKeys) {
   console.log("validatePreferencePatch: Talk shortcut validation — PASS");
 }
 
+{
+  assert.deepEqual(validatePreferencePatch({ petBounciness: 0.25, petFloorFriction: 1 }), { petBounciness: 0.25, petFloorFriction: 1 });
+  assert.throws(() => validatePreferencePatch({ petBounciness: 1.5 }), /Invalid petBounciness/);
+  assert.throws(() => validatePreferencePatch({ petFloorFriction: "high" }), /Invalid petFloorFriction/);
+  console.log("validatePreferencePatch: physics fractions — PASS");
+}
+
 console.log("\nAll preference-patch tests passed.");

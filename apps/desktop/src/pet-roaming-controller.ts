@@ -15,6 +15,7 @@
 
 import { createRequire } from "node:module";
 
+import { defaultPetBounciness } from "./app-state-core.js";
 import { motionSetPhysics, motionStop, registerPet, unregisterPet, type WindowAccessor } from "./pet-motion-engine.js";
 
 // createRequire lets us lazy-load app-state (which imports Electron) only at
@@ -33,6 +34,17 @@ function getPetGravityEnabledLazy(): boolean {
   return _getPetGravityEnabled();
 }
 
+let _getPetBounciness: (() => number) | null = null;
+
+function getPetBouncinessLazy(): number {
+  if (!_getPetBounciness) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("./app-state.js") as { getPetBounciness: () => number };
+    _getPetBounciness = mod.getPetBounciness;
+  }
+  return _getPetBounciness();
+}
+
 // Map of petId -> accessor for all currently live pets
 const livePets = new Map<string, WindowAccessor>();
 
@@ -42,6 +54,11 @@ let _gravityOverride: boolean | null = null;
 
 function getGravityEnabled(): boolean {
   return _gravityOverride !== null ? _gravityOverride : getPetGravityEnabledLazy();
+}
+
+/** The gravity override also pins bounciness to its default so tests never load app-state. */
+function getBounciness(): number {
+  return _gravityOverride !== null ? defaultPetBounciness : getPetBouncinessLazy();
 }
 
 /**
@@ -78,13 +95,13 @@ export function applyRoamingToAllPets(): void {
  *
  * Reads the host `petGravityEnabled` preference to decide whether to enable
  * physics. When gravity is ON every registered pet falls with physics
- * (gravity:true, bounce:0.4). When OFF (the default) no gravity is applied —
+ * (gravity:true, bounce:petBounciness). When OFF (the default) no gravity is applied —
  * pets still register for single-writer wander/moveTo motion but without
  * physics. Because both the default pet and all agent pets register through
  * this function, the gravity toggle is uniformly applied to all of them.
  */
 export function applyRoamingToPet(petId: string, accessor: WindowAccessor): void {
-  motionSetPhysics(petId, accessor, getGravityEnabled() ? { gravity: true, bounce: 0.4 } : { gravity: false });
+  motionSetPhysics(petId, accessor, getGravityEnabled() ? { gravity: true, bounce: getBounciness() } : { gravity: false });
 }
 
 /**

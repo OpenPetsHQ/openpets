@@ -146,6 +146,18 @@ export function normalizePetGravityEnabled(value: unknown, defaultValue = false)
   return typeof value === "boolean" ? value : defaultValue;
 }
 
+export const defaultPetBounciness = 0.5;
+export const defaultPetFloorFriction = 0.3;
+
+/**
+ * Normalize a 0–1 pet physics preference (bounciness, floor friction).
+ * Non-finite or non-number values fall back to the default; out-of-range values are clamped.
+ */
+export function normalizePetPhysicsFraction(value: unknown, defaultValue: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return defaultValue;
+  return Math.min(Math.max(value, 0), 1);
+}
+
 const safePetIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function isSafeFlipPetId(petId: string): boolean {
