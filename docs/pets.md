@@ -188,7 +188,7 @@ touches a closed window.
 Releasing a drag with motion throws the pet like a ball. The pure physics lives
 in `pet-throw-core.ts` (release velocity from the last ~100 ms of pointer
 samples, friction, edge reflection, and gravity arcs when `petGravityEnabled` is
-on); `pet-throw.ts` owns the per-window timer and bounds. A throw bounces off the
+on); `pet-throw.ts` owns the active-throw timer and bounds. A throw bounces off the
 work area of the display the pet was released on, so reaching another monitor
 still takes a real drag, and the motion engine yields to a thrown pet the same
 way it yields to a dragged one. All active throws share one timer, and the display

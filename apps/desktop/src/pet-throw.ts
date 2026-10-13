@@ -1,5 +1,5 @@
 /**
- * pet-throw.ts — owns the per-window "thrown ball" lifecycle.
+ * pet-throw.ts — owns the "thrown ball" lifecycle for pet windows.
  *
  * A released drag with enough velocity hands the window here. The throw bounces
  * off the work area of the display the pet was released on (so reaching another
