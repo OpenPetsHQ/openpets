@@ -20,6 +20,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it, before, after, beforeEach } from "node:test";
+import { defaultPetBounciness } from "../src/app-state-core.js";
 
 import {
   _setScreenForTesting,
@@ -173,7 +174,7 @@ describe("pet-roaming-controller", () => {
     const physics = _getPhysicsForTesting("gravity-on-pet");
     assert.ok(physics !== null, "physics must be active when gravity is on");
     assert.equal(physics.gravity, true, "physics.gravity must be true");
-    assert.equal(physics.bounce, 0.4, "physics.bounce must be 0.4");
+    assert.equal(physics.bounce, defaultPetBounciness, "physics.bounce must follow the bounciness default");
     // Ticker starts because physics is active.
     assert.equal(_sharedTickerActiveForTesting(), true, "shared ticker starts with gravity enabled");
 

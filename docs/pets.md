@@ -194,6 +194,21 @@ configuration (gravity + bounce). When a pet is despawned the controller
 unregisters it before the window is destroyed, so the shared ticker never
 touches a closed window.
 
+Releasing a drag with motion throws the pet like a ball. The pure physics lives
+in `pet-throw-core.ts` (release velocity from the last ~100 ms of pointer
+samples, friction, edge reflection, and gravity arcs when `petGravityEnabled` is
+on); `pet-throw.ts` owns the active-throw timer and bounds. A throw bounces off the
+work area of the display the pet was released on, so reaching another monitor
+still takes a real drag, and the motion engine yields to a thrown pet the same
+way it yields to a dragged one. All active throws share one timer, and the display
+work area is re-read every tick so a display change re-clamps a throw in flight.
+Throwing is not available on backends that use the native CSS drag region
+(Wayland/layer-shell): the app never sees pointer samples there, so a release is
+always a plain drop. The `petBounciness` and `petFloorFriction`
+preferences (Settings, next to gravity) set how much a pet rebounds off the floor
+and how much sideways speed each landing sheds; bounciness also feeds the engine's
+gravity bounce.
+
 Plugin-driven movement (`plugin-sdk-routes.ts` → `plugin-pet-registry.ts`) feeds
 target vectors and physics overrides through the engine's public API
 (`motionMoveTo`, `motionSetPhysics`, `motionSetFollowCursor`). The engine is the

@@ -4,12 +4,15 @@ import type { Point } from "./display.js";
 import { debug } from "./logger.js";
 import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForwardedMouseEvents } from "./mouse-forwarding.js";
 import { trackPetSpriteBytesWebContents } from "./pet-sprite-bytes.js";
+import { createVelocityTracker } from "./pet-throw-core.js";
+import { cancelPetThrow, startPetThrow, type PetThrowPhysics } from "./pet-throw.js";
 import { resetPetGazeWindow, setPetGazeDragging, setPetGazeRendererReady, suspendPetGazeForMovement } from "./pet-window-gaze.js";
 import type { PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 
 export interface PetWindowInteractionDependencies {
   readonly useWaylandNativeDrag: boolean;
   readonly readWindowPosition: (window: BrowserWindow) => Point;
+  readonly getThrowPhysics: () => PetThrowPhysics;
 }
 
 const petMouseInteropRecovery = new WeakMap<BrowserWindow, (reason: string) => void>();
@@ -48,7 +51,7 @@ export function installPetWindowInteraction(
   hooks: PetWindowInteractionHooks = {},
 ): void {
   const { onBubbleDismissed, onBubbleAction, onBubbleSubmit, onPetEvent } = hooks;
-  const { readWindowPosition, useWaylandNativeDrag } = dependencies;
+  const { readWindowPosition, useWaylandNativeDrag, getThrowPhysics } = dependencies;
   const windowId = window.id;
 
   if (useWaylandNativeDrag) {
@@ -63,6 +66,7 @@ export function installPetWindowInteraction(
     readonly width: number;
     readonly height: number;
   } | null = null;
+  const velocityTracker = createVelocityTracker();
   let rendererReady = false;
   let listenersRemoved = false;
   let lastInteractive = false;
@@ -277,6 +281,8 @@ export function installPetWindowInteraction(
       return;
     }
 
+    cancelPetThrow(window);
+    velocityTracker.reset();
     const startBounds = window.getBounds();
     dragging = {
       startScreenX: point.screenX,
@@ -286,6 +292,8 @@ export function installPetWindowInteraction(
       width: startBounds.width,
       height: startBounds.height,
     };
+    // Seed the tracker so even a single fast move event after the press yields a release velocity.
+    velocityTracker.addSample(Date.now(), startBounds.x, startBounds.y);
     petWindowDragging.set(window, true);
     debug("pet.window", "drag start", { windowId, point, startBounds });
     clearForwardingWatch();
@@ -305,6 +313,7 @@ export function installPetWindowInteraction(
     const nextX = dragging.startWindowX + Math.round(point.screenX - dragging.startScreenX);
     const nextY = dragging.startWindowY + Math.round(point.screenY - dragging.startScreenY);
     window.setBounds({ x: nextX, y: nextY, width: dragging.width, height: dragging.height }, false);
+    velocityTracker.addSample(Date.now(), nextX, nextY);
   };
 
   const handleDragEnd = (event: IpcMainEvent): void => {
@@ -317,9 +326,15 @@ export function installPetWindowInteraction(
       return;
     }
 
-    const wasDragging = dragging !== null;
+    const releasedDrag = dragging;
+    const wasDragging = releasedDrag !== null;
     dragging = null;
     petWindowDragging.set(window, false);
+    const throwVelocity = velocityTracker.release(Date.now());
+    velocityTracker.reset();
+    if (releasedDrag && throwVelocity && !window.isDestroyed()) {
+      startPetThrow(window, { width: releasedDrag.width, height: releasedDrag.height }, throwVelocity, getThrowPhysics());
+    }
     debug("pet.window", "drag end", {
       windowId,
       position: window.isDestroyed() ? null : readWindowPosition(window),

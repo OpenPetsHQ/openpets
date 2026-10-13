@@ -24,6 +24,8 @@ export type PreferencePatch = {
   petConfinementEnabled?: boolean;
   petCrossDisplayEnabled?: boolean;
   petGravityEnabled?: boolean;
+  petBounciness?: number;
+  petFloorFriction?: number;
   personality?: PetAssistantPersonalityPatch;
   voiceAssistantShortcut?: string;
   /** Empty string disables the chat shortcut; otherwise a canonical accelerator. */
@@ -65,6 +67,15 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
   if ("petConfinementEnabled" in value) {
     if (typeof value.petConfinementEnabled !== "boolean") throw new Error("Invalid pet-confinement-enabled value.");
     patch.petConfinementEnabled = value.petConfinementEnabled;
+  }
+
+  for (const key of ["petBounciness", "petFloorFriction"] as const) {
+    if (!(key in value)) continue;
+    const fraction = value[key];
+    if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) {
+      throw new Error(`Invalid ${key} value.`);
+    }
+    patch[key] = fraction;
   }
 
   if ("petGravityEnabled" in value) {

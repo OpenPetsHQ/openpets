@@ -28,6 +28,8 @@ const require = createRequire(import.meta.url);
 let _screen: ScreenImpl | null = null;
 // Lazily loaded — same rationale as _screen above.
 let _isPetWindowDragging: IsPetWindowDraggingFn | null = null;
+// Lazily loaded — pet-throw.ts imports electron at module load.
+let _isPetWindowThrown: IsPetWindowDraggingFn | null = null;
 
 function getIsPetWindowDragging(): IsPetWindowDraggingFn {
   if (!_isPetWindowDragging) {
@@ -36,6 +38,15 @@ function getIsPetWindowDragging(): IsPetWindowDraggingFn {
     _isPetWindowDragging = isPetWindowDragging;
   }
   return _isPetWindowDragging;
+}
+
+function isPetWindowThrownLazy(win: BrowserWindow): boolean {
+  if (!_isPetWindowThrown) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isPetWindowThrown } = require("./pet-throw.js") as { isPetWindowThrown: IsPetWindowDraggingFn };
+    _isPetWindowThrown = isPetWindowThrown;
+  }
+  return _isPetWindowThrown(win);
 }
 
 function getScreen(): ScreenImpl {
@@ -55,6 +66,8 @@ export function _setScreenForTesting(impl: ScreenImpl | null): void {
 /** ONLY call from unit tests. Pass null to restore the real implementation. */
 export function _setIsPetWindowDraggingForTesting(fn: IsPetWindowDraggingFn | null): void {
   _isPetWindowDragging = fn;
+  // Tests have no electron; a pet is never thrown unless a test says otherwise.
+  _isPetWindowThrown = fn ? () => false : null;
 }
 
 /** ONLY call from unit tests. Returns whether the shared ticker is currently running. */
@@ -253,8 +266,8 @@ function tickPet(petHandleId: string, accessor: WindowAccessor, state: MotionSta
   // Settle the move-to clock even while hidden/dragging so an awaited
   // motionMoveTo() always completes (its promise resolves on moveGeneration
   // bump / moveTarget clear). We intentionally do NOT write position or apply
-  // gravity here, preserving the single-writer model and the gravity clamp.
-  if (!window.isVisible() || getIsPetWindowDragging()(window)) {
+  // gravity here (a thrown pet is owned by pet-throw.ts), preserving the single-writer model and the gravity clamp.
+  if (!window.isVisible() || getIsPetWindowDragging()(window) || isPetWindowThrownLazy(window)) {
     if (state.moveTarget) {
       state.moveTarget.elapsed += loopIntervalMs;
       if (state.moveTarget.elapsed >= state.moveTarget.durationMs) {

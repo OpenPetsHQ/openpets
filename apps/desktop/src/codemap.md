@@ -347,6 +347,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `default-pet-controller.ts`: Default pet visibility, position persistence, persisted explicit Hide vs temporary window-manager-close hiding, transient reactions, status badges, and the private weekly Manager Check-in offer/action-circle presentation
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
+- `pet-throw-core.ts` / `pet-throw.ts`: Ball-like throw after a drag release — pure velocity tracking and bounce/gravity stepping, plus the shared-timer adapter
 - `built-in-pet.ts`: Built-in pet constant
 - `reaction-messages.ts`: Message pools for each reaction type
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, bundled V2 Hoodie Cat atlas metadata, canonical sprite state definitions, and derived waiting-duration state tables
