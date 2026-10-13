@@ -70,7 +70,8 @@ function boundsForThrow(active: ActiveThrow): ThrowBounds {
 function tickThrows(): void {
   const now = Date.now();
   for (const [window, active] of [...activeThrows]) {
-    if (window.isDestroyed()) {
+    // A hidden pet saved its position when it was hidden; moving it now would desync that position.
+    if (window.isDestroyed() || !window.isVisible()) {
       cancelPetThrow(window);
       continue;
     }

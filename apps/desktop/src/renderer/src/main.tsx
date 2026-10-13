@@ -1070,7 +1070,11 @@ function SliderRow({ title, description, value, disabled, onCommit, testId }: { 
   const pointerDown = useRef(false);
   const keyboardTimer = useRef<number | undefined>(undefined);
   const savedValue = useRef(value);
-  useEffect(() => { setDraft(value); savedValue.current = value; }, [value]);
+  // Re-sync once a save finishes (or the saved value changes) so a failed save never leaves the slider showing an unused setting.
+  useEffect(() => {
+    savedValue.current = value;
+    if (!disabled) setDraft(value);
+  }, [value, disabled]);
   useEffect(() => () => window.clearTimeout(keyboardTimer.current), []);
 
   const commit = (next: number) => {
@@ -1096,7 +1100,7 @@ function SliderRow({ title, description, value, disabled, onCommit, testId }: { 
       data-testid={testId}
       onPointerDown={() => { pointerDown.current = true; }}
       onPointerUp={(event) => { pointerDown.current = false; commit(Number(event.currentTarget.value)); }}
-      onPointerCancel={() => { pointerDown.current = false; }}
+      onPointerCancel={() => { pointerDown.current = false; setDraft(savedValue.current); }}
       onBlur={() => { pointerDown.current = false; }}
       onChange={(event) => {
         const next = Number(event.target.value);
