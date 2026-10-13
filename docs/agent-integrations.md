@@ -61,26 +61,31 @@ in Control Center under Settings → Remote.
 
 ## Pet pool: multiple agents, multiple pets
 
-By default every agent session that does not pass `--pet <id>` shares the single
-default pet. The **pet pool** preference (Control Center → Settings → General,
-`petPoolEnabled`, off by default) changes this so concurrent sessions each get
-their own pet from a user-configured ordered list.
+When the pet pool is disabled, every agent session that does not pass
+`--pet <id>` shares the single default pet. The **pet pool** preference (Control
+Center → Settings → General, `petPoolEnabled`, on by default) changes this so
+concurrent sessions each get their own pet from a user-configured ordered list.
 
 **How it works when enabled:**
 
 - The user configures an ordered list of installed pets in Settings. Slot 1 is
   the primary/default pet; subsequent slots are assigned to additional concurrent
   sessions in order.
-- When a new session starts without `--pet`, the lease manager assigns it the
-  first pool slot not currently held by an active session.
-- Once every pool slot is occupied, additional sessions are assigned a random
-  eligible pet (installed, non-broken, excluding the built-in default).
-- When a session ends its lease, its pet slot is freed and available to the next
+- Pool assignment walks the configured list in order and assigns the first eligible pet
+  without an active lease.
+- If no eligible pet in that ordered list is free, the session uses the default pet
+  for its lease. It does not move to a pool pet if a listed slot later becomes free.
+  It does not choose a random installed pet outside the list.
+- When a session ends its lease, its pet slot is freed and available to a new
   session.
 - **`--pet <id>` always takes priority** and bypasses the pool entirely - unchanged from current behavior.
 
-**Eligible pool pets** are installed, non-broken pets excluding the built-in
-default. Broken or uninstalled pets are skipped silently.
+**Eligible pool pets** are installed, non-broken pets other than the built-in or
+current default pet, with any pet currently pinned by the user also excluded.
+Broken or uninstalled pets are skipped silently. Only pets listed in the configured
+pool order can be assigned; if none of those eligible entries is free, the session
+uses the default pet for its lease and does not move to a pool pet when a slot later
+frees up. That freed slot is available to a new lease.
 
 **Cross-platform and agent-agnostic.** Pool assignment is pure lease logic with
 no platform dependency - it works on macOS, Windows, and Linux. Any agent that
@@ -88,7 +93,7 @@ acquires a lease through the shared OpenPets client benefits automatically: Clau
 Code CLI, opencode, Cursor, and any other MCP client all go through the same
 `lease.acquire` path.
 
-When the pool is disabled (the default), behavior is unchanged: all sessions
+When the pool is disabled, behavior is unchanged: all sessions
 without `--pet` share the single default pet.
 
 ## Safe speech: `@open-pets/agent-events`

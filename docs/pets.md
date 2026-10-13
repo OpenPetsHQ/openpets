@@ -52,9 +52,9 @@ the last approved Team state, while personal catalog and Codex pets remain
 isolated and are never overwritten or removed on ID collision. Removing the Team
 default falls back to the built-in pet.
 
-## Default pet vs agent pets
+## Default, user-pinned, agent, and LAN pets
 
-Two distinct window roles, two controllers:
+Four distinct window roles, each with its own lifecycle:
 
 - **Default pet** (`default-pet-controller.ts`) - the always-on companion shown
   when enabled. Persistent. Remembers its position per connected monitor and
@@ -82,13 +82,22 @@ precise Linux hit-mask shapes.
   Session lifetime is tracked via PID liveness: when a client process
   terminates, the lease is released within ~5 s and the pet window closes.
   See the lease model in [IPC and remote control](/ipc).
+- **User-pinned pets** (`pinned-pet-controller.ts`) - installed pets the user pins
+  in Control Center → Settings → General. They are user-owned windows, independent
+  of agent sessions, plugins, and leases, and return when the app launches again.
+  Each pin remembers its own position and is clamped back onto a connected display.
+  Closing a pinned pet window unpins it. Uninstalling a pinned pet closes its window
+  but retains the pin, so reinstalling it brings the window back. Pins are limited
+  to eight and cannot target the built-in or current default pet. The implicit pet-pool
+  assignment skips pinned pets to avoid opening a second window for the same pet. See
+  [Pinned pets in the desktop app](/desktop#pinned-pets) for settings and pool behavior.
 
-Both are created by the `pet-window.ts` lifecycle facade as transparent, frameless,
+All four roles are created by the `pet-window.ts` lifecycle facade as transparent, frameless,
 always-on-top windows. `pet-window-interaction.ts` owns the per-window mouse
 passthrough, drag, renderer lifecycle, recovery/watchdog, and IPC bridge driven
 through `pet-preload.cjs`.
 
-Experimental multi-pet LAN mode adds a third, isolated controller for visiting
+Experimental multi-pet LAN mode adds a fourth, isolated controller for visiting
 pets. Windows are keyed by LAN owner host rather than pet ID, so they do not
 collide with lease-managed agent pets or with another visitor using the same
 pet package. Unavailable remote assets are logged and skipped safely.
