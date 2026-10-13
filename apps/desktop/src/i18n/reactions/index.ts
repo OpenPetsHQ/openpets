@@ -11,6 +11,7 @@ import { zhHans } from "./zh-Hans.js";
 import { zhHant } from "./zh-Hant.js";
 import { ptBR } from "./pt-BR.js";
 import { es419 } from "./es-419.js";
+import { fr } from "./fr.js";
 
 export type ReactionMessagePool = Record<OpenPetsReaction, readonly string[]>;
 
@@ -21,4 +22,5 @@ export const localizedReactionMessagePools: Partial<Record<Locale, ReactionMessa
   "zh-Hant": zhHant,
   "pt-BR": ptBR,
   "es-419": es419,
+  fr,
 };

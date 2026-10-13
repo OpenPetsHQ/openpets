@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Contains BCP-47 locale dictionaries loaded by the main i18n catalog. English (`en.ts`) acts as the source-of-truth definition file for the message contract, while other language files (`es-419.ts`, `ja.ts`, `ko.ts`, `pt-BR.ts`, `zh-Hans.ts`, `zh-Hant.ts`) supply partial overrides.
+Contains BCP-47 locale dictionaries loaded by the main i18n catalog. English (`en.ts`) acts as the source-of-truth definition file for the message contract, while other language files (`es-419.ts`, `fr.ts`, `ja.ts`, `ko.ts`, `pt-BR.ts`, `zh-Hans.ts`, `zh-Hant.ts`) supply partial overrides.
 
 ## Design/Patterns
 
