@@ -4,7 +4,8 @@ import { dirname, join, posix } from "node:path";
 import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
 
-import { validateCodexPetMetadata } from "./codex-pets-core.js";
+import { validateCodexPetMetadata, validateCodexPetSpritesheet } from "./codex-pets-core.js";
+import { assertPetPackageFiles } from "install-pet/spritesheet";
 import { readCatalogPluginManifestFromZip } from "./plugin-package.js";
 import { validatePluginConfigReplacement } from "./plugin-config.js";
 import {
@@ -53,7 +54,7 @@ export async function stageTeamArtifact(
   await fs.mkdir(stagingPath, { mode: 0o700 });
   try {
     if (item.type === "pet") {
-      const pet = validatePetFiles(files, item.id);
+      const pet = await validatePetFiles(files, item.id);
       await writeFiles(stagingPath, files);
       return { item, stagingPath, petMetadata: pet };
     }
@@ -154,25 +155,24 @@ export async function discardStagedTeamArtifact(staged: StagedTeamArtifact): Pro
   await fs.rm(staged.stagingPath, { recursive: true, force: true });
 }
 
-function validatePetFiles(
+async function validatePetFiles(
   files: Map<string, Buffer>,
   expectedId: string,
-): { id: string; displayName: string; description: string } {
+): Promise<{ id: string; displayName: string; description: string }> {
   const petBytes = files.get("pet.json");
-  const sprite = files.get("spritesheet.webp");
-  if (
-    !petBytes
-    || !sprite
-    || files.size !== 2
-    || petBytes.byteLength > 128 * 1024
-    || sprite.byteLength < 16
-    || sprite.toString("ascii", 0, 4) !== "RIFF"
-    || sprite.toString("ascii", 8, 12) !== "WEBP"
-  ) throw new Error("Team pet package does not match the OpenPets pet format.");
+  if (!petBytes || petBytes.byteLength > 128 * 1024) throw new Error("Team pet package metadata is missing or too large.");
   const value = validateCodexPetMetadata(
     JSON.parse(petBytes.toString("utf8")) as unknown,
     expectedId,
   );
+  assertPetPackageFiles(files.keys(), value.spritesheetPath);
+  const sprite = files.get(value.spritesheetPath);
+  if (!sprite || sprite.byteLength === 0 || sprite.byteLength > 100 * 1024 * 1024) throw new Error("Team pet spritesheet is missing or too large.");
+  if (value.spritesheetPath === "spritesheet.webp"
+    && (sprite.byteLength < 16 || sprite.toString("ascii", 0, 4) !== "RIFF" || sprite.toString("ascii", 8, 12) !== "WEBP")) {
+    throw new Error("Team pet spritesheet must be WebP.");
+  }
+  if (value.spritesheetPath === "spritesheet.svg") await validateCodexPetSpritesheet(sprite, value);
   return {
     id: value.id,
     displayName: value.displayName,

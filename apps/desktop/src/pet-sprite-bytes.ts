@@ -15,7 +15,7 @@ import { warn } from "./logger.js";
 
 /** Mirrors the sprite sheet size cap enforced when rendering installed pets. */
 const MAX_SPRITE_BYTES = 100 * 1024 * 1024;
-const allowedSpriteExtensions = new Set([".png", ".webp", ".jpg", ".jpeg", ".gif"]);
+const allowedSpriteExtensions = new Set([".png", ".webp", ".svg", ".jpg", ".jpeg", ".gif"]);
 
 const trackedWebContents = new Set<WebContents>();
 let handlerRegistered = false;

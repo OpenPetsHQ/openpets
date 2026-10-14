@@ -3,11 +3,12 @@ import { homedir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 
 import sharp from "sharp";
+import { petSpritesheetMimeType } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { migrateLegacyCodexV2Imports, type LegacyCodexV2MigrationResult } from "./codex-pet-migration.js";
 import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { readBoundedRegularFile } from "./pet-file-safety.js";
+import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, runPetInstallTransaction } from "./pet-install-transaction.js";
 import { assertSafePetId, getPetsRoot } from "./pet-paths.js";
 
@@ -68,14 +69,14 @@ export async function importCodexPet(petId: string): Promise<OpenPetsStateV1> {
   await assertCodexPetDirectory(root, sourceDir);
   const metadata = await readCodexPetMetadata(root, sourceDir, petId);
   const spritesheetPath = join(sourceDir, metadata.spritesheetPath);
-  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, "spritesheet.webp");
+  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, metadata.spritesheetPath);
   await validateCodexPetSpritesheet(spritesheet, metadata);
 
   const petsRoot = getPetsRoot();
   await assertNoUnresolvedPetInstallTransaction(petsRoot, metadata.id);
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
-    await writeFile(join(candidate, "spritesheet.webp"), spritesheet, { mode: 0o600, flag: "wx" });
+    await writeFile(join(candidate, metadata.spritesheetPath), spritesheet, { mode: 0o600, flag: "wx" });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     return await runPetInstallTransaction({
       petsRoot,
@@ -84,7 +85,8 @@ export async function importCodexPet(petId: string): Promise<OpenPetsStateV1> {
       validateCandidate: async (directory) => {
         const candidateMetadata = JSON.parse((await readBoundedRegularFile(join(directory, "pet.json"), maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
         const validatedMetadata = validateCodexPetMetadata(candidateMetadata, metadata.id);
-        const candidateSpritesheet = await readBoundedRegularFile(join(directory, validatedMetadata.spritesheetPath), maxCodexSpritesheetBytes, "spritesheet.webp");
+        await assertPetSpritesheetFiles(directory, validatedMetadata.spritesheetPath, true);
+        const candidateSpritesheet = await readBoundedRegularFile(join(directory, validatedMetadata.spritesheetPath), maxCodexSpritesheetBytes, validatedMetadata.spritesheetPath);
         await validateCodexPetSpritesheet(candidateSpritesheet, validatedMetadata);
       },
       mutateState: () => installPetState({
@@ -104,9 +106,9 @@ async function tryReadCodexPet(root: string, dir: string, folderName: string): P
   try {
     const metadata = await readCodexPetMetadata(root, dir, folderName);
     const spritesheetPath = join(dir, metadata.spritesheetPath);
-    await validateSpritesheet(spritesheetPath, metadata);
+    const spritesheet = await validateSpritesheet(spritesheetPath, metadata);
     const spriteLayout = getCodexPetSpriteLayout(metadata);
-    const preview = await createCodexThumbnailDataUrl(spritesheetPath, spriteLayout);
+    const preview = await createCodexThumbnailDataUrl(spritesheetPath, spriteLayout, spritesheet);
     return {
       id: metadata.id,
       displayName: metadata.displayName,
@@ -121,14 +123,14 @@ async function tryReadCodexPet(root: string, dir: string, folderName: string): P
   }
 }
 
-export async function readCodexPetSpritesheet(petId: string): Promise<Buffer> {
+export async function readCodexPetSpritesheet(petId: string): Promise<{ readonly bytes: Buffer; readonly mimeType: string }> {
   assertSafePetId(petId);
   const root = await validateCodexRoot();
   const sourceDir = resolve(root, petId);
   const metadata = await readCodexPetMetadata(root, sourceDir, petId);
-  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, "spritesheet.webp");
+  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, metadata.spritesheetPath);
   await validateCodexPetSpritesheet(spritesheet, metadata);
-  return spritesheet;
+  return { bytes: spritesheet, mimeType: petSpritesheetMimeType(metadata.spritesheetPath) };
 }
 
 async function readCodexPetMetadata(root: string, dir: string, folderName: string): Promise<CodexPetMetadata> {
@@ -138,27 +140,30 @@ async function readCodexPetMetadata(root: string, dir: string, folderName: strin
   const parsed = JSON.parse((await readBoundedRegularFile(petJson, maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
   const metadata = validateCodexPetMetadata(parsed, folderName);
   assertSafePetId(metadata.id);
+  await assertPetSpritesheetFiles(dir, metadata.spritesheetPath);
   return metadata;
 }
 
-async function validateSpritesheet(path: string, metadata: CodexPetMetadata): Promise<void> {
-  await validateCodexPetSpritesheet(await readBoundedRegularFile(path, maxCodexSpritesheetBytes, "spritesheet.webp"), metadata);
+async function validateSpritesheet(path: string, metadata: CodexPetMetadata): Promise<Buffer> {
+  const spritesheet = await readBoundedRegularFile(path, maxCodexSpritesheetBytes, metadata.spritesheetPath);
+  await validateCodexPetSpritesheet(spritesheet, metadata);
+  return spritesheet;
 }
 
-async function createCodexThumbnailDataUrl(path: string, spriteLayout: CodexPetSpriteLayout): Promise<string> {
+async function createCodexThumbnailDataUrl(path: string, spriteLayout: CodexPetSpriteLayout, spritesheet: Buffer): Promise<string> {
   const stats = await lstat(path);
-  if (stats.isSymbolicLink() || !stats.isFile() || stats.size <= 0 || stats.size > maxCodexThumbnailSourceBytes) return "";
+  if (stats.isSymbolicLink() || !stats.isFile() || stats.size <= 0 || stats.size > maxCodexThumbnailSourceBytes || spritesheet.byteLength > maxCodexThumbnailSourceBytes) return "";
   const cacheKey = `${path}:v${spriteLayout.version}:${stats.size}:${stats.mtimeMs}`;
   const cached = codexThumbnailCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const image = sharp(path, { limitInputPixels: 50_000_000 });
+  const image = sharp(spritesheet, { limitInputPixels: 50_000_000 });
   const metadata = await image.metadata();
   if (!metadata.width || !metadata.height) return "";
   const width = Math.min(spriteLayout.frameWidth, metadata.width);
   const height = Math.min(spriteLayout.frameHeight, metadata.height);
   const left = spriteLayout.neutralPose ? spriteLayout.neutralPose.column * spriteLayout.frameWidth : 0;
-  const thumbnail = await sharp(path, { limitInputPixels: 50_000_000 })
+  const thumbnail = await sharp(spritesheet, { limitInputPixels: 50_000_000 })
     .extract({ left, top: 0, width, height })
     .resize(54, 58, { fit: "fill" })
     .png()

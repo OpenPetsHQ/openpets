@@ -1,10 +1,11 @@
 import { resolve, sep } from "node:path";
+import type { PetSpritesheetPath } from "install-pet/spritesheet";
 
 export interface SafeZipEntryPath {
   readonly originalName: string;
   readonly normalizedName: string;
   readonly topLevelDirectory: string;
-  readonly relativeOutputPath: "pet.json" | "spritesheet.webp" | null;
+  readonly relativeOutputPath: "pet.json" | PetSpritesheetPath | null;
   readonly isDirectory: boolean;
 }
 
@@ -63,7 +64,7 @@ export function validateZipEntryName(fileName: string): SafeZipEntryPath {
   if (parts.length !== 1 && parts.length !== 2) throw new Error("Zip must contain pet files at the root or under exactly one top-level directory.");
 
   const leaf = parts.at(-1);
-  if (leaf !== "pet.json" && leaf !== "spritesheet.webp") {
+  if (leaf !== "pet.json" && leaf !== "spritesheet.webp" && leaf !== "spritesheet.svg") {
     throw new Error(`Unexpected zip file: ${leaf}`);
   }
 

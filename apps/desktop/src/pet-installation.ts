@@ -6,12 +6,13 @@ import { Transform } from "node:stream";
 
 import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
+import { assertPetPackageFiles } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, upsertPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { getCatalogPet } from "./catalog.js";
 import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import { readBoundedRegularFile } from "./pet-file-safety.js";
+import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
 import { assertOutputPathInside, hasSupportedZipMagic, ZipEntryPathTracker } from "./zip-safety.js";
@@ -115,13 +116,14 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(sourceDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, "spritesheet.webp");
+  await assertPetSpritesheetFiles(sourceDir, metadata.spritesheetPath);
+  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, metadata.spritesheetPath);
   await validateCodexPetSpritesheet(spritesheet, metadata);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
     assertInsideRoot(petsRoot, candidate);
-    await writeFile(join(candidate, "spritesheet.webp"), spritesheet, { mode: 0o600, flag: "wx" });
+    await writeFile(join(candidate, metadata.spritesheetPath), spritesheet, { mode: 0o600, flag: "wx" });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const state = await runPetInstallTransaction({
       petsRoot,
@@ -288,9 +290,7 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
     zipFile.close();
   }
 
-  if (!seenRequired.has("pet.json") || !seenRequired.has("spritesheet.webp")) {
-    throw new Error("Zip must contain pet.json and spritesheet.webp.");
-  }
+  assertPetPackageFiles(seenRequired);
 }
 
 function openZipFromBuffer(buffer: Buffer): Promise<ZipFile> {
@@ -380,16 +380,15 @@ function writeEntry(entry: Entry, zipFile: ZipFile, outputPath: string, expected
 
 async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> {
   const petJsonPath = join(tempDir, "pet.json");
-  const spritesheetPath = join(tempDir, "spritesheet.webp");
   assertOutputPathInside(tempDir, petJsonPath);
-  assertOutputPathInside(tempDir, spritesheetPath);
 
   const parsed = JSON.parse((await readBoundedRegularFile(petJsonPath, maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(tempDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-
-  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxIndividualFileBytes, "spritesheet.webp");
+  await assertPetSpritesheetFiles(tempDir, metadata.spritesheetPath, true);
+  const spritesheetPath = join(tempDir, metadata.spritesheetPath);
+  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxIndividualFileBytes, metadata.spritesheetPath);
   await validateCodexPetSpritesheet(spritesheet, metadata);
   return metadata;
 }

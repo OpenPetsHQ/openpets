@@ -1,4 +1,6 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
+import { petSpritesheetMimeType, validateSvgSpritesheet } from "install-pet/spritesheet";
+import { readBoundedRegularFile } from "./pet-file-safety.js";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
@@ -11,12 +13,12 @@ import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
 import { getCodexPetsUiState, importCodexPet, readCodexPetSpritesheet } from "./codex-pets.js";
-import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
-import { readInstalledPetSpriteLayout } from "./installed-pet-layout.js";
+import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
@@ -555,9 +557,9 @@ export function installInternalUiProtocol(): void {
       if (url.hostname !== "spritesheet" || url.search || url.hash) return new Response(null, { status: 404 });
       const petId = decodeURIComponent(url.pathname.replace(/^\//, ""));
       const spritesheet = await readCodexPetSpritesheet(petId);
-      return new Response(spritesheet, {
+      return new Response(spritesheet.bytes, {
         headers: {
-          "Content-Type": "image/webp",
+          "Content-Type": spritesheet.mimeType,
           "Cache-Control": "private, max-age=60",
         },
       });
@@ -575,15 +577,10 @@ export function installInternalUiProtocol(): void {
       assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheetPath = join(
-        getPetDir(petId, pet.source?.kind === "team" ? "team" : "personal"),
-        "spritesheet.webp",
-      );
-      const spritesheet = await stat(spritesheetPath);
-      if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) return new Response(null, { status: 404 });
-      return new Response(await readFile(spritesheetPath), {
+      const spritesheet = await readInstalledPetSpritesheet(petId, pet.source?.kind === "team" ? "team" : "personal");
+      return new Response(spritesheet.bytes, {
         headers: {
-          "Content-Type": "image/webp",
+          "Content-Type": spritesheet.mimeType,
           "Cache-Control": "private, max-age=60",
         },
       });
@@ -599,12 +596,15 @@ export function installInternalUiProtocol(): void {
       if (url.hostname !== "spritesheet" || url.pathname !== "/default" || url.hash) return new Response(null, { status: 404 });
       const version = url.searchParams.get("v");
       if ([...url.searchParams.keys()].some((key) => key !== "v") || (version !== null && !/^[a-z0-9_-]+-\d+-\d+$/.test(version))) return new Response(null, { status: 404 });
-      const { path } = await getDefaultPetPreviewSpriteInfo();
-      const spritesheet = await stat(path);
-      if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) return new Response(null, { status: 404 });
-      return new Response(await readFile(path), {
+      const { path, spriteLayout } = await getDefaultPetPreviewSpriteInfo();
+      const bytes = await readBoundedRegularFile(path, 100 * 1024 * 1024, "Pet preview spritesheet");
+      const mimeType = petSpritesheetMimeType(path);
+      if (mimeType === "image/svg+xml") {
+        validateSvgSpritesheet(bytes, spriteLayout.frameWidth * spriteLayout.columns, spriteLayout.frameHeight * spriteLayout.rows);
+      }
+      return new Response(bytes, {
         headers: {
-          "Content-Type": "image/webp",
+          "Content-Type": mimeType,
           "Cache-Control": "no-store",
         },
       });
@@ -844,21 +844,16 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string
   const selected = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId);
   const builtInPath = join(app.getAppPath(), "assets", defaultPetSprite.fileName);
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
-  const candidatePath = usesInstalledCandidate && selected
-    ? join(
-        getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"),
-        "spritesheet.webp",
-      )
-    : builtInPath;
   try {
+    const metadata = usesInstalledCandidate && selected
+      ? await readInstalledPetMetadata(selected.id, selected.source?.kind === "team" ? "team" : "personal")
+      : undefined;
+    const candidatePath = metadata && selected
+      ? join(getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"), metadata.spritesheetPath)
+      : builtInPath;
     const spritesheet = await stat(candidatePath);
     if (spritesheet.isFile() && spritesheet.size > 0 && spritesheet.size <= 100 * 1024 * 1024) {
-      const spriteLayout = usesInstalledCandidate && selected
-        ? await readInstalledPetSpriteLayout(
-            selected.id,
-            selected.source?.kind === "team" ? "team" : "personal",
-          )
-        : codexV2SpriteLayout;
+      const spriteLayout = metadata ? getCodexPetSpriteLayout(metadata) : codexV2SpriteLayout;
       return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
   } catch {

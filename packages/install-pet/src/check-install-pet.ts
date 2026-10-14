@@ -80,6 +80,7 @@ assert.throws(() => validateCatalogV3Page({ version: 3, pets: [{ id: "review-owl
 assert.equal(validateZipEntryName("pet.json").relativeOutputPath, "pet.json");
 assert.equal(validateZipEntryName("absol/pet.json").relativeOutputPath, "pet.json");
 assert.equal(validateZipEntryName("absol/spritesheet.webp").topLevelDirectory, "absol");
+assert.equal(validateZipEntryName("absol/spritesheet.svg").relativeOutputPath, "spritesheet.svg");
 assert.equal(validateZipEntryName("absol/").isDirectory, true);
 assert.throws(() => validateZipEntryName("a/b/pet.json"));
 assert.throws(() => validateZipEntryName("absol/README.md"));

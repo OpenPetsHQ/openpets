@@ -23,8 +23,38 @@ A pet package is small and asset-driven:
   is an `{ x, y }` pair of finite normalized values in `[0, 1]`, measured from
   the top-left of one sprite frame before horizontal flipping. (Catalog entries carry the same identity plus hosting URLs - see
   [Catalogs](/catalog).)
-- **`spritesheet.webp`** - a grid of animation frames. Frames are at least
-  `192x208`; thumbnails are derived from the spritesheet.
+- **`spritesheet.webp` or `spritesheet.svg`** - one grid of animation frames,
+  selected by `pet.json.spritesheetPath`. A package must contain exactly one
+  matching atlas, never both formats. Frames are `192x208`; thumbnails are
+  derived from the spritesheet. SVG changes the image format, not the animation
+  engine: the same CSS background-position and preview frame selection apply.
+
+### Static SVG atlas profile
+
+SVG atlases must be self-contained static vectors with explicit intrinsic
+`width` and `height` (unitless pixels or `px`) and an exact `viewBox="0 0 W H"`:
+V1 is `1536×1872` (8×9), V2 is `1536×2288` (8×11). The desktop and standalone
+installer share the dependency-free `install-pet/spritesheet` validator.
+Its `getPetSpritesheetSpec(petJson)` resolves the canonical asset and expected
+intrinsic dimensions. The separate web repository vendors generated JavaScript
+from this canonical module so publishing works without a parent checkout; its
+explicit sync/check command detects contract drift.
+
+The accepted profile includes groups, paths, rectangles, circles, ellipses,
+lines, polygons/polylines, gradients/stops, clip paths, and title/description
+metadata. Use presentation attributes rather than CSS. Local `url(#id)` paint
+and clip references may target reference-free gradients or clip paths only.
+Scripts, event attributes, external references, entities/DOCTYPE, foreignObject,
+embedded raster images, animation, CSS/style attributes, text artwork, filters,
+masks, and reusable `<use>` subtrees are rejected. Limits are 8 MiB UTF-8,
+20,000 elements, 64 levels of nesting, and 256 KiB per attribute. These bounds
+apply before decoding or installing the atlas; WebP retains its existing limits.
+
+This is **not arbitrary SVG import support**. Generator exports, including
+Recraft output, may contain `style` attributes or CSS that this profile rejects.
+Normalize those exports to the supported vector elements and presentation
+attributes, then validate the result before packaging or publishing. OpenPets
+does not automatically rewrite or sanitize unsupported SVG into this profile.
 
 There are three sources a pet can come from at runtime:
 
@@ -349,7 +379,7 @@ platform-specific user-data path resolution. This is what powers
 
 Both paths enforce: HTTPS-only catalog/ZIP hosts on an allowlist, no encrypted
 entries, only stored/deflate compression, valid Unix modes, required files
-(`pet.json` + `spritesheet.webp`), and atomic extraction with private
+(`pet.json` + its selected `spritesheet.webp` or `spritesheet.svg`), and atomic extraction with private
 permissions. The pet `id` must match `^[a-z0-9][a-z0-9_-]{0,63}$` and cannot be
 `builtin`.
 
@@ -369,11 +399,12 @@ Codex V2 pets. Its public `builtin` identity and `Hoodie Cat` display name stay
 unchanged; only the desktop asset and runtime layout have been upgraded.
 
 OpenPets preserves the original Codex V1 package shape: an unmarked
-`spritesheet.webp` with the nine standard `192×208` animation rows. It also
-imports V2 only when `pet.json` has `"spriteVersionNumber": 2` and its source
-asset is a fully decodable, single-image, alpha-enabled WebP with the exact `1536×2288`
-(`8×11`) grid. Any other supplied version marker, a non-WebP/non-alpha image,
-or a mismatched V2 atlas is rejected before the atomic import writes anything.
+atlas with the nine standard `192×208` animation rows. It also imports V2 only
+when `pet.json` has `"spriteVersionNumber": 2` and its source asset is either
+a fully decodable, single-image, alpha-enabled WebP or a validated static SVG,
+with the exact `1536×2288` (`8×11`) grid. SVG V1 uses the exact `1536×1872`
+grid. Any other supplied version marker, an invalid format, a non-alpha V2
+WebP, or a mismatched atlas is rejected before the atomic import writes anything.
 
 The V2 adapter uses the unchanged standard rows 0–8 for OpenPets reactions and
 horizontal run motion. Normal idle plays the six-frame breathing loop in row 0;
@@ -444,7 +475,13 @@ catalog pets back into `~/.codex/pets/`.
 ## Image protocols & CSP
 
 Pet images are served to renderers through internal protocols
-(`openpets-codex:`, `openpets-installed:`, `openpets-pet-preview:`). Any new
+(`openpets-codex:`, `openpets-installed:`, `openpets-pet-preview:`). These resolve
+the manifest-selected atlas and serve `image/webp` or `image/svg+xml` as
+appropriate. Pixel hit testing decodes bytes into an origin-clean browser
+canvas; it falls back from `createImageBitmap` to a bounded `Image` load for
+Chromium SVG support, without relying on Electron `nativeImage`. Both pet-window
+CSP variants permit `blob:` images for that origin-clean decoder and revoke the
+temporary blob URL after sampling. Any new
 protocol or image source must be added to the CSP in **both**
 `apps/desktop/vite.config.ts` and `apps/desktop/src/renderer/index.html`, or
 images silently fall back to the default pet. This is the single most common

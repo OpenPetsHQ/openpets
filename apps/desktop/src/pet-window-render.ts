@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
-import { getCodexPetSpriteLayout } from "./codex-pets-core.js";
+import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet } from "./codex-pets-core.js";
+import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
 import { readInstalledPetMetadata } from "./installed-pet-layout.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
@@ -67,7 +68,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>OpenPets Default Pet</title>
         <style>
@@ -158,12 +159,17 @@ export async function createInstalledPetRender(
   const displayName = petRole === "default"
     ? resolveCompanionDisplayName(personalityPetName ?? getAppStateSnapshot().preferences.personality?.petName, assetDisplayName)
     : assetDisplayName;
-  const spritesheetPath = join(getPetDir(petId, source), "spritesheet.webp");
+  const metadata = await readInstalledPetMetadata(petId, source);
+  const petDirectory = getPetDir(petId, source);
+  await assertPetSpritesheetFiles(petDirectory, metadata.spritesheetPath);
+  const spritesheetPath = join(petDirectory, metadata.spritesheetPath);
   const spritesheet = await stat(spritesheetPath);
   if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) {
     throw new Error("Installed pet spritesheet is missing or too large.");
   }
-  const metadata = await readInstalledPetMetadata(petId, source);
+  if (metadata.spritesheetPath === "spritesheet.svg") {
+    await validateCodexPetSpritesheet(await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, metadata.spritesheetPath), metadata);
+  }
   const spriteLayout = getCodexPetSpriteLayout(metadata);
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
@@ -177,7 +183,7 @@ export async function createInstalledPetRender(
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${metadata.spritesheetPath}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,
@@ -192,7 +198,7 @@ export async function createInstalledPetRender(
       <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
         <head>
           <meta charset="utf-8" />
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>OpenPets Default Pet</title>
           <style>

@@ -156,10 +156,63 @@ export interface PetAlphaHitTestDocument {
 
 declare function createImageBitmap(blob: Blob): Promise<{ readonly width: number; readonly height: number; close(): void }>;
 
+interface SpriteDecodedImage {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
+}
+
+interface SpriteImageElement {
+  readonly naturalWidth: number;
+  readonly naturalHeight: number;
+  src: string;
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+}
+
+declare const Image: { new(): SpriteImageElement };
+
+async function decodeSpriteImage(blob: Blob): Promise<{ readonly image: unknown; readonly decoded: SpriteDecodedImage }> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    return { image: bitmap, decoded: bitmap };
+  } catch {
+    // Chromium can reject SVG in createImageBitmap even though <img> supports
+    // it. An image loaded from our own Blob remains origin-clean for sampling.
+    const image = new Image();
+    const url = URL.createObjectURL(blob);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      image.src = "";
+      URL.revokeObjectURL(url);
+    };
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("Sprite image decoding failed."));
+        timer = setTimeout(() => reject(new Error("Sprite image decoding timed out.")), 10_000);
+        image.src = url;
+      });
+      clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      return { image, decoded: { width: image.naturalWidth, height: image.naturalHeight, close: cleanup } };
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
+  }
+}
+
 /** Decodes sprite sheet bytes into sampled RGBA pixels via an origin-clean canvas. */
 export async function decodeSpriteSheetPixels(bytes: Uint8Array, document: PetAlphaHitTestDocument): Promise<SpriteSheetPixels> {
   const copy = new Uint8Array(bytes);
-  const bitmap = await createImageBitmap(new Blob([copy]));
+  const prefix = new TextDecoder().decode(copy.subarray(0, 1024));
+  const type = prefix.trimStart().startsWith("<") ? "image/svg+xml" : "";
+  const { image, decoded: bitmap } = await decodeSpriteImage(new Blob([copy], { type }));
   try {
     if (bitmap.width <= 0 || bitmap.height <= 0 || bitmap.width * bitmap.height > MAX_SPRITE_SHEET_PIXELS) {
       throw new Error(`Sprite sheet dimensions rejected: ${bitmap.width}x${bitmap.height}`);
@@ -169,7 +222,7 @@ export async function decodeSpriteSheetPixels(bytes: Uint8Array, document: PetAl
     canvas.height = bitmap.height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("2d canvas context unavailable");
-    context.drawImage(bitmap, 0, 0);
+    context.drawImage(image, 0, 0);
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     return { width: imageData.width, height: imageData.height, data: imageData.data };
   } finally {

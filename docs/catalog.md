@@ -122,7 +122,7 @@ web/public/pets/
     search.json
     search-page-NNN.json
   {slug}/
-    spritesheet.webp
+    spritesheet.webp      or spritesheet.svg for a static vector atlas
     thumb.webp
     thumb.webp.meta.json
 ```
@@ -180,8 +180,15 @@ set is exactly:
 
 ```txt
 pet.json
-spritesheet.webp
+spritesheet.webp OR spritesheet.svg
 ```
+
+The atlas filename must match `pet.json.spritesheetPath`; both assets together
+or a mismatched asset are rejected. SVG uses the same V1/V2 atlas/frame geometry,
+not SVG-native animation. The static, self-contained vector profile and bounded
+dimensions/complexity are specified in [Pets](/pets#static-svg-atlas-profile).
+Catalog v3 `spritesheet` URLs may point to the canonical `.svg` atlas;
+thumbnails can remain raster images.
 
 Those files may be at the archive root or below exactly one top-level directory.
 Optional directory entries for that one directory are allowed. Paths must be
