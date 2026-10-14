@@ -14,7 +14,7 @@ function isAllowedCatalogPreview(value: string | undefined): value is string {
       url.username === "" &&
       url.password === "" &&
       url.pathname.startsWith("/pets/") &&
-      url.pathname.endsWith(".webp");
+      (url.pathname.endsWith(".webp") || url.pathname.endsWith(".svg"));
   } catch {
     return false;
   }

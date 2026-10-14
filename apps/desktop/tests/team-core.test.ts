@@ -594,6 +594,40 @@ test("Team pet staging rejects invalid gaze anchors and preserves a valid ZIP an
   }
 });
 
+test("Team pet staging accepts a manifest-selected static SVG and rejects active vectors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-team-svg-test-"));
+  try {
+    for (const active of [false, true]) {
+      const metadata = {
+        id: "team-pet",
+        displayName: "Vector",
+        description: "Team vector atlas",
+        spritesheetPath: "spritesheet.svg",
+        spriteVersionNumber: 2,
+      };
+      const artwork = active ? "<script/>" : '<circle cx="10" cy="10" r="5"/>';
+      const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="2288" viewBox="0 0 1536 2288">${artwork}</svg>`);
+      const zip = makeZipFiles([
+        { name: "pet.json", data: Buffer.from(JSON.stringify(metadata)) },
+        { name: "spritesheet.svg", data: svg },
+      ]);
+      const packItem = validateTeamPack({
+        version: 1,
+        revision: 1,
+        items: [item({ sha256: createHash("sha256").update(zip).digest("hex"), size: zip.byteLength })],
+      }).items[0]!;
+      if (active) {
+        await assert.rejects(() => stageTeamArtifact(root, packItem, zip));
+      } else {
+        const staged = await stageTeamArtifact(root, packItem, zip);
+        assert.deepEqual(await readFile(join(staged.stagingPath, "spritesheet.svg")), svg);
+      }
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("TeamService cancels an in-flight sync before leave and never resurrects old-org content", async () => {
   const root = await mkdtemp(join(tmpdir(), "openpets-team-service-leave-test-"));
   try {

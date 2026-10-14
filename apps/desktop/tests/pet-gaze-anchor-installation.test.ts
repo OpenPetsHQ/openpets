@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -123,9 +123,9 @@ try {
   mkdirSync(fakeHome, { recursive: true });
   const appState = await import("../src/app-state.js");
   releaseStartupInstallLock = appState.releaseStartupInstallLock;
-  const { installPetFromFolderWithResult, installPet } = await import("../src/pet-installation.js");
-  const { importCodexPet } = await import("../src/codex-pets.js");
-  const { readInstalledPetMetadata } = await import("../src/installed-pet-layout.js");
+  const { installPetFromFolderWithResult, installPetFromZipFileWithResult, installPet } = await import("../src/pet-installation.js");
+  const { importCodexPet, readCodexPetSpritesheet } = await import("../src/codex-pets.js");
+  const { readInstalledPetMetadata, readInstalledPetSpritesheet } = await import("../src/installed-pet-layout.js");
 
   appState.initializeAppState();
   const spritesheet = await sharp({
@@ -187,6 +187,51 @@ try {
   };
   await installPet("zip-pet");
   assert.deepEqual((await readInstalledPetMetadata("zip-pet")).gazeAnchor, { x: 0.5, y: 0.25 }, "catalog ZIP pet.json remains authoritative when the catalog entry omits gazeAnchor");
+
+  // Every install route must retain the metadata-selected vector atlas instead
+  // of renaming SVG bytes to .webp or marking the installed pet as broken.
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="2288" viewBox="0 0 1536 2288"><circle cx="20" cy="20" r="10" fill="red"/></svg>');
+  const vectorMetadata = (id: string) => ({ id, displayName: "Vector Pet", description: "SVG atlas", spritesheetPath: "spritesheet.svg", spriteVersionNumber: 2 });
+  const vectorFolder = join(testRoot, "vector-folder");
+  mkdirSync(vectorFolder);
+  writeFileSync(join(vectorFolder, "pet.json"), JSON.stringify(vectorMetadata("vector-folder")));
+  writeFileSync(join(vectorFolder, "spritesheet.svg"), svg);
+  await installPetFromFolderWithResult(vectorFolder);
+  const vectorCodex = join(fakeHome, ".codex", "pets", "vector-codex");
+  mkdirSync(vectorCodex);
+  writeFileSync(join(vectorCodex, "pet.json"), JSON.stringify(vectorMetadata("vector-codex")));
+  writeFileSync(join(vectorCodex, "spritesheet.svg"), svg);
+  await importCodexPet("vector-codex");
+  const vectorZip = join(testRoot, "vector.zip");
+  writeFileSync(vectorZip, createStoredZip([
+    { name: "vector/pet.json", contents: Buffer.from(JSON.stringify(vectorMetadata("vector-zip"))) },
+    { name: "vector/spritesheet.svg", contents: svg },
+  ]));
+  await installPetFromZipFileWithResult(vectorZip);
+  for (const id of ["vector-folder", "vector-codex", "vector-zip"]) {
+    assert.equal((await readInstalledPetMetadata(id)).spritesheetPath, "spritesheet.svg");
+    assert.equal(existsSync(join(petsRoot, id, "spritesheet.webp")), false);
+    const asset = await readInstalledPetSpritesheet(id);
+    assert.equal(asset.mimeType, "image/svg+xml");
+    assert.deepEqual(asset.bytes, svg);
+  }
+  assert.equal((await readCodexPetSpritesheet("vector-codex")).mimeType, "image/svg+xml");
+  writeFileSync(join(vectorFolder, "spritesheet.webp"), spritesheet);
+  await assert.rejects(() => installPetFromFolderWithResult(vectorFolder), "ambiguous folder atlases are rejected");
+  for (const extraAsset of [false, true]) {
+    writeFileSync(vectorZip, createStoredZip([
+      { name: "pet.json", contents: Buffer.from(JSON.stringify(vectorMetadata("bad-vector"))) },
+      { name: "spritesheet.webp", contents: spritesheet },
+      ...(extraAsset ? [{ name: "spritesheet.svg", contents: svg }] : []),
+    ]));
+    await assert.rejects(() => installPetFromZipFileWithResult(vectorZip), "mismatched or ambiguous ZIP atlases are rejected");
+    assert.equal(existsSync(join(petsRoot, "bad-vector")), false, "rejected package never promotes assets");
+  }
+  releaseStartupInstallLock();
+  appState.initializeAppState();
+  for (const id of ["vector-folder", "vector-codex", "vector-zip"]) {
+    assert.equal(appState.getAppStateSnapshot().pets.installed.find((pet) => pet.id === id)?.broken, undefined, "SVG pets stay usable after state reload");
+  }
 
 } finally {
   releaseStartupInstallLock();

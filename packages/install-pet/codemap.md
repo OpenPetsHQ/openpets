@@ -21,7 +21,7 @@ Provides a standalone CLI tool for installing pets from the OpenPets gallery cat
 - Library: `yauzl` for streaming ZIP extraction
 - Security: Path traversal prevention, symlink rejection, size limits
 - Limits: 50MB download, 200MB extracted, 500 files, 100MB per file
-- Required files: `pet.json`, `spritesheet.webp`
+- Required files: `pet.json` plus exactly one matching `spritesheet.webp` or `spritesheet.svg`, selected by metadata
 - Extraction: Atomic (temp dir → rename), permission 0o600/0o700
 
 **State Management**:
@@ -54,7 +54,7 @@ downloadPetZip(zipUrl) → Stream to buffer, validate magic bytes
     ↓
 extractPetZip(buffer, tempDir) → yauzl streaming extract
     ↓
-validateExtractedPet() → Check pet.json, spritesheet.webp exist
+validateExtractedPet() → Check metadata-selected single atlas; validate the static SVG profile and V1/V2 dimensions
     ↓
 rename(tempDir, finalDir) → Atomic move
     ↓
@@ -68,6 +68,11 @@ releaseLock() → rm lock directory
 **Dependencies**:
 - `@open-pets/client` - Fallback IPC to running app
 - `yauzl` - ZIP file handling
+
+**Shared contract**: The dependency-free `install-pet/spritesheet` export owns
+canonical atlas filenames, package file-set checks, MIME selection, and bounded
+static SVG validation. Desktop imports this same contract; it does not run the
+installer CLI or acquire its resources.
 
 **External Services**:
 - `openpets.dev` - Catalog JSON and pet metadata

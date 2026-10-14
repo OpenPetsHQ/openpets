@@ -74,7 +74,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `lease-manager.ts`: Pet routing lease lifecycle
 - `pet-window.ts`: Pet-window lifecycle facade and rendering (transparent frameless windows, CSS sprite animation, V2 idle cursor gaze with optional per-pet normalized frame anchors and plugin scale override geometry, speech bubbles, status badges, compact default-pet launcher, bottom-anchored upward-growing attached chat panel styles, floating bubble suppression during full chat, and Linux focus/input-shape transitions)
 - `pet-window-interaction.ts`: Pet-window mouse passthrough, manual/native drag bridge, renderer lifecycle recovery/watchdog, IPC event bridge, dragging state, and speech-completion subscriptions
-- `pet-alpha-hit-test.ts`: Pixel-accurate pet hit testing for `pet-preload.cjs` — samples sprite sheet alpha at the cursor (frame offset, scale, and flip aware) so transparent artwork lets clicks reach windows behind the pet; fails open so a broken test never makes the pet ungrabbable
+- `pet-alpha-hit-test.ts`: Pixel-accurate pet hit testing for `pet-preload.cjs` — samples sprite sheet alpha at the cursor (frame offset, scale, and flip aware), with bounded browser `Image` fallback when `createImageBitmap` rejects SVG; fails open so a broken test never makes the pet ungrabbable
 - `pet-sprite-bytes.ts`: Main-process `openpets:pet-sprite-bytes` IPC that serves sprite sheet bytes to tracked pet renderers (path- and size-validated) for alpha hit-test decoding
 - `wayland-layer-backend.ts`/`wayland-layer-protocol.ts`: Native layer-shell Electron adapter plus its Electron-free length-prefixed protocol, incremental decoding, cropped BGRA frame handling, and pointer replay mapping
 - `default-pet-chat.ts`: Host-side in-pet chat coordinator, handling main-owned compact/attached chat expansion, dynamic panel height synchronization, IPC dispatch, conversation transcript streams, talk status, and prompt suggestions
@@ -112,7 +112,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 - `plugin-sdk-network.ts`: Guarded DNS and agent transport, bounded dispatch/response limits, and bounded agent cleanup; the bridge tracks, aborts, and drains requests by API generation
 - `voice-assistant-session-contract.ts`: Pure generic/Realtime voice-session contracts shared by host, Realtime, feedback, tray, and implementation modules.
 - `plugin-voice.ts` plus `voice-capture*.ts`, `voice-conversation.ts`, `voice-realtime-electron.ts`, `voice-microphone-arbiter.ts`, `voice-listening-service.ts`, `voice-privacy-indicator*.ts`, and `voice-assistant-session.ts`: Host-owned one-shot capture plus the private realtime lifecycle, shared microphone lease, reference-counted privacy indicator, mutable generic session stages, and teardown cleanup
-- `pet-installation.ts`: Catalog ZIP download and extraction
+- `pet-installation.ts`: Catalog/local ZIP and folder imports with one manifest-selected canonical WebP or static SVG atlas; SVG validation is shared with standalone `install-pet/spritesheet`
 - `pet-install-transaction-protocol.ts`: Stable pet-install journal/schema, naming, and recovery-classification protocol
 - `pet-install-transaction.ts`: Filesystem and side-effect orchestration for staged promotion, state mutation, rollback, cleanup, locking, and startup recovery
 - `codex-pets.ts`: Local Codex pet import

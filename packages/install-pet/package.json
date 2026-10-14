@@ -20,13 +20,17 @@
     "access": "public"
   },
   "exports": {
+    "./spritesheet": {
+      "types": "./dist/spritesheet.d.ts",
+      "default": "./dist/spritesheet.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "test": "node dist/check-install-pet.js",
+    "test": "node dist/check-install-pet.js && node dist/check-spritesheet.js",
     "check": "pnpm typecheck && pnpm build && pnpm test",
     "typecheck": "tsc --noEmit",
     "build": "tsc"

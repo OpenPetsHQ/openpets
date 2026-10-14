@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { getPetSpritesheetSpec, validateSvgSpritesheet, type PetSpritesheetPath } from "install-pet/spritesheet";
 
 export const maxCodexPetJsonBytes = 128 * 1024;
 export const maxCodexSpritesheetBytes = 100 * 1024 * 1024;
@@ -9,7 +10,7 @@ export interface CodexPetMetadata {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
-  readonly spritesheetPath: "spritesheet.webp";
+  readonly spritesheetPath: PetSpritesheetPath;
   readonly spriteVersionNumber?: 2;
   readonly gazeAnchor?: CodexPetGazeAnchor;
 }
@@ -182,19 +183,18 @@ function isFinitePoint(value: unknown): value is CodexV2GazePoint {
 export function validateCodexPetMetadata(value: unknown, folderName: string): CodexPetMetadata {
   if (!isSafeCodexPetId(folderName)) throw new Error("Codex pet folder name is invalid.");
   if (!isRecord(value)) throw new Error("pet.json must be an object.");
-  const spriteLayout = getCodexPetSpriteLayout(value);
+  const spritesheet = getPetSpritesheetSpec(value);
   if (value.id !== folderName || typeof value.id !== "string") throw new Error("Codex pet id must match its folder name.");
   if (!isSafeCodexPetId(value.id)) throw new Error("Codex pet id is invalid.");
   if (typeof value.displayName !== "string" || value.displayName.trim().length === 0 || value.displayName.length > 80) throw new Error("Codex pet displayName is invalid.");
   if (typeof value.description !== "string" || value.description.trim().length === 0 || value.description.length > 500) throw new Error("Codex pet description is invalid.");
-  if (value.spritesheetPath !== "spritesheet.webp") throw new Error("Codex pet spritesheetPath must be spritesheet.webp.");
   const gazeAnchor = value.gazeAnchor === undefined ? undefined : validateCodexPetGazeAnchor(value.gazeAnchor);
   return {
     id: value.id,
     displayName: value.displayName.trim(),
     description: value.description.trim(),
-    spritesheetPath: "spritesheet.webp",
-    ...(spriteLayout.version === 2 ? { spriteVersionNumber: 2 as const } : {}),
+    spritesheetPath: spritesheet.spritesheetPath,
+    ...(spritesheet.version === 2 ? { spriteVersionNumber: 2 as const } : {}),
     ...(gazeAnchor ? { gazeAnchor } : {}),
   };
 }
@@ -228,9 +228,13 @@ export function getCodexPetSpritePosition(layout: CodexPetSpriteLayout, state: {
   return { row: state.row, startColumn: 0, endColumn: state.frames, animated: true };
 }
 
-export async function validateCodexPetSpritesheet(spritesheet: Buffer, metadata: Pick<CodexPetMetadata, "spriteVersionNumber">): Promise<void> {
-  const layout = getCodexPetSpriteLayout(metadata);
-  if (layout.version === 1) return;
+export async function validateCodexPetSpritesheet(spritesheet: Buffer, metadata: Pick<CodexPetMetadata, "spriteVersionNumber" | "spritesheetPath">): Promise<void> {
+  const spec = getPetSpritesheetSpec(metadata);
+  if (metadata.spritesheetPath === "spritesheet.svg") {
+    validateSvgSpritesheet(spritesheet, spec.width, spec.height);
+    return;
+  }
+  if (spec.version === 1) return;
 
   let imageMetadata: sharp.Metadata;
   const image = sharp(spritesheet, { animated: true, failOn: "error", limitInputPixels: 50_000_000 });
@@ -242,8 +246,8 @@ export async function validateCodexPetSpritesheet(spritesheet: Buffer, metadata:
   if (imageMetadata.format !== "webp") throw new Error("Codex V2 spritesheet must be WebP.");
   if (!imageMetadata.hasAlpha) throw new Error("Codex V2 spritesheet must include transparency.");
   if ((imageMetadata.pages ?? 1) !== 1) throw new Error("Codex V2 spritesheet must contain exactly one image.");
-  if (imageMetadata.width !== layout.frameWidth * layout.columns || imageMetadata.height !== layout.frameHeight * layout.rows) {
-    throw new Error(`Codex V2 spritesheet must be exactly ${layout.frameWidth * layout.columns}x${layout.frameHeight * layout.rows}.`);
+  if (imageMetadata.width !== spec.width || imageMetadata.height !== spec.height) {
+    throw new Error(`Codex V2 spritesheet must be exactly ${spec.width}x${spec.height}.`);
   }
   try {
     await image.raw().toBuffer();

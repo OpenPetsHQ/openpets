@@ -370,11 +370,11 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
 - `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
-- `pet-file-safety.ts`: Bounded, no-follow regular-file reads shared by pet import and installed-pet rendering
+- `pet-file-safety.ts`: Bounded, no-follow regular-file reads and manifest-selected single-atlas file checks shared by pet import and installed-pet rendering
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
-- `codex-pets-core.ts`: Codex V1/V2 metadata (including normalized optional gaze anchors), exact V2 atlas, neutral-pose layout validation, and gaze coordinate geometry
+- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths and normalized optional gaze anchors), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
-- `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving validated metadata such as gaze anchors
+- `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME for image protocols
 - `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
 - `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup, and V1/V2 sprite metadata conversion
 - `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata

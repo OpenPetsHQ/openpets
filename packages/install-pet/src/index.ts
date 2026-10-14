@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { createWriteStream, existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createWriteStream, existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createOpenPetsClient, OpenPetsClientError } from "@open-pets/client";
 import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
+import { assertPetPackageFiles, getPetSpritesheetSpec, validatePetSpritesheetPath, validateSvgSpritesheet, type PetSpritesheetPath } from "./spritesheet.js";
 
 const catalogUrl = "https://openpets.dev/pets/catalog.v2.json";
 const catalogV3IndexUrl = "https://openpets.dev/pets/catalog.v3.json";
@@ -91,7 +92,7 @@ interface SafeZipPath {
   readonly isDirectory: boolean;
   readonly normalizedName: string;
   readonly topLevelDirectory: string;
-  readonly relativeOutputPath?: "pet.json" | "spritesheet.webp";
+  readonly relativeOutputPath?: "pet.json" | PetSpritesheetPath;
 }
 
 export async function installPet(options: InstallPetOptions): Promise<InstallPetResult> {
@@ -171,7 +172,7 @@ async function installPetDirectly(petId: string): Promise<InstallPetResult> {
     try {
       assertInsideRoot(petsRoot, tempDir);
       await extractPetZip(zip, tempDir);
-      await validateExtractedPet(tempDir);
+      await validateExtractedPet(tempDir, petId);
       await rm(finalDir, { recursive: true, force: true });
       await rename(tempDir, finalDir);
     } catch (error) {
@@ -443,7 +444,7 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
   } finally {
     zipFile.close();
   }
-  if (!seen.has("pet.json") || !seen.has("spritesheet.webp")) throw new Error("Zip must contain pet.json and spritesheet.webp.");
+  assertPetPackageFiles(seen);
 }
 
 function openZipFromBuffer(buffer: Buffer): Promise<ZipFile> {
@@ -496,16 +497,20 @@ function writeEntry(entry: Entry, zipFile: ZipFile, outputPath: string, expected
   });
 }
 
-async function validateExtractedPet(tempDir: string): Promise<void> {
+async function validateExtractedPet(tempDir: string, expectedId: string): Promise<void> {
   const petJsonPath = join(tempDir, "pet.json");
-  const spritesheetPath = join(tempDir, "spritesheet.webp");
-  assertOutputPathInside(tempDir, petJsonPath);
-  assertOutputPathInside(tempDir, spritesheetPath);
-  JSON.parse(await readFile(petJsonPath, "utf8")) as unknown;
+  if ((await stat(petJsonPath)).size > 128 * 1024) throw new Error("pet.json is too large.");
+  const metadata = JSON.parse(await readFile(petJsonPath, "utf8")) as unknown;
+  if (!isRecord(metadata) || metadata.id !== expectedId) throw new Error("Pet package id does not match the requested pet.");
+  const spec = getPetSpritesheetSpec(metadata);
+  const selected = spec.spritesheetPath;
+  assertPetPackageFiles(await readdir(tempDir), selected);
+  const spritesheetPath = join(tempDir, selected);
   const spritesheet = await stat(spritesheetPath);
-  if (!spritesheet.isFile()) throw new Error("spritesheet.webp must be a file.");
-  if (spritesheet.size <= 0) throw new Error("spritesheet.webp is empty.");
-  if (spritesheet.size > maxIndividualFileBytes) throw new Error("spritesheet.webp is too large.");
+  if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > maxIndividualFileBytes) throw new Error("Pet spritesheet is missing or too large.");
+  if (selected === "spritesheet.svg") {
+    validateSvgSpritesheet(await readFile(spritesheetPath), spec.width, spec.height);
+  }
 }
 
 async function readCurrentState(userData: string): Promise<OpenPetsState> {
@@ -572,7 +577,15 @@ function normalizeInstalledPet(value: unknown, userData: string): InstalledPetSt
     return null;
   }
   const petDir = getInstalledPetDir(join(userData, "pets"), value.id);
-  const missingFiles = !existsSync(join(petDir, "pet.json")) || !existsSync(join(petDir, "spritesheet.webp"));
+  let missingFiles = false;
+  try {
+    const metadata = JSON.parse(readFileSync(join(petDir, "pet.json"), "utf8")) as unknown;
+    const selected = validatePetSpritesheetPath(isRecord(metadata) ? metadata.spritesheetPath : undefined);
+    const other = selected === "spritesheet.svg" ? "spritesheet.webp" : "spritesheet.svg";
+    missingFiles = !existsSync(join(petDir, selected)) || existsSync(join(petDir, other));
+  } catch {
+    missingFiles = true;
+  }
   return {
     id: value.id,
     displayName: value.displayName,
@@ -637,7 +650,7 @@ export function validateZipEntryName(fileName: string): SafeZipPath {
   if (parts.length !== 1 && parts.length !== 2) throw new Error("Zip must contain pet files at the root or under exactly one top-level directory.");
 
   const leaf = parts.at(-1);
-  if (leaf !== "pet.json" && leaf !== "spritesheet.webp") {
+  if (leaf !== "pet.json" && leaf !== "spritesheet.webp" && leaf !== "spritesheet.svg") {
     throw new Error(`Unexpected zip file: ${leaf}`);
   }
 

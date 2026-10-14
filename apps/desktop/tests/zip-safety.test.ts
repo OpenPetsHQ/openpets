@@ -6,6 +6,7 @@ validateZipEntryName("pet-package/pet.json");
 validateZipEntryName("pet-package/spritesheet.webp");
 validateZipEntryName("pet.json");
 validateZipEntryName("spritesheet.webp");
+validateZipEntryName("spritesheet.svg");
 
 const validTracker = new ZipEntryPathTracker();
 validTracker.accept("pet-package/");

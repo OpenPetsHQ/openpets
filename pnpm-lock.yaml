@@ -53,6 +53,9 @@ importers:
       get-windows:
         specifier: ^9.3.0
         version: 9.3.0(encoding@0.1.13)
+      install-pet:
+        specifier: workspace:*
+        version: link:../../packages/install-pet
       react:
         specifier: ^19.2.6
         version: 19.2.6

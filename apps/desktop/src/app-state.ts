@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
+import { validatePetSpritesheetPath } from "install-pet/spritesheet";
 
 import { defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
@@ -839,12 +840,15 @@ function validateInstalledPetFiles(petId: string, source: InstalledPetState["sou
       ? getTeamPetDir(petId)
       : getInstalledPetDir(petId);
     const petJsonPath = join(dir, "pet.json");
-    const spritesheetPath = join(dir, "spritesheet.webp");
-    JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;
+    const metadata = JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;
+    const selectedPath = validatePetSpritesheetPath(isRecord(metadata) ? metadata.spritesheetPath : undefined);
+    const spritesheetPath = join(dir, selectedPath);
+    const otherPath = selectedPath === "spritesheet.svg" ? "spritesheet.webp" : "spritesheet.svg";
+    if (existsSync(join(dir, otherPath))) return "Installed pet contains multiple spritesheets.";
     const spritesheet = statSync(spritesheetPath);
-    if (!spritesheet.isFile()) return "spritesheet.webp is not a file.";
-    if (spritesheet.size <= 0) return "spritesheet.webp is empty.";
-    if (spritesheet.size > 100 * 1024 * 1024) return "spritesheet.webp is too large.";
+    if (!spritesheet.isFile()) return "Installed pet spritesheet is not a file.";
+    if (spritesheet.size <= 0) return "Installed pet spritesheet is empty.";
+    if (spritesheet.size > 100 * 1024 * 1024) return "Installed pet spritesheet is too large.";
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : "Installed pet files are invalid.";

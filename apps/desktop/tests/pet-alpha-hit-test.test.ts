@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   PET_ALPHA_HIT_THRESHOLD,
   createPetAlphaHitTester,
+  decodeSpriteSheetPixels,
   isSpritePixelOpaque,
   mapClientPointToSpritePixel,
   parseCssBackgroundImageUrl,
@@ -37,6 +38,54 @@ describe("parseCssBackgroundImageUrl", () => {
     assert.equal(parseCssBackgroundImageUrl("none"), null);
     assert.equal(parseCssBackgroundImageUrl("linear-gradient(red, blue)"), null);
     assert.equal(parseCssBackgroundImageUrl(""), null);
+  });
+});
+
+describe("SVG pixel decoding fallback", () => {
+  it("samples SVG through an origin-clean Image when bitmap decoding rejects and releases the blob", async () => {
+    const previousBitmap = Object.getOwnPropertyDescriptor(globalThis, "createImageBitmap");
+    const previousImage = Object.getOwnPropertyDescriptor(globalThis, "Image");
+    let imageSource = "";
+    let drawnImage: unknown;
+    class FakeImage {
+      readonly naturalWidth = 2;
+      readonly naturalHeight = 2;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        imageSource = value;
+        if (value) queueMicrotask(() => this.onload?.());
+      }
+    }
+    Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: async (blob: Blob) => {
+      assert.equal(blob.type, "image/svg+xml");
+      throw new Error("SVG bitmap decoding unsupported");
+    } });
+    Object.defineProperty(globalThis, "Image", { configurable: true, value: FakeImage });
+    try {
+      const expected = makePixels(2, 2, [[1, 1, 255]]);
+      const document: PetAlphaHitTestDocument = {
+        ...makeFakeDocument({}),
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            drawImage: (image) => { drawnImage = image; },
+            getImageData: () => expected,
+          }),
+        }),
+      };
+      const pixels = await decodeSpriteSheetPixels(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>'), document);
+      assert.deepEqual(pixels, expected);
+      assert.ok(drawnImage instanceof FakeImage, "canvas samples the decoded SVG image, not a nativeImage");
+      assert.equal(imageSource, "", "decoder releases the image after canvas sampling");
+      assert.equal(isSpritePixelOpaque(pixels, 1, 1), true);
+    } finally {
+      if (previousBitmap) Object.defineProperty(globalThis, "createImageBitmap", previousBitmap);
+      else Reflect.deleteProperty(globalThis, "createImageBitmap");
+      if (previousImage) Object.defineProperty(globalThis, "Image", previousImage);
+      else Reflect.deleteProperty(globalThis, "Image");
+    }
   });
 });
 
