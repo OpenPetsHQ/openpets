@@ -125,7 +125,11 @@ export function validateSvgSpritesheet(bytes: Uint8Array, width: number, height:
     position = end + 1;
 
     if (tag.startsWith("/")) {
-      const name = tag.slice(1).trim();
+      const closingTag = /^\/([A-Za-z]+)[\t\n\r ]*$/u.exec(tag);
+      if (!closingTag) {
+        throw new Error("Invalid SVG closing tag.");
+      }
+      const name = closingTag[1];
       if (!stack.length || name !== stack.pop()) {
         throw new Error("Mismatched SVG closing tag.");
       }

@@ -25,6 +25,15 @@ for (const files of [
 
 const atlas = (body: string, attrs = ""): Buffer => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1872" viewBox="0 0 1536 1872" ${attrs}>${body}</svg>`);
 validateSvgSpritesheet(atlas('<g transform="translate(10 20)"><path fill="#abc" d="M0 0h10v10z"/></g>'), 1536, 1872);
+// XML permits trailing closing-tag whitespace, but never whitespace after </.
+validateSvgSpritesheet(atlas('<g></g \t\n>'), 1536, 1872);
+for (const source of [
+  atlas("").toString().replace("</svg>", "</ svg>"),
+  atlas('<g></\tg>').toString(),
+  atlas('<g></g\u00a0>').toString(),
+]) {
+  assert.throws(() => validateSvgSpritesheet(Buffer.from(source), 1536, 1872));
+}
 validateSvgSpritesheet(atlas('<defs><linearGradient id="paint"><stop offset="0" stop-color="red"/></linearGradient><clipPath id="clip"><rect width="10" height="10"/></clipPath></defs><rect width="10" height="10" fill="url(#paint)" clip-path="url(#clip)"/>'), 1536, 1872);
 
 // These are active/network/raster/recursive SVGs, not static vector atlases.
