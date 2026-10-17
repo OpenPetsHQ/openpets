@@ -1,4 +1,4 @@
-import { app, globalShortcut, powerMonitor, protocol, screen, type Display } from "electron";
+import { app, dialog, globalShortcut, powerMonitor, protocol, screen, type Display } from "electron";
 import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
@@ -9,7 +9,7 @@ import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
 import { recoverPetInstallTransactions } from "./pet-install-transaction.js";
 import { getPetsRoot } from "./pet-paths.js";
 import { setLocaleFromPreference } from "./i18n/index.js";
-import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, openDefaultPetManagerCheckIn, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetSay, getDefaultPetPaused, isDefaultPetVisible, openDefaultPetManagerCheckIn, presentManagerCheckInOffer, reclampDefaultPetWindow, recoverDefaultPetMouseInterop, refreshDefaultPetContent, shouldOpenDefaultPetOnLaunch, showDefaultPet } from "./default-pet-controller.js";
 import { installAppLifecycle } from "./lifecycle.js";
 import { initializeLanController, isDefaultPetAwayForLan, startLanController } from "./lan-controller.js";
 import { debug, error as logError, getLogFilePath, info, initializeLogger, warn } from "./logger.js";
@@ -27,7 +27,7 @@ import { openLocalPetAssistantConversationArchive } from "./pet-assistant-archiv
 import { startVoiceAssistantHost } from "./voice-assistant-host.js";
 import { createAppTray, refreshTrayMenu } from "./tray.js";
 import { checkForGitHubReleaseUpdate } from "./update-checker.js";
-import { broadcastManagerCheckInsRefresh, installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
+import { broadcastDashboardRefresh, broadcastManagerCheckInsRefresh, installInternalUiHandlers, installInternalUiProtocol, openControlCenterWindow, openControlCenterWindowTarget } from "./windows.js";
 import { sessionMediaScheme } from "./session-media-cache.js";
 import { broadcastDefaultPetManagerCheckInSnapshot, installDefaultPetChatIpcHandlers } from "./default-pet-chat.js";
 import { initializeVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
@@ -37,6 +37,9 @@ import { initializeTeamService, type TeamService } from "./team-service.js";
 import { TeamApiClient } from "./team-api-client.js";
 import { initializeManagerCheckInService, type ManagerCheckInService } from "./manager-check-in-service.js";
 import { findTeamEnrollmentLink } from "./team-protocol.js";
+import { assertPetInstallZipUrl, findPetInstallLink, type PetInstallLinkParseResult } from "./pet-install-link-protocol.js";
+import { createPetInstallLinkHandler, type PetInstallLinkHandler } from "./pet-install-link-handler.js";
+import { installPetFromZipUrlWithResult } from "./pet-installation.js";
 import { resolveDevControlCenterRoute } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
@@ -52,6 +55,10 @@ import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
 let pendingTeamEnrollmentLink: string | null = null;
+let petInstallLinkHandler: PetInstallLinkHandler | null = null;
+let pendingPetInstallLink: PetInstallLinkParseResult | null = null;
+/** Pet Studio "Add to OpenPets" downloads are small two-file packs. */
+const petInstallLinkMaxZipBytes = 25 * 1024 * 1024;
 let petDisplayCoordinator: PetDisplayCoordinator<Display> | null = null;
 
 // OpenPets stores plugin secrets via Electron safeStorage, which requires a
@@ -127,6 +134,13 @@ if (!gotSingleInstanceLock) {
       }
       teamService.handleDeepLink(value);
       openControlCenterWindow("teams");
+    },
+    onPetInstallLink: (link) => {
+      if (!petInstallLinkHandler) {
+        pendingPetInstallLink = link;
+        return;
+      }
+      handlePetInstallLink(petInstallLinkHandler, link);
     },
     stopTeams: () =>
       teamService?.stop() ?? Promise.resolve(),
@@ -325,6 +339,12 @@ if (!gotSingleInstanceLock) {
       pendingTeamEnrollmentLink = null;
       openControlCenterWindow("teams");
     }
+    petInstallLinkHandler = createDesktopPetInstallLinkHandler();
+    const startupPetInstallLink = pendingPetInstallLink ?? findPetInstallLink(process.argv);
+    pendingPetInstallLink = null;
+    if (startupPetInstallLink) {
+      handlePetInstallLink(petInstallLinkHandler, startupPetInstallLink);
+    }
     // Wall-clock schedules (daily/cron/at) re-arm deterministically after sleep.
     powerMonitor.on("resume", () => pluginService.runtime.resyncSchedules());
     if (shouldOpenDefaultPetOnLaunch()) {
@@ -432,4 +452,60 @@ function getRemoteStatusSnapshot(): RemoteStatusSnapshot {
     openDefaultPetOnLaunch: state.preferences.openDefaultPetOnLaunch,
     speechBubblesEnabled: state.preferences.speechBubblesEnabled,
   };
+}
+
+function createDesktopPetInstallLinkHandler(): PetInstallLinkHandler {
+  return createPetInstallLinkHandler({
+    confirmInstall: async ({ title, message, detail }) => {
+      const result = await dialog.showMessageBox({
+        type: "question",
+        title,
+        message,
+        detail,
+        buttons: ["Install", "Cancel"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      return result.response === 0;
+    },
+    installFromZipUrl: (zipUrl) => installPetFromZipUrlWithResult(zipUrl, {
+      maxBytes: petInstallLinkMaxZipBytes,
+      validateUrl: assertPetInstallZipUrl,
+    }),
+    onInstalled: () => {
+      // Same follow-up as a Control Center ZIP import, then reveal the Pets view.
+      refreshDefaultPetContent();
+      syncPinnedPets();
+      broadcastDashboardRefresh();
+      openControlCenterWindow("pets");
+    },
+    showError: async ({ title, message, detail }) => {
+      await dialog.showMessageBox({
+        type: "error",
+        title,
+        message,
+        detail,
+        buttons: ["OK"],
+        noLink: true,
+      });
+    },
+    log: (level, message, fields) => {
+      if (level === "error") {
+        logError("pet.install", message, fields);
+      } else if (level === "warn") {
+        warn("pet.install", message, fields);
+      } else {
+        info("pet.install", message, fields);
+      }
+    },
+  });
+}
+
+function handlePetInstallLink(handler: PetInstallLinkHandler, link: PetInstallLinkParseResult): void {
+  void handler.handle(link).catch((error: unknown) => {
+    logError("pet.install", "pet install link handling failed", {
+      reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+    });
+  });
 }

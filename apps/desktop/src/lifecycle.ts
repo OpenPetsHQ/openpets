@@ -11,6 +11,7 @@ import { stopPetAssistantHost } from "./pet-assistant-host.js";
 import { stopVoiceAssistantHost } from "./voice-assistant-host.js";
 import { shutdownPluginVoice } from "./plugin-voice.js";
 import { parseTeamEnrollmentLink, type TeamEnrollmentLink } from "./team-protocol.js";
+import { findPetInstallLink, parsePetInstallLink, type PetInstallLinkParseResult } from "./pet-install-link-protocol.js";
 import { focusOpenTaskWindows } from "./windows.js";
 import { shutdownVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 
@@ -21,6 +22,7 @@ let hardExitTimer: NodeJS.Timeout | null = null;
 
 export type AppLifecycleOptions = {
   readonly onTeamEnrollmentLink?: (link: TeamEnrollmentLink) => void;
+  readonly onPetInstallLink?: (link: PetInstallLinkParseResult) => void;
   readonly stopManagerCheckIns?: () => Promise<void>;
   readonly stopTeams?: () => Promise<void>;
   readonly stopPetDisplayCoordinator?: () => void;
@@ -32,6 +34,11 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
     const link = parseTeamEnrollmentLink(url);
     if (link) {
       options.onTeamEnrollmentLink?.(link);
+      return;
+    }
+    const petInstallLink = parsePetInstallLink(url);
+    if (petInstallLink) {
+      options.onPetInstallLink?.(petInstallLink);
     }
   });
   app.on("second-instance", (_event, commandLine) => {
@@ -43,6 +50,11 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
       .find((item): item is TeamEnrollmentLink => Boolean(item));
     if (value) {
       options.onTeamEnrollmentLink?.(value);
+      return;
+    }
+    const petInstallLink = findPetInstallLink(commandLine);
+    if (petInstallLink) {
+      options.onPetInstallLink?.(petInstallLink);
     }
   });
 

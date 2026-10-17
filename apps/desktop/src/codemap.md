@@ -160,7 +160,13 @@ catalog/local ZIP/local folder/codex-pets.ts
 pet-installation.ts
 ├── installPet() → getCatalogPet() → downloadPetZip() → extractPetZip()
 ├── installPetFromZipFile()/installPetFromFolder() → local validation/staging
-└── all three paths → runPetInstallTransaction()
+├── installPetFromZipUrlWithResult() → bounded caller-validated download → same ZIP buffer path as a local ZIP import
+└── all paths → runPetInstallTransaction()
+
+openpets://install?url=…&name=… (lifecycle.ts open-url / second-instance, main.ts cold-start argv)
+├── pet-install-link-protocol.ts (pure: https or loopback-http ZIP URL, no credentials, display-only capped name)
+└── pet-install-link-handler.ts (one link at a time: native Install/Cancel confirm naming pet + host
+    → installPetFromZipUrlWithResult() (25 MB cap) → refresh pets + open Control Center Pets, or error dialog)
 codex-pets.ts → validated Codex metadata/assets → runPetInstallTransaction()
 ```
 
@@ -281,7 +287,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `bootstrap.ts`: Package-entry pre-main backend bootstrap; uses `startup-backend-policy.ts` and starts a normalized replacement with Node `child_process.spawn` when needed, waits up to 15 seconds for a bounded ready/failure IPC handoff, supervises unpackaged replacements with signal/exit propagation, and detaches packaged replacements
 - `startup-backend-policy.ts`: Pure platform/argv/environment policy for normal X11, Wayland opt-out, and native layer-shell startup selection
 - `main.ts`: Application bootstrap after backend selection, single-instance lock, JavaScript plugin host construction, and dev-only Control Center route opening
-- `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance) with logging; stops plugin service, IPC, and pet windows on quit
+- `lifecycle.ts`: App event handlers (quit, window-all-closed, second-instance, open-url routing of Teams enrollment and pet install links) with logging; stops plugin service, IPC, and pet windows on quit
 - `state.ts`: Simple shell pause state
 - `app-state.ts`: Persistent JSON state with V1 schema, atomic writes, reaction animation overrides, validated waiting animation duration, persisted idle cursor-gaze preference, and host Pet Assistant personality preferences
 - `default-pet-position-state.ts`: Electron-free default-pet position shape, coordinate/display-key normalization, and bounded per-monitor LRU updates
@@ -367,6 +373,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Installation**:
 - `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
+- `pet-install-link-protocol.ts`: Electron-free parser/validator for `openpets://install` website links
+- `pet-install-link-handler.ts`: Confirm → download → shared ZIP install → feedback flow for install links; Electron dialogs/windows injected by `main.ts`
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
 - `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories

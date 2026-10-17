@@ -82,6 +82,30 @@ export async function installPetFromZipFile(zipPath: string): Promise<OpenPetsSt
 
 export async function installPetFromZipFileWithResult(zipPath: string): Promise<LocalPetInstallResult> {
   const zip = await readBoundedRegularFile(zipPath, maxZipDownloadBytes, "pet zip");
+  return installPetFromZipBufferWithResult(zip);
+}
+
+export interface PetZipUrlInstallOptions {
+  /** Hard cap on downloaded bytes; never above the shared local ZIP limit. */
+  readonly maxBytes: number;
+  /** Rejects URLs the caller does not accept; also applied to the final response URL. */
+  readonly validateUrl: (value: string) => void;
+}
+
+/**
+ * Downloads a user-confirmed pet ZIP and installs it through the same path as
+ * a local ZIP import, so validation and limits stay identical.
+ */
+export async function installPetFromZipUrlWithResult(
+  zipUrl: string,
+  options: PetZipUrlInstallOptions,
+): Promise<LocalPetInstallResult> {
+  const maxBytes = Math.min(options.maxBytes, maxZipDownloadBytes);
+  const zip = await downloadZip(zipUrl, maxBytes, options.validateUrl);
+  return installPetFromZipBufferWithResult(zip);
+}
+
+async function installPetFromZipBufferWithResult(zip: Buffer): Promise<LocalPetInstallResult> {
   validateZipMagic(zip);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallStagingCandidate(petsRoot);
@@ -172,9 +196,21 @@ export async function withPetOperation<T>(key: string, callback: () => Promise<T
 }
 
 async function downloadPetZip(zipUrl: string): Promise<Buffer> {
-  validateZipUrl(zipUrl);
+  return downloadZip(zipUrl, maxZipDownloadBytes, validateZipUrl);
+}
+
+async function downloadZip(
+  zipUrl: string,
+  maxBytes: number,
+  validateUrl: (value: string) => void,
+): Promise<Buffer> {
+  validateUrl(zipUrl);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), downloadTimeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, downloadTimeoutMs);
 
   try {
     const response = await fetch(zipUrl, {
@@ -183,13 +219,18 @@ async function downloadPetZip(zipUrl: string): Promise<Buffer> {
       credentials: "omit",
     });
 
-    validateZipUrl(response.url);
+    validateUrl(response.url);
     if (response.url !== zipUrl) throw new Error("Zip download final URL changed.");
     if (!response.ok) throw new Error(`Zip download failed with HTTP ${response.status}.`);
 
-    const buffer = await readLimitedResponse(response, maxZipDownloadBytes);
+    const buffer = await readLimitedResponse(response, maxBytes);
     validateZipMagic(buffer);
     return buffer;
+  } catch (error) {
+    // Stop any partially read body (oversize, bad status) instead of leaving it streaming.
+    controller.abort();
+    if (timedOut) throw new Error("Zip download timed out.");
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

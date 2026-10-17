@@ -51,6 +51,20 @@ remote-control listener, local IPC server, and pet windows.
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
 `state.ts` (shell pause flag).
 
+## Deep links (`openpets://`)
+
+The app registers the `openpets` protocol. `lifecycle.ts` receives links from
+macOS `open-url` and the second-instance argv; `main.ts` checks the cold-start
+argv and holds links that arrive before startup completes. Two link shapes are
+routed, each to its own owner:
+
+- `openpets://teams/enroll?intent=...` → Teams service (below).
+- `openpets://install?url=...&name=...` → `pet-install-link-handler.ts`, which
+  always confirms with a native dialog before downloading and installs through
+  the shared ZIP import path. See [Pets → From a website link](/pets#from-a-website-link).
+
+Anything else is ignored.
+
 ## Optional Teams desktop scope
 
 Teams is an optional cloud lane. `openpets://teams/enroll?intent=...` is parsed

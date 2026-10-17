@@ -311,7 +311,8 @@ warning).
 
 ## Installation
 
-Two install paths exist; they share the same safety rules.
+Two install paths exist; they share the same safety rules. The running app
+also accepts local ZIP/folder imports and website install links.
 
 ### Through the running app (preferred)
 
@@ -363,6 +364,46 @@ Local pet packages can also be installed through the running app via the CLI:
 These send a `pets.install-local` request to the running app over IPC, which validates and imports the local zip file or folder.
 The CLI resolves relative paths before sending them; the IPC/client protocol
 itself requires an absolute path plus an explicit `zip` or `folder` kind.
+
+### From a website link
+
+Pet Studio's planned "Add to OpenPets" button opens (the site shows Download
+only until this app version ships):
+
+```
+openpets://install?url=<URL-encoded ZIP URL>&name=<URL-encoded display name>
+```
+
+The ZIP is the same two-file pack (`pet.json` + spritesheet) that a manual
+Control Center → Pets → Import pet → ZIP accepts. Studio links point at an
+owner's signed download or, for pets shared in the Studio Community, at the
+public `/api/community/{id}/download`; both serve that same pack, so the app
+treats them alike.
+
+- `pet-install-link-protocol.ts` (pure) accepts only `openpets://install` with a
+  `url` that is `https:`, or `http:` on a loopback host (`localhost`,
+  `127.0.0.1`, `[::1]`) for local Studio development. URLs with credentials,
+  other schemes, or a missing `url` are rejected with an error dialog. `name` is
+  optional, collapsed to one line, trimmed, and capped at 60 characters; it is
+  display-only — the installed pet's id and name come from the validated
+  `pet.json`.
+- `pet-install-link-handler.ts` always shows a native **Install / Cancel**
+  dialog naming the pet and the download host before any network request.
+  Cancel does nothing. One link is handled at a time; repeats while a dialog or
+  download is open are ignored.
+- On Install, `installPetFromZipUrlWithResult()` downloads with the shared
+  30-second timeout, no redirects, and a 25 MB cap, then runs the exact same
+  ZIP buffer → extract → validate → `runPetInstallTransaction()` path as a local
+  ZIP import. The download stays in memory; the staging candidate is removed on
+  every failure path.
+- Success refreshes the default pet and pinned pets and opens the Control
+  Center on **Pets**; failure shows an error dialog with the reason.
+- Logs (`pet.install` scope) record the download host and outcome only, never
+  the full (signed) URL.
+
+Links arrive through macOS `open-url`, the second-instance argv on
+Windows/Linux, or the cold-start argv; a link received before startup finishes
+is held and handled once the app is ready.
 
 ### Standalone installer (`install-pet`)
 
