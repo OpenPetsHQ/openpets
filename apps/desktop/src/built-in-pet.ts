@@ -8,6 +8,12 @@ export const builtInPet = {
   installed: true,
 } as const;
 
+/**
+ * Catalog entries that publish the built-in pet itself. Control Center hides
+ * them so Hoodie Cat is not listed twice; the website gallery still shows them.
+ */
+export const builtInPetCatalogIds: ReadonlySet<string> = new Set(["hoodie-cat-openpets"]);
+
 /** Bundled outfit atlases live in `assets/{builtInPetOutfitsDirectory}/{outfitId}.webp`. */
 export const builtInPetOutfitsDirectory = "default-pet-outfits";
 

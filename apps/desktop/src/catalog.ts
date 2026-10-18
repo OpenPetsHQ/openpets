@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { app } from "electron";
 
+import { builtInPetCatalogIds } from "./built-in-pet.js";
 import { createCatalogRemoteClient } from "./catalog-remote.js";
 import { validateCatalogV2, type CatalogPetPackageMeta, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
 import { isVersionNewer } from "./update-version.js";
@@ -171,7 +172,7 @@ function getRequiredOpenPetsVersion(pet: CatalogPetPackageMeta): string | undefi
 }
 
 function withInstallRequirements(pets: readonly CatalogPetV2[]): readonly CatalogUiPet[] {
-  return pets.map((pet) => {
+  return pets.filter((pet) => !builtInPetCatalogIds.has(pet.id)).map((pet) => {
     const required = getRequiredOpenPetsVersion(pet);
     return required ? { ...pet, requiresOpenPetsVersion: required } : pet;
   });
@@ -186,10 +187,13 @@ function isSurfaceablePet(pet: { readonly original?: boolean; readonly featured?
 }
 
 function getSurfaceableSearchPets(pets: readonly CatalogV3SearchPet[], index: CatalogV3Index): readonly CatalogV3SearchPet[] {
-  return filterSurfaceablePets(pets).map((pet, surfaceIndex) => ({
-    ...pet,
-    catalogPage: Math.floor(surfaceIndex / index.pageSize),
-  }));
+  // Page numbers come from the unfiltered order so they line up with the paged listing.
+  return filterSurfaceablePets(pets)
+    .map((pet, surfaceIndex) => ({
+      ...pet,
+      catalogPage: Math.floor(surfaceIndex / index.pageSize),
+    }))
+    .filter((pet) => !builtInPetCatalogIds.has(pet.id));
 }
 
 function surfaceableTotal(index: CatalogV3Index): number {
