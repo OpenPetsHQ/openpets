@@ -221,6 +221,12 @@ export const fr: Partial<Messages> = {
   "pets.search.placeholder": "Rechercher des mascottes...",
   "pets.import": "Importer une mascotte",
   "pets.gallery": "Galerie web",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "Créez votre propre compagnon",
+  "pets.studio.titleNoResults": "Introuvable ? Créez-le",
+  "pets.studio.body": "Décrivez un compagnon ou importez une photo. Studio dessine toutes les animations, prêtes à installer.",
+  "pets.studio.action": "Ouvrir Pet Studio",
+  "pets.studio.artAlt": "Une photo de chat qui éclot d’un œuf en compagnon pixel art",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Par défaut",

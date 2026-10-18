@@ -22,6 +22,7 @@ const channels = [
   "openpets:install-pet",
   "openpets:install-local-pet",
   "openpets:open-gallery",
+  "openpets:open-studio",
   "openpets:import-codex-pet",
   "openpets:remove-pet",
   "openpets:reset-default-pet-position",

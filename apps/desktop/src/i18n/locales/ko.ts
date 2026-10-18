@@ -212,6 +212,12 @@ export const ko: Partial<Messages> = {
   "pets.search.placeholder": "펫 검색...",
   "pets.import": "펫 가져오기",
   "pets.gallery": "웹 갤러리",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "나만의 펫 만들기",
+  "pets.studio.titleNoResults": "찾는 펫이 없나요? 직접 만들어 보세요",
+  "pets.studio.body": "펫을 설명하거나 사진을 올리세요. Studio가 모든 애니메이션을 그려 바로 설치할 수 있게 해 드려요.",
+  "pets.studio.action": "Pet Studio 열기",
+  "pets.studio.artAlt": "고양이 사진이 알에서 깨어나 픽셀 아트 펫이 되는 그림",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "기본",

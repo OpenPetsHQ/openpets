@@ -212,6 +212,12 @@ export const ja: Partial<Messages> = {
   "pets.search.placeholder": "ペットを検索...",
   "pets.import": "ペットをインポート",
   "pets.gallery": "ウェブギャラリー",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "自分だけのペットを作ろう",
+  "pets.studio.titleNoResults": "見つからない？作ってみよう",
+  "pets.studio.body": "ペットを説明するか写真をアップロードするだけ。Studio がすべてのアニメーションを描き、すぐにインストールできます。",
+  "pets.studio.action": "Pet Studio を開く",
+  "pets.studio.artAlt": "猫の写真が卵からかえり、ドット絵のペットになるイラスト",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "デフォルト",

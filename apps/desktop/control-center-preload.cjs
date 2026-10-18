@@ -95,6 +95,7 @@ const api = {
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),
   importCodexPet: (petId) => ipcRenderer.invoke("openpets:import-codex-pet", petId),
   openGallery: () => ipcRenderer.invoke("openpets:open-gallery"),
+  openStudio: () => ipcRenderer.invoke("openpets:open-studio"),
   openOrganizationsPage: () => ipcRenderer.invoke("openpets:open-organizations-page"),
   removePet: (petId) => ipcRenderer.invoke("openpets:remove-pet", petId),
   onRouteChange: (callback) => {

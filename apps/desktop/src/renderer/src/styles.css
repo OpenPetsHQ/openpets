@@ -126,6 +126,23 @@ body.theme-dark .courier-card:hover {
   background: rgba(30, 43, 68, 0.9);
 }
 
+body.theme-dark .studio-cta {
+  border-color: rgba(167, 139, 250, 0.4);
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.4), rgba(24, 34, 54, 0.8) 50%, rgba(12, 74, 110, 0.4));
+}
+
+body.theme-dark .studio-cta-eyebrow {
+  color: #c4b5fd;
+}
+
+body.theme-dark .studio-cta-title {
+  color: #f1f5f9;
+}
+
+body.theme-dark .studio-cta-body {
+  color: #cbd5e1;
+}
+
 body.theme-dark .pet-card.selected,
 body.theme-dark .courier-card.selected,
 body.theme-dark .settings-nav-item.active {
@@ -365,6 +382,12 @@ body.theme-dark .plugin-config-backdrop {
   .pet-card.selected { @apply border-brand bg-blue-50/90 ring-4 ring-blue-200/50 shadow-md; }
   .pet-card-actions { @apply relative z-10 mt-2 grid grid-cols-3 gap-1.5; }
   .pet-card-actions .btn { @apply min-h-[30px] min-w-0 px-2 py-1 text-[10px] tracking-wide; }
+  .studio-cta { @apply relative col-span-full flex min-h-[240px] items-center gap-6 overflow-hidden rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-sky-50 px-7 py-6 shadow-sm; }
+  .studio-cta-copy { @apply relative z-10 flex min-w-0 flex-1 flex-col items-start gap-2.5; }
+  .studio-cta-eyebrow { @apply inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-violet-600; }
+  .studio-cta-title { @apply m-0 text-2xl font-bold leading-tight tracking-tight text-navy; }
+  .studio-cta-body { @apply m-0 mb-2 max-w-[36ch] text-sm leading-relaxed text-slatecopy; }
+  .studio-cta-art { @apply pointer-events-none w-[56%] max-w-[560px] shrink-0 select-none object-contain; }
   .thumb { @apply relative z-10 grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-white to-blue-100 border border-blue-100/50; }
   .thumb img { @apply max-h-12 max-w-12 object-contain; }
   .card-content { @apply relative z-10 flex flex-col flex-1 min-w-0 justify-center gap-1; }
@@ -383,7 +406,7 @@ body.theme-dark .plugin-config-backdrop {
   .sprite-detail.sprite-idle { animation: cc-idle-bob 2.6s ease-in-out infinite; }
   @keyframes cc-idle-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
   @media (prefers-reduced-motion: reduce) { .sprite-frame { animation: none !important; } .sprite-frame animate { display: none; } }
-  @media (max-width: 900px) { body { overflow:auto; } .app-shell { @apply h-auto min-h-screen; } .layout, .gallery, .pets-grid, .detail { @apply overflow-visible; } .pets-grid { @apply grid-cols-1; } .pet-detail-content { @apply grid-cols-1; } .pet-preview-grid { @apply grid-cols-1; } }
+  @media (max-width: 900px) { body { overflow:auto; } .app-shell { @apply h-auto min-h-screen; } .layout, .gallery, .pets-grid, .detail { @apply overflow-visible; } .pets-grid { @apply grid-cols-1; } .studio-cta { @apply flex-col-reverse items-start; } .studio-cta-art { @apply w-full max-w-none; } .pet-detail-content { @apply grid-cols-1; } .pet-preview-grid { @apply grid-cols-1; } }
   .meta { @apply flex flex-wrap gap-2; }
   .btn { @apply rounded-2xl px-4 py-3 font-monoDisplay text-sm font-black uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.96] transition-[transform,translate,background-color,border-color,box-shadow] duration-150 flex items-center justify-center min-h-[44px] cursor-pointer select-none; } 
   .btn-compact { @apply rounded-xl px-2.5 py-1 text-xs min-h-[30px]; } 

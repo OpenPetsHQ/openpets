@@ -414,6 +414,13 @@ Links arrive through macOS `open-url`, the second-instance argv on
 Windows/Linux, or the cold-start argv; a link received before startup finishes
 is held and handled once the app is ready.
 
+The Pets page links back to Studio: a full-width **Make your own pet** banner
+(the Studio hero art, bundled as `renderer/public/studio/studio-hero.webp`)
+leads the grid on the All and Installed filters, and replaces an empty search
+result (retitled "Can't find it? Make it"). It opens `openpets.dev/studio` through the
+`openpets:open-studio` handler with `utm_source=openpets-desktop` so Studio
+sign-ups from the app can be told apart.
+
 ### Standalone installer (`install-pet`)
 
 `packages/install-pet/` is a standalone CLI (`install-pet <pet-id>` or

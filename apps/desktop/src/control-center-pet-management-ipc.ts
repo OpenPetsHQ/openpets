@@ -16,6 +16,7 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:install-pet"
   | "openpets:install-local-pet"
   | "openpets:open-gallery"
+  | "openpets:open-studio"
   | "openpets:import-codex-pet"
   | "openpets:remove-pet"
   | "openpets:reset-default-pet-position";
@@ -287,6 +288,12 @@ export function installControlCenterPetManagementIpcHandlers({
   registerHandle("openpets:open-gallery", async (event) => {
     authorizeSender(event);
     await openExternal("https://openpets.dev/gallery");
+  });
+
+  registerHandle("openpets:open-studio", async (event) => {
+    authorizeSender(event);
+    logger.debug("pet studio opened from pets page");
+    await openExternal("https://openpets.dev/studio?utm_source=openpets-desktop&utm_medium=app&utm_campaign=pets-page");
   });
 
   registerHandle("openpets:import-codex-pet", async (event, petId: unknown) => {

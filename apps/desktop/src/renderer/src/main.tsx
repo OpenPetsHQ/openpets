@@ -250,6 +250,7 @@ type ControlCenterApi = WhatsNewApi & {
   installLocalPet(): Promise<unknown>;
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
+  openStudio(): Promise<void>;
   openOrganizationsPage?(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
   onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
@@ -4012,6 +4013,17 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
 
   const currentMeta = routeMetadata[currentRoute];
 
+  // Pet Studio is how people get a pet that is not in the catalog: offer it on
+  // the browsing views, and in place of an empty search result.
+  const hasSearchQuery = query.trim().length > 0;
+  const showStudioCta = hasSearchQuery
+    ? pets.length === 0
+    : filter === "all" || filter === "installed";
+
+  function openStudio() {
+    void api.openStudio().catch((err) => setError(String(err?.message ?? err)));
+  }
+
   return (
     <main className="app-shell">
       <header className="hero">
@@ -4106,7 +4118,33 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                 </Button>
               </div>
             </div>
-            <div className="pets-grid">{pets.map((pet) => {
+            <div className="pets-grid">
+              {showStudioCta && (
+                <section className="studio-cta" aria-labelledby="studio-cta-title">
+                  <div className="studio-cta-copy">
+                    <span className="studio-cta-eyebrow">
+                      <SparklesIcon className="w-3.5 h-3.5" />
+                      {t("pets.studio.eyebrow")}
+                    </span>
+                    <h2 id="studio-cta-title" className="studio-cta-title">
+                      {hasSearchQuery ? t("pets.studio.titleNoResults") : t("pets.studio.title")}
+                    </h2>
+                    <p className="studio-cta-body">{t("pets.studio.body")}</p>
+                    <div>
+                      <Button variant="accent" icon={<SparklesIcon />} onClick={openStudio}>
+                        {t("pets.studio.action")}
+                      </Button>
+                    </div>
+                  </div>
+                  <img
+                    className="studio-cta-art"
+                    src="studio/studio-hero.webp"
+                    alt={t("pets.studio.artAlt")}
+                    draggable={false}
+                  />
+                </section>
+              )}
+              {pets.map((pet) => {
               const isBuiltIn = pet.builtIn;
               const hasDistinctPreview = pet.preview && pet.preview !== pet.spritesheet;
               const useSpritesheetFrame = !isBuiltIn && !hasDistinctPreview && !!pet.spritesheet;
@@ -4197,7 +4235,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   </div>
                 </div>
               );
-            })}</div>
+            })}
+            </div>
             <div className="pager">
               {!!catalog?.pageCount && catalog.pageCount > 1 ? (
                 <Button

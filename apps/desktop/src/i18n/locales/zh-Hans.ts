@@ -212,6 +212,12 @@ export const zhHans: Partial<Messages> = {
   "pets.search.placeholder": "搜索宠物...",
   "pets.import": "导入宠物",
   "pets.gallery": "网页图库",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "创建你自己的宠物",
+  "pets.studio.titleNoResults": "没找到？自己做一个",
+  "pets.studio.body": "描述一只宠物或上传照片，Studio 会绘制全部动画，随时可安装。",
+  "pets.studio.action": "打开 Pet Studio",
+  "pets.studio.artAlt": "一张猫咪照片从蛋中孵化成像素风宠物",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "默认",

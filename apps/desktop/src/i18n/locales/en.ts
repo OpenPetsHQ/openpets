@@ -224,6 +224,12 @@ export const en = {
   "pets.search.placeholder": "Search pets...",
   "pets.import": "Import pet",
   "pets.gallery": "Web Gallery",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "Make your own pet",
+  "pets.studio.titleNoResults": "Can't find it? Make it",
+  "pets.studio.body": "Describe a pet or upload a photo. Studio draws every animation, ready to install.",
+  "pets.studio.action": "Open Pet Studio",
+  "pets.studio.artAlt": "A cat photo hatching from an egg into a pixel-art pet",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Default",

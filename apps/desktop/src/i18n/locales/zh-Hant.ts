@@ -212,6 +212,12 @@ export const zhHant: Partial<Messages> = {
   "pets.search.placeholder": "搜尋寵物...",
   "pets.import": "匯入寵物",
   "pets.gallery": "網頁藝廊",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "打造你自己的寵物",
+  "pets.studio.titleNoResults": "找不到？自己做一隻",
+  "pets.studio.body": "描述一隻寵物或上傳照片，Studio 會繪製全部動畫，隨時可安裝。",
+  "pets.studio.action": "開啟 Pet Studio",
+  "pets.studio.artAlt": "一張貓咪照片從蛋中孵化成像素風寵物",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "預設",

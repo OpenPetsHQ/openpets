@@ -212,6 +212,12 @@ export const ptBR: Partial<Messages> = {
   "pets.search.placeholder": "Buscar pets...",
   "pets.import": "Importar pet",
   "pets.gallery": "Galeria web",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "Crie seu próprio pet",
+  "pets.studio.titleNoResults": "Não encontrou? Crie o seu",
+  "pets.studio.body": "Descreva um pet ou envie uma foto. O Studio desenha todas as animações, pronto para instalar.",
+  "pets.studio.action": "Abrir o Pet Studio",
+  "pets.studio.artAlt": "Uma foto de gato saindo de um ovo como um pet em pixel art",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Padrão",

@@ -212,6 +212,12 @@ export const es419: Partial<Messages> = {
   "pets.search.placeholder": "Buscar mascotas...",
   "pets.import": "Importar mascota",
   "pets.gallery": "Galería web",
+  "pets.studio.eyebrow": "Pet Studio",
+  "pets.studio.title": "Crea tu propia mascota",
+  "pets.studio.titleNoResults": "¿No la encuentras? Créala",
+  "pets.studio.body": "Describe una mascota o sube una foto. Studio dibuja todas las animaciones, lista para instalar.",
+  "pets.studio.action": "Abrir Pet Studio",
+  "pets.studio.artAlt": "Una foto de gato que sale de un huevo convertida en mascota pixel art",
 
   // --- Pets card badges/actions (renderer) ---
   "pets.badge.default": "Predeterminada",
