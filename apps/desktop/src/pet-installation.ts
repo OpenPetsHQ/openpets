@@ -1,6 +1,6 @@
 import { createWriteStream } from "node:fs";
-import { lstat, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 
@@ -10,9 +10,9 @@ import { assertPetPackageFiles } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, upsertPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { getCatalogPet } from "./catalog.js";
-import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "./codex-pets-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
+import { readBoundedRegularFile, readValidatedPetAtlases, writePetAtlases } from "./pet-file-safety.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
 import { assertOutputPathInside, hasSupportedZipMagic, ZipEntryPathTracker } from "./zip-safety.js";
@@ -140,14 +140,12 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(sourceDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  await assertPetSpritesheetFiles(sourceDir, metadata.spritesheetPath);
-  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, metadata.spritesheetPath);
-  await validateCodexPetSpritesheet(spritesheet, metadata);
+  const atlases = await readValidatedPetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
     assertInsideRoot(petsRoot, candidate);
-    await writeFile(join(candidate, metadata.spritesheetPath), spritesheet, { mode: 0o600, flag: "wx" });
+    await writePetAtlases(candidate, atlases);
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const state = await runPetInstallTransaction({
       petsRoot,
@@ -322,6 +320,7 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
         const outputPath = resolve(tempDir, safePath.relativeOutputPath);
         assertOutputPathInside(tempDir, outputPath);
         seenRequired.add(safePath.relativeOutputPath);
+        if (safePath.isOutfitAtlas) await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
         await writeEntry(entry, zipFile, outputPath, entry.uncompressedSize, safePath.relativeOutputPath === "pet.json" ? maxCodexPetJsonBytes : maxIndividualFileBytes);
       };
 
@@ -331,7 +330,8 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
     zipFile.close();
   }
 
-  assertPetPackageFiles(seenRequired);
+  // Outfit atlases are matched against the manifest wardrobe in validateExtractedPet.
+  assertPetPackageFiles([...seenRequired].filter((path) => !path.includes("/")));
 }
 
 function openZipFromBuffer(buffer: Buffer): Promise<ZipFile> {
@@ -427,10 +427,7 @@ async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> 
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(tempDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  await assertPetSpritesheetFiles(tempDir, metadata.spritesheetPath, true);
-  const spritesheetPath = join(tempDir, metadata.spritesheetPath);
-  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxIndividualFileBytes, metadata.spritesheetPath);
-  await validateCodexPetSpritesheet(spritesheet, metadata);
+  await readValidatedPetAtlases(tempDir, metadata, maxIndividualFileBytes, true);
   return metadata;
 }
 

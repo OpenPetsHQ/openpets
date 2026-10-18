@@ -47,6 +47,8 @@ import { GlassCard } from "./components/ui/GlassCard.js";
 import { isPluginIconDataUrl } from "./plugin-icon.js";
 import { PetImage, SpriteFrame, imageDebug, installedPetSpritesheetUrl, logPetsEvent, safePetImage } from "./components/PetSprite.js";
 import { StatusPill, statusPillToneClass, type StatusTone } from "./components/ui/StatusPill.js";
+import { WardrobePanel } from "./pets/WardrobePanel.js";
+import type { PetWardrobeSnapshot, PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
@@ -205,6 +207,8 @@ type ControlCenterApi = {
   resetDefaultPetPosition(): Promise<SettingsState>;
   setPetPoolOrder(ids: string[]): Promise<SettingsState>;
   setPetPinned(petId: string, pinned: boolean): Promise<SettingsState>;
+  getPetWardrobe(petId: string): Promise<PetWardrobeSnapshot | null>;
+  updatePetWardrobe(petId: string, patch: PetWardrobeUpdate): Promise<PetWardrobeSnapshot | null>;
   getPluginsSnapshot(): Promise<PluginServiceSnapshot>;
   getPluginCatalogSnapshot(refresh?: boolean): Promise<PluginCatalogSnapshot>;
   setPluginEnabled(id: string, enabled: boolean): Promise<PluginServiceResult>;
@@ -513,8 +517,9 @@ type TeamsSnapshot = {
 };
 type Route = "dashboard" | "pets" | "assistant" | "settings" | "plugins" | "integrations" | "teams";
 type ControlCenterRouteTarget =
-  | { readonly route: "assistant"; readonly assistantTab?: "providers" }
-  | { readonly route: Exclude<Route, "assistant">; readonly assistantTab?: never };
+  | { readonly route: "assistant"; readonly assistantTab?: "providers"; readonly petId?: never }
+  | { readonly route: "pets"; readonly petId?: string; readonly assistantTab?: never }
+  | { readonly route: Exclude<Route, "assistant" | "pets">; readonly assistantTab?: never; readonly petId?: never };
 
 
 const DashboardIcon = () => (
@@ -923,9 +928,14 @@ function isRoute(value: string | null | undefined): value is Route {
 
 function isControlCenterRouteTarget(value: unknown): value is ControlCenterRouteTarget {
   if (!value || typeof value !== "object") return false;
-  const target = value as { readonly route?: unknown; readonly assistantTab?: unknown };
+  const target = value as { readonly route?: unknown; readonly assistantTab?: unknown; readonly petId?: unknown };
   if (!isRoute(typeof target.route === "string" ? target.route : undefined)) return false;
+  if (target.petId !== undefined && (target.route !== "pets" || !isTargetPetId(target.petId))) return false;
   return target.assistantTab === undefined || (target.route === "assistant" && target.assistantTab === "providers");
+}
+
+function isTargetPetId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
 }
 
 function initialControlCenterRoute(): ControlCenterRouteTarget {
@@ -933,7 +943,9 @@ function initialControlCenterRoute(): ControlCenterRouteTarget {
     const params = new URLSearchParams(window.location.search);
     const route = params.get("route");
     const assistantTab = params.get("assistantTab");
+    const petId = params.get("petId");
     if (!isRoute(route)) return { route: "dashboard" };
+    if (route === "pets" && isTargetPetId(petId)) return { route, petId };
     return route === "assistant" && assistantTab === "providers" ? { route, assistantTab } : { route };
   } catch {
     return { route: "dashboard" };
@@ -3844,7 +3856,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const catalogSearch = catalogSearchState.pets;
   const [catalogPage, setCatalogPage] = useState(0);
   const [codex, setCodex] = useState<CodexState>({ pets: [] });
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialTarget.route === "pets" ? initialTarget.petId ?? "" : "");
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState("");
@@ -3861,6 +3873,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
     if (isControlCenterRouteTarget(target)) {
       setCurrentRoute(target.route);
       setAssistantTab(target.route === "assistant" ? target.assistantTab : undefined);
+      if (target.route === "pets" && target.petId) setSelectedId(target.petId);
     }
   }), []);
 
@@ -4366,6 +4379,10 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                     </div>
                   </aside>
                 </div>
+
+                {selected.installed && !selected.broken && !selected.builtIn && (
+                  <WardrobePanel petId={selected.id} spriteLayout={selected.spriteLayout} load={api.getPetWardrobe} update={api.updatePetWardrobe} />
+                )}
 
                 <div className="actions-container mt-6 flex flex-col gap-3 pet-detail-actions">
                   {/* Main Action (Install, Import, Set Default) */}

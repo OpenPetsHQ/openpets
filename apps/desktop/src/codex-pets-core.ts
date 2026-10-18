@@ -1,6 +1,8 @@
 import sharp from "sharp";
 import { getPetSpritesheetSpec, validateSvgSpritesheet, type PetSpritesheetPath } from "install-pet/spritesheet";
 
+import { validatePetWardrobe, type PetWardrobe } from "./pet-wardrobe-core.js";
+
 export const maxCodexPetJsonBytes = 128 * 1024;
 export const maxCodexSpritesheetBytes = 100 * 1024 * 1024;
 export const maxCodexThumbnailSourceBytes = 24 * 1024 * 1024;
@@ -13,6 +15,8 @@ export interface CodexPetMetadata {
   readonly spritesheetPath: PetSpritesheetPath;
   readonly spriteVersionNumber?: 2;
   readonly gazeAnchor?: CodexPetGazeAnchor;
+  /** Optional outfits sharing this pet's atlas layout, see `pet-wardrobe-core.ts`. */
+  readonly wardrobe?: PetWardrobe;
 }
 
 /** A gaze target normalized within one sprite frame, measured from its top-left. */
@@ -189,6 +193,7 @@ export function validateCodexPetMetadata(value: unknown, folderName: string): Co
   if (typeof value.displayName !== "string" || value.displayName.trim().length === 0 || value.displayName.length > 80) throw new Error("Codex pet displayName is invalid.");
   if (typeof value.description !== "string" || value.description.trim().length === 0 || value.description.length > 500) throw new Error("Codex pet description is invalid.");
   const gazeAnchor = value.gazeAnchor === undefined ? undefined : validateCodexPetGazeAnchor(value.gazeAnchor);
+  const wardrobe = value.wardrobe === undefined ? undefined : validatePetWardrobe(value.wardrobe);
   return {
     id: value.id,
     displayName: value.displayName.trim(),
@@ -196,6 +201,7 @@ export function validateCodexPetMetadata(value: unknown, folderName: string): Co
     spritesheetPath: spritesheet.spritesheetPath,
     ...(spritesheet.version === 2 ? { spriteVersionNumber: 2 as const } : {}),
     ...(gazeAnchor ? { gazeAnchor } : {}),
+    ...(wardrobe ? { wardrobe } : {}),
   };
 }
 

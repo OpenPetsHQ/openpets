@@ -27,6 +27,9 @@ import {
 } from "./plugin-service.js";
 import type { PluginCommandForm } from "./plugin-sdk-bridge.js";
 import { escapeHtml } from "./pet-window-render.js";
+import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
+import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
+import { defaultOutfitId } from "./pet-wardrobe-core.js";
 import { setWindowPosition } from "./window-position.js";
 
 export function installPetContextMenu(
@@ -126,54 +129,7 @@ export function installPetContextMenu(
 function handlePetHorizontalFlipToggle(petId: string): void {
   const flipped = togglePetHorizontalFlip(petId);
   info("pet.window", "pet horizontal flip toggled", { petId, flipped });
-  const defaultPetId = getAppStateSnapshot().preferences.defaultPetId;
-  if (petId === defaultPetId) {
-    void import("./default-pet-controller.js")
-      .then(({ refreshDefaultPetContent }) => refreshDefaultPetContent())
-      .catch((error) => {
-        logError(
-          "pet.window",
-          "refresh default pet on flip failed",
-          error instanceof Error ? error : { error },
-        );
-      });
-  }
-  void import("./agent-pet-controller.js")
-    .then(({ refreshAgentPetContent }) => refreshAgentPetContent(petId))
-    .catch((error) => {
-      logError(
-        "pet.window",
-        "refresh agent pet on flip failed",
-        error instanceof Error ? error : { error },
-      );
-    });
-  void import("./plugin-pet-registry.js")
-    .then(({ refreshPluginPetsForPetId }) => refreshPluginPetsForPetId(petId))
-    .catch((error) => {
-      logError(
-        "pet.window",
-        "refresh plugin pet on flip failed",
-        error instanceof Error ? error : { error },
-      );
-    });
-  void import("./lan-pet-controller.js")
-    .then(({ refreshLanVisitingPetsForPetId }) => refreshLanVisitingPetsForPetId(petId))
-    .catch((error) => {
-      logError(
-        "pet.window",
-        "refresh lan pet on flip failed",
-        error instanceof Error ? error : { error },
-      );
-    });
-  void import("./pinned-pet-controller.js")
-    .then(({ refreshPinnedPetContent }) => refreshPinnedPetContent(petId))
-    .catch((error) => {
-      logError(
-        "pet.window",
-        "refresh pinned pet on flip failed",
-        error instanceof Error ? error : { error },
-      );
-    });
+  refreshPetWindowsForPetId(petId, "flip");
 }
 
 export function handlePetScaleChange(scale: PetScaleValue): void {
@@ -219,6 +175,48 @@ export function handlePetScaleChange(scale: PetScaleValue): void {
     });
 }
 
+/** Outfit picker for pets with a wardrobe; null when the pet has none. */
+async function buildOutfitMenuItem(petId: string): Promise<Electron.MenuItemConstructorOptions | null> {
+  let wardrobe: Awaited<ReturnType<typeof getPetWardrobeSnapshot>>;
+  try {
+    wardrobe = await getPetWardrobeSnapshot(petId);
+  } catch (error) {
+    logError("pet.wardrobe", "outfit menu unavailable", error instanceof Error ? error : { error });
+    return null;
+  }
+  if (!wardrobe) return null;
+  const outfitName = (id: string): string => wardrobe.outfits.find((outfit) => outfit.id === id)?.displayName ?? t("pet.menu.outfitDefault");
+  const choose = (outfit: string) => (): void => {
+    void updatePetWardrobe(petId, { outfit }).catch((error: unknown) => {
+      logError("pet.wardrobe", "outfit menu choice failed", error instanceof Error ? error : { error });
+    });
+  };
+  const outfitItem = (id: string, label: string): Electron.MenuItemConstructorOptions => ({
+    label,
+    type: "checkbox",
+    checked: wardrobe.choice === id,
+    click: choose(id),
+  });
+  return {
+    label: t("pet.menu.outfit"),
+    submenu: [
+      { label: t("pet.menu.outfitAuto", { outfit: outfitName(wardrobe.scheduled) }), type: "checkbox", checked: wardrobe.choice === "auto", click: choose("auto") },
+      { type: "separator" },
+      outfitItem(defaultOutfitId, t("pet.menu.outfitDefault")),
+      ...wardrobe.outfits.map((outfit) => outfitItem(outfit.id, outfit.displayName)),
+      { type: "separator" },
+      {
+        label: t("pet.menu.editWardrobe"),
+        click: () => {
+          import("./windows.js")
+            .then(({ openControlCenterWindowTarget }) => openControlCenterWindowTarget({ route: "pets", petId }))
+            .catch((error: unknown) => logError("pet.window", "open wardrobe failed", error instanceof Error ? error : { error }));
+        },
+      },
+    ],
+  };
+}
+
 export async function buildPetContextMenuTemplate(
   action: {
     readonly label: string;
@@ -254,6 +252,8 @@ export async function buildPetContextMenuTemplate(
       handlePetHorizontalFlipToggle(currentPetId);
     },
   };
+  const outfitMenuItem = await buildOutfitMenuItem(currentPetId);
+  const appearanceItems = outfitMenuItem ? [outfitMenuItem, sizeMenuItem, flipMenuItem] : [sizeMenuItem, flipMenuItem];
 
   if (!action.defaultPet) {
     const template: Electron.MenuItemConstructorOptions[] = [];
@@ -268,8 +268,7 @@ export async function buildPetContextMenuTemplate(
       );
     }
     template.push(
-      sizeMenuItem,
-      flipMenuItem,
+      ...appearanceItems,
       { type: "separator" },
       { label: action.label, click: action.click },
     );
@@ -358,8 +357,7 @@ export async function buildPetContextMenuTemplate(
         openControlCenter("dashboard");
       },
     },
-    sizeMenuItem,
-    flipMenuItem,
+    ...appearanceItems,
     { type: "separator" },
     { label: action.label, click: action.click },
   );

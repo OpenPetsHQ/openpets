@@ -67,6 +67,71 @@ There are three sources a pet can come from at runtime:
    (`codex-pets.ts`), the dev workflow for authoring a new pet before
    publishing it.
 
+## Wardrobe and outfits
+
+A pet may optionally ship a **wardrobe**: extra **outfits** plus a **schedule**
+that decides when to wear them (night pajamas, a weekend look, seasonal and
+holiday looks). There is no separate bundle format — a pet *has* a wardrobe.
+Pets without one behave exactly as before.
+
+- **Outfit** — a complete alternate atlas for the same pet, stored at
+  `outfits/{id}.webp` or `outfits/{id}.svg`. It must match the pet's own layout
+  (V1 or V2, same dimensions and validation as the base atlas), so every
+  animation, gaze cell, and hit test keeps working. The base
+  `spritesheetPath` is the implicit outfit `default`.
+- **Schedule** — an ordered rule list; the **first matching enabled rule
+  wins**, otherwise the pet wears `default`. Each rule names an outfit and a
+  `when` with at least one of `time` (`HH:MM` local, `to` exclusive, may wrap
+  midnight), `days` (`sun`..`sat`), and `dates` (`MM-DD`, inclusive, repeats
+  yearly, may wrap the new year). All present conditions must match.
+
+```json
+"wardrobe": {
+  "outfits": [
+    { "id": "pajamas", "displayName": "Pajamas", "spritesheetPath": "outfits/pajamas.webp" },
+    { "id": "santa", "displayName": "Santa", "spritesheetPath": "outfits/santa.webp" }
+  ],
+  "schedule": [
+    { "outfit": "santa", "when": { "dates": { "from": "12-20", "to": "12-26" } } },
+    { "outfit": "pajamas", "when": { "time": { "from": "22:00", "to": "07:00" } } }
+  ]
+}
+```
+
+Limits: 16 outfits, 32 rules, outfit ids `^[a-z0-9][a-z0-9_-]{0,31}$`
+(`default` reserved). `pet-wardrobe-core.ts` owns the contract and resolution;
+installation rejects a package whose `outfits/` folder does not contain exactly
+the declared atlases.
+
+**Resolution order** (highest first, owned by `pet-wardrobe.ts`): the user's
+"always wear" outfit → the user's edited schedule → the creator schedule →
+`default`. Unknown outfit ids are ignored, so a pet update that drops an outfit
+falls back instead of breaking. A future plugin SDK override belongs above the
+user choice and should stay in memory in `pet-wardrobe.ts`. User choices live in
+`preferences.petWardrobePreferences[petId]` (`outfit`, `schedule`); an empty
+user schedule means "never change automatically", and removing the entry
+restores the pet's own behavior. No state version bump is involved.
+
+**Runtime.** `pet-window-render.ts` asks `resolveRenderedPetOutfit()` which
+atlas to render, for every window role (default, agent, pinned, plugin, LAN).
+An outfit atlas that is missing or invalid — e.g. a Teams package without
+outfit files — is logged and the base atlas is used; only a broken base atlas
+marks the pet broken. A minute-aligned timer re-resolves rendered pets and
+re-renders through `pet-window-refresh.ts` when the scheduled outfit changes.
+
+**UI.** The Control Center pet detail dialog has a Wardrobe section (outfit
+picker, follow-schedule/always-wear, schedule editor with reorder, enable,
+reset to the pet's schedule). The pet context menu has an **Outfit** submenu
+and an "Edit Wardrobe…" item that opens that dialog (`route: "pets"` with
+`petId`).
+
+**Compatibility.** Older apps ignore the `wardrobe` field but reject ZIPs that
+contain `outfits/`, and the standalone `install-pet` direct-download fallback
+does not extract outfits yet. Local folder, ZIP, and Codex installs support
+wardrobes today; publishing wardrobe pets through the catalog needs a separate
+wardrobe-capable ZIP (base ZIP stays outfit-free for old apps) and is not wired
+yet.
+
 ## Teams-owned pets
 
 Teams adds a fourth explicit source kind, `team`. Persisted source ownership
@@ -420,7 +485,8 @@ platform-specific user-data path resolution. This is what powers
 
 Both paths enforce: HTTPS-only catalog/ZIP hosts on an allowlist, no encrypted
 entries, only stored/deflate compression, valid Unix modes, required files
-(`pet.json` + its selected `spritesheet.webp` or `spritesheet.svg`), and atomic extraction with private
+(`pet.json` + its selected `spritesheet.webp` or `spritesheet.svg`, plus
+`outfits/{id}.webp|svg` atlases only when the manifest declares a wardrobe), and atomic extraction with private
 permissions. The pet `id` must match `^[a-z0-9][a-z0-9_-]{0,63}$` and cannot be
 `builtin`.
 
@@ -518,7 +584,8 @@ catalog pets back into `~/.codex/pets/`.
 Pet images are served to renderers through internal protocols
 (`openpets-codex:`, `openpets-installed:`, `openpets-pet-preview:`). These resolve
 the manifest-selected atlas and serve `image/webp` or `image/svg+xml` as
-appropriate. Pixel hit testing decodes bytes into an origin-clean browser
+appropriate. `openpets-installed://spritesheet/{petId}/{outfitId}` serves one
+declared wardrobe outfit for Control Center previews. Pixel hit testing decodes bytes into an origin-clean browser
 canvas; it falls back from `createImageBitmap` to a bounded `Image` load for
 Chromium SVG support, without relying on Electron `nativeImage`. Both pet-window
 CSP variants permit `blob:` images for that origin-clean decoder and revoke the
@@ -539,6 +606,7 @@ images silently fall back to the default pet. This is the single most common
 | Installing / extracting | `pet-installation.ts`, `zip-safety.ts` |
 | Standalone install | `packages/install-pet/` |
 | Local pet authoring | `codex-pets.ts` |
+| Outfits / wardrobe schedule | `pet-wardrobe-core.ts`, `pet-wardrobe.ts`, `renderer/src/pets/WardrobePanel.tsx` |
 | Movement | `pet-motion-engine.ts` |
 | Display containment / cross-screen | `display.ts`, `confinement-manager.ts` |
 | Topology-change reclamp | `pet-display-coordinator.ts` → default and pet-controller reclamp leaves |

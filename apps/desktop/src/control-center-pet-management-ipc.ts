@@ -10,6 +10,8 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:set-default-pet"
   | "openpets:set-pet-pool-order"
   | "openpets:set-pet-pinned"
+  | "openpets:get-pet-wardrobe"
+  | "openpets:update-pet-wardrobe"
   | "openpets:install-pet"
   | "openpets:install-local-pet"
   | "openpets:open-gallery"
@@ -89,6 +91,10 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly setPetPinned: (petId: string, pinned: boolean) => unknown;
   /** Reconcile the pinned pet windows with the updated installed-pet set. */
   readonly syncPinnedPets: () => void;
+  /** Wardrobe view for one installed pet, or null when it has no outfits. */
+  readonly getPetWardrobeSnapshot: (petId: string) => Promise<unknown>;
+  /** Validate and apply a wardrobe change; returns the updated wardrobe view. */
+  readonly updatePetWardrobe: (petId: string, patch: unknown) => Promise<unknown>;
   readonly installPet: (petId: string) => unknown | Promise<unknown>;
   readonly installPetFromFolder: (path: string) => unknown | Promise<unknown>;
   readonly installPetFromZipFile: (path: string) => unknown | Promise<unknown>;
@@ -124,6 +130,8 @@ export function installControlCenterPetManagementIpcHandlers({
   setPetPinned,
   /** Bring pinned pet windows in line with the pinned-pet preference after install/remove. */
   syncPinnedPets,
+  getPetWardrobeSnapshot,
+  updatePetWardrobe,
   installPet,
   installPetFromFolder,
   installPetFromZipFile,
@@ -194,6 +202,20 @@ export function installControlCenterPetManagementIpcHandlers({
     setPetPinned(petId, pinned);
     syncPinnedPets();
     return getSettingsStateSnapshot();
+  });
+
+  registerHandle("openpets:get-pet-wardrobe", async (event, petId: unknown) => {
+    authorizeSender(event);
+    if (typeof petId !== "string") throw new Error("Invalid pet id.");
+    return getPetWardrobeSnapshot(petId);
+  });
+
+  registerHandle("openpets:update-pet-wardrobe", async (event, payload: unknown) => {
+    authorizeSender(event);
+    if (typeof payload !== "object" || payload === null) throw new Error("Invalid wardrobe update: expected an object.");
+    const { petId, patch } = payload as { readonly petId?: unknown; readonly patch?: unknown };
+    if (typeof petId !== "string") throw new Error("Invalid wardrobe update: expected a pet id.");
+    return updatePetWardrobe(petId, patch);
   });
 
   registerHandle("openpets:install-pet", async (event, petId: unknown) => {

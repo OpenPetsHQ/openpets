@@ -17,6 +17,20 @@ const validFlatTracker = new ZipEntryPathTracker();
 validFlatTracker.accept("pet.json");
 validFlatTracker.accept("spritesheet.webp");
 
+// Wardrobe outfits live in one `outfits/` folder next to pet.json, in either layout.
+const validOutfitTracker = new ZipEntryPathTracker();
+validOutfitTracker.accept("pet.json");
+validOutfitTracker.accept("outfits/");
+validOutfitTracker.accept("outfits/pajamas.webp");
+validOutfitTracker.accept("outfits/santa.svg");
+const validNestedOutfitTracker = new ZipEntryPathTracker();
+validNestedOutfitTracker.accept("pet-package/");
+validNestedOutfitTracker.accept("pet-package/outfits/");
+validNestedOutfitTracker.accept("pet-package/outfits/pajamas.webp");
+validNestedOutfitTracker.accept("pet-package/pet.json");
+assertRejectsEntrySet(["pet-package/pet.json", "outfits/pajamas.webp"]);
+assertRejectsEntrySet(["pet.json", "pet-package/outfits/pajamas.webp"]);
+
 for (const unsafe of [
   "../pet.json",
   "pet-package/../pet.json",
@@ -29,6 +43,13 @@ for (const unsafe of [
   "pet-package/extra.js",
   "pet-package/nested/pet.json",
   "pet-package//pet.json",
+  "outfits/../pet.json",
+  "outfits/Pajamas.webp",
+  "outfits/pajamas.png",
+  "outfits/pajamas.webp.js",
+  "outfits/deep/pajamas.webp",
+  "a/b/outfits/pajamas.webp",
+  "pet-package/outfits/extra/",
 ]) {
   assertRejectsPath(unsafe);
 }

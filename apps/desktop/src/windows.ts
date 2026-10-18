@@ -19,6 +19,8 @@ import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
+import { isSafeOutfitId } from "./pet-wardrobe-core.js";
+import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
@@ -257,6 +259,8 @@ export function installInternalUiHandlers(): void {
     setPetPoolOrder,
     setPetPinned,
     syncPinnedPets,
+    getPetWardrobeSnapshot,
+    updatePetWardrobe,
     installPet,
     installPetFromFolder,
     installPetFromZipFile,
@@ -573,11 +577,13 @@ export function installInternalUiProtocol(): void {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
       const url = new URL(request.url);
       if (url.hostname !== "spritesheet" || url.search || url.hash) return new Response(null, { status: 404 });
-      const petId = decodeURIComponent(url.pathname.replace(/^\//, ""));
+      // `/{petId}` serves the base atlas; `/{petId}/{outfitId}` one wardrobe outfit.
+      const [petId = "", outfitId, ...rest] = url.pathname.replace(/^\//, "").split("/").map((part) => decodeURIComponent(part));
       assertSafePetId(petId);
+      if (rest.length > 0 || (outfitId !== undefined && !isSafeOutfitId(outfitId))) return new Response(null, { status: 404 });
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheet = await readInstalledPetSpritesheet(petId, pet.source?.kind === "team" ? "team" : "personal");
+      const spritesheet = await readInstalledPetSpritesheet(petId, pet.source?.kind === "team" ? "team" : "personal", outfitId);
       return new Response(spritesheet.bytes, {
         headers: {
           "Content-Type": spritesheet.mimeType,
@@ -754,14 +760,19 @@ function flushPendingControlCenterRoute(window: BrowserWindow): void {
   sendControlCenterRoute(window, target);
 }
 
-function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; assistantTab?: string } {
-  return target.assistantTab ? { route: target.route, assistantTab: target.assistantTab } : { route: target.route };
+function controlCenterRouteQuery(target: ControlCenterRouteTarget): { route: string; assistantTab?: string; petId?: string } {
+  return {
+    route: target.route,
+    ...(target.assistantTab ? { assistantTab: target.assistantTab } : {}),
+    ...(target.petId ? { petId: target.petId } : {}),
+  };
 }
 
 function withControlCenterRoute(rawUrl: string, target: ControlCenterRouteTarget): string {
   const url = new URL(rawUrl);
   url.searchParams.set("route", target.route);
   if (target.assistantTab) url.searchParams.set("assistantTab", target.assistantTab);
+  if (target.petId) url.searchParams.set("petId", target.petId);
   return url.toString();
 }
 

@@ -16,6 +16,8 @@ const channels = [
   "openpets:set-default-pet",
   "openpets:set-pet-pool-order",
   "openpets:set-pet-pinned",
+  "openpets:get-pet-wardrobe",
+  "openpets:update-pet-wardrobe",
   "openpets:install-pet",
   "openpets:install-local-pet",
   "openpets:open-gallery",
@@ -113,6 +115,8 @@ function createHarness() {
     setPetPoolOrder: (ids) => record("setPetPoolOrder", ids),
     setPetPinned: (petId, pinned) => record("setPetPinned", petId, pinned),
     syncPinnedPets: () => record("syncPinnedPets"),
+    getPetWardrobeSnapshot: async (petId) => { record("getPetWardrobeSnapshot", petId); return null; },
+    updatePetWardrobe: async (petId, patch) => { record("updatePetWardrobe", petId, patch); return null; },
     installPet: (petId) => mutate("installPet", petId),
     installPetFromFolder: (path) => mutate("installPetFromFolder", path),
     installPetFromZipFile: (path) => mutate("installPetFromZipFile", path),
@@ -168,9 +172,11 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
       ? [[]]
       : channel === "openpets:set-pet-pinned"
         ? [{ petId: "pet", pinned: true }]
-        : channel.includes("pet") && !channel.includes("pets-state") && !channel.includes("pool")
-          ? ["pet"]
-          : [];
+        : channel === "openpets:update-pet-wardrobe"
+          ? [{ petId: "pet", patch: { outfit: "auto" } }]
+          : channel.includes("pet") && !channel.includes("pets-state") && !channel.includes("pool")
+            ? ["pet"]
+            : [];
     await assert.rejects(async () => getHandler(harness, channel)(event, ...args), /unauthorized/);
   }
   assert.deepEqual(harness.calls, [], "authorization is first for every channel");
