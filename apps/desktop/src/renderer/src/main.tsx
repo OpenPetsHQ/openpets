@@ -51,8 +51,8 @@ import { WardrobePanel } from "./pets/WardrobePanel.js";
 import type { PetWardrobeSnapshot, PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
-type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string } | { kind: "codex"; path: string } };
-type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string };
+type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string; zip?: string } | { kind: "codex"; path: string } };
+type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string; wardrobeZip?: string; requiresOpenPetsVersion?: string; installedZip?: string };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -209,6 +209,7 @@ type ControlCenterApi = {
   setPetPinned(petId: string, pinned: boolean): Promise<SettingsState>;
   getPetWardrobe(petId: string): Promise<PetWardrobeSnapshot | null>;
   updatePetWardrobe(petId: string, patch: PetWardrobeUpdate): Promise<PetWardrobeSnapshot | null>;
+  installPetWardrobe(petId: string): Promise<unknown>;
   getPluginsSnapshot(): Promise<PluginServiceSnapshot>;
   getPluginCatalogSnapshot(refresh?: boolean): Promise<PluginCatalogSnapshot>;
   setPluginEnabled(id: string, enabled: boolean): Promise<PluginServiceResult>;
@@ -3924,6 +3925,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         original,
         featured,
         spriteVersionNumber,
+        wardrobeZip: catalogPet?.wardrobeZip,
+        installedZip: p.source && "zip" in p.source ? p.source.zip : undefined,
         sourceKind: "installed" as const,
         installed: true,
       };
@@ -4207,7 +4210,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
               const hasDistinctPreview = pet.preview && pet.preview !== pet.spritesheet;
               const useSpritesheetFrame = !isBuiltIn && !hasDistinctPreview && !!pet.spritesheet;
               const isDefault = pet.id === defaultId;
-              const canInstall = !pet.installed && pet.sourceKind === "catalog";
+              const canInstall = !pet.installed && pet.sourceKind === "catalog" && !pet.requiresOpenPetsVersion;
               const canImport = !pet.installed && pet.sourceKind === "codex";
               const canSetDefault = pet.installed && !isDefault && !pet.broken;
               const canRemove = pet.installed && !pet.builtIn && !pet.protected;
@@ -4229,7 +4232,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       <b className="card-title">{pet.displayName}</b>
                     </span>
                     <p className="card-desc">{pet.description || pet.id}</p>
-                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}</div>
+                    <div className="badges">{isDefault && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}{pet.original || pet.builtIn ? <StatusPill tone="yellow">{t("pets.badge.original")}</StatusPill> : pet.featured ? <StatusPill tone="purple">{t("pets.badge.featured")}</StatusPill> : null}{pet.spriteVersionNumber === 2 && <StatusPill tone="blue">V2</StatusPill>}{pet.installed && <StatusPill>{t("pets.badge.installed")}</StatusPill>}{pet.sourceKind === "codex" && <StatusPill tone="orange">{t("pets.badge.codex")}</StatusPill>}{!pet.installed && pet.requiresOpenPetsVersion && <StatusPill tone="slate">{t("pets.badge.needsUpdate", { version: pet.requiresOpenPetsVersion })}</StatusPill>}</div>
 
                     <div className="pet-card-actions" onClick={(event) => event.stopPropagation()}>
                       <Button
@@ -4381,7 +4384,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                 </div>
 
                 {selected.installed && !selected.broken && !selected.builtIn && (
-                  <WardrobePanel petId={selected.id} spriteLayout={selected.spriteLayout} load={api.getPetWardrobe} update={api.updatePetWardrobe} />
+                  <WardrobePanel
+                    petId={selected.id}
+                    spriteLayout={selected.spriteLayout}
+                    load={api.getPetWardrobe}
+                    update={api.updatePetWardrobe}
+                    installCatalogOutfits={selected.wardrobeZip && selected.installedZip !== selected.wardrobeZip ? () => api.installPetWardrobe(selected.id) : undefined}
+                  />
                 )}
 
                 <div className="actions-container mt-6 flex flex-col gap-3 pet-detail-actions">
@@ -4391,10 +4400,10 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       variant="primary"
                       fullWidth
                       icon={<InstallIcon />}
-                      disabled={!!busy}
+                      disabled={!!busy || !!selected.requiresOpenPetsVersion}
                       onClick={() => act(t("pets.busy.installing"), () => api.installPet(selected.id))}
                     >
-                      {busy || t("pets.detail.installPet")}
+                      {busy || (selected.requiresOpenPetsVersion ? t("pets.detail.needsUpdate", { version: selected.requiresOpenPetsVersion }) : t("pets.detail.installPet"))}
                     </Button>
                   )}
                   {!selected.installed && selected.sourceKind === "codex" && (

@@ -127,4 +127,24 @@ for (const invalidVersion of [3, 0, 2.1, "2", null, true]) {
   }), 0, 1), `remote V3 search marker ${String(invalidVersion)} must be rejected`);
 }
 
+// Wardrobe packaging: `zip` stays the outfit-free base every app installs; the
+// optional `wardrobeZip` and `minOpenPetsVersion` survive validation and v2 compat.
+const wardrobeZip = "https://zip.openpets.dev/pets/malou/malou.wardrobe.zip";
+const wardrobePage = validateCatalogV3Page({
+  version: 3,
+  page: 0,
+  pageSize: 1,
+  pets: [{ id: "malou", displayName: "Malou", description: "Wardrobe pet", thumbnail: preview, spritesheet: "https://openpets.dev/pets/malou/spritesheet.webp", zip, wardrobeZip, minOpenPetsVersion: "4.1.0", category: "western", original: true }],
+}, 0);
+assert.equal(wardrobePage.pets[0].wardrobeZip, wardrobeZip);
+assert.equal(toCatalogPetV2Compat(wardrobePage.pets[0]).wardrobeZip, wardrobeZip);
+assert.equal(toCatalogPetV2Compat(wardrobePage.pets[0]).minOpenPetsVersion, "4.1.0");
+assert.equal(validateCatalogV2({ version: 2, generatedAt, pets: [{ id: "malou", displayName: "Malou", description: "Wardrobe pet", preview, zip, wardrobeZip }] }).pets[0].wardrobeZip, wardrobeZip);
+for (const [label, extra] of [
+  ["off-host wardrobe ZIP", { wardrobeZip: "https://example.com/pets/malou.zip" }],
+  ["non-semver minimum version", { minOpenPetsVersion: "4.1" }],
+] as const) {
+  assert.throws(() => validateCatalogV2({ version: 2, generatedAt, pets: [{ id: "malou", displayName: "Malou", description: "Wardrobe pet", preview, zip, ...extra }] }), Error, label);
+}
+
 console.log("Catalog sprite-version data path behavior passed.");

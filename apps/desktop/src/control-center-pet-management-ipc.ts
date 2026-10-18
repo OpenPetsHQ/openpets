@@ -12,6 +12,7 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:set-pet-pinned"
   | "openpets:get-pet-wardrobe"
   | "openpets:update-pet-wardrobe"
+  | "openpets:install-pet-wardrobe"
   | "openpets:install-pet"
   | "openpets:install-local-pet"
   | "openpets:open-gallery"
@@ -95,6 +96,10 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly getPetWardrobeSnapshot: (petId: string) => Promise<unknown>;
   /** Validate and apply a wardrobe change; returns the updated wardrobe view. */
   readonly updatePetWardrobe: (petId: string, patch: unknown) => Promise<unknown>;
+  /** Replace an installed catalog pet with its catalog wardrobe package. */
+  readonly installPetWardrobe: (petId: string) => unknown | Promise<unknown>;
+  /** Re-render every window showing this pet after its files changed. */
+  readonly refreshPetWindowsForPetId: (petId: string, reason: string) => void;
   readonly installPet: (petId: string) => unknown | Promise<unknown>;
   readonly installPetFromFolder: (path: string) => unknown | Promise<unknown>;
   readonly installPetFromZipFile: (path: string) => unknown | Promise<unknown>;
@@ -132,6 +137,8 @@ export function installControlCenterPetManagementIpcHandlers({
   syncPinnedPets,
   getPetWardrobeSnapshot,
   updatePetWardrobe,
+  installPetWardrobe,
+  refreshPetWindowsForPetId,
   installPet,
   installPetFromFolder,
   installPetFromZipFile,
@@ -216,6 +223,17 @@ export function installControlCenterPetManagementIpcHandlers({
     const { petId, patch } = payload as { readonly petId?: unknown; readonly patch?: unknown };
     if (typeof petId !== "string") throw new Error("Invalid wardrobe update: expected a pet id.");
     return updatePetWardrobe(petId, patch);
+  });
+
+  registerHandle("openpets:install-pet-wardrobe", async (event, petId: unknown) => {
+    authorizeSender(event);
+    if (typeof petId !== "string") throw new Error("Invalid pet id.");
+
+    const state = await installPetWardrobe(petId);
+    refreshPetWindowsForPetId(petId, "wardrobe-install");
+    return isCurrentControlCenterSender(event)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      : state;
   });
 
   registerHandle("openpets:install-pet", async (event, petId: unknown) => {

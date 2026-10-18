@@ -26,11 +26,13 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
  * without a wardrobe. All persistence goes through the main-process wardrobe
  * service; this view only holds unsaved rule-editor drafts.
  */
-export function WardrobePanel({ petId, spriteLayout, load, update }: {
+export function WardrobePanel({ petId, spriteLayout, load, update, installCatalogOutfits }: {
   readonly petId: string;
   readonly spriteLayout?: PetSpriteLayout;
   readonly load: (petId: string) => Promise<PetWardrobeSnapshot | null>;
   readonly update: (petId: string, patch: PetWardrobeUpdate) => Promise<PetWardrobeSnapshot | null>;
+  /** Set when the catalog offers a first or newer wardrobe package than the installed copy. */
+  readonly installCatalogOutfits?: () => Promise<unknown>;
 }) {
   const { t, locale } = useI18n();
   const [wardrobe, setWardrobe] = useState<PetWardrobeSnapshot | null | undefined>(undefined);
@@ -38,6 +40,7 @@ export function WardrobePanel({ petId, spriteLayout, load, update }: {
   const [error, setError] = useState("");
   // Index of the rule being edited; schedule.length means a new rule.
   const [editing, setEditing] = useState<{ readonly index: number; readonly draft: OutfitRuleDraft } | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,16 +55,42 @@ export function WardrobePanel({ petId, spriteLayout, load, update }: {
     // "Now wearing" follows the clock; the schedule has minute resolution.
     const timer = window.setInterval(refresh, 60_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [petId, load]);
+  }, [petId, load, reloadToken]);
 
   const outfitName = useMemo(() => {
     const names = new Map((wardrobe?.outfits ?? []).map((outfit) => [outfit.id, outfit.displayName]));
     return (id: string): string => names.get(id) ?? t("pets.wardrobe.defaultOutfit");
   }, [wardrobe, t]);
 
+  async function getCatalogOutfits(): Promise<void> {
+    if (!installCatalogOutfits) return;
+    setSaving(true);
+    setError("");
+    try {
+      await installCatalogOutfits();
+      setReloadToken((token) => token + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (wardrobe === undefined) return null;
   if (wardrobe === null) {
-    return error ? <p className="wardrobe-error" role="alert">{error}</p> : null;
+    if (!installCatalogOutfits) return error ? <p className="wardrobe-error" role="alert">{error}</p> : null;
+    return (
+      <section className="wardrobe wardrobe-offer" aria-label={t("pets.wardrobe.title")}>
+        <div>
+          <p className="eyebrow">{t("pets.wardrobe.eyebrow")}</p>
+          <p className="wardrobe-offer-text">{t("pets.wardrobe.offer")}</p>
+        </div>
+        <Button variant="primary" size="compact" disabled={saving} onClick={() => void getCatalogOutfits()}>
+          {saving ? t("pets.wardrobe.gettingOutfits") : t("pets.wardrobe.getOutfits")}
+        </Button>
+        {error && <p className="wardrobe-error" role="alert">{error}</p>}
+      </section>
+    );
   }
 
   async function apply(patch: PetWardrobeUpdate): Promise<boolean> {
@@ -93,7 +122,12 @@ export function WardrobePanel({ petId, spriteLayout, load, update }: {
           <p className="eyebrow">{t("pets.wardrobe.eyebrow")}</p>
           <h3>{t("pets.wardrobe.title")}</h3>
         </div>
-        <StatusPill tone="green">{t("pets.wardrobe.nowWearing", { outfit: outfitName(wardrobe.wearing) })}</StatusPill>
+        <div className="wardrobe-head-actions">
+          {installCatalogOutfits && (
+            <Button variant="secondary" size="compact" disabled={saving} onClick={() => void getCatalogOutfits()}>{t("pets.wardrobe.updateOutfits")}</Button>
+          )}
+          <StatusPill tone="green">{t("pets.wardrobe.nowWearing", { outfit: outfitName(wardrobe.wearing) })}</StatusPill>
+        </div>
       </header>
 
       <div className="wardrobe-outfits" role="radiogroup" aria-label={t("pets.wardrobe.alwaysWearLabel")}>

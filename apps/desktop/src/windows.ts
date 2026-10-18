@@ -21,6 +21,7 @@ import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPe
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
 import { isSafeOutfitId } from "./pet-wardrobe-core.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
+import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
@@ -55,7 +56,7 @@ import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { installControlCenterProviderIpcHandlers, type ControlCenterProviderIpcLifecycle } from "./control-center-provider-ipc.js";
 import { installControlCenterPetManagementIpcHandlers } from "./control-center-pet-management-ipc.js";
-import { installPet, installPetFromFolder, installPetFromZipFile, removePet, setDefaultInstalledPet } from "./pet-installation.js";
+import { installPet, installPetFromFolder, installPetFromZipFile, installPetWardrobe, removePet, setDefaultInstalledPet } from "./pet-installation.js";
 
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
@@ -261,6 +262,8 @@ export function installInternalUiHandlers(): void {
     syncPinnedPets,
     getPetWardrobeSnapshot,
     updatePetWardrobe,
+    installPetWardrobe,
+    refreshPetWindowsForPetId,
     installPet,
     installPetFromFolder,
     installPetFromZipFile,

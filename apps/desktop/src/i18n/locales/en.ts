@@ -309,6 +309,12 @@ export const en = {
   "pets.wardrobe.days.everyDay": "Every day",
   "pets.wardrobe.days.weekdays": "Weekdays",
   "pets.wardrobe.days.weekends": "Weekends",
+  "pets.wardrobe.offer": "This pet has outfits. Get them to dress it up for nights, weekends, and holidays.",
+  "pets.wardrobe.getOutfits": "Get outfits",
+  "pets.wardrobe.gettingOutfits": "Getting outfits…",
+  "pets.wardrobe.updateOutfits": "Update outfits",
+  "pets.badge.needsUpdate": "Needs OpenPets {version}",
+  "pets.detail.needsUpdate": "Needs OpenPets {version}. Update to install",
   "pets.detail.refresh": "Refresh",
 
   // --- Pet detail status text (renderer) ---

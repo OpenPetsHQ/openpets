@@ -41,7 +41,9 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
     // The lock intentionally covers catalog lookup and download: an install
     // must not recreate a removed or duplicate ID after its preflight check.
     const catalogPet = await getCatalogPet(petId);
-    const zip = await downloadPetZip(catalogPet.zip);
+    // Apps with wardrobe support take the full package; `zip` is the outfit-free base for older apps.
+    const zipUrl = catalogPet.wardrobeZip ?? catalogPet.zip;
+    const zip = await downloadPetZip(zipUrl);
     const candidate = await createPetInstallCandidate(petsRoot, petId);
     try {
       await extractPetZip(zip, candidate);
@@ -64,7 +66,60 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
           description: catalogPet.description,
           source: {
             catalogVersion: 2,
-            zip: catalogPet.zip,
+            zip: zipUrl,
+            preview: catalogPet.preview,
+          },
+        }),
+      });
+    } catch (error) {
+      await rm(candidate, { recursive: true, force: true });
+      throw error;
+    }
+  });
+}
+
+/**
+ * Replace an installed catalog pet with its catalog wardrobe package ("Get
+ * outfits" / "Update outfits"). Reuses the backup-and-promote install
+ * transaction, so a failed download or invalid package leaves the current pet
+ * untouched. Wardrobe preferences are keyed by pet id and survive the swap.
+ */
+export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1> {
+  assertSafePetId(petId);
+  return withPetInstallLock(petId, async () => {
+    const petsRoot = getPetsRoot();
+    await assertNoUnresolvedPetInstallTransaction(petsRoot, petId);
+    const installed = getAppStateSnapshot().pets.installed.find((pet) => pet.id === petId);
+    if (!installed || installed.builtIn) throw new Error(`Pet is not installed: ${petId}`);
+    if (installed.source && installed.source.kind !== undefined && installed.source.kind !== "catalog") {
+      throw new Error("Only catalog pets can get outfits from the catalog.");
+    }
+    const catalogPet = await getCatalogPet(petId);
+    if (!catalogPet.wardrobeZip) throw new Error("This pet has no outfits in the catalog.");
+    const wardrobeZip = catalogPet.wardrobeZip;
+    const zip = await downloadPetZip(wardrobeZip);
+    const candidate = await createPetInstallCandidate(petsRoot, petId);
+    try {
+      await extractPetZip(zip, candidate);
+      const metadata = await validateExtractedPet(candidate);
+      if (metadata.id !== petId) throw new Error("Catalog wardrobe package id does not match the installed pet.");
+      if (!metadata.wardrobe) throw new Error("Catalog wardrobe package does not contain a wardrobe.");
+      return await runPetInstallTransaction({
+        petsRoot,
+        petId,
+        candidateDir: candidate,
+        lockAlreadyHeld: true,
+        validateCandidate: async (directory) => {
+          const validated = await validateExtractedPet(directory);
+          if (validated.id !== petId || !validated.wardrobe) throw new Error("Catalog wardrobe package changed during installation.");
+        },
+        mutateState: () => upsertPetState({
+          id: petId,
+          displayName: installed.displayName,
+          description: installed.description,
+          source: {
+            catalogVersion: 2,
+            zip: wardrobeZip,
             preview: catalogPet.preview,
           },
         }),

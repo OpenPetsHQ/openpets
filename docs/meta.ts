@@ -17,6 +17,7 @@ export default defineMeta({
     "mcp",
     "ipc",
     "pet-format",
+    "wardrobe",
     "catalog",
     "troubleshooting",
     "lan-mode",

@@ -372,7 +372,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution
 
 **Installation**:
-- `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
+- `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation; catalog installs prefer an entry's `wardrobeZip`, and `installPetWardrobe` swaps an installed catalog pet to its wardrobe package ("Get/Update outfits")
 - `pet-install-link-protocol.ts`: Electron-free parser/validator for `openpets://install` website links
 - `pet-install-link-handler.ts`: Confirm → download → shared ZIP install → feedback flow for install links; Electron dialogs/windows injected by `main.ts`
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
@@ -387,8 +387,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME (base or one declared outfit) for image protocols
 - `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
-- `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup, and V1/V2 sprite metadata conversion
-- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
+- `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup (rejecting pets whose `minOpenPetsVersion` is newer than the app, and marking them `requiresOpenPetsVersion` for the UI), and V1/V2 sprite metadata conversion
+- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata and optional pet package fields `wardrobeZip` / `minOpenPetsVersion`
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 
 **Plugins**:

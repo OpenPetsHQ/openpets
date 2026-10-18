@@ -11,6 +11,7 @@ const userDataPath = join(testRoot, "user-data");
 const petsRoot = join(userDataPath, "pets");
 const fakeHome = join(testRoot, "home");
 const catalogZipUrl = "https://zip.openpets.dev/pets/zip-wardrobe/zip-wardrobe.zip";
+const catalogWardrobeZipUrl = "https://zip.openpets.dev/pets/zip-wardrobe/zip-wardrobe.wardrobe.zip";
 const catalogModule = `data:text/javascript,${encodeURIComponent(`
   export async function getCatalogPet(petId) {
     if (petId !== "zip-wardrobe") throw new Error("Unexpected catalog pet request.");
@@ -20,6 +21,7 @@ const catalogModule = `data:text/javascript,${encodeURIComponent(`
       description: "Catalog wardrobe pet",
       preview: "https://openpets.dev/pets/zip-wardrobe/thumb.webp",
       zip: ${JSON.stringify(catalogZipUrl)},
+      ...(globalThis.__offerWardrobeZip ? { wardrobeZip: ${JSON.stringify(catalogWardrobeZipUrl)} } : {}),
     };
   }
 `)}`;
@@ -188,14 +190,43 @@ try {
   await installPetFromZipFileWithResult(zipPath);
   await assertInstalledWardrobe("nested-zip-wardrobe");
 
-  const catalogZip = createStoredZip(zipFiles("zip-wardrobe", "zip-wardrobe/"));
+  // Catalog: an old-style entry installs the outfit-free base `zip`; once the
+  // catalog offers `wardrobeZip`, "Get outfits" swaps in the full package and
+  // keeps the user's wardrobe preferences, and fresh installs prefer it.
+  const { installPetWardrobe } = await import("../src/pet-installation.js");
+  const baseZip = createStoredZip([
+    { name: "zip-wardrobe/pet.json", contents: Buffer.from(JSON.stringify({ ...metadata("zip-wardrobe"), wardrobe: undefined })) },
+    { name: "zip-wardrobe/spritesheet.webp", contents: base },
+  ]);
+  const wardrobeZipBytes = createStoredZip(zipFiles("zip-wardrobe", "zip-wardrobe/"));
+  const served = new Map([[catalogZipUrl, baseZip], [catalogWardrobeZipUrl, wardrobeZipBytes]]);
+  const requested: string[] = [];
   globalThis.fetch = async (input) => {
-    assert.equal(String(input), catalogZipUrl);
-    const response = new Response(catalogZip, { status: 200, headers: { "content-length": String(catalogZip.length) } });
-    Object.defineProperty(response, "url", { value: catalogZipUrl });
+    const url = String(input);
+    requested.push(url);
+    const body = served.get(url);
+    assert.ok(body, `unexpected download ${url}`);
+    const response = new Response(body, { status: 200, headers: { "content-length": String(body.length) } });
+    Object.defineProperty(response, "url", { value: url });
     return response;
   };
+  const offer = (enabled: boolean): void => { (globalThis as { __offerWardrobeZip?: boolean }).__offerWardrobeZip = enabled; };
+  offer(false);
   await installPet("zip-wardrobe");
+  assert.equal((await readInstalledPetMetadata("zip-wardrobe")).wardrobe, undefined, "the base package installs without outfits");
+  await assert.rejects(() => installPetWardrobe("zip-wardrobe"), /no outfits/, "no upgrade without a catalog wardrobe package");
+  appState.setPetWardrobePreference("zip-wardrobe", { outfit: "pajamas" });
+  offer(true);
+  await installPetWardrobe("zip-wardrobe");
+  await assertInstalledWardrobe("zip-wardrobe");
+  assert.equal(appState.getPetWardrobePreference("zip-wardrobe")?.outfit, "pajamas", "preferences survive the package swap");
+  const upgraded = appState.getAppStateSnapshot().pets.installed.find((pet) => pet.id === "zip-wardrobe");
+  assert.equal(upgraded?.source && "zip" in upgraded.source ? upgraded.source.zip : undefined, catalogWardrobeZipUrl, "the installed source records the wardrobe package");
+  const { removePet } = await import("../src/pet-installation.js");
+  await removePet("zip-wardrobe");
+  requested.length = 0;
+  await installPet("zip-wardrobe");
+  assert.deepEqual(requested, [catalogWardrobeZipUrl], "fresh installs prefer the wardrobe package");
   await assertInstalledWardrobe("zip-wardrobe");
 
   // A package must contain exactly the outfits its manifest declares, each a valid atlas.

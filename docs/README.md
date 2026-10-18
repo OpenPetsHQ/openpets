@@ -24,6 +24,9 @@ Docs here are the *narrative* layer on top of those maps.
   discovery, transports, the lease model, request methods, security.
 - **[pets.md](pets.md)** - the pet model end to end: spritesheets, reactions,
   reaction→animation mapping, installation, Codex pets, motion.
+- **[wardrobe.md](wardrobe.md)** - pet outfits and schedules: vocabulary,
+  `pet.json` contract, resolution order, packaging, two-ZIP catalog
+  distribution, old-app compatibility, and future work.
 - **[lan-mode.md](lan-mode.md)** - experimental LAN office-pet mode: one
   shared default pet moves between PCs on the same network.
 
