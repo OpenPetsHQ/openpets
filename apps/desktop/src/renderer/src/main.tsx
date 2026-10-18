@@ -3874,7 +3874,12 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
     if (isControlCenterRouteTarget(target)) {
       setCurrentRoute(target.route);
       setAssistantTab(target.route === "assistant" ? target.assistantTab : undefined);
-      if (target.route === "pets" && target.petId) setSelectedId(target.petId);
+      if (target.route === "pets" && target.petId) {
+        // A pet link must open even if the current search or filter hides it.
+        setFilter("all");
+        setQuery("");
+        setSelectedId(target.petId);
+      }
     }
   }), []);
 
@@ -4385,6 +4390,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
 
                 {selected.installed && !selected.broken && !selected.builtIn && (
                   <WardrobePanel
+                    key={selected.id}
                     petId={selected.id}
                     spriteLayout={selected.spriteLayout}
                     load={api.getPetWardrobe}

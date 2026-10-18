@@ -247,6 +247,19 @@ try {
     assert.equal(existsSync(join(petsRoot, "bad-wardrobe")), false, `${label}: a rejected package never promotes assets`);
   }
 
+  // Legacy V1 base atlases are not decoded, but a V1 outfit is new content: an
+  // undecodable outfit would render a blank pet, so it is rejected at install.
+  const v1Folder = join(testRoot, "v1-wardrobe");
+  mkdirSync(join(v1Folder, "outfits"), { recursive: true });
+  writeFileSync(join(v1Folder, "pet.json"), JSON.stringify({ ...metadata("v1-wardrobe"), spriteVersionNumber: undefined, wardrobe: { outfits: [{ id: "pajamas", displayName: "Pajamas", spritesheetPath: "outfits/pajamas.webp" }] } }));
+  writeFileSync(join(v1Folder, "spritesheet.webp"), Buffer.from("legacy v1 bytes are not decoded"));
+  writeFileSync(join(v1Folder, "outfits", "pajamas.webp"), Buffer.from("not a webp"));
+  await assert.rejects(() => installPetFromFolderWithResult(v1Folder), /Outfit spritesheet/, "an undecodable V1 outfit is rejected");
+  assert.equal(existsSync(join(petsRoot, "v1-wardrobe")), false);
+  writeFileSync(join(v1Folder, "outfits", "pajamas.webp"), await sharp({ create: { width: 1536, height: 1872, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).webp().toBuffer());
+  await installPetFromFolderWithResult(v1Folder);
+  assert.equal((await readInstalledPetMetadata("v1-wardrobe")).wardrobe?.outfits.length, 1, "a decodable V1 outfit installs");
+
   // Pets without a wardrobe keep installing exactly as before.
   const plainFolder = join(testRoot, "plain-pet");
   mkdirSync(plainFolder);

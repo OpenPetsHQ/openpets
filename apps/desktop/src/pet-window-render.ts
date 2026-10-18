@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
-import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
+import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata } from "./codex-pets-core.js";
 import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
 import { warn } from "./logger.js";
 import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
@@ -155,7 +155,7 @@ async function resolveRenderableAtlas(petId: string, petDirectory: string, metad
   const outfit = metadata.wardrobe?.outfits.find((candidate) => candidate.id === outfitId);
   if (outfit) {
     try {
-      return { atlasRelativePath: outfit.spritesheetPath, ...await statRenderableAtlas(join(petDirectory, outfit.spritesheetPath), outfit.spritesheetPath, { spriteVersionNumber: metadata.spriteVersionNumber, spritesheetPath: getOutfitAtlasFormat(outfit) }) };
+      return { atlasRelativePath: outfit.spritesheetPath, ...await statRenderableAtlas(join(petDirectory, outfit.spritesheetPath), outfit.spritesheetPath, withAtlasFormat(metadata, getOutfitAtlasFormat(outfit))) };
     } catch (error) {
       warn("pet.wardrobe", "outfit atlas unavailable, wearing the default outfit", { petId, outfitId, error: error instanceof Error ? error.message : String(error) });
     }

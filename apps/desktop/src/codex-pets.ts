@@ -8,7 +8,7 @@ import { petSpritesheetMimeType } from "install-pet/spritesheet";
 import { getAppStateSnapshot, installPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { migrateLegacyCodexV2Imports, type LegacyCodexV2MigrationResult } from "./codex-pet-migration.js";
 import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { assertPetSpritesheetFiles, readBoundedRegularFile, readValidatedPetAtlases, writePetAtlases } from "./pet-file-safety.js";
+import { assertPetSpritesheetFiles, readBoundedRegularFile, validatePetAtlases } from "./pet-file-safety.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, runPetInstallTransaction } from "./pet-install-transaction.js";
 import { assertSafePetId, getPetsRoot } from "./pet-paths.js";
 
@@ -68,13 +68,11 @@ export async function importCodexPet(petId: string): Promise<OpenPetsStateV1> {
   const sourceDir = resolve(root, petId);
   await assertCodexPetDirectory(root, sourceDir);
   const metadata = await readCodexPetMetadata(root, sourceDir, petId);
-  const atlases = await readValidatedPetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes);
-
   const petsRoot = getPetsRoot();
   await assertNoUnresolvedPetInstallTransaction(petsRoot, metadata.id);
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
-    await writePetAtlases(candidate, atlases);
+    await validatePetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes, { copyTo: candidate });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     return await runPetInstallTransaction({
       petsRoot,
@@ -83,7 +81,7 @@ export async function importCodexPet(petId: string): Promise<OpenPetsStateV1> {
       validateCandidate: async (directory) => {
         const candidateMetadata = JSON.parse((await readBoundedRegularFile(join(directory, "pet.json"), maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
         const validatedMetadata = validateCodexPetMetadata(candidateMetadata, metadata.id);
-        await readValidatedPetAtlases(directory, validatedMetadata, maxCodexSpritesheetBytes, true);
+        await validatePetAtlases(directory, validatedMetadata, maxCodexSpritesheetBytes, { exactPackage: true });
       },
       mutateState: () => installPetState({
         id: metadata.id,

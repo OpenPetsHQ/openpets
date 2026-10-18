@@ -3,18 +3,12 @@ import { lstat, mkdir, open, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assertPetPackageFiles, type PetSpritesheetPath } from "install-pet/spritesheet";
 
-import { validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
+import { validateCodexPetOutfitSpritesheet, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
 import type { PetOutfit } from "./pet-wardrobe-core.js";
 
 const outfitsDirectoryName = "outfits";
 
 type PetAtlasSelection = Pick<CodexPetMetadata, "spritesheetPath" | "wardrobe">;
-
-/** One validated atlas file of a pet package, addressed relative to the pet directory. */
-export interface PetAtlasFile {
-  readonly relativePath: string;
-  readonly bytes: Buffer;
-}
 
 /**
  * Check the atlas files pet.json selects. An exact package may contain nothing
@@ -41,37 +35,28 @@ export async function assertPetSpritesheetFiles(directory: string, metadata: Pet
   }
 }
 
-/** Read and validate every atlas a pet selects: the base spritesheet, then each outfit in manifest order. */
-export async function readValidatedPetAtlases(
+/**
+ * Validate every atlas a pet selects — the base spritesheet, then each outfit —
+ * one at a time, optionally copying each into a fresh private install
+ * candidate. Only one atlas is held in memory at once, whatever the outfit
+ * count.
+ */
+export async function validatePetAtlases(
   directory: string,
   metadata: CodexPetMetadata,
   maxBytes: number,
-  exactPackage = false,
-): Promise<readonly PetAtlasFile[]> {
+  { exactPackage = false, copyTo }: { readonly exactPackage?: boolean; readonly copyTo?: string } = {},
+): Promise<void> {
   await assertPetSpritesheetFiles(directory, metadata, exactPackage);
   const base = await readBoundedRegularFile(join(directory, metadata.spritesheetPath), maxBytes, metadata.spritesheetPath);
   await validateCodexPetSpritesheet(base, metadata);
-  const atlases: PetAtlasFile[] = [{ relativePath: metadata.spritesheetPath, bytes: base }];
-  for (const outfit of metadata.wardrobe?.outfits ?? []) {
-    atlases.push({ relativePath: outfit.spritesheetPath, bytes: await readValidatedOutfitAtlas(directory, metadata, outfit, maxBytes) });
-  }
-  return atlases;
-}
-
-/** Read one outfit atlas and require it to match the pet's own atlas layout. */
-async function readValidatedOutfitAtlas(directory: string, metadata: CodexPetMetadata, outfit: PetOutfit, maxBytes: number): Promise<Buffer> {
-  const bytes = await readBoundedRegularFile(join(directory, outfit.spritesheetPath), maxBytes, outfit.spritesheetPath);
-  await validateCodexPetSpritesheet(bytes, { spriteVersionNumber: metadata.spriteVersionNumber, spritesheetPath: getOutfitAtlasFormat(outfit) });
-  return bytes;
-}
-
-/** Write validated atlases into a fresh private install candidate. */
-export async function writePetAtlases(directory: string, atlases: readonly PetAtlasFile[]): Promise<void> {
-  if (atlases.some((atlas) => atlas.relativePath.startsWith(`${outfitsDirectoryName}/`))) {
-    await mkdir(join(directory, outfitsDirectoryName), { mode: 0o700 });
-  }
-  for (const atlas of atlases) {
-    await writeFile(join(directory, atlas.relativePath), atlas.bytes, { mode: 0o600, flag: "wx" });
+  if (copyTo) await writeFile(join(copyTo, metadata.spritesheetPath), base, { mode: 0o600, flag: "wx" });
+  const outfits = metadata.wardrobe?.outfits ?? [];
+  if (copyTo && outfits.length > 0) await mkdir(join(copyTo, outfitsDirectoryName), { mode: 0o700 });
+  for (const outfit of outfits) {
+    const bytes = await readBoundedRegularFile(join(directory, outfit.spritesheetPath), maxBytes, outfit.spritesheetPath);
+    await validateCodexPetOutfitSpritesheet(bytes, metadata, getOutfitAtlasFormat(outfit));
+    if (copyTo) await writeFile(join(copyTo, outfit.spritesheetPath), bytes, { mode: 0o600, flag: "wx" });
   }
 }
 

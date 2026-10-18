@@ -241,24 +241,49 @@ export async function validateCodexPetSpritesheet(spritesheet: Buffer, metadata:
     return;
   }
   if (spec.version === 1) return;
+  await assertDecodableWebpAtlas(spritesheet, spec, "Codex V2 spritesheet", true);
+}
 
+/**
+ * Validate one wardrobe outfit atlas against its pet's layout. Unlike legacy V1
+ * base atlases, outfits are new content, so V1 WebP outfits must also decode at
+ * the exact size: a broken outfit would otherwise render a blank pet.
+ */
+export async function validateCodexPetOutfitSpritesheet(spritesheet: Buffer, metadata: Pick<CodexPetMetadata, "spriteVersionNumber">, format: PetSpritesheetPath): Promise<void> {
+  const formatMetadata = withAtlasFormat(metadata, format);
+  await validateCodexPetSpritesheet(spritesheet, formatMetadata);
+  const spec = getPetSpritesheetSpec(formatMetadata);
+  if (format === "spritesheet.webp" && spec.version === 1) {
+    await assertDecodableWebpAtlas(spritesheet, spec, "Outfit spritesheet", false);
+  }
+}
+
+/**
+ * The pet's layout with another atlas format, for validating an outfit atlas.
+ * V1 must omit `spriteVersionNumber` entirely: a present key means V2.
+ */
+export function withAtlasFormat(metadata: Pick<CodexPetMetadata, "spriteVersionNumber">, format: PetSpritesheetPath): Pick<CodexPetMetadata, "spriteVersionNumber" | "spritesheetPath"> {
+  return { ...(metadata.spriteVersionNumber === 2 ? { spriteVersionNumber: 2 as const } : {}), spritesheetPath: format };
+}
+
+async function assertDecodableWebpAtlas(spritesheet: Buffer, spec: { readonly width: number; readonly height: number }, label: string, requireAlpha: boolean): Promise<void> {
   let imageMetadata: sharp.Metadata;
   const image = sharp(spritesheet, { animated: true, failOn: "error", limitInputPixels: 50_000_000 });
   try {
     imageMetadata = await image.metadata();
   } catch {
-    throw new Error("Codex V2 spritesheet metadata is invalid.");
+    throw new Error(`${label} metadata is invalid.`);
   }
-  if (imageMetadata.format !== "webp") throw new Error("Codex V2 spritesheet must be WebP.");
-  if (!imageMetadata.hasAlpha) throw new Error("Codex V2 spritesheet must include transparency.");
-  if ((imageMetadata.pages ?? 1) !== 1) throw new Error("Codex V2 spritesheet must contain exactly one image.");
+  if (imageMetadata.format !== "webp") throw new Error(`${label} must be WebP.`);
+  if (requireAlpha && !imageMetadata.hasAlpha) throw new Error(`${label} must include transparency.`);
+  if ((imageMetadata.pages ?? 1) !== 1) throw new Error(`${label} must contain exactly one image.`);
   if (imageMetadata.width !== spec.width || imageMetadata.height !== spec.height) {
-    throw new Error(`Codex V2 spritesheet must be exactly ${spec.width}x${spec.height}.`);
+    throw new Error(`${label} must be exactly ${spec.width}x${spec.height}.`);
   }
   try {
     await image.raw().toBuffer();
   } catch {
-    throw new Error("Codex V2 spritesheet must be fully decodable.");
+    throw new Error(`${label} must be fully decodable.`);
   }
 }
 

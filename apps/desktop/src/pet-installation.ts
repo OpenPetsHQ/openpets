@@ -12,7 +12,7 @@ import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, up
 import { getCatalogPet } from "./catalog.js";
 import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "./codex-pets-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import { readBoundedRegularFile, readValidatedPetAtlases, writePetAtlases } from "./pet-file-safety.js";
+import { readBoundedRegularFile, validatePetAtlases } from "./pet-file-safety.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
 import { assertOutputPathInside, hasSupportedZipMagic, ZipEntryPathTracker } from "./zip-safety.js";
@@ -195,12 +195,11 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(sourceDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  const atlases = await readValidatedPetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
     assertInsideRoot(petsRoot, candidate);
-    await writePetAtlases(candidate, atlases);
+    await validatePetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes, { copyTo: candidate });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const state = await runPetInstallTransaction({
       petsRoot,
@@ -482,7 +481,7 @@ async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> 
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(tempDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  await readValidatedPetAtlases(tempDir, metadata, maxIndividualFileBytes, true);
+  await validatePetAtlases(tempDir, metadata, maxIndividualFileBytes, { exactPackage: true });
   return metadata;
 }
 

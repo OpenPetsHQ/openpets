@@ -86,6 +86,7 @@ for (const [label, value] of [
   ["path not derived from the id", { outfits: [{ ...outfit, spritesheetPath: "outfits/other.webp" }] }],
   ["path escaping the outfits folder", { outfits: [{ ...outfit, spritesheetPath: "../pajamas.webp" }] }],
   ["reserved default id", { outfits: [{ ...outfit, id: "default", spritesheetPath: "outfits/default.webp" }] }],
+  ["reserved auto id (means follow the schedule)", { outfits: [{ ...outfit, id: "auto", spritesheetPath: "outfits/auto.webp" }] }],
   ["duplicate ids", { outfits: [outfit, outfit] }],
   ["schedule naming an unknown outfit", { outfits: [outfit], schedule: [{ outfit: "santa", when: { days: ["mon"] } }] }],
   ["rule without conditions", { outfits: [outfit], schedule: [{ outfit: "pajamas", when: {} }] }],

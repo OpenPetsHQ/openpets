@@ -113,6 +113,8 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
   }
 
   const outfitIds = [defaultOutfitId, ...wardrobe.outfits.map((outfit) => outfit.id)];
+  // A draft is tied to its rule index, so other rows stay locked while one is open.
+  const rowsLocked = saving || editing !== null;
   const schedule = wardrobe.schedule;
 
   return (
@@ -197,7 +199,7 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
                 className="wardrobe-rule-toggle"
                 type="checkbox"
                 checked={rule.enabled !== false}
-                disabled={saving}
+                disabled={rowsLocked}
                 aria-label={t("pets.wardrobe.ruleEnabled")}
                 onChange={(event) => void saveSchedule(schedule.map((current, i) => i === index ? toggleRule(current, event.target.checked) : current))}
               />
@@ -207,10 +209,10 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
               </div>
               {wardrobe.activeRuleIndex === index && <StatusPill tone="green">{t("pets.wardrobe.activeNow")}</StatusPill>}
               <div className="wardrobe-rule-actions">
-                <IconButton label={t("pets.wardrobe.moveUp")} disabled={saving || index === 0} onClick={() => void saveSchedule(move(schedule, index, -1))}><path d="m18 15-6-6-6 6" /></IconButton>
-                <IconButton label={t("pets.wardrobe.moveDown")} disabled={saving || index === schedule.length - 1} onClick={() => void saveSchedule(move(schedule, index, 1))}><path d="m6 9 6 6 6-6" /></IconButton>
-                <IconButton label={t("pets.wardrobe.editRule")} disabled={saving} onClick={() => setEditing({ index, draft: ruleDraftFromRule(rule) })}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></IconButton>
-                <IconButton label={t("pets.wardrobe.deleteRule")} disabled={saving} onClick={() => void saveSchedule(schedule.filter((_, i) => i !== index))}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m19 6-1 14H6L5 6" /></IconButton>
+                <IconButton label={t("pets.wardrobe.moveUp")} disabled={rowsLocked || index === 0} onClick={() => void saveSchedule(move(schedule, index, -1))}><path d="m18 15-6-6-6 6" /></IconButton>
+                <IconButton label={t("pets.wardrobe.moveDown")} disabled={rowsLocked || index === schedule.length - 1} onClick={() => void saveSchedule(move(schedule, index, 1))}><path d="m6 9 6 6 6-6" /></IconButton>
+                <IconButton label={t("pets.wardrobe.editRule")} disabled={rowsLocked} onClick={() => setEditing({ index, draft: ruleDraftFromRule(rule) })}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></IconButton>
+                <IconButton label={t("pets.wardrobe.deleteRule")} disabled={rowsLocked} onClick={() => void saveSchedule(schedule.filter((_, i) => i !== index))}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m19 6-1 14H6L5 6" /></IconButton>
               </div>
             </li>
           ))}

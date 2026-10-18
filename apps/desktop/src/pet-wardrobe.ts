@@ -4,6 +4,7 @@ import { info } from "./logger.js";
 import { assertSafePetId } from "./pet-paths.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import {
+  automaticOutfitChoice,
   defaultOutfitId,
   findActiveOutfitRuleIndex,
   getEffectiveOutfitSchedule,
@@ -99,7 +100,7 @@ export async function getPetWardrobeSnapshot(petId: string): Promise<PetWardrobe
     creatorSchedule: wardrobe.schedule,
     schedule,
     scheduleCustomized: preference?.schedule !== undefined,
-    choice: isWardrobeOutfit(wardrobe, preference?.outfit) ? preference.outfit : "auto",
+    choice: isWardrobeOutfit(wardrobe, preference?.outfit) ? preference.outfit : automaticOutfitChoice,
     wearing: resolveWornOutfitId(wardrobe, preference, now),
     scheduled: schedule[activeRuleIndex]?.outfit ?? defaultOutfitId,
     activeRuleIndex,
@@ -122,7 +123,7 @@ export async function updatePetWardrobe(petId: string, patch: unknown): Promise<
   let nextSchedule = current?.schedule;
 
   if (outfit !== undefined) {
-    if (outfit === "auto") nextOutfit = undefined;
+    if (outfit === automaticOutfitChoice) nextOutfit = undefined;
     else if (known(outfit)) nextOutfit = outfit;
     else throw new Error("Unknown outfit.");
   }

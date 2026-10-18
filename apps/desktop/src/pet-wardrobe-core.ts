@@ -7,6 +7,8 @@
 
 /** The pet's base `spritesheetPath`, addressable in schedules and preferences. */
 export const defaultOutfitId = "default";
+/** Wardrobe update value meaning "follow the schedule"; reserved as an outfit id. */
+export const automaticOutfitChoice = "auto";
 export const maxPetOutfits = 16;
 export const maxOutfitScheduleRules = 32;
 const maxOutfitDisplayNameLength = 40;
@@ -103,7 +105,7 @@ export function validatePetWardrobe(value: unknown): PetWardrobe {
 
 function validatePetOutfit(value: unknown): PetOutfit {
   if (!isRecord(value)) throw new Error("Pet wardrobe outfit must be an object.");
-  if (!isSafeOutfitId(value.id) || value.id === defaultOutfitId) throw new Error("Pet wardrobe outfit id is invalid.");
+  if (!isSafeOutfitId(value.id) || value.id === defaultOutfitId || value.id === automaticOutfitChoice) throw new Error("Pet wardrobe outfit id is invalid.");
   const displayName = typeof value.displayName === "string" ? value.displayName.trim() : "";
   if (displayName.length === 0 || displayName.length > maxOutfitDisplayNameLength) {
     throw new Error(`Pet wardrobe outfit displayName is invalid: ${value.id}`);

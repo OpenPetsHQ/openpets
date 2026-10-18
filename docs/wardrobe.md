@@ -84,11 +84,13 @@ mochi/
 ### Outfits
 
 - 1–16 outfits. `id` matches `^[a-z0-9][a-z0-9_-]{0,31}$`, unique, never
-  `default`. `displayName` is 1–40 characters.
+  `default` or `auto` (`auto` is the update value for "follow the schedule"). `displayName` is 1–40 characters.
 - `spritesheetPath` must be exactly `outfits/{id}.webp` or `outfits/{id}.svg`.
 - Each outfit atlas must match the pet's own layout (V1 8×9 or V2 8×11, same
   pixel size) and passes the same validation as the base atlas (V2 WebP
-  checks, the static SVG profile). Formats may mix: a WebP pet can have an SVG
+  checks, the static SVG profile). Outfits of V1 pets must also be decodable
+  WebP at the exact V1 size, even though legacy V1 base atlases are not
+  decoded — a broken outfit would otherwise render a blank pet. Formats may mix: a WebP pet can have an SVG
   outfit. The pet's `gazeAnchor` applies to every outfit.
 - The `outfits/` folder must contain **exactly** the declared atlases; a
   missing or extra file rejects the package.
@@ -187,7 +189,7 @@ persists, re-renders the pet's windows, and returns the fresh snapshot.
 ## Packaging and installation
 
 Every install path validates the package with the same rules
-(`readValidatedPetAtlases`), copies `outfits/` along with the base atlas, and
+(`validatePetAtlases`, one atlas in memory at a time), copies `outfits/` along with the base atlas, and
 promotes through the backup-and-rollback install transaction:
 
 - **Local folder** and **local ZIP** (Control Center → Import pet).
@@ -330,5 +332,3 @@ wardrobe pets yet.
 - **`install-pet` CLI** — prefer `wardrobeZip` and extract `outfits/`.
 - **Reviewed/upstream imports** — wardrobe support in `import-reviewed-pets.js`
   and `sync-pets.js` on the web side.
-- **Translations** — wardrobe strings exist in English only; other locales fall
-  back per key.

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
 import { petSpritesheetMimeType } from "install-pet/spritesheet";
 import { getPetDir } from "./pet-paths.js";
@@ -38,7 +38,7 @@ export async function readInstalledPetSpritesheet(
     if (!outfit) throw new Error(`Installed pet has no outfit: ${outfitId}`);
     // Like the base atlas below, only SVG needs re-validation per read; WebP was validated at install.
     const bytes = await readBoundedRegularFile(join(directory, outfit.spritesheetPath), maxCodexSpritesheetBytes, outfit.spritesheetPath);
-    if (outfit.spritesheetPath.endsWith(".svg")) await validateCodexPetSpritesheet(bytes, { spriteVersionNumber: metadata.spriteVersionNumber, spritesheetPath: getOutfitAtlasFormat(outfit) });
+    if (outfit.spritesheetPath.endsWith(".svg")) await validateCodexPetSpritesheet(bytes, withAtlasFormat(metadata, getOutfitAtlasFormat(outfit)));
     return { bytes, mimeType: petSpritesheetMimeType(outfit.spritesheetPath) };
   }
   const bytes = await readBoundedRegularFile(join(directory, metadata.spritesheetPath), maxCodexSpritesheetBytes, metadata.spritesheetPath);
