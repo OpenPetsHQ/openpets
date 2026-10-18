@@ -24,6 +24,8 @@ at `docs/README.md`, then read the doc for the area you're touching:
   transports, the lease model, request surface, security.
 - **`docs/pets.md`** — pet model, reactions→animations→speech, installation,
   Codex pets, motion.
+- **`docs/wardrobe.md`** — pet outfits/schedules: contract, resolution order,
+  packaging, base vs wardrobe ZIP catalog distribution, compatibility.
 - **`docs/catalog.md`** — pet/plugin catalog contracts (v3/v2), pagination,
   search, R2 ZIP hosting, and how the app consumes them.
 - **`docs/agent-integrations.md`** — Claude/MCP/OpenCode/Cursor/Pi + the CLI.

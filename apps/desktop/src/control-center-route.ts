@@ -10,8 +10,10 @@ export type ControlCenterRoute =
 export type ControlCenterAssistantTab = "providers";
 
 export type ControlCenterRouteTarget =
-  | { readonly route: "assistant"; readonly assistantTab?: ControlCenterAssistantTab }
-  | { readonly route: Exclude<ControlCenterRoute, "assistant">; readonly assistantTab?: never };
+  | { readonly route: "assistant"; readonly assistantTab?: ControlCenterAssistantTab; readonly petId?: never }
+  /** `petId` opens that pet's detail (e.g. its wardrobe) once the Pets page loads. */
+  | { readonly route: "pets"; readonly petId?: string; readonly assistantTab?: never }
+  | { readonly route: Exclude<ControlCenterRoute, "assistant" | "pets">; readonly assistantTab?: never; readonly petId?: never };
 
 const controlCenterRoutes = new Set<ControlCenterRoute>([
   "dashboard",
@@ -35,10 +37,13 @@ export function normalizeControlCenterRouteTarget(target: unknown): ControlCente
   if (typeof target === "string") return { route: normalizeControlCenterRoute(target) };
   if (!target || typeof target !== "object") return { route: "dashboard" };
 
-  const candidate = target as { readonly route?: unknown; readonly assistantTab?: unknown };
+  const candidate = target as { readonly route?: unknown; readonly assistantTab?: unknown; readonly petId?: unknown };
   const route = normalizeControlCenterRoute(candidate.route);
   if (route === "assistant" && candidate.assistantTab === "providers") {
     return { route, assistantTab: "providers" };
+  }
+  if (route === "pets" && typeof candidate.petId === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(candidate.petId)) {
+    return { route, petId: candidate.petId };
   }
   return { route };
 }

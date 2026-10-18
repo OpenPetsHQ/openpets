@@ -190,6 +190,14 @@ dimensions/complexity are specified in [Pets](/pets#static-svg-atlas-profile).
 Catalog v3 `spritesheet` URLs may point to the canonical `.svg` atlas;
 thumbnails can remain raster images.
 
+A pet entry's optional **`wardrobeZip`** points at a second archive that also
+contains `outfits/{id}.webp|svg` — exactly the outfits its `pet.json` declares.
+`zip` must stay the outfit-free base package (with `wardrobe` stripped from its
+`pet.json`), because apps released before wardrobes reject `outfits/`. Entries
+may also carry **`minOpenPetsVersion`** (`MAJOR.MINOR.PATCH`); apps that know
+the field disable installs when they are older. Old apps ignore both fields.
+See [Wardrobe](/wardrobe#catalog-distribution-and-compatibility).
+
 Those files may be at the archive root or below exactly one top-level directory.
 Optional directory entries for that one directory are allowed. Paths must be
 safe, layouts cannot be mixed, and QA artifacts such as `validation.json`,

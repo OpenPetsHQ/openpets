@@ -345,7 +345,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
 - `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
 - `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
-- `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, plugin command layout (root commands grouped per plugin above the plugin submenus), and plugin command form handling
+- `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, Outfit submenu (always-wear/automatic choice plus "Edit Wardrobe…" deep link) for pets with a wardrobe, plugin command layout (root commands grouped per plugin above the plugin submenus), and plugin command form handling
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-glance controller; active glances select static gaze cells while expiration, dead-zone, and disable reset the sprite to animated idle, including custom manifest gaze-anchor geometry and flipped gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat and Manager Check-in coordinator managing expanded/collapsed carrier states, IPC authorization, conversation transcript streams, Talk subscriptions, and the private check-in card lifecycle
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
@@ -372,20 +372,23 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `lease-manager.ts`: Lease lifecycle (acquire, heartbeat, release, cleanup), target resolution
 
 **Installation**:
-- `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation
+- `pet-installation.ts`: ZIP download, yauzl extraction with safety limits, pet validation; catalog installs prefer an entry's `wardrobeZip`, and `installPetWardrobe` swaps an installed catalog pet to its wardrobe package ("Get/Update outfits")
 - `pet-install-link-protocol.ts`: Electron-free parser/validator for `openpets://install` website links
 - `pet-install-link-handler.ts`: Confirm → download → shared ZIP install → feedback flow for install links; Electron dialogs/windows injected by `main.ts`
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
 - `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
-- `pet-file-safety.ts`: Bounded, no-follow regular-file reads and manifest-selected single-atlas file checks shared by pet import and installed-pet rendering
+- `pet-file-safety.ts`: Bounded, no-follow regular-file reads, manifest-selected atlas checks (base atlas plus exact `outfits/` contents for wardrobe pets), and validated atlas read/write helpers shared by folder, ZIP, catalog, and Codex installs and installed-pet rendering
+- `pet-wardrobe-core.ts`: Pure wardrobe contract — outfit/schedule validation for `pet.json`, lenient normalization of persisted per-pet wardrobe preferences, and first-match local-time outfit resolution (time/days/dates with midnight and new-year wrap)
+- `pet-wardrobe.ts`: Wardrobe owner — render-time outfit resolution for every pet window role, minute-aligned schedule timer that re-renders pets whose scheduled outfit changed, Control Center wardrobe snapshot, and validated preference updates (always-wear choice, user schedule, reset)
+- `pet-window-refresh.ts`: Re-renders every window showing one pet id across default, agent, plugin, LAN, and pinned roles after a per-pet presentation change (flip, outfit)
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
-- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths and normalized optional gaze anchors), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
+- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths, normalized optional gaze anchors, and the optional validated `wardrobe`), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
-- `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME for image protocols
+- `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME (base or one declared outfit) for image protocols
 - `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
-- `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup, and V1/V2 sprite metadata conversion
-- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata
+- `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup (rejecting pets whose `minOpenPetsVersion` is newer than the app, and marking them `requiresOpenPetsVersion` for the UI), and V1/V2 sprite metadata conversion
+- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata and optional pet package fields `wardrobeZip` / `minOpenPetsVersion`
 - `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
 
 **Plugins**:

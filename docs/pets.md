@@ -67,6 +67,15 @@ There are three sources a pet can come from at runtime:
    (`codex-pets.ts`), the dev workflow for authoring a new pet before
    publishing it.
 
+## Wardrobe and outfits
+
+A pet may optionally ship a **wardrobe**: extra **outfits** (full alternate
+atlases under `outfits/`) and an ordered **schedule** that picks one by time of
+day, weekday, or yearly date. Users can always wear one outfit or edit the
+schedule from Control Center and the pet context menu. Pets without a wardrobe
+are unchanged. The contract, resolution order, packaging, two-ZIP catalog
+distribution, and compatibility rules live in [Wardrobe](/wardrobe).
+
 ## Teams-owned pets
 
 Teams adds a fourth explicit source kind, `team`. Persisted source ownership
@@ -420,7 +429,8 @@ platform-specific user-data path resolution. This is what powers
 
 Both paths enforce: HTTPS-only catalog/ZIP hosts on an allowlist, no encrypted
 entries, only stored/deflate compression, valid Unix modes, required files
-(`pet.json` + its selected `spritesheet.webp` or `spritesheet.svg`), and atomic extraction with private
+(`pet.json` + its selected `spritesheet.webp` or `spritesheet.svg`, plus
+`outfits/{id}.webp|svg` atlases only when the manifest declares a wardrobe — see [Wardrobe](/wardrobe)), and atomic extraction with private
 permissions. The pet `id` must match `^[a-z0-9][a-z0-9_-]{0,63}$` and cannot be
 `builtin`.
 
@@ -518,7 +528,8 @@ catalog pets back into `~/.codex/pets/`.
 Pet images are served to renderers through internal protocols
 (`openpets-codex:`, `openpets-installed:`, `openpets-pet-preview:`). These resolve
 the manifest-selected atlas and serve `image/webp` or `image/svg+xml` as
-appropriate. Pixel hit testing decodes bytes into an origin-clean browser
+appropriate. `openpets-installed://spritesheet/{petId}/{outfitId}` serves one
+declared wardrobe outfit for Control Center previews. Pixel hit testing decodes bytes into an origin-clean browser
 canvas; it falls back from `createImageBitmap` to a bounded `Image` load for
 Chromium SVG support, without relying on Electron `nativeImage`. Both pet-window
 CSP variants permit `blob:` images for that origin-clean decoder and revoke the
@@ -539,6 +550,7 @@ images silently fall back to the default pet. This is the single most common
 | Installing / extracting | `pet-installation.ts`, `zip-safety.ts` |
 | Standalone install | `packages/install-pet/` |
 | Local pet authoring | `codex-pets.ts` |
+| Outfits / wardrobe schedule | `pet-wardrobe-core.ts`, `pet-wardrobe.ts`, `renderer/src/pets/WardrobePanel.tsx` |
 | Movement | `pet-motion-engine.ts` |
 | Display containment / cross-screen | `display.ts`, `confinement-manager.ts` |
 | Topology-change reclamp | `pet-display-coordinator.ts` → default and pet-controller reclamp leaves |

@@ -17,6 +17,7 @@ export type LogScope =
   | "pet.session"
   | "pet.pinned"
   | "pet.install"
+  | "pet.wardrobe"
   | "plugin"
   | "state"
   | "tray"

@@ -1,13 +1,16 @@
 import { app } from "electron";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
-import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet } from "./codex-pets-core.js";
-import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
+import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata } from "./codex-pets-core.js";
+import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
+import { warn } from "./logger.js";
+import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
 import { readInstalledPetMetadata } from "./installed-pet-layout.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
@@ -141,6 +144,36 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
   }
 }
 
+/**
+ * Pick the atlas for the outfit the pet wears now. An outfit atlas that is
+ * missing or invalid (for example a team package without outfit files) falls
+ * back to the base atlas instead of breaking the pet; the base atlas itself
+ * failing still throws so the caller can mark the pet broken.
+ */
+async function resolveRenderableAtlas(petId: string, petDirectory: string, metadata: CodexPetMetadata): Promise<{ readonly atlasRelativePath: string; readonly spritesheetPath: string; readonly spritesheet: Stats }> {
+  const outfitId = resolveRenderedPetOutfit(petId, metadata.wardrobe);
+  const outfit = metadata.wardrobe?.outfits.find((candidate) => candidate.id === outfitId);
+  if (outfit) {
+    try {
+      return { atlasRelativePath: outfit.spritesheetPath, ...await statRenderableAtlas(join(petDirectory, outfit.spritesheetPath), outfit.spritesheetPath, withAtlasFormat(metadata, getOutfitAtlasFormat(outfit))) };
+    } catch (error) {
+      warn("pet.wardrobe", "outfit atlas unavailable, wearing the default outfit", { petId, outfitId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { atlasRelativePath: metadata.spritesheetPath, ...await statRenderableAtlas(join(petDirectory, metadata.spritesheetPath), metadata.spritesheetPath, metadata) };
+}
+
+async function statRenderableAtlas(spritesheetPath: string, label: string, format: Pick<CodexPetMetadata, "spriteVersionNumber" | "spritesheetPath">): Promise<{ readonly spritesheetPath: string; readonly spritesheet: Stats }> {
+  const spritesheet = await stat(spritesheetPath);
+  if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > maxCodexSpritesheetBytes) {
+    throw new Error("Installed pet spritesheet is missing or too large.");
+  }
+  if (format.spritesheetPath === "spritesheet.svg") {
+    await validateCodexPetSpritesheet(await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, label), format);
+  }
+  return { spritesheetPath, spritesheet };
+}
+
 export async function createInstalledPetRender(
   petId: string,
   assetDisplayName: string,
@@ -161,15 +194,8 @@ export async function createInstalledPetRender(
     : assetDisplayName;
   const metadata = await readInstalledPetMetadata(petId, source);
   const petDirectory = getPetDir(petId, source);
-  await assertPetSpritesheetFiles(petDirectory, metadata.spritesheetPath);
-  const spritesheetPath = join(petDirectory, metadata.spritesheetPath);
-  const spritesheet = await stat(spritesheetPath);
-  if (!spritesheet.isFile() || spritesheet.size <= 0 || spritesheet.size > 100 * 1024 * 1024) {
-    throw new Error("Installed pet spritesheet is missing or too large.");
-  }
-  if (metadata.spritesheetPath === "spritesheet.svg") {
-    await validateCodexPetSpritesheet(await readBoundedRegularFile(spritesheetPath, maxCodexSpritesheetBytes, metadata.spritesheetPath), metadata);
-  }
+  await assertPetSpritesheetFiles(petDirectory, metadata);
+  const { atlasRelativePath, spritesheetPath, spritesheet } = await resolveRenderableAtlas(petId, petDirectory, metadata);
   const spriteLayout = getCodexPetSpriteLayout(metadata);
 
   const imageUrl = pathToFileURL(spritesheetPath).toString();
@@ -183,7 +209,7 @@ export async function createInstalledPetRender(
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${metadata.spritesheetPath}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${atlasRelativePath}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,

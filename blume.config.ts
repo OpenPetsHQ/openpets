@@ -58,7 +58,7 @@ export default defineConfig({
       },
       {
         label: "Build",
-        items: ["/sdk", "/plugins", "/cli", "/mcp", "/pet-format"],
+        items: ["/sdk", "/plugins", "/cli", "/mcp", "/pet-format", "/wardrobe"],
       },
       {
         label: "Reference",

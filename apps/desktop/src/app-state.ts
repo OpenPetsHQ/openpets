@@ -17,6 +17,7 @@ import {
 } from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
 import { normalizePinnedPetIds, normalizePinnedPetPositions, prunePinnedPetPositions } from "./pinned-pets.js";
+import { normalizePetWardrobePreference, normalizePetWardrobePreferences, type PetWardrobePreference, type PetWardrobePreferences } from "./pet-wardrobe-core.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -126,6 +127,9 @@ export interface OpenPetsStateV1 {
     readonly pinnedPets?: readonly string[];
     /** Last known window position per pinned pet ID, restored when the app restarts. */
     readonly pinnedPetPositions?: Readonly<Record<string, DefaultPetPosition>>;
+    /** Per-pet wardrobe choices ("always wear" outfit, user-edited schedule). Absent = the
+     * pet's own schedule, so pets without a wardrobe and existing users are unaffected. */
+    readonly petWardrobePreferences?: PetWardrobePreferences;
   };
   readonly pets: {
     readonly installed: readonly InstalledPetState[];
@@ -238,6 +242,27 @@ export function setDefaultPet(defaultPetId: string): OpenPetsStateV1 {
 
 export function isPetFlippedHorizontally(petId: string): boolean {
   return Boolean(getInitializedState().preferences.petHorizontalFlip?.[petId]);
+}
+
+export function getPetWardrobePreference(petId: string): PetWardrobePreference | undefined {
+  return getInitializedState().preferences.petWardrobePreferences?.[petId];
+}
+
+/** Replace one pet's wardrobe preference; `undefined` restores the pet's own behavior. */
+export function setPetWardrobePreference(petId: string, preference: PetWardrobePreference | undefined): PetWardrobePreference | undefined {
+  const state = getInitializedState();
+  const next: Record<string, PetWardrobePreference> = { ...(state.preferences.petWardrobePreferences ?? {}) };
+  const normalized = normalizePetWardrobePreference(preference);
+  if (normalized) next[petId] = normalized;
+  else delete next[petId];
+  commitState(normalizeState({
+    ...state,
+    preferences: normalizePreferences({
+      ...state.preferences,
+      petWardrobePreferences: next,
+    }),
+  }));
+  return getPetWardrobePreference(petId);
 }
 
 export function togglePetHorizontalFlip(petId: string): boolean {
@@ -694,6 +719,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     // Pruned here, in the one place every write path goes through, so the unpin paths
     // cannot disagree about which positions are still meaningful.
     pinnedPetPositions: prunePinnedPetPositions(normalizePinnedPetPositions(value.pinnedPetPositions), pinnedPets),
+    petWardrobePreferences: normalizePetWardrobePreferences(value.petWardrobePreferences),
   };
 
   return preferences;
@@ -805,6 +831,7 @@ function createDefaultState(): OpenPetsStateV1 {
       petHorizontalFlip: undefined,
       pinnedPets: undefined,
       pinnedPetPositions: undefined,
+      petWardrobePreferences: undefined,
     },
     pets: {
       installed: [builtInPet],

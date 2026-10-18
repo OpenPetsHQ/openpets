@@ -25,7 +25,7 @@ function isAllowedCodexPreview(value: string | undefined): value is string {
 }
 
 function isAllowedInstalledPetPreview(value: string | undefined): value is string {
-  return typeof value === "string" && /^openpets-installed:\/\/spritesheet\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}$/u.test(value);
+  return typeof value === "string" && /^openpets-installed:\/\/spritesheet\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}(?:\/[a-z0-9][a-z0-9_-]{0,31})?$/u.test(value);
 }
 
 function isAllowedDefaultPetPreview(value: string | undefined): value is string {
@@ -40,8 +40,9 @@ export function safePetImage(value: string | undefined): string | undefined {
   return isAllowedCatalogPreview(value) || isAllowedCodexPreview(value) || isAllowedInstalledPetPreview(value) || isAllowedDefaultPetPreview(value) || isAllowedDataUrl(value) ? value : undefined;
 }
 
-export function installedPetSpritesheetUrl(petId: string): string {
-  return `openpets-installed://spritesheet/${encodeURIComponent(petId)}`;
+export function installedPetSpritesheetUrl(petId: string, outfitId?: string): string {
+  const base = `openpets-installed://spritesheet/${encodeURIComponent(petId)}`;
+  return outfitId && outfitId !== "default" ? `${base}/${encodeURIComponent(outfitId)}` : base;
 }
 
 export function imageDebug(value: string | undefined): string {

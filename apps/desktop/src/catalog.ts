@@ -4,15 +4,19 @@ import { join } from "node:path";
 import { app } from "electron";
 
 import { createCatalogRemoteClient } from "./catalog-remote.js";
-import { validateCatalogV2, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
+import { validateCatalogV2, type CatalogPetPackageMeta, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
+import { isVersionNewer } from "./update-version.js";
 
 export const catalogUrl = "https://openpets.dev/pets/catalog.v2.json";
 export const catalogV3Url = "https://openpets.dev/pets/catalog.v3.json";
 const fixtureRelativePath = "catalog.v2.fixture.json";
 
+/** A catalog pet as shown in Control Center; `requiresOpenPetsVersion` is set when this app is too old to install it. */
+export type CatalogUiPet = CatalogPetV2 & { readonly requiresOpenPetsVersion?: string };
+
 export interface CatalogUiState {
   readonly source: "remote" | "fixture" | "error";
-  readonly pets: readonly CatalogPetV2[];
+  readonly pets: readonly CatalogUiPet[];
   readonly generatedAt?: string;
   readonly error?: string;
   readonly fallbackReason?: string;
@@ -43,7 +47,7 @@ export async function getCatalogUiState(): Promise<CatalogUiState> {
     if (!firstPage.ok) return await getV2OrFixtureCatalogUiState(`v3 page unavailable: ${firstPage.error}`);
     return {
       source: "remote",
-      pets: filterSurfaceablePets(firstPage.pets),
+      pets: withInstallRequirements(filterSurfaceablePets(firstPage.pets)),
       generatedAt: remoteV3.index.generatedAt,
       version: 3,
       total: surfaceableTotal(remoteV3.index),
@@ -69,7 +73,7 @@ export async function getCatalogPageUiState(page: number): Promise<CatalogUiStat
 
   return {
     source: "remote",
-    pets: filterSurfaceablePets(pageResult.pets),
+    pets: withInstallRequirements(filterSurfaceablePets(pageResult.pets)),
     generatedAt: remoteV3.index.generatedAt,
     version: 3,
     total: surfaceableTotal(remoteV3.index),
@@ -94,7 +98,15 @@ export async function getCatalogSearchUiState(): Promise<CatalogSearchUiState> {
   }
 }
 
+/** Look up an installable catalog pet; rejects pets that need a newer OpenPets. */
 export async function getCatalogPet(petId: string): Promise<CatalogPetV2> {
+  const pet = await findCatalogPet(petId);
+  const required = getRequiredOpenPetsVersion(pet);
+  if (required) throw new Error(`${pet.displayName} needs OpenPets ${required} or newer. Update OpenPets to install it.`);
+  return pet;
+}
+
+async function findCatalogPet(petId: string): Promise<CatalogPetV2> {
   const remoteV3 = await tryLoadRemoteCatalogV3Index();
   if (remoteV3.ok) {
     try {
@@ -123,7 +135,7 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (remote.ok) {
     return {
       source: "remote",
-      pets: remote.catalog.pets,
+      pets: withInstallRequirements(remote.catalog.pets),
       generatedAt: remote.catalog.generatedAt,
       error: `v3 unavailable: ${remoteV3Error}`,
       fallbackReason: "v3_to_v2_remote",
@@ -138,7 +150,7 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
   if (fixture.ok) {
     return {
       source: "fixture",
-      pets: fixture.catalog.pets,
+      pets: withInstallRequirements(fixture.catalog.pets),
       generatedAt: fixture.catalog.generatedAt,
       error: `Catalog unavailable: ${remoteV3Error}; v2 unavailable: ${remote.error}`,
       version: 2,
@@ -152,6 +164,17 @@ async function getV2OrFixtureCatalogUiState(remoteV3Error: string): Promise<Cata
     pets: [],
     error: `Catalog unavailable: ${remoteV3Error}; v2 unavailable: ${remote.error}. Fixture unavailable: ${fixture.error}`,
   };
+}
+
+function getRequiredOpenPetsVersion(pet: CatalogPetPackageMeta): string | undefined {
+  return pet.minOpenPetsVersion && isVersionNewer(pet.minOpenPetsVersion, app.getVersion()) ? pet.minOpenPetsVersion : undefined;
+}
+
+function withInstallRequirements(pets: readonly CatalogPetV2[]): readonly CatalogUiPet[] {
+  return pets.map((pet) => {
+    const required = getRequiredOpenPetsVersion(pet);
+    return required ? { ...pet, requiresOpenPetsVersion: required } : pet;
+  });
 }
 
 function filterSurfaceablePets<T extends { readonly original?: boolean; readonly featured?: boolean }>(pets: readonly T[]): readonly T[] {

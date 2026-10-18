@@ -5,9 +5,13 @@ export interface SafeZipEntryPath {
   readonly originalName: string;
   readonly normalizedName: string;
   readonly topLevelDirectory: string;
-  readonly relativeOutputPath: "pet.json" | PetSpritesheetPath | null;
+  readonly relativeOutputPath: "pet.json" | PetSpritesheetPath | `outfits/${string}` | null;
   readonly isDirectory: boolean;
+  /** A wardrobe atlas under `outfits/`; the manifest decides later whether it is expected. */
+  readonly isOutfitAtlas: boolean;
 }
+
+const outfitAtlasFileName = /^[a-z0-9][a-z0-9_-]{0,31}\.(?:webp|svg)$/;
 
 export class ZipEntryPathTracker {
   readonly #normalizedPaths = new Set<string>();
@@ -51,22 +55,35 @@ export function validateZipEntryName(fileName: string): SafeZipEntryPath {
 
   const isDirectory = fileName.endsWith("/");
   if (isDirectory) {
-    if (parts.length !== 1) throw new Error("Zip directory layout is unsupported.");
+    if (parts.length !== 1 && !(parts.length === 2 && parts[1] === "outfits")) throw new Error("Zip directory layout is unsupported.");
     return {
       originalName: fileName,
       normalizedName: parts.join("/"),
-      topLevelDirectory: parts[0] ?? "",
+      // A bare `outfits/` is the root layout's wardrobe folder, not a top-level pet folder.
+      topLevelDirectory: parts.length === 1 && parts[0] === "outfits" ? "" : parts[0] ?? "",
       relativeOutputPath: null,
       isDirectory: true,
+      isOutfitAtlas: false,
     };
   }
 
-  if (parts.length !== 1 && parts.length !== 2) throw new Error("Zip must contain pet files at the root or under exactly one top-level directory.");
-
-  const leaf = parts.at(-1);
+  const leaf = parts.at(-1) ?? "";
   if (leaf !== "pet.json" && leaf !== "spritesheet.webp" && leaf !== "spritesheet.svg") {
+    const outfitDepth = parts.at(-2) === "outfits" ? parts.length : 0;
+    if ((outfitDepth === 2 || outfitDepth === 3) && outfitAtlasFileName.test(leaf)) {
+      return {
+        originalName: fileName,
+        normalizedName: parts.join("/"),
+        topLevelDirectory: outfitDepth === 3 ? parts[0] ?? "" : "",
+        relativeOutputPath: `outfits/${leaf}`,
+        isDirectory: false,
+        isOutfitAtlas: true,
+      };
+    }
     throw new Error(`Unexpected zip file: ${leaf}`);
   }
+
+  if (parts.length !== 1 && parts.length !== 2) throw new Error("Zip must contain pet files at the root or under exactly one top-level directory.");
 
   return {
     originalName: fileName,
@@ -74,6 +91,7 @@ export function validateZipEntryName(fileName: string): SafeZipEntryPath {
     topLevelDirectory: parts.length === 1 ? "" : parts[0] ?? "",
     relativeOutputPath: leaf,
     isDirectory: false,
+    isOutfitAtlas: false,
   };
 }
 

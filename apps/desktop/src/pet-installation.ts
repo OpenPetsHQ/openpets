@@ -1,6 +1,6 @@
 import { createWriteStream } from "node:fs";
-import { lstat, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 
@@ -10,9 +10,9 @@ import { assertPetPackageFiles } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, upsertPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { getCatalogPet } from "./catalog.js";
-import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "./codex-pets-core.js";
 import { builtInPet } from "./built-in-pet.js";
-import { assertPetSpritesheetFiles, readBoundedRegularFile } from "./pet-file-safety.js";
+import { readBoundedRegularFile, validatePetAtlases } from "./pet-file-safety.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
 import { assertOutputPathInside, hasSupportedZipMagic, ZipEntryPathTracker } from "./zip-safety.js";
@@ -41,7 +41,9 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
     // The lock intentionally covers catalog lookup and download: an install
     // must not recreate a removed or duplicate ID after its preflight check.
     const catalogPet = await getCatalogPet(petId);
-    const zip = await downloadPetZip(catalogPet.zip);
+    // Apps with wardrobe support take the full package; `zip` is the outfit-free base for older apps.
+    const zipUrl = catalogPet.wardrobeZip ?? catalogPet.zip;
+    const zip = await downloadPetZip(zipUrl);
     const candidate = await createPetInstallCandidate(petsRoot, petId);
     try {
       await extractPetZip(zip, candidate);
@@ -64,7 +66,62 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
           description: catalogPet.description,
           source: {
             catalogVersion: 2,
-            zip: catalogPet.zip,
+            zip: zipUrl,
+            preview: catalogPet.preview,
+          },
+        }),
+      });
+    } catch (error) {
+      await rm(candidate, { recursive: true, force: true });
+      throw error;
+    }
+  });
+}
+
+/**
+ * Replace an installed catalog pet with its catalog wardrobe package ("Get
+ * outfits" / "Update outfits"). Reuses the backup-and-promote install
+ * transaction, so a failed download or invalid package leaves the current pet
+ * untouched. Wardrobe preferences are keyed by pet id and survive the swap.
+ */
+export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1> {
+  assertSafePetId(petId);
+  return withPetInstallLock(petId, async () => {
+    const petsRoot = getPetsRoot();
+    await assertNoUnresolvedPetInstallTransaction(petsRoot, petId);
+    const installed = getAppStateSnapshot().pets.installed.find((pet) => pet.id === petId);
+    if (!installed || installed.builtIn) throw new Error(`Pet is not installed: ${petId}`);
+    // Local folder/ZIP imports have no source; replacing them with the catalog
+    // package would discard local edits, so only catalog installs qualify.
+    if (!installed.source || !("zip" in installed.source)) {
+      throw new Error("Only pets installed from the catalog can get outfits from the catalog.");
+    }
+    const catalogPet = await getCatalogPet(petId);
+    if (!catalogPet.wardrobeZip) throw new Error("This pet has no outfits in the catalog.");
+    const wardrobeZip = catalogPet.wardrobeZip;
+    const zip = await downloadPetZip(wardrobeZip);
+    const candidate = await createPetInstallCandidate(petsRoot, petId);
+    try {
+      await extractPetZip(zip, candidate);
+      const metadata = await validateExtractedPet(candidate);
+      if (metadata.id !== petId) throw new Error("Catalog wardrobe package id does not match the installed pet.");
+      if (!metadata.wardrobe) throw new Error("Catalog wardrobe package does not contain a wardrobe.");
+      return await runPetInstallTransaction({
+        petsRoot,
+        petId,
+        candidateDir: candidate,
+        lockAlreadyHeld: true,
+        validateCandidate: async (directory) => {
+          const validated = await validateExtractedPet(directory);
+          if (validated.id !== petId || !validated.wardrobe) throw new Error("Catalog wardrobe package changed during installation.");
+        },
+        mutateState: () => upsertPetState({
+          id: petId,
+          displayName: installed.displayName,
+          description: installed.description,
+          source: {
+            catalogVersion: 2,
+            zip: wardrobeZip,
             preview: catalogPet.preview,
           },
         }),
@@ -140,14 +197,11 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(sourceDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  await assertPetSpritesheetFiles(sourceDir, metadata.spritesheetPath);
-  const spritesheet = await readBoundedRegularFile(join(sourceDir, metadata.spritesheetPath), maxCodexSpritesheetBytes, metadata.spritesheetPath);
-  await validateCodexPetSpritesheet(spritesheet, metadata);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
     assertInsideRoot(petsRoot, candidate);
-    await writeFile(join(candidate, metadata.spritesheetPath), spritesheet, { mode: 0o600, flag: "wx" });
+    await validatePetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes, { copyTo: candidate });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const state = await runPetInstallTransaction({
       petsRoot,
@@ -322,6 +376,7 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
         const outputPath = resolve(tempDir, safePath.relativeOutputPath);
         assertOutputPathInside(tempDir, outputPath);
         seenRequired.add(safePath.relativeOutputPath);
+        if (safePath.isOutfitAtlas) await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
         await writeEntry(entry, zipFile, outputPath, entry.uncompressedSize, safePath.relativeOutputPath === "pet.json" ? maxCodexPetJsonBytes : maxIndividualFileBytes);
       };
 
@@ -331,7 +386,8 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
     zipFile.close();
   }
 
-  assertPetPackageFiles(seenRequired);
+  // Outfit atlases are matched against the manifest wardrobe in validateExtractedPet.
+  assertPetPackageFiles([...seenRequired].filter((path) => !path.includes("/")));
 }
 
 function openZipFromBuffer(buffer: Buffer): Promise<ZipFile> {
@@ -427,10 +483,7 @@ async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> 
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(tempDir);
   const metadata = validateCodexPetMetadata(parsed, parsedId);
   assertSafePetId(metadata.id);
-  await assertPetSpritesheetFiles(tempDir, metadata.spritesheetPath, true);
-  const spritesheetPath = join(tempDir, metadata.spritesheetPath);
-  const spritesheet = await readBoundedRegularFile(spritesheetPath, maxIndividualFileBytes, metadata.spritesheetPath);
-  await validateCodexPetSpritesheet(spritesheet, metadata);
+  await validatePetAtlases(tempDir, metadata, maxIndividualFileBytes, { exactPackage: true });
   return metadata;
 }
 

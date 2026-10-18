@@ -16,6 +16,20 @@ export interface CatalogPetV2 {
   readonly original?: boolean;
   readonly featured?: boolean;
   readonly spriteVersionNumber?: 2;
+  readonly wardrobeZip?: string;
+  readonly minOpenPetsVersion?: string;
+}
+
+/**
+ * Optional package fields shared by v2/v3 pet entries. Old apps drop unknown
+ * fields, so both are safe to add to any entry.
+ * - `wardrobeZip`: the full package including `outfits/`; `zip` stays the
+ *   outfit-free base package that every app version can install.
+ * - `minOpenPetsVersion`: the oldest app that can install this pet at all.
+ */
+export interface CatalogPetPackageMeta {
+  readonly wardrobeZip?: string;
+  readonly minOpenPetsVersion?: string;
 }
 
 export interface CatalogV3Index {
@@ -71,7 +85,7 @@ export interface CatalogV3SearchPet {
   readonly spriteVersionNumber?: 2;
 }
 
-export interface CatalogPetV3 {
+export interface CatalogPetV3 extends CatalogPetPackageMeta {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
@@ -214,6 +228,7 @@ function validateCatalogPet(value: unknown, ids: Set<string>): CatalogPetV2 {
     preview: validateCatalogUrl(value.preview, "preview"),
     zip: validateCatalogUrl(value.zip, "zip"),
     ...(value.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: validateSpriteVersionNumber(value.spriteVersionNumber) }),
+    ...validatePetPackageMeta(value),
   };
 }
 
@@ -232,6 +247,7 @@ function validateCatalogV3Pet(value: unknown, ids: Set<string>): CatalogPetV3 {
     zip: validateCatalogUrl(value.zip, "zip"),
     category,
     ...(value.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: validateSpriteVersionNumber(value.spriteVersionNumber) }),
+    ...validatePetPackageMeta(value),
   };
   const withSubcategory = value.subcategory === undefined ? entry : { ...entry, subcategory: validateString(value.subcategory, "subcategory", 80) };
   return withCatalogMeta(withSubcategory, value);
@@ -275,7 +291,21 @@ export function toCatalogPetV2Compat(pet: CatalogPetV3): CatalogPetV2 {
     ...(pet.original === undefined ? {} : { original: pet.original }),
     ...(pet.featured === undefined ? {} : { featured: pet.featured }),
     ...(pet.spriteVersionNumber === undefined ? {} : { spriteVersionNumber: pet.spriteVersionNumber }),
+    ...(pet.wardrobeZip === undefined ? {} : { wardrobeZip: pet.wardrobeZip }),
+    ...(pet.minOpenPetsVersion === undefined ? {} : { minOpenPetsVersion: pet.minOpenPetsVersion }),
   };
+}
+
+function validatePetPackageMeta(value: Record<string, unknown>): CatalogPetPackageMeta {
+  return {
+    ...(value.wardrobeZip === undefined ? {} : { wardrobeZip: validateCatalogUrl(value.wardrobeZip, "zip") }),
+    ...(value.minOpenPetsVersion === undefined ? {} : { minOpenPetsVersion: validateMinOpenPetsVersion(value.minOpenPetsVersion) }),
+  };
+}
+
+function validateMinOpenPetsVersion(value: unknown): string {
+  if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) throw new Error("Catalog pet minOpenPetsVersion must be MAJOR.MINOR.PATCH.");
+  return value;
 }
 
 function withCatalogMeta<T extends object>(entry: T, value: Record<string, unknown>): T & { readonly original?: boolean; readonly featured?: boolean } {
