@@ -135,6 +135,34 @@ publishing, verify the GitHub Release body matches the actual commit range and
 artifact set. If it does not, edit the release body immediately with
 `gh release edit v<version> --notes-file <file>`.
 
+## What's new dialog
+
+Control Center shows a one-time **What's new** dialog after the app updates to a
+version that has a changelog entry. It is optional per release: add an entry only
+for changes users should notice.
+
+- Entries live in `apps/desktop/src/whats-new.ts` (`whatsNewEntries`). Each has a
+  `version` (the release's `apps/desktop/package.json` version), headline and
+  summary i18n keys, `items` (title/body keys, optional `image`), optional
+  `chipKeys`, an optional `showcase: "built-in-pet"` animated Hoodie Cat, and
+  `links` (`primary` / `secondary`). Links open in the browser by id through the
+  shared external opener; the renderer never passes a URL.
+- Add every key to `apps/desktop/src/i18n/locales/en.ts` under `whatsNew.*` and
+  translate it in each other locale. Keys are type-checked against `en.ts`.
+- Bundled art for an item goes in `apps/desktop/src/renderer/public/whats-new/`
+  and is referenced by file name (`image: "4.2.0-dock.webp"`).
+- Point release-notes links at `https://github.com/OpenPetsHQ/openpets/releases/tag/v<version>`.
+
+Who sees it: users upgrading to a version at or above an entry they have not
+dismissed (`preferences.lastSeenWhatsNewVersion` in app state). Fresh installs
+record the running version as seen on first launch and never see it, and a build
+older than an entry (for example a 4.0.1 dev build with a 4.1.0 entry) does not
+show it. Dismissing the dialog or clicking a link records the running version.
+
+To preview the dialog on any build, launch with `OPENPETS_WHATS_NEW_PREVIEW=1`
+(for example `OPENPETS_WHATS_NEW_PREVIEW=1 pnpm dev:desktop`, or prefix
+`pnpm capture start`). It then shows every entry each time Control Center opens.
+
 ## Release mode and npm ordering
 
 Choose the release mode before changing versions:

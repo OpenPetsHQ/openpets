@@ -18,7 +18,7 @@ const electronMock = `data:text/javascript,${encodeURIComponent(`
     isDestroyed() { return false; }
     once() {}
   }
-  export const app = { getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : "" };
+  export const app = { getVersion: () => "4.1.0", getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : "" };
   export const clipboard = { readText: () => "", writeText: () => {} };
   export const dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showMessageBox: async () => ({ response: 0 }) };
   export const globalShortcut = { register: () => true, unregister: () => {}, unregisterAll: () => {} };
