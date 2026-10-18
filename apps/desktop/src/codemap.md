@@ -356,7 +356,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `pet-throw-core.ts` / `pet-throw.ts`: Ball-like throw after a drag release — pure velocity tracking and bounce/gravity stepping, plus the shared-timer adapter
-- `built-in-pet.ts`: Built-in pet constant
+- `built-in-pet.ts`: Built-in pet constant and its bundled wardrobe (`assets/default-pet-outfits/`)
 - `reaction-messages.ts`: Message pools for each reaction type
 - `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, bundled V2 Hoodie Cat atlas metadata, canonical sprite state definitions, and derived waiting-duration state tables
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)

@@ -338,8 +338,14 @@ Halloween, Winter Holidays, Summer — and this schedule:
 | 5 | Summer | 06-21 – 08-31 |
 
 Its source folder is the local Codex pet `hoodie-cat` (pet.json with the
-wardrobe, `outfits/`). The built-in pet itself is unchanged; adding outfits to
-it would mean bundling the atlases with the app.
+wardrobe, `outfits/`).
+
+The built-in pet ships the same wardrobe from 4.1: the atlases are bundled in
+`apps/desktop/assets/default-pet-outfits/{id}.webp` and the outfits and
+schedule are declared in `apps/desktop/src/built-in-pet.ts`
+(`builtInPetWardrobe`). It gets the Outfit menu and Wardrobe panel like any
+installed pet, and its preferences are keyed by the id `builtin`. Keep the two
+copies in step when an outfit is redrawn.
 
 ## On the website
 

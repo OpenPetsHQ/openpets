@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
-import { builtInPet } from "./built-in-pet.js";
+import { builtInPet, builtInPetOutfitFileName, builtInPetWardrobe } from "./built-in-pet.js";
 import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata } from "./codex-pets-core.js";
 import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
 import { warn } from "./logger.js";
@@ -41,7 +41,9 @@ function petFlipCacheToken(petId: string): string {
 }
 
 export function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken: string | undefined, pluginBubbles: PetPluginBubbles | null, petRole: "default" | "agent", petDragRegion: "drag" | "no-drag"): PetContentRender {
-  const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", defaultPetSprite.fileName)).toString();
+  // The wardrobe follows the built-in pet itself, also when it stands in for a broken default pet.
+  const outfitId = resolveRenderedPetOutfit(builtInPet.id, builtInPetWardrobe);
+  const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", builtInPetOutfitFileName(outfitId) ?? defaultPetSprite.fileName)).toString();
   const assetDisplayName = builtInPet.displayName;
   const state = getAppStateSnapshot();
   const displayName = petRole === "default"
@@ -57,7 +59,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
   const stateRows = getConfiguredSpriteStates(waitingAnimationDurationMs);
 
   return {
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:outfit-${outfitId}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,

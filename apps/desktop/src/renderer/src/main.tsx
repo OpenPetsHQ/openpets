@@ -4284,7 +4284,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   </aside>
                 </div>
 
-                {selected.installed && !selected.broken && !selected.builtIn && (
+                {selected.installed && !selected.broken && (
                   <WardrobePanel
                     key={selected.id}
                     petId={selected.id}

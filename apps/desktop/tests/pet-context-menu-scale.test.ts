@@ -77,7 +77,7 @@ try {
     defaultPet: true,
   });
 
-  const defaultSizeItem = defaultMenu.find((item) => Array.isArray(item.submenu));
+  const defaultSizeItem = defaultMenu.find((item) => Array.isArray(item.submenu) && item.label === "Size");
   assert.ok(defaultSizeItem, "default pet menu includes a submenu for Size");
   const defaultSubmenu = defaultSizeItem.submenu as Electron.MenuItemConstructorOptions[];
   assert.equal(defaultSubmenu.length, petScaleOptions.length, "size submenu contains all scale options");
@@ -103,7 +103,7 @@ try {
     click: () => {},
     defaultPet: true,
   });
-  const updatedSizeItem = updatedDefaultMenu.find((item) => Array.isArray(item.submenu));
+  const updatedSizeItem = updatedDefaultMenu.find((item) => Array.isArray(item.submenu) && item.label === "Size");
   const updatedSubmenu = updatedSizeItem?.submenu as Electron.MenuItemConstructorOptions[];
   const updatedHugeOption = updatedSubmenu.find((opt) => opt.label === "Huge");
   const updatedMediumOption = updatedSubmenu.find((opt) => opt.label === "Medium");
@@ -116,7 +116,7 @@ try {
     click: () => {},
     petId: "fox",
   });
-  const agentSizeItem = agentMenu.find((item) => Array.isArray(item.submenu));
+  const agentSizeItem = agentMenu.find((item) => Array.isArray(item.submenu) && item.label === "Size");
   assert.ok(agentSizeItem, "agent pet menu includes Size submenu");
   const agentSubmenu = agentSizeItem.submenu as Electron.MenuItemConstructorOptions[];
   const agentHugeOption = agentSubmenu.find((opt) => opt.label === "Huge");

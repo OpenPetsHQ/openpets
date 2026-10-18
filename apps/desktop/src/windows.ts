@@ -13,13 +13,13 @@ import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
 import { getCodexPetsUiState, importCodexPet, readCodexPetSpritesheet } from "./codex-pets.js";
-import { codexV2SpriteLayout, getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, getCodexPetSpriteLayout, maxCodexSpritesheetBytes, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
-import { isSafeOutfitId } from "./pet-wardrobe-core.js";
+import { defaultOutfitId, isSafeOutfitId } from "./pet-wardrobe-core.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference } from "./pet-window.js";
@@ -34,6 +34,7 @@ import {
   type PluginConfigSoundPickResult,
   type PluginServiceResult,
 } from "./plugin-service.js";
+import { builtInPet, builtInPetOutfitFileName } from "./built-in-pet.js";
 import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerSessionMediaProtocol } from "./session-media-cache.js";
@@ -598,8 +599,17 @@ export function installInternalUiProtocol(): void {
       if (url.hostname !== "spritesheet" || url.search || url.hash) return new Response(null, { status: 404 });
       // `/{petId}` serves the base atlas; `/{petId}/{outfitId}` one wardrobe outfit.
       const [petId = "", outfitId, ...rest] = url.pathname.replace(/^\//, "").split("/").map((part) => decodeURIComponent(part));
-      assertSafePetId(petId);
       if (rest.length > 0 || (outfitId !== undefined && !isSafeOutfitId(outfitId))) return new Response(null, { status: 404 });
+      if (petId === builtInPet.id) {
+        // The built-in pet's wardrobe ships in the app bundle, not in the pets directory.
+        const fileName = outfitId === undefined || outfitId === defaultOutfitId ? defaultPetSprite.fileName : builtInPetOutfitFileName(outfitId);
+        if (!fileName) return new Response(null, { status: 404 });
+        const path = join(app.getAppPath(), "assets", fileName);
+        return new Response(await readBoundedRegularFile(path, maxCodexSpritesheetBytes, fileName), {
+          headers: { "Content-Type": petSpritesheetMimeType(path), "Cache-Control": "private, max-age=60" },
+        });
+      }
+      assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
       const spritesheet = await readInstalledPetSpritesheet(petId, pet.source?.kind === "team" ? "team" : "personal", outfitId);
