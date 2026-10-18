@@ -4395,7 +4395,13 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                     spriteLayout={selected.spriteLayout}
                     load={api.getPetWardrobe}
                     update={api.updatePetWardrobe}
-                    installCatalogOutfits={selected.wardrobeZip && selected.installedZip !== selected.wardrobeZip ? () => api.installPetWardrobe(selected.id) : undefined}
+                    installCatalogOutfits={selected.wardrobeZip && selected.installedZip && selected.installedZip !== selected.wardrobeZip
+                      ? async () => {
+                        await api.installPetWardrobe(selected.id);
+                        // The installed source changes, which retires the offer.
+                        await loadPetsData();
+                      }
+                      : undefined}
                   />
                 )}
 

@@ -219,6 +219,8 @@ try {
   offer(true);
   await installPetWardrobe("zip-wardrobe");
   await assertInstalledWardrobe("zip-wardrobe");
+  // A local import with the same id as a catalog pet keeps its local files.
+  await assert.rejects(() => installPetWardrobe("folder-wardrobe"), /installed from the catalog/, "local imports are never replaced by catalog packages");
   assert.equal(appState.getPetWardrobePreference("zip-wardrobe")?.outfit, "pajamas", "preferences survive the package swap");
   const upgraded = appState.getAppStateSnapshot().pets.installed.find((pet) => pet.id === "zip-wardrobe");
   assert.equal(upgraded?.source && "zip" in upgraded.source ? upgraded.source.zip : undefined, catalogWardrobeZipUrl, "the installed source records the wardrobe package");

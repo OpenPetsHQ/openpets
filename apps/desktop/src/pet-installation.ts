@@ -91,8 +91,10 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
     await assertNoUnresolvedPetInstallTransaction(petsRoot, petId);
     const installed = getAppStateSnapshot().pets.installed.find((pet) => pet.id === petId);
     if (!installed || installed.builtIn) throw new Error(`Pet is not installed: ${petId}`);
-    if (installed.source && installed.source.kind !== undefined && installed.source.kind !== "catalog") {
-      throw new Error("Only catalog pets can get outfits from the catalog.");
+    // Local folder/ZIP imports have no source; replacing them with the catalog
+    // package would discard local edits, so only catalog installs qualify.
+    if (!installed.source || !("zip" in installed.source)) {
+      throw new Error("Only pets installed from the catalog can get outfits from the catalog.");
     }
     const catalogPet = await getCatalogPet(petId);
     if (!catalogPet.wardrobeZip) throw new Error("This pet has no outfits in the catalog.");
