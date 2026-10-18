@@ -12,15 +12,16 @@ export const builtInPet = {
  * Catalog entries that publish the built-in pet itself. Control Center hides
  * them so Hoodie Cat is not listed twice; the website gallery still shows them.
  */
-export const builtInPetCatalogIds: ReadonlySet<string> = new Set(["hoodie-cat-openpets"]);
+export const builtInPetCatalogIds: ReadonlySet<string> = new Set(["hoodie-cat"]);
 
 /** Bundled outfit atlases live in `assets/{builtInPetOutfitsDirectory}/{outfitId}.webp`. */
 export const builtInPetOutfitsDirectory = "default-pet-outfits";
 
 /**
  * Hoodie Cat's wardrobe, the same outfits and creator schedule as the
- * catalog's `hoodie-cat-openpets` wardrobe package. Outfit paths follow the
- * pet.json contract; {@link builtInPetOutfitFileName} maps them into assets.
+ * catalog's `hoodie-cat` wardrobe package (openpets.dev/pets/hoodie-cat-openpets).
+ * Outfit paths follow the pet.json contract; {@link builtInPetOutfitFileName}
+ * maps them into assets.
  */
 export const builtInPetWardrobe: PetWardrobe = validatePetWardrobe({
   outfits: [

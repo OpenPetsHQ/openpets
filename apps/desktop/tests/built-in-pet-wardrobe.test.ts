@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { builtInPetOutfitFileName, builtInPetWardrobe } from "../src/built-in-pet.js";
+import { builtInPetCatalogIds, builtInPetOutfitFileName, builtInPetWardrobe } from "../src/built-in-pet.js";
 import { validateCodexPetOutfitSpritesheet } from "../src/codex-pets-core.js";
 import { resolveWornOutfitId } from "../src/pet-wardrobe-core.js";
 
@@ -27,5 +27,8 @@ assert.equal(resolveWornOutfitId(builtInPetWardrobe, undefined, new Date(2026, 9
 assert.equal(resolveWornOutfitId(builtInPetWardrobe, undefined, new Date(2027, 0, 1, 12, 0)), "holidays", "wraps the new year");
 assert.equal(resolveWornOutfitId(builtInPetWardrobe, undefined, new Date(2026, 6, 15, 12, 0)), "summer");
 assert.equal(resolveWornOutfitId(builtInPetWardrobe, { outfit: "summer" }, new Date(2026, 2, 4, 23, 0)), "summer", "an always-wear choice wins");
+
+// Control Center hides the catalog's copy of the built-in pet (catalog id, not the website slug).
+assert.deepEqual([...builtInPetCatalogIds], ["hoodie-cat"]);
 
 console.log("built-in pet wardrobe tests passed");
