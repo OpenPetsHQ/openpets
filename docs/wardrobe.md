@@ -259,25 +259,40 @@ outfits were published later) can upgrade in place:
   importing again (the import replaces the installed copy); a Codex pet must be
   removed and re-imported, because Codex import refuses an installed id.
 
-### Publishing checklist (web repository)
+### Publishing (web repository)
 
-The website/catalog pipeline lives in the separate `web/` checkout. For a pet
-whose source folder contains a `wardrobe` and `outfits/`:
+The website/catalog pipeline lives in the separate `web/` checkout
+(`OpenPetsHQ/dev.openpets`). For OpenPets originals synced from a local Codex
+pets folder (`scripts/sync-local-pets.js`), a source folder with a `wardrobe`
+and `outfits/` is published like this:
 
-1. Validate the source like the desktop does: wardrobe contract, exact
-   `outfits/` contents, per-outfit atlas layout and format.
-2. Build the **base ZIP** from `pet.json` minus `wardrobe` plus the base atlas.
-3. Build the **wardrobe ZIP** from the full `pet.json`, base atlas, and
-   `outfits/`.
-4. Upload both to R2; set `zip` and `wardrobeZip` on the v3 entry (and the v2
-   compat entry).
-5. `verify:catalog` must check both archives against their contracts: the base
-   ZIP keeps the two-file rule; the wardrobe ZIP allows exactly the declared
-   `outfits/*` entries.
-6. ZIP repair tooling must never rewrite a wardrobe ZIP into base form or drop
-   `wardrobe` from it.
+1. `validateLocalPet` (`scripts/lib/validation.js`) checks the wardrobe the way
+   the desktop does: outfit ids and paths, an `outfits/` folder with exactly the
+   declared files, and each outfit as a valid V2 atlas.
+2. `createZipArchive(source, zip)` builds the **base ZIP** `{installId}.zip`
+   with `wardrobe` stripped from `pet.json`; `createZipArchive(source, zip,
+   { variant: "wardrobe" })` builds the **wardrobe ZIP** with the full
+   `pet.json` and `outfits/` (`scripts/lib/zip.js`, staged so nothing else in
+   the folder leaks in).
+3. The wardrobe ZIP is named `{installId}.wardrobe-{hash}.zip`, where `hash`
+   is a 12-character SHA-256 of `pet.json` and every atlas
+   (`wardrobeContentHash` in `scripts/lib/wardrobe.js`). The URL changes only
+   when the wardrobe really changes, which is what makes *Update outfits*
+   appear for installed pets; rebuilding identical inputs keeps it.
+4. The manifest entry gets `wardrobeZipPath`; `toV3Pet` / `toV2Catalog`
+   (`scripts/lib/catalog-v3.js`) publish it as `wardrobeZip`, and an optional
+   manifest `minOpenPetsVersion` as `minOpenPetsVersion`. Both ZIPs upload to
+   R2 under `pets/{slug}/` (`uploadZipToR2(..., { objectName })`).
+5. `verify:catalog` checks the base `zip` with the strict contract — two files,
+   and its `pet.json` must **not** declare a wardrobe — and `wardrobeZip` with
+   `{ wardrobe: true }`: exactly the outfits its `pet.json` declares
+   (`scripts/lib/zip-contract.js`).
+6. ZIP repair (`scripts/lib/pet-zip-repair.js`) only rebuilds base ZIPs, whose
+   `pet.json` never carries `wardrobe`; it does not touch `wardrobeZip`.
 
-Never publish `outfits/` inside `zip`: that breaks every old app.
+Never publish `outfits/` inside `zip`: that breaks every old app. Reviewed and
+upstream imports (`import-reviewed-pets.js`, `sync-pets.js`) do not produce
+wardrobe pets yet.
 
 ## Testing
 
@@ -292,6 +307,9 @@ Never publish `outfits/` inside `zip`: that breaks every old app.
   paths, mixed layouts.
 - `apps/desktop/tests/catalog-validation.test.ts` — `wardrobeZip` and
   `minOpenPetsVersion` validation and v2 compat.
+- `web/scripts/lib/wardrobe.test.js` — base ZIP drops outfits and the
+  manifest wardrobe, wardrobe ZIP carries exactly the declared outfits,
+  manifest/archive agreement both ways, content-hash naming, catalog fields.
 - Manual: `pnpm capture` (isolated profile, see [Screenshots](/screenshots))
   with a wardrobe pet copied into `.capture/session/profile/pets/` lets you
   check the pet window, the Wardrobe panel, and the rule editor without
@@ -310,5 +328,7 @@ Never publish `outfits/` inside `zip`: that breaks every old app.
 - **Outfit add-ons** — shipping new seasonal outfits without republishing the
   base pet. Today that means a new `wardrobeZip`.
 - **`install-pet` CLI** — prefer `wardrobeZip` and extract `outfits/`.
+- **Reviewed/upstream imports** — wardrobe support in `import-reviewed-pets.js`
+  and `sync-pets.js` on the web side.
 - **Translations** — wardrobe strings exist in English only; other locales fall
   back per key.
