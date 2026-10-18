@@ -41,7 +41,7 @@ assert.throws(() => togglePetHorizontalFlipMap(undefined, ""), /Invalid pet id f
 
 const userDataPath = mkdtempSync(join(tmpdir(), "openpets-pet-horizontal-flip-"));
 const electronMock = `data:text/javascript,${encodeURIComponent(`
-  export const app = { getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : "" };
+  export const app = { getVersion: () => "4.1.0", getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : "" };
   export const net = {};
   export const powerMonitor = { on: () => {}, getSystemIdleTime: () => 0 };
   export const screen = { on: () => {}, getAllDisplays: () => [] };

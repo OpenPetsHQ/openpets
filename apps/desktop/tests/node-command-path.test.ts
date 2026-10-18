@@ -14,7 +14,7 @@ chmodSync(nodePath, 0o700);
 writeFileSync(join(userDataPath, "openpets-state.json"), JSON.stringify({ version: 1, preferences: { nodeCommandPath: rawNodePath } }), "utf8");
 
 const electronMock = `data:text/javascript,${encodeURIComponent(`
-  export const app = { getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : ${JSON.stringify(userDataPath)}, isReady: () => true };
+  export const app = { getVersion: () => "4.1.0", getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : ${JSON.stringify(userDataPath)}, isReady: () => true };
   export const net = {};
   export const powerMonitor = { on: () => {}, getSystemIdleTime: () => 0 };
   export const screen = { on: () => {}, getAllDisplays: () => [] };

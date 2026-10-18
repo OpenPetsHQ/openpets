@@ -18,6 +18,7 @@ const electronMock = `data:text/javascript,${encodeURIComponent(`
     once() {}
   }
   export const app = {
+    getVersion: () => "4.1.0",
     getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : "",
     getAppPath: () => ${JSON.stringify(userDataPath)},
     commandLine: { getSwitchValue: () => "" },

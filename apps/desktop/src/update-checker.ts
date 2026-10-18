@@ -70,7 +70,7 @@ export function createUpdateErrorStatus(currentVersion: string, error: unknown, 
   };
 }
 
-function getCurrentAppVersion(): string {
+export function getCurrentAppVersion(): string {
   return normalizeVersion(app.getVersion()) || "0.0.0";
 }
 

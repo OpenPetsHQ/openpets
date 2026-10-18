@@ -8,7 +8,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, screen, type WebContents
 
 import { getAgentSetupSnapshot, runAgentSetupAction, updateAgentSetupCommandPaths } from "./agent-setup.js";
 import { refreshAgentPetContent } from "./agent-pet-controller.js";
-import { getAppStateSnapshot, hudScaleOptions, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPinned, setPetPoolOrder, updatePreferences } from "./app-state.js";
+import { getAppStateSnapshot, getLastSeenWhatsNewVersion, hudScaleOptions, markWhatsNewSeen, normalizePetPoolOrder, petScaleOptions, resolveCompanionDisplayName, setPetPinned, setPetPoolOrder, updatePreferences } from "./app-state.js";
 import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
@@ -42,9 +42,11 @@ import { installControlCenterPluginIpcHandlers } from "./control-center-plugin-i
 import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agent-setup-ipc.js";
 import { openExternalUrl } from "./external-url-opener.js";
 import { installControlCenterRemoteIpcHandlers } from "./control-center-remote-ipc.js";
+import { installControlCenterWhatsNewIpcHandlers } from "./control-center-whats-new-ipc.js";
+import { isWhatsNewPreviewEnabled, whatsNewEntries } from "./whats-new.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
 import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
-import { checkForGitHubReleaseUpdate, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
+import { checkForGitHubReleaseUpdate, getCurrentAppVersion, getUpdateStatus, openUpdateReleasePage } from "./update-checker.js";
 import { getRemoteControlService } from "./remote-control-service.js";
 import { configureVoiceAssistantShortcut, getVoiceAssistantShortcutSnapshot, resolveVoiceAssistantShortcutPreference } from "./voice-assistant-shortcut.js";
 import { configureChatShortcut, getChatShortcutSnapshot, resolveChatShortcutPreference } from "./chat-shortcut.js";
@@ -441,6 +443,20 @@ export function installInternalUiHandlers(): void {
     getRemoteControlService,
   });
 
+  installControlCenterWhatsNewIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    entries: whatsNewEntries,
+    getCurrentVersion: getCurrentAppVersion,
+    getLastSeenVersion: getLastSeenWhatsNewVersion,
+    markSeen: (currentVersion) => {
+      markWhatsNewSeen(currentVersion);
+    },
+    isPreviewEnabled: () => isWhatsNewPreviewEnabled(process.env),
+    openExternal: (url) => openExternalUrl(url),
+    logger: { debug: (message, fields) => debug("ui", message, fields) },
+  });
+
   controlCenterProviderIpc = installControlCenterProviderIpcHandlers({
     registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
     authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
@@ -602,10 +618,14 @@ export function installInternalUiProtocol(): void {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
       const url = new URL(request.url);
-      if (url.hostname !== "spritesheet" || url.pathname !== "/default" || url.hash) return new Response(null, { status: 404 });
+      // `/default` follows the user's default pet; `/builtin` is always the bundled Hoodie Cat.
+      const isBuiltInRequest = url.pathname === "/builtin";
+      if (url.hostname !== "spritesheet" || (url.pathname !== "/default" && !isBuiltInRequest) || url.hash) return new Response(null, { status: 404 });
       const version = url.searchParams.get("v");
       if ([...url.searchParams.keys()].some((key) => key !== "v") || (version !== null && !/^[a-z0-9_-]+-\d+-\d+$/.test(version))) return new Response(null, { status: 404 });
-      const { path, spriteLayout } = await getDefaultPetPreviewSpriteInfo();
+      const { path, spriteLayout } = isBuiltInRequest
+        ? getBuiltInPetPreviewSpriteInfo()
+        : await getDefaultPetPreviewSpriteInfo();
       const bytes = await readBoundedRegularFile(path, 100 * 1024 * 1024, "Pet preview spritesheet");
       const mimeType = petSpritesheetMimeType(path);
       if (mimeType === "image/svg+xml") {
@@ -853,10 +873,17 @@ async function getReactionAnimationSettingsSnapshot(): Promise<unknown> {
   };
 }
 
+function getBuiltInPetPreviewSpriteInfo(): { readonly path: string; readonly spriteLayout: CodexPetSpriteLayout } {
+  return {
+    path: join(app.getAppPath(), "assets", defaultPetSprite.fileName),
+    spriteLayout: codexV2SpriteLayout,
+  };
+}
+
 async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string; readonly version: string; readonly spriteLayout: CodexPetSpriteLayout }> {
   const state = getAppStateSnapshot();
   const selected = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId);
-  const builtInPath = join(app.getAppPath(), "assets", defaultPetSprite.fileName);
+  const builtInPath = getBuiltInPetPreviewSpriteInfo().path;
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
   try {
     const metadata = usesInstalledCandidate && selected

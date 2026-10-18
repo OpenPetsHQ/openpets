@@ -274,6 +274,14 @@ frontend in scope for these docs; the companion renderer is documented above
 and the `web/` marketing site is out of scope. See
 `src/renderer/src/codemap.md` for component structure.
 
+A one-time **What's new** dialog (`renderer/src/whats-new/WhatsNewDialog.tsx`)
+opens over whichever route Control Center starts on when the running version has
+unseen changelog entries. The changelog and selection rules live in
+`src/whats-new.ts`; `control-center-whats-new-ipc.ts` serves the pending entries,
+records dismissal, and opens only links declared in the changelog. See
+[Release guide](/release#whats-new-dialog) for adding an entry and the
+`OPENPETS_WHATS_NEW_PREVIEW=1` preview switch.
+
 The **Teams** route presents organization membership, applied/pending revisions,
 sync timestamps, and separated lists of organization-managed team pets and team
 plugins while preserving personal content in an isolated lane. It supports
@@ -512,7 +520,10 @@ per-pet `pinnedPetPositions` map, written through the dedicated
 `openpets:set-pet-pinned` / `setPinnedPets` paths rather than the preference patch), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
 `petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
 preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
-`voiceAssistantShortcut` accelerator. Idle cursor gaze defaults to enabled and
+`voiceAssistantShortcut` accelerator, and `lastSeenWhatsNewVersion` (the newest
+version whose What's new entries were dismissed; written on first launch of a
+fresh install so new users never see the dialog, absent for upgrades from older
+versions). Idle cursor gaze defaults to enabled and
 is configurable in Control Center → Settings → General. Eligible V2 pets play
 the six-frame row 0 breathing loop, and cursor movement selects a static
 look-direction cell while the cursor is moving and for about 1.2 seconds

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 const userDataPath = mkdtempSync(join(tmpdir(), "openpets-voice-device-state-"));
 
 const electronMock = `data:text/javascript,${encodeURIComponent(`
-  export const app = { getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : ${JSON.stringify(userDataPath)}, isReady: () => true };
+  export const app = { getVersion: () => "4.1.0", getPath: (name) => name === "userData" ? ${JSON.stringify(userDataPath)} : ${JSON.stringify(userDataPath)}, isReady: () => true };
   export const net = {};
   export const powerMonitor = { on: () => {}, getSystemIdleTime: () => 0 };
   export const screen = { on: () => {}, getAllDisplays: () => [] };

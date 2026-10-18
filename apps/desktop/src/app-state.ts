@@ -23,6 +23,7 @@ import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { defaultPetAssistantPersonality, mergePetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 import { DEFAULT_VOICE_ASSISTANT_SHORTCUT, isCanonicalVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
+import { normalizeLastSeenWhatsNewVersion, resolveMarkedSeenWhatsNewVersion, resolveStartupLastSeenWhatsNewVersion } from "./whats-new.js";
 
 export { normalizePetPoolOrder } from "./pet-pool.js";
 
@@ -130,6 +131,10 @@ export interface OpenPetsStateV1 {
     /** Per-pet wardrobe choices ("always wear" outfit, user-edited schedule). Absent = the
      * pet's own schedule, so pets without a wardrobe and existing users are unaffected. */
     readonly petWardrobePreferences?: PetWardrobePreferences;
+    /** Newest app version whose Control Center "What's new" entries were dismissed.
+     * Absent = an upgrade from a version that predates the dialog; fresh installs
+     * record the running version on first launch so they never see it. */
+    readonly lastSeenWhatsNewVersion?: string;
   };
   readonly pets: {
     readonly installed: readonly InstalledPetState[];
@@ -170,7 +175,8 @@ export function initializeAppState(): void {
   startupInstallLockPath = acquireStartupInstallLock(userDataPath);
 
   statePath = join(userDataPath, stateFileName);
-  const nextState = normalizeState(readStateFile(statePath));
+  const isFreshInstall = !existsSync(statePath);
+  const nextState = withStartupWhatsNewSeenVersion(normalizeState(readStateFile(statePath)), isFreshInstall);
   writeStateToDisk(nextState);
   currentState = nextState;
   console.log(`OpenPets state initialized at ${statePath}.`);
@@ -201,6 +207,29 @@ export function updatePreferences(patch: OpenPetsPreferencePatch): OpenPetsState
     preferences,
   });
 
+  commitState(nextState);
+  return getAppStateSnapshot();
+}
+
+export function getLastSeenWhatsNewVersion(): string | undefined {
+  return getInitializedState().preferences.lastSeenWhatsNewVersion;
+}
+
+/** Records the running app version as seen; never moves the recorded version backwards. */
+export function markWhatsNewSeen(currentVersion: string): OpenPetsStateV1 {
+  const state = getInitializedState();
+  const lastSeenWhatsNewVersion = resolveMarkedSeenWhatsNewVersion(state.preferences.lastSeenWhatsNewVersion, currentVersion);
+  if (lastSeenWhatsNewVersion === state.preferences.lastSeenWhatsNewVersion) {
+    return getAppStateSnapshot();
+  }
+
+  const nextState = normalizeState({
+    ...state,
+    preferences: {
+      ...state.preferences,
+      lastSeenWhatsNewVersion,
+    },
+  });
   commitState(nextState);
   return getAppStateSnapshot();
 }
@@ -628,6 +657,23 @@ function normalizeState(value: unknown): OpenPetsStateV1 {
   };
 }
 
+function withStartupWhatsNewSeenVersion(state: OpenPetsStateV1, isFreshInstall: boolean): OpenPetsStateV1 {
+  const lastSeenWhatsNewVersion = resolveStartupLastSeenWhatsNewVersion({
+    storedVersion: state.preferences.lastSeenWhatsNewVersion,
+    isFreshInstall,
+    currentVersion: app.getVersion(),
+  });
+  if (lastSeenWhatsNewVersion === state.preferences.lastSeenWhatsNewVersion) return state;
+
+  return {
+    ...state,
+    preferences: {
+      ...state.preferences,
+      lastSeenWhatsNewVersion,
+    },
+  };
+}
+
 function normalizeActivity(value: unknown): OpenPetsActivityState {
   const record = isRecord(value) ? value : {};
   return {
@@ -720,6 +766,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     // cannot disagree about which positions are still meaningful.
     pinnedPetPositions: prunePinnedPetPositions(normalizePinnedPetPositions(value.pinnedPetPositions), pinnedPets),
     petWardrobePreferences: normalizePetWardrobePreferences(value.petWardrobePreferences),
+    lastSeenWhatsNewVersion: normalizeLastSeenWhatsNewVersion(value.lastSeenWhatsNewVersion),
   };
 
   return preferences;
@@ -832,6 +879,7 @@ function createDefaultState(): OpenPetsStateV1 {
       pinnedPets: undefined,
       pinnedPetPositions: undefined,
       petWardrobePreferences: undefined,
+      lastSeenWhatsNewVersion: undefined,
     },
     pets: {
       installed: [builtInPet],

@@ -319,6 +319,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `control-center-agent-setup-ipc.ts`: Injected fixed Control Center agent-setup IPC registrations, sender authorization, action validation, and agent-setup delegation
 - `control-center-remote-ipc.ts`: Injected fixed Control Center remote-control IPC registrations, sender authorization, request validation, snapshot composition, and RemoteControlService delegation
+- `control-center-whats-new-ipc.ts`: Injected Electron-free Control Center What's new IPC registrations: pending entries for the running version, mark seen, and opening only changelog-declared links by id
+- `whats-new.ts`: Pure release changelog (`whatsNewEntries`) and selection rules: pending entries between the last seen and running version, fresh-install seen default, non-regressing mark seen, `OPENPETS_WHATS_NEW_PREVIEW` override
 - `control-center-pet-management-ipc.ts`: Injected Electron-free Control Center pet/catalog management IPC registrations, state/layout snapshots, installation/import mutations, pool ordering, and position reset
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback

@@ -622,6 +622,61 @@ body.theme-dark .plugin-config-backdrop {
   body.theme-dark .wardrobe-editor-row,
   body.theme-dark .wardrobe-editor-check { color: #f8fbff; }
   body.theme-dark .wardrobe-icon-button:hover:not(:disabled) { border-color: rgba(124, 199, 255, 0.4); background: rgba(37, 99, 235, 0.2); color: #b9d8ff; }
+
+  /* What's new (renderer/src/whats-new/WhatsNewDialog.tsx) */
+  .whats-new-dialog { @apply w-[min(620px,calc(100vw-3rem))]; }
+  .whats-new-head { @apply -mb-2 flex items-center justify-between gap-3; }
+  .whats-new-close { @apply grid h-8 w-8 cursor-pointer place-items-center rounded-xl border border-blue-100 bg-white/70 text-slatecopy transition-[transform,background-color,border-color,color] duration-150 hover:border-blue-200 hover:text-brand active:scale-[0.96]; }
+  .whats-new-entry { @apply flex flex-col gap-4; }
+  .whats-new-entry-older { @apply border-t border-blue-100/80 pt-5; }
+  .whats-new-hero { @apply flex items-center gap-5; }
+  .whats-new-stage { @apply relative grid h-[172px] w-[164px] shrink-0 place-items-center overflow-hidden rounded-[28px] border border-blue-100 bg-[radial-gradient(circle_at_50%_38%,rgba(59,150,255,.22),rgba(255,255,255,.78)_58%,rgba(239,247,255,.95))]; }
+  .whats-new-stage .sprite-frame { animation: cc-idle-bob 2.6s ease-in-out infinite; }
+  .whats-new-sparkle { @apply absolute h-2.5 w-2.5 rotate-45 rounded-[3px] bg-amber-300/90; animation: whats-new-twinkle 2.4s ease-in-out infinite; }
+  .whats-new-sparkle-a { @apply left-4 top-5; }
+  .whats-new-sparkle-b { @apply right-5 top-9 h-2 w-2 bg-sky-300/90; animation-delay: 0.8s; }
+  .whats-new-sparkle-c { @apply bottom-6 right-7 h-1.5 w-1.5 bg-purple-300/90; animation-delay: 1.6s; }
+  @keyframes whats-new-twinkle { 0%, 100% { opacity: 0.25; transform: rotate(45deg) scale(0.7); } 50% { opacity: 1; transform: rotate(45deg) scale(1.1); } }
+  .whats-new-hero-text { @apply flex min-w-0 flex-col gap-2; }
+  .whats-new-version { @apply self-start rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-brand; }
+  .whats-new-hero-text h2 { @apply m-0 font-monoDisplay text-3xl font-black leading-tight text-navy; }
+  .whats-new-summary { @apply m-0 text-sm leading-relaxed text-slatecopy; }
+  .whats-new-chips { @apply m-0 mt-1 flex list-none flex-wrap gap-1.5 p-0; }
+  .whats-new-chip { @apply rounded-full border px-2.5 py-1 text-xs font-semibold; }
+  .whats-new-chip-purple { @apply border-purple-200/70 bg-purple-50 text-purple-700; }
+  .whats-new-chip-blue { @apply border-blue-200/70 bg-blue-50 text-blue-700; }
+  .whats-new-chip-orange { @apply border-amber-200/70 bg-amber-50 text-amber-700; }
+  .whats-new-chip-red { @apply border-red-200/70 bg-red-50 text-red-700; }
+  .whats-new-chip-yellow { @apply border-yellow-200/80 bg-yellow-50 text-yellow-800; }
+  .whats-new-items { @apply m-0 grid list-none gap-2 p-0; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .whats-new-item { @apply flex items-start gap-3 rounded-2xl border border-blue-100/70 bg-white/60 p-3; }
+  .whats-new-item-mark { @apply mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand; }
+  .whats-new-item strong { @apply block text-sm font-semibold text-navy; }
+  .whats-new-item small { @apply mt-0.5 block text-xs leading-relaxed text-slatecopy; }
+  .whats-new-item-image { @apply mt-2 block max-h-40 w-full rounded-xl object-contain; }
+  .whats-new-art { @apply block h-auto max-h-36 w-full rounded-2xl border border-blue-100 bg-[linear-gradient(180deg,rgba(239,246,255,.9),rgba(255,255,255,.6))] object-contain px-4 pt-3; }
+  body.theme-dark .whats-new-art { border-color: rgba(116, 159, 221, 0.2); background: rgba(24, 34, 54, 0.6); }
+  .whats-new-links { @apply flex flex-wrap justify-end gap-2; }
+  .whats-new-footer { @apply -mt-1 flex justify-start border-t border-blue-100/80 pt-4; }
+  @media (prefers-reduced-motion: reduce) { .whats-new-sparkle, .whats-new-stage .sprite-frame { animation: none; } }
+  @media (max-width: 560px) { .whats-new-hero { @apply flex-col items-start; } }
+  body.theme-dark .whats-new-dialog { border-color: rgba(116, 159, 221, 0.28); background: rgba(20, 29, 47, 0.97); }
+  body.theme-dark .whats-new-close,
+  body.theme-dark .whats-new-item { border-color: rgba(116, 159, 221, 0.24); background: rgba(24, 34, 54, 0.78); }
+  body.theme-dark .whats-new-stage { border-color: rgba(116, 159, 221, 0.2); background: linear-gradient(135deg, rgba(30, 43, 68, 0.96), rgba(14, 116, 144, 0.18)); }
+  body.theme-dark .whats-new-hero-text h2,
+  body.theme-dark .whats-new-item strong { color: #f8fbff; }
+  body.theme-dark .whats-new-summary,
+  body.theme-dark .whats-new-item small { color: #a9b6ca; }
+  body.theme-dark .whats-new-version { border-color: rgba(96, 165, 250, 0.3); background: rgba(37, 99, 235, 0.18); color: #93c5fd; }
+  body.theme-dark .whats-new-chip { border-color: rgba(148, 163, 184, 0.22); background: rgba(30, 41, 59, 0.76); }
+  body.theme-dark .whats-new-chip-purple { color: #d8b4fe; }
+  body.theme-dark .whats-new-chip-blue { color: #93c5fd; }
+  body.theme-dark .whats-new-chip-orange,
+  body.theme-dark .whats-new-chip-yellow { color: #fbd38d; }
+  body.theme-dark .whats-new-chip-red { color: #fca5a5; }
+  body.theme-dark .whats-new-entry-older,
+  body.theme-dark .whats-new-footer { border-color: rgba(116, 159, 221, 0.2); }
   @keyframes plugin-fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes plugin-pop-in { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
   .plugin-inspector-head { @apply flex items-center gap-4; }

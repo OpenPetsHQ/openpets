@@ -32,12 +32,19 @@ function isAllowedDefaultPetPreview(value: string | undefined): value is string 
   return typeof value === "string" && /^openpets-pet-preview:\/\/spritesheet\/default\?v=[a-z0-9_-]+-\d+-\d+$/u.test(value);
 }
 
+/** The bundled Hoodie Cat atlas, independent of which pet is the user's default. */
+export const builtInPetSpritesheetUrl = "openpets-pet-preview://spritesheet/builtin";
+
+function isAllowedBuiltInPetPreview(value: string | undefined): value is string {
+  return value === builtInPetSpritesheetUrl;
+}
+
 function isAllowedDataUrl(value: string | undefined): value is string {
   return typeof value === "string" && /^data:image\/(?:png|webp|jpeg|jpg);base64,[a-z0-9+/=]+$/iu.test(value);
 }
 
 export function safePetImage(value: string | undefined): string | undefined {
-  return isAllowedCatalogPreview(value) || isAllowedCodexPreview(value) || isAllowedInstalledPetPreview(value) || isAllowedDefaultPetPreview(value) || isAllowedDataUrl(value) ? value : undefined;
+  return isAllowedCatalogPreview(value) || isAllowedCodexPreview(value) || isAllowedInstalledPetPreview(value) || isAllowedDefaultPetPreview(value) || isAllowedBuiltInPetPreview(value) || isAllowedDataUrl(value) ? value : undefined;
 }
 
 export function installedPetSpritesheetUrl(petId: string, outfitId?: string): string {

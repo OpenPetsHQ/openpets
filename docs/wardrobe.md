@@ -238,9 +238,11 @@ catalog must keep serving them something they can install.
 Pet entries may carry `minOpenPetsVersion` (`MAJOR.MINOR.PATCH`, the same name
 plugins use). A wardrobe-capable app that is older than it shows *Needs
 OpenPets X* on the card, disables Install, and `getCatalogPet` refuses the
-install. **Wardrobe pets do not need it** — the base ZIP already covers old
-apps. It exists so the next breaking package change can gate cleanly; it only
-protects app versions that know the field.
+install. Wardrobe pets don't strictly need it — the base ZIP already covers
+old apps — but the web pipeline sets `minOpenPetsVersion: "4.1.0"` on them to
+document the requirement (it only affects app versions that know the field,
+and all of them are 4.1 or later). It exists so the next breaking package
+change can gate cleanly.
 
 ### Upgrading installed pets
 
@@ -292,9 +294,67 @@ and `outfits/` is published like this:
 6. ZIP repair (`scripts/lib/pet-zip-repair.js`) only rebuilds base ZIPs, whose
    `pet.json` never carries `wardrobe`; it does not touch `wardrobeZip`.
 
+7. The manifest entry also gets `minOpenPetsVersion: "4.1.0"` and a
+   `wardrobe` preview (outfit names, public `/pets/{slug}/outfits/{id}.webp`
+   atlases written as lossy WebP previews, the schedule) for the website. The
+   catalog itself only publishes `wardrobeZip` and `minOpenPetsVersion`.
+   `app/lib/wardrobes.generated.js` lists just the wardrobe pets for the site.
+8. `sync:local-pets -- --only=<installId>` publishes one pet without touching
+   the others.
+
 Never publish `outfits/` inside `zip`: that breaks every old app. Reviewed and
 upstream imports (`import-reviewed-pets.js`, `sync-pets.js`) do not produce
 wardrobe pets yet.
+
+## Authoring outfits in Pet Studio
+
+Pet Studio (`web/studio`, OpenPetsHQ/dev.openpets) builds wardrobes end to end;
+`web/studio/README.md` § Wardrobes is the reference.
+
+- A finished pet gets a **Wardrobe** tab: outfit cards, *New outfit* (presets
+  such as Pajamas, Weekend, Halloween, Winter Holidays, Summer, each with a
+  suggested rule, or an existing spritesheet), *Try the schedule* (any moment,
+  day and year timelines), and the schedule editor, using the same rule
+  semantics as `pet-wardrobe-core.ts`.
+- Each outfit is a child project (`outfitOf`) drawn like a pet: looks of the
+  same character in the outfit (from the pet's chosen look), then every row,
+  each also given the pet's own frames for that row so motion matches. Outfits
+  keep the pet's size.
+- *Install* downloads the wardrobe ZIP (finished outfits + schedule) or, for
+  apps before 4.1, the plain pet. Importing a wardrobe ZIP brings its outfits.
+
+## The first wardrobe pet: Hoodie Cat
+
+Hoodie Cat (the built-in pet's art, published as `hoodie-cat` /
+`hoodie-cat-openpets`) has five outfits drawn in Pet Studio — Pajamas, Weekend,
+Halloween, Winter Holidays, Summer — and this schedule:
+
+| # | Outfit | When |
+|---|--------|------|
+| 1 | Winter Holidays | 12-15 – 01-02 |
+| 2 | Halloween | 10-24 – 11-01 |
+| 3 | Pajamas | 22:00 – 07:00 |
+| 4 | Weekend | sat, sun |
+| 5 | Summer | 06-21 – 08-31 |
+
+Its source folder is the local Codex pet `hoodie-cat` (pet.json with the
+wardrobe, `outfits/`). The built-in pet itself is unchanged; adding outfits to
+it would mean bundling the atlases with the app.
+
+## On the website
+
+openpets.dev shows wardrobes on the homepage (a week/year time-lapse of Hoodie
+Cat following its schedule), in the gallery (a *Wardrobes* tab, a spotlight,
+and an *Outfits* badge on cards with `wardrobeZip`), and on pet pages (pick an
+outfit to preview every animation in it, the schedule in words, ZIPs with and
+without outfits). Matching logic for those previews lives in
+`web/app/lib/wardrobe.js` and must stay in step with `pet-wardrobe-core.ts`.
+
+## What's new in 4.1
+
+The one-time What's new dialog (`apps/desktop/src/whats-new.ts`, see
+[Release](/release)) introduces wardrobes with Hoodie Cat's outfit lineup
+(`src/renderer/public/whats-new/4.1.0-wardrobe.webp`) and links to its pet page.
 
 ## Testing
 
@@ -332,3 +392,6 @@ wardrobe pets yet.
 - **`install-pet` CLI** — prefer `wardrobeZip` and extract `outfits/`.
 - **Reviewed/upstream imports** — wardrobe support in `import-reviewed-pets.js`
   and `sync-pets.js` on the web side.
+- **Studio row keys** — the chroma key for an outfit's rows is chosen from its
+  look; a moving part close to that key (a purple cape on magenta) fails the
+  leftover-key check and needs a redraw on another key.
