@@ -30,6 +30,8 @@ export type WhatsNewEntry = {
   readonly items: readonly WhatsNewItem[];
   readonly chipKeys?: readonly string[];
   readonly showcase?: "built-in-pet";
+  readonly art?: string;
+  readonly artAltKey?: string;
   readonly links: readonly WhatsNewLink[];
 };
 
@@ -176,6 +178,7 @@ function WhatsNewEntrySection({
   const { t } = useI18n();
   const headline = t(entry.headlineKey);
   const headingId = isNewest ? "whats-new-title" : `whats-new-title-${entry.version}`;
+  const art = entry.art && bundledImagePattern.test(entry.art) ? `whats-new/${entry.art}` : undefined;
 
   return (
     <section className={`whats-new-entry ${isNewest ? "" : "whats-new-entry-older"}`} aria-labelledby={headingId}>
@@ -208,6 +211,15 @@ function WhatsNewEntrySection({
           )}
         </div>
       </div>
+
+      {art && (
+        <img
+          className="whats-new-art"
+          src={art}
+          alt={entry.artAltKey ? t(entry.artAltKey) : ""}
+          draggable="false"
+        />
+      )}
 
       {entry.items.length > 0 && (
         <ul className="whats-new-items">

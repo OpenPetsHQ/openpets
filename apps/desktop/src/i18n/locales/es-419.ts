@@ -1141,6 +1141,7 @@ export const es419: Partial<Messages> = {
   "whatsNew.releaseNotes": "Notas de la versión",
   "whatsNew.v4_1_0.headline": "Atuendos y guardarropas",
   "whatsNew.v4_1_0.summary": "Ahora las mascotas pueden cambiar de atuendo según un horario: pijama por la noche, looks de fin de semana y atuendos de temporada y festivos.",
+  "whatsNew.v4_1_0.artAlt": "Hoodie Cat con su look predeterminado y cinco atuendos: pijama, fin de semana, Halloween, fiestas de invierno y verano",
   "whatsNew.v4_1_0.contextMenu.title": "Clic derecho en una mascota → Atuendo",
   "whatsNew.v4_1_0.contextMenu.body": "Elige un atuendo para usar ahora mismo, o elige Automático para seguir el horario.",
   "whatsNew.v4_1_0.wardrobe.title": "Centro de control → Mascotas → Guardarropa",

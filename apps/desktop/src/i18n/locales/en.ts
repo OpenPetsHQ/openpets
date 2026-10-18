@@ -1303,6 +1303,7 @@ export const en = {
   "whatsNew.releaseNotes": "Release notes",
   "whatsNew.v4_1_0.headline": "Outfits & wardrobes",
   "whatsNew.v4_1_0.summary": "Pets can now change outfits on a schedule: pajamas at night, weekend looks, and seasonal & holiday outfits.",
+  "whatsNew.v4_1_0.artAlt": "Hoodie Cat in its default look and five outfits: pajamas, weekend, Halloween, winter holidays, and summer",
   "whatsNew.v4_1_0.contextMenu.title": "Right-click a pet → Outfit",
   "whatsNew.v4_1_0.contextMenu.body": "Pick an outfit to wear right now, or choose Automatic to follow the schedule.",
   "whatsNew.v4_1_0.wardrobe.title": "Control Center → Pets → Wardrobe",

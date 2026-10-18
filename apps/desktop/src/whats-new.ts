@@ -36,6 +36,13 @@ export interface WhatsNewEntry {
   readonly chipKeys?: readonly MessageKey[];
   /** Animated preview of the bundled Hoodie Cat beside the headline. */
   readonly showcase?: "built-in-pet";
+  /**
+   * Optional full-width art under the headline, a file name under
+   * `src/renderer/public/whats-new/` (same rules as {@link WhatsNewItem.image}).
+   */
+  readonly art?: string;
+  /** i18n key describing `art` for screen readers. */
+  readonly artAltKey?: MessageKey;
   readonly links: readonly WhatsNewLink[];
 }
 
@@ -70,6 +77,8 @@ export const whatsNewEntries: readonly WhatsNewEntry[] = [
       "whatsNew.v4_1_0.chip.summer",
     ],
     showcase: "built-in-pet",
+    art: "4.1.0-wardrobe.webp",
+    artAltKey: "whatsNew.v4_1_0.artAlt",
     links: [
       {
         id: "hoodie-cat-wardrobe",

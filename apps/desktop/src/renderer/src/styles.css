@@ -654,6 +654,8 @@ body.theme-dark .plugin-config-backdrop {
   .whats-new-item strong { @apply block text-sm font-semibold text-navy; }
   .whats-new-item small { @apply mt-0.5 block text-xs leading-relaxed text-slatecopy; }
   .whats-new-item-image { @apply mt-2 block max-h-40 w-full rounded-xl object-contain; }
+  .whats-new-art { @apply block h-auto max-h-36 w-full rounded-2xl border border-blue-100 bg-[linear-gradient(180deg,rgba(239,246,255,.9),rgba(255,255,255,.6))] object-contain px-4 pt-3; }
+  body.theme-dark .whats-new-art { border-color: rgba(116, 159, 221, 0.2); background: rgba(24, 34, 54, 0.6); }
   .whats-new-links { @apply flex flex-wrap justify-end gap-2; }
   .whats-new-footer { @apply -mt-1 flex justify-start border-t border-blue-100/80 pt-4; }
   @media (prefers-reduced-motion: reduce) { .whats-new-sparkle, .whats-new-stage .sprite-frame { animation: none; } }

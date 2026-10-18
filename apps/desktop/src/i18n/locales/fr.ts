@@ -1299,6 +1299,7 @@ export const fr: Partial<Messages> = {
   "whatsNew.releaseNotes": "Notes de version",
   "whatsNew.v4_1_0.headline": "Tenues et garde-robes",
   "whatsNew.v4_1_0.summary": "Les mascottes peuvent désormais changer de tenue selon un programme : pyjama la nuit, looks du week-end, tenues de saison et de fêtes.",
+  "whatsNew.v4_1_0.artAlt": "Hoodie Cat dans sa tenue par défaut et cinq tenues : pyjama, week-end, Halloween, fêtes d’hiver et été",
   "whatsNew.v4_1_0.contextMenu.title": "Clic droit sur une mascotte → Tenue",
   "whatsNew.v4_1_0.contextMenu.body": "Choisissez une tenue à porter tout de suite, ou Automatique pour suivre le programme.",
   "whatsNew.v4_1_0.wardrobe.title": "Centre de contrôle → Mascottes → Garde-robe",

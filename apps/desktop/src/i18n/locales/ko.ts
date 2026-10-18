@@ -1141,6 +1141,7 @@ export const ko: Partial<Messages> = {
   "whatsNew.releaseNotes": "릴리스 노트",
   "whatsNew.v4_1_0.headline": "의상과 옷장",
   "whatsNew.v4_1_0.summary": "이제 펫이 일정에 따라 의상을 갈아입어요. 밤에는 잠옷, 주말 룩, 계절 및 기념일 의상까지.",
+  "whatsNew.v4_1_0.artAlt": "기본 모습의 Hoodie Cat과 의상 다섯 벌: 잠옷, 주말, 핼러윈, 겨울 휴일, 여름",
   "whatsNew.v4_1_0.contextMenu.title": "펫 우클릭 → 의상",
   "whatsNew.v4_1_0.contextMenu.body": "지금 입을 의상을 고르거나, 자동을 선택해 일정을 따르세요.",
   "whatsNew.v4_1_0.wardrobe.title": "컨트롤 센터 → 펫 → 옷장",

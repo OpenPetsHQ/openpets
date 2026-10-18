@@ -1141,6 +1141,7 @@ export const ja: Partial<Messages> = {
   "whatsNew.releaseNotes": "リリースノート",
   "whatsNew.v4_1_0.headline": "衣装とワードローブ",
   "whatsNew.v4_1_0.summary": "ペットがスケジュールに合わせて衣装を着替えるようになりました。夜はパジャマ、週末はお出かけ服、季節やイベントの衣装も。",
+  "whatsNew.v4_1_0.artAlt": "デフォルトの Hoodie Cat と 5 着の衣装：パジャマ、週末、ハロウィン、冬のホリデー、夏",
   "whatsNew.v4_1_0.contextMenu.title": "ペットを右クリック → 衣装",
   "whatsNew.v4_1_0.contextMenu.body": "今すぐ着る衣装を選ぶか、「自動」を選んでスケジュールに従います。",
   "whatsNew.v4_1_0.wardrobe.title": "コントロールセンター → ペット → ワードローブ",

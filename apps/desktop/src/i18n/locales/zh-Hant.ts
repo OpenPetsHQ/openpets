@@ -1141,6 +1141,7 @@ export const zhHant: Partial<Messages> = {
   "whatsNew.releaseNotes": "版本說明",
   "whatsNew.v4_1_0.headline": "服裝與衣櫥",
   "whatsNew.v4_1_0.summary": "寵物現在可以依照排程更換服裝：夜晚穿睡衣、週末換休閒裝，還有季節和節日服裝。",
+  "whatsNew.v4_1_0.artAlt": "預設造型的 Hoodie Cat 和五套服裝：睡衣、週末、萬聖節、冬季節日和夏季",
   "whatsNew.v4_1_0.contextMenu.title": "在寵物上按右鍵 → 服裝",
   "whatsNew.v4_1_0.contextMenu.body": "選擇現在要穿的服裝，或選擇「自動」以依照排程更換。",
   "whatsNew.v4_1_0.wardrobe.title": "控制中心 → 寵物 → 衣櫥",

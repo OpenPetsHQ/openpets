@@ -1141,6 +1141,7 @@ export const ptBR: Partial<Messages> = {
   "whatsNew.releaseNotes": "Notas da versão",
   "whatsNew.v4_1_0.headline": "Roupas e guarda-roupas",
   "whatsNew.v4_1_0.summary": "Agora os pets podem trocar de roupa conforme uma programação: pijama à noite, looks de fim de semana e roupas sazonais e de feriados.",
+  "whatsNew.v4_1_0.artAlt": "Hoodie Cat no visual padrão e em cinco roupas: pijama, fim de semana, Halloween, festas de inverno e verão",
   "whatsNew.v4_1_0.contextMenu.title": "Clique com o botão direito em um pet → Roupa",
   "whatsNew.v4_1_0.contextMenu.body": "Escolha uma roupa para usar agora ou escolha Automático para seguir a programação.",
   "whatsNew.v4_1_0.wardrobe.title": "Central de controle → Pets → Guarda-roupa",
