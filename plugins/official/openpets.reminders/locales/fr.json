@@ -1,0 +1,58 @@
+{
+  "plugin.name": "Rappels rapides",
+  "plugin.description": "Créez de courts rappels locaux depuis le menu de la mascotte, avec un son et une bulle d’alerte persistante que vous pouvez reporter.",
+
+  "config.soundEnabled.label": "Jouer un son",
+  "config.soundEnabled.description": "Jouer un son d’alerte à l’échéance d’un rappel.",
+  "config.osNotification.label": "Afficher une notification système",
+  "config.osNotification.description": "Afficher aussi une notification sur le bureau à l’échéance d’un rappel.",
+  "config.customSound.label": "Son d’alerte personnalisé",
+  "config.customSound.description": "Son facultatif à jouer à la place du son d’alerte par défaut.",
+
+  "command.testReminder.title": "Tester un rappel",
+  "command.testReminder.description": "Afficher une alerte de rappel maintenant pour vérifier le message, les boutons, l’icône et le son.",
+  "command.setReminder.title": "Créer un rappel…",
+  "command.setReminder.description": "Créer un rappel local rapide.",
+  "command.setReminder.submit": "Créer le rappel",
+  "command.reminder15.title": "Rappel dans 15 min",
+  "command.reminder15.description": "Créer un rappel pour dans 15 minutes.",
+  "command.reminder30.title": "Rappel dans 30 min",
+  "command.reminder30.description": "Créer un rappel pour dans 30 minutes.",
+  "command.reminder60.title": "Rappel dans 1 heure",
+  "command.reminder60.description": "Créer un rappel pour dans 1 heure.",
+  "command.viewReminders.title": "Voir les rappels",
+  "command.viewReminders.description": "Lister les rappels en attente et permettre de les annuler individuellement.",
+  "command.clearReminders.title": "Effacer les rappels",
+  "command.clearReminders.description": "Annuler tous les rappels en attente.",
+
+  "form.message.label": "Message",
+  "form.hours.label": "Heures",
+  "form.minutes.label": "Minutes",
+
+  "reminder.defaultMessage": "C’est l’heure du rappel.",
+  "reminder.testMessage": "Ceci est un rappel de test.",
+
+  "status.active": "{count} rappel(s) actif(s)",
+  "status.none": "Aucun rappel actif",
+
+  "speech.set": "Rappel prévu dans {minutes} min.",
+  "speech.none": "Aucun rappel actif.",
+  "speech.cleared": "Les rappels ont été effacés.",
+  "speech.cancelled": "Rappel annulé : {message}",
+
+  "bubble.due": "{message}",
+  "bubble.missed": "Manqué pendant votre absence : {message}",
+
+  "indicator.due": "Rappel",
+  "indicator.missed": "Rappel manqué",
+
+  "action.done": "Terminé",
+  "action.snooze": "Reporter de 5 min",
+
+  "menu.item": "dans {minutes} min : {message}",
+
+  "notify.title": "Rappels rapides",
+  "notify.bodyMissed": "Manqué pendant votre absence : {message}",
+
+  "error.tooMany": "Rappels rapides peut conserver jusqu’à {max} rappels actifs."
+}

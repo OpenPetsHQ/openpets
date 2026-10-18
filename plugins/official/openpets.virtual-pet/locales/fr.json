@@ -1,0 +1,57 @@
+{
+  "plugin.name": "Mascotte virtuelle",
+  "plugin.description": "Prenez soin d’un petit compagnon de bureau et renforcez votre lien au fil de douces interactions quotidiennes.",
+  "hud.food": "Nourriture",
+  "hud.energy": "Énergie",
+  "hud.play": "Jeu",
+  "hud.bond": "Lien",
+  "config.showStats.label": "Afficher le panneau des besoins",
+  "config.showStats.description": "Afficher le panneau Nourriture, Énergie, Jeu et Lien à côté de votre mascotte. Désactivez-le pour le masquer et libérer de l’espace à l’écran.",
+  "config.sound.label": "Son des actions",
+  "config.sound.description": "Jouer un son facultatif lors des soins : nourrir, jouer, caresser ou laisser se reposer.",
+
+  "command.feed.title": "Donner un goûter",
+  "command.feed.description": "Donner un goûter à votre mascotte.",
+  "command.play.title": "Jouer à un jeu",
+  "command.play.description": "Faire une petite partie.",
+  "command.pet.title": "Caresser",
+  "command.pet.description": "Donner un peu d’affection à votre mascotte.",
+  "command.nap.title": "Laisser se reposer",
+  "command.nap.description": "Laisser votre mascotte se reposer pendant 15 minutes.",
+  "command.status.title": "Prendre des nouvelles de la mascotte",
+  "command.status.description": "Voir comment votre mascotte se sent.",
+
+  "speech.feed.0": "Merci pour le goûter !",
+  "speech.feed.1": "*miam miam miam*",
+  "speech.feed.2": "Miam, c’est bon !",
+  "speech.feed.3": "C’était délicieux !",
+
+  "speech.play.0": "C’était amusant !",
+  "speech.play.1": "Youpi !",
+  "speech.play.2": "J’adore jouer !",
+  "speech.play.3": "Encore !",
+
+  "speech.pet.0": "Ronron...",
+  "speech.pet.1": "*se blottit*",
+  "speech.pet.2": "Bien au chaud...",
+  "speech.pet.3": "Que de douceur !",
+
+  "speech.nap.0": "Zzz...",
+  "speech.nap.1": "*se roule en boule*",
+  "speech.nap.2": "Envie de dormir...",
+  "speech.nap.3": "Au repos...",
+
+  "speech.levelup": "On se rapproche !",
+
+  "speech.status.sleeping": "Zzz... au repos.",
+  "speech.status.hungry": "J’ai un peu faim.",
+  "speech.status.tired": "J’ai envie de dormir.",
+  "speech.status.bored": "J’ai envie de jouer.",
+  "speech.status.happy": "Je me sens très bien !",
+  "speech.status.content": "Je suis bien.",
+
+  "nudge.hungry": "Je commence à avoir un peu faim.",
+  "nudge.tired": "Le sommeil me gagne.",
+  "nudge.bored": "Envie de jouer ?",
+  "nudge.neglected": "Je peux avoir un peu d’attention ?"
+}

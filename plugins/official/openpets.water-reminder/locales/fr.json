@@ -1,0 +1,23 @@
+{
+  "plugin.name": "Rappel d’hydratation",
+  "plugin.description": "Votre mascotte vous invite en douceur à faire une pause pour boire de l’eau.",
+  "config.pace.label": "Fréquence des rappels",
+  "config.pace.description": "Choisissez la fréquence des rappels de votre mascotte.",
+  "config.pace.gentle": "Douce",
+  "config.pace.normal": "Normale",
+  "config.pace.often": "Fréquente",
+  "config.customSound.label": "Son personnalisé",
+  "config.customSound.description": "Son facultatif à jouer avec le rappel.",
+  "indicator.water": "Rappel d’hydratation",
+  "command.testReminder.title": "Tester un rappel",
+  "command.testReminder.description": "Afficher un rappel d’hydratation maintenant pour vérifier le message et le son.",
+  "command.drinkNow.title": "J’ai bu de l’eau",
+  "command.drinkNow.description": "Enregistrer une pause pour boire de l’eau maintenant.",
+  "command.pauseToday.title": "Mettre en pause pour aujourd’hui",
+  "command.pauseToday.description": "Suspendre les rappels d’hydratation jusqu’à demain.",
+  "bubble.reminder": "Une pause pour boire ? Quelques gorgées feraient du bien.",
+  "action.done": "Terminé",
+  "action.later": "Plus tard",
+  "speech.done": "Très bien. Je reviendrai vous voir un peu plus tard.",
+  "speech.paused": "En pause pour aujourd’hui. Je vous le rappellerai demain."
+}

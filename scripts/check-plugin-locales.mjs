@@ -60,11 +60,15 @@ function compareKeys(pluginName, localeName, englishKeys, localeKeys) {
 
 async function checkPlugin(sourceDir, plugin) {
   const localesDir = join(sourceDir, plugin.name, "locales");
-  if (!(await pathExists(localesDir))) return;
+  const entries = (await pathExists(localesDir))
+    ? (await readdir(localesDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith("."))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
-  const entries = (await readdir(localesDir, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith("."))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  if (sourceDir === officialDir && !entries.some((entry) => entry.name === "fr.json")) {
+    errors.push(`${plugin.name}/locales is missing required French locale fr.json.`);
+  }
 
   if (entries.length === 0) return;
   if (!entries.some((entry) => entry.name === "en.json")) {

@@ -1,0 +1,21 @@
+{
+  "plugin.name": "Routine du matin et du soir",
+  "plugin.description": "De petits rendez-vous quotidiens avec votre mascotte pour commencer et terminer la journée en douceur.",
+  "config.morningTime.label": "Heure du matin",
+  "config.morningTime.description": "Heure locale du message de bonjour.",
+  "config.eveningTime.label": "Heure du soir",
+  "config.eveningTime.description": "Heure locale du message de fin de journée.",
+  "config.enableMorning.label": "Activer le message du matin",
+  "config.enableMorning.description": "Afficher le message de bonjour chaque jour.",
+  "config.enableEvening.label": "Activer le message du soir",
+  "config.enableEvening.description": "Afficher le message de fin de journée chaque jour.",
+  "command.morningNow.title": "Afficher le bonjour maintenant",
+  "command.morningNow.description": "Afficher une fois le message du matin d’aujourd’hui.",
+  "command.eveningNow.title": "Afficher le message du soir maintenant",
+  "command.eveningNow.description": "Afficher une fois le message de fin de journée d’aujourd’hui.",
+  "command.pauseToday.title": "Mettre en pause pour aujourd’hui",
+  "command.pauseToday.description": "Suspendre les rendez-vous de routine jusqu’à demain.",
+  "speech.morning": "Bonjour. Commencez la journée par un petit pas, en douceur.",
+  "speech.evening": "Petit rendez-vous du soir. Vous pouvez laisser cette journée derrière vous et vous reposer.",
+  "speech.paused": "En pause pour aujourd’hui. Je reviendrai vous voir demain."
+}
