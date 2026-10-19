@@ -396,6 +396,16 @@ edited through host-applied `add`/`replace`/`delete` operations, so their values
 never need to cross into the renderer. The host commits profile, credential,
 and role changes atomically.
 
+The MiniMax chat preset starts new profiles with `MiniMax-M3.1-Flash`;
+`MiniMax-M3` is the alternate current model in the editable model field.
+Existing saved model selections are not rewritten. The preset uses the
+OpenAI-compatible base URL `https://api.minimax.io/v1`; use
+`https://api.minimaxi.com/v1` for China. An Anthropic text profile can instead
+use `https://api.minimax.io/anthropic` or `https://api.minimaxi.com/anthropic`.
+The host leaves thinking and effort at the API defaults: Flash uses adaptive
+thinking; M3 defaults to adaptive on OpenAI and disabled on Anthropic.
+Reasoning blocks are not displayed as assistant text.
+
 Talk controls are exposed through narrow preload methods (`getVoiceAssistantSnapshot`,
 `startVoiceAssistant`, `retryVoiceAssistant`, `muteVoiceAssistant`, `unmuteVoiceAssistant`,
 `interruptVoiceAssistant`, `endVoiceAssistant`, and `onVoiceAssistantEvent`).
