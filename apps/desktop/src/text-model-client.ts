@@ -168,6 +168,9 @@ function decodeAnthropicResponse(value: unknown): PetAssistantTextModelResponse 
       if (!isPlainObject(block.input)) throw new Error("Text model returned malformed tool-call arguments.");
       ids.add(block.id);
       calls.push(Object.freeze({ id: block.id, name: block.name, arguments: cloneAndFreeze(block.input) }));
+    } else if (block.type === "thinking" || block.type === "redacted_thinking") {
+      // Adaptive-thinking models may include private reasoning before the reply.
+      continue;
     } else {
       throw new Error("Text model returned an unsupported Anthropic content block.");
     }

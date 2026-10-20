@@ -148,7 +148,7 @@ export const providerPresets: readonly ProviderPreset[] = Object.freeze([
   { id: "ollama", label: "Ollama", adapter: "openai-compatible-text", model: "llama3.2", baseUrl: "http://127.0.0.1:11434/v1", credentialMode: "none" },
   { id: "lm-studio", label: "LM Studio", adapter: "openai-compatible-text", model: "local-model", baseUrl: "http://127.0.0.1:1234/v1", credentialMode: "none" },
   { id: "vllm", label: "vLLM", adapter: "openai-compatible-text", model: "local-model", baseUrl: "http://127.0.0.1:8000/v1", credentialMode: "none" },
-  { id: "minimax-chat", label: "MiniMax chat", adapter: "openai-compatible-text", model: "MiniMax-M3", baseUrl: "https://api.minimax.io/v1", credentialMode: "required" },
+  { id: "minimax-chat", label: "MiniMax chat", adapter: "openai-compatible-text", model: "MiniMax-M3.1-Flash", baseUrl: "https://api.minimax.io/v1", credentialMode: "required" },
   { id: "whisper", label: "Whisper-compatible STT", adapter: "openai-compatible-transcription", model: "whisper-1", baseUrl: "https://api.openai.com/v1", credentialMode: "required" },
   { id: "elevenlabs-scribe", label: "ElevenLabs Scribe STT", adapter: "elevenlabs-transcription", model: "scribe_v2", baseUrl: "https://api.elevenlabs.io/v1", credentialMode: "required" },
   { id: "elevenlabs", label: "ElevenLabs TTS", adapter: "elevenlabs-tts", model: "eleven_flash_v2_5", voice: "od84OdVweqzO3t6kKlWT", baseUrl: "https://api.elevenlabs.io/v1", credentialMode: "required" },
