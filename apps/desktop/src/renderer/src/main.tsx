@@ -3746,6 +3746,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const [assistantTab, setAssistantTab] = useState<"providers" | undefined>(initialTarget.assistantTab);
   const [remoteTokenHandoff, setRemoteTokenHandoff] = useState<RemoteTokenHandoffState>(null);
   const [state, setState] = useState<StateSnapshot | null>(null);
+  const [petSettings, setPetSettings] = useState<SettingsState | null>(null);
   const [catalog, setCatalog] = useState<CatalogState | null>(null);
   const [catalogPages, setCatalogPages] = useState<Record<number, PetEntry[]>>({});
   const [catalogSearchState, setCatalogSearchState] = useState<CatalogSearchState>(initialCatalogSearchState);
@@ -3766,6 +3767,17 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   const [error, setError] = useState("");
   const petDetailDialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const petsRequestOwnerRef = useRef({ mounted: false, generation: 0 });
+  const petOperationPendingRef = useRef(false);
+
+  useEffect(() => {
+    const owner = { mounted: true, generation: 0 };
+    petsRequestOwnerRef.current = owner;
+    return () => {
+      owner.mounted = false;
+      owner.generation += 1;
+    };
+  }, []);
 
   function navigateToRoute(route: Route): void {
     setCurrentRoute(route);
@@ -3786,10 +3798,19 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   }), []);
 
   async function loadPetsData() {
+    const owner = petsRequestOwnerRef.current;
+    const generation = ++owner.generation;
     setError("");
-    const [nextState, nextCatalog, nextCodex] = await Promise.all([api.getPetsState(), api.getCatalog(), api.getCodexPets()]);
+    const [nextState, nextCatalog, nextCodex, nextSettings] = await Promise.all([
+      api.getPetsState(),
+      api.getCatalog(),
+      api.getCodexPets(),
+      api.getSettingsState(),
+    ]);
+    if (!owner.mounted || owner.generation !== generation) return;
     logPetsEvent("load-complete", { installed: nextState.pets.installed.length, defaultPetId: nextState.preferences.defaultPetId, catalogSource: nextCatalog.source, catalogPets: nextCatalog.pets.length, catalogPage: nextCatalog.page, catalogPageCount: nextCatalog.pageCount, codexPets: nextCodex.pets.length, catalogError: nextCatalog.error, codexError: nextCodex.error, firstCatalogPet: nextCatalog.pets[0] ? { id: nextCatalog.pets[0].id, preview: imageDebug(nextCatalog.pets[0].preview), thumbnail: imageDebug(nextCatalog.pets[0].thumbnail), spritesheet: imageDebug(nextCatalog.pets[0].spritesheet) } : null });
     setState(nextState); setCatalog(nextCatalog); setCodex(nextCodex);
+    setPetSettings(nextSettings);
     setCatalogPage(nextCatalog.page ?? 0);
     setCatalogPages({ [nextCatalog.page ?? 0]: nextCatalog.pets });
     const visiblePetIds = new Set<string>([...nextState.pets.installed.map((pet) => pet.id), ...nextCatalog.pets.map((pet) => pet.id), ...nextCodex.pets.map((pet) => pet.id)]);
@@ -3797,7 +3818,14 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   }
   useEffect(() => {
     if (currentRoute !== "pets") return;
-    void loadPetsData().catch((err) => setError(String(err?.message ?? err)));
+    const owner = petsRequestOwnerRef.current;
+    const request = loadPetsData();
+    const generation = owner.generation;
+    void request.catch((err) => {
+      if (owner.mounted && owner.generation === generation) {
+        setError(String(err?.message ?? err));
+      }
+    });
   }, [currentRoute]);
 
   const pets = useMemo(() => {
@@ -3876,6 +3904,18 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
 
   const selected = selectedId ? pets.find((p) => p.id === selectedId) ?? null : null;
   const defaultId = state?.preferences.defaultPetId;
+  const pinnedPetIds = petSettings?.preferences.pinnedPets ?? [];
+  const pinLimitReached = petSettings !== null && pinnedPetIds.length >= petSettings.pinnedPetsLimit;
+
+  function canManageDesktopPet(pet: PetEntry): boolean {
+    return Boolean(
+      pet.installed
+      && !pet.builtIn
+      && !pet.broken
+      && pet.id !== defaultId
+      && petSettings?.petPoolCandidates.some((candidate) => candidate.id === pet.id),
+    );
+  }
 
   useEffect(() => {
     if (!selected) return;
@@ -3940,9 +3980,38 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
   }, [selected, defaultId, state, t]);
 
   async function act(label: string, fn: () => Promise<unknown>) {
-    try { setBusy(label); setError(""); await fn(); await loadPetsData(); }
-    catch (err) { setError(String((err as Error)?.message ?? err)); }
-    finally { setBusy(""); }
+    const owner = petsRequestOwnerRef.current;
+    if (!owner.mounted || petOperationPendingRef.current || busy) return;
+    petOperationPendingRef.current = true;
+    owner.generation += 1;
+    try {
+      setBusy(label);
+      setError("");
+      await fn();
+      if (owner.mounted) await loadPetsData();
+    } catch (err) {
+      if (owner.mounted) setError(String((err as Error)?.message ?? err));
+    } finally {
+      petOperationPendingRef.current = false;
+      if (owner.mounted) setBusy("");
+    }
+  }
+
+  async function handleDesktopPin(pet: PetEntry): Promise<void> {
+    if (!canManageDesktopPet(pet)) return;
+    const pinned = pinnedPetIds.includes(pet.id);
+    if (!pinned && pinLimitReached) return;
+    const owner = petsRequestOwnerRef.current;
+    await act(t("pets.busy.pinning"), async () => {
+      const nextSettings = await api.setPetPinned(pet.id, !pinned);
+      if (!owner.mounted) return;
+      setPetSettings(nextSettings);
+      logPetsEvent("desktop-pin-updated", {
+        petId: pet.id,
+        pinned: (nextSettings.preferences.pinnedPets ?? []).includes(pet.id),
+        pinnedCount: nextSettings.preferences.pinnedPets?.length ?? 0,
+      });
+    });
   }
 
   function retryCatalogSearch() {
@@ -4158,6 +4227,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
               const canImport = !pet.installed && pet.sourceKind === "codex";
               const canSetDefault = pet.installed && !isDefault && !pet.broken;
               const canRemove = pet.installed && !pet.builtIn && !pet.protected;
+              const isPinned = pinnedPetIds.includes(pet.id);
 
               return (
                 <div
@@ -4222,6 +4292,18 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                           onClick={() => { void act(t("pets.busy.settingDefault"), () => api.setDefaultPet(pet.id)); }}
                         >
                           {t("pets.action.default")}
+                        </Button>
+                      )}
+                      {canManageDesktopPet(pet) && (
+                        <Button
+                          variant="secondary"
+                          size="compact"
+                          disabled={!!busy || (!isPinned && pinLimitReached)}
+                          ariaLabel={t(isPinned ? "pets.aria.unpin" : "pets.aria.pin", { name: pet.displayName })}
+                          title={!isPinned && pinLimitReached ? t("settings.pinnedPets.limitReached") : undefined}
+                          onClick={() => { void handleDesktopPin(pet); }}
+                        >
+                          {t(isPinned ? "pets.action.unpin" : "pets.action.pin")}
                         </Button>
                       )}
                       {canRemove && (
@@ -4387,6 +4469,18 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       onClick={() => act(t("pets.busy.settingDefault"), () => api.setDefaultPet(selected.id))}
                     >
                       {busy || t("pets.detail.setDefaultPet")}
+                    </Button>
+                  )}
+                  {canManageDesktopPet(selected) && (
+                    <Button
+                      variant="secondary"
+                      fullWidth
+                      disabled={!!busy || (!pinnedPetIds.includes(selected.id) && pinLimitReached)}
+                      ariaLabel={t(pinnedPetIds.includes(selected.id) ? "pets.aria.unpin" : "pets.aria.pin", { name: selected.displayName })}
+                      title={!pinnedPetIds.includes(selected.id) && pinLimitReached ? t("settings.pinnedPets.limitReached") : undefined}
+                      onClick={() => { void handleDesktopPin(selected); }}
+                    >
+                      {t(pinnedPetIds.includes(selected.id) ? "pets.detail.unpinPet" : "pets.detail.pinPet")}
                     </Button>
                   )}
 

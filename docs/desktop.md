@@ -628,14 +628,19 @@ full behavioral description.
 #### Pinned pets
 
 A **pinned pet** is a desktop pet the user owns directly: no agent session, no plugin
-and no lease is involved. Each installed pet can be pinned in Control Center →
-Settings → General, which stores the ordered `pinnedPets` list in app state, so pinned
-pets come back on the next launch. Pin candidates are the same eligible set the pool
-uses (installed, non-broken, not the built-in default, and not the current default
-pet), which keeps a single pet from being drawn by two windows at once. At most eight
-pets can be pinned, because every pin is a real OS window. At the cap the remaining
-toggles are disabled and the page says so, rather than accepting a ninth pin that the
-list normalizer would silently drop.
+and no lease is involved. In Control Center → **Pets**, use **Add to desktop** on
+an eligible installed pet's card or detail view; repeat with different pets to keep
+several companions on screen. **Remove from desktop** removes only that pet's pin.
+Adding or removing a pin does not change the default pet: **Set as default** is a
+separate choice, and the default companion is not counted as an extra pin.
+
+Pin candidates are installed, non-broken pets other than the built-in pet and the
+current default pet. Each pet ID can be pinned only once; this action adds a different
+pet, not another copy of an existing pin. At most eight extra pets can be pinned,
+because every pin is a real OS window. At the cap, adding another pet is disabled
+until a pin is removed; existing pins can still be removed. Settings → General
+exposes the same pins, not a second collection. The ordered `pinnedPets` list is
+saved in app state and restored when the app next launches.
 
 Pin toggles go through their own `openpets:set-pet-pinned` channel
 (`{ petId, pinned }`), the same shape the pool order uses, instead of the
@@ -657,10 +662,15 @@ list. Uninstalling keeps the pin, so reinstalling the pet brings its window back
 Pinned windows also take part in display recovery: the display coordinator calls
 `reclampPinnedPetWindows()` on display add/remove/metrics change, and the pet context
 menu (size, flip) and the appearance settings reload their content like every other
-pet owner. Closing a pinned pet window unpins that pet. Pinning is independent of the
+pet owner. Right-click a pinned pet and choose **Close pet** to remove its pin;
+closing it this way means it will not return on restart. Quitting the app closes
+the windows without removing their pins. Pinned pets also support installed native
+Pet Activities, with the same per-pet opt-ins and idle/appearance eligibility rules.
+Pinning is independent of the
 pool: a pinned pet keeps its window for the whole session and is never released by the
 lease liveness sweep, because it holds no lease. The reverse is also true - the pool
-never assigns a pinned pet to a session, so one pet is never drawn by two windows.
+does not implicitly assign a pinned pet to a session. Explicit agent requests remain
+separate lease-owned carriers.
 
 ### Plugin subsystem
 

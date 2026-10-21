@@ -152,12 +152,19 @@ precise Linux hit-mask shapes.
   terminates, the lease is released within ~5 s and the pet window closes.
   See the lease model in [IPC and remote control](/ipc).
 - **User-pinned pets** (`pinned-pet-controller.ts`) - installed pets the user pins
-  in Control Center → Settings → General. They are user-owned windows, independent
+  with **Add to desktop** on their installed card or detail view in Control Center →
+  **Pets** (also managed in Settings → General). They are user-owned windows, independent
   of agent sessions, plugins, and leases, and return when the app launches again.
   Each pin remembers its own position and is clamped back onto a connected display.
-  Closing a pinned pet window unpins it. Uninstalling a pinned pet closes its window
+  Use **Remove from desktop**, or right-click the pinned pet and choose **Close pet**,
+  to remove only that pin. Quitting the app preserves pins for the next launch.
+  Uninstalling a pinned pet closes its window
   but retains the pin, so reinstalling it brings the window back. Pins are limited
-  to eight and cannot target the built-in or current default pet. The implicit pet-pool
+  to eight extra, different pets and cannot target a broken, built-in, or current
+  default pet. The default companion is separate: adding a pin does not select a
+  new default, and the same pet ID cannot be pinned twice. Pinned pets can play their
+  installed native Pet Activities under the usual idle, outfit, and opt-in rules.
+  The implicit pet-pool
   assignment skips pinned pets to avoid opening a second window for the same pet. See
   [Pinned pets in the desktop app](/desktop#pinned-pets) for settings and pool behavior.
 

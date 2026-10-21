@@ -6,6 +6,7 @@ import { info, warn } from "./logger.js";
 import type { PetActivity } from "./pet-activities-core.js";
 import type { PetActivitiesSnapshot } from "./pet-activities-types.js";
 import { PetActivityService } from "./pet-activity-service.js";
+import { PetActivityAssetCache } from "./pet-activity-asset-cache.js";
 import { updateEnabledPetActivityIds } from "./pet-activity-policy.js";
 import { readPetActivitySpritesheet } from "./pet-file-safety.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
@@ -29,6 +30,7 @@ interface WindowEntry {
 
 const windows = new Map<BrowserWindow, WindowEntry>();
 const unavailable = new Map<string, Set<string>>();
+const assetValidation = new PetActivityAssetCache();
 let timer: NodeJS.Timeout | null = null;
 let suspended = false;
 let handlersInstalled = false;
@@ -58,6 +60,7 @@ export function stopPetActivities(): void {
   timer = null;
   service.stop();
   unavailable.clear();
+  assetValidation.clear();
 }
 
 export function suspendPetActivities(value: boolean): void {
@@ -271,6 +274,7 @@ export function finishPetActivitySpeech(window: BrowserWindow, requestId?: strin
 }
 
 export function resetPetActivitiesForPet(petId: string, restoreAssets = false): void {
+  assetValidation.forgetPet(petId);
   if (restoreAssets) unavailable.delete(petId);
   for (const entry of windows.values()) {
     if (entry.render?.renderedPetId === petId) {
@@ -281,6 +285,7 @@ export function resetPetActivitiesForPet(petId: string, restoreAssets = false): 
 }
 
 export function removePetActivitiesForPet(petId: string): void {
+  assetValidation.forgetPet(petId);
   service.forgetPet(petId);
   unavailable.delete(petId);
   for (const entry of windows.values()) {
@@ -296,7 +301,9 @@ export async function readInstalledActivityAsset(petId: string, activityId: stri
 }
 
 async function readActivities(petId: string): Promise<{ readonly activities: readonly PetActivity[]; readonly source: "personal" | "team" }> {
-  const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId);
+  const installed = getAppStateSnapshot().pets.installed;
+  assetValidation.retainPets(installed.map((pet) => pet.id));
+  const pet = installed.find((candidate) => candidate.id === petId);
   if (!pet || pet.broken) throw new Error("This pet is unavailable.");
   const source = pet.source?.kind === "team" ? "team" : "personal";
   if (pet.id === builtInPet.id) return { activities: [], source };
@@ -308,15 +315,16 @@ export async function getPetActivities(petId: string): Promise<PetActivitiesSnap
   const { activities, source } = await readActivities(petId);
   const availabilityReason = service.getAvailabilityReason(petId);
   const enabled = getEnabledPetActivityIds(petId);
-  const items = await Promise.all(activities.map(async (activity) => {
-    let reason = unavailable.get(petId)?.has(activity.id) ? "Activity asset unavailable. Reinstall this pet to restore it." : null;
-    if (!reason) {
-      try {
-        await readPetActivitySpritesheet(getPetDir(petId, source), activity);
-      } catch {
-        reason = "Activity asset unavailable. Reinstall this pet to restore it.";
-      }
-    }
+  let invalidAssets: ReadonlySet<string> = new Set();
+  if (activities.length === 0) {
+    assetValidation.forgetPet(petId);
+  } else {
+    invalidAssets = await assetValidation.getUnavailableIds(petId, getPetDir(petId, source), activities);
+  }
+  const items = activities.map((activity) => {
+    const reason = unavailable.get(petId)?.has(activity.id) || invalidAssets.has(activity.id)
+      ? "Activity asset unavailable. Reinstall this pet to restore it."
+      : null;
     return {
       id: activity.id,
       displayName: activity.displayName,
@@ -326,7 +334,7 @@ export async function getPetActivities(petId: string): Promise<PetActivitiesSnap
       previewUrl: reason ? null : `openpets-installed://activity/${encodeURIComponent(petId)}/${encodeURIComponent(activity.id)}`,
       availabilityReason: reason ?? availabilityReason,
     };
-  }));
+  });
   return {
     petId,
     activities: items,
