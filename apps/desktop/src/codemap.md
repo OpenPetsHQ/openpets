@@ -338,6 +338,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Pets**:
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, gaze configuration, and plugin scale override updates; companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
+- `pet-activities.ts`: Native activity runtime adapter: eligible carrier registration, raw busy/interruption signals, validated optional assets, saved opt-ins, Control Center snapshots, and dedicated generation-guarded playback IPC.
+- `pet-activity-service.ts` / `pet-activity-policy.ts`: Electron-free single-playback-per-pet scheduling, continuous idle opportunities, cooldown/repeat history, cancellation/completion ownership, and preference normalization with injectable time/random.
+- `pet-activity-player.cjs`: Dedicated finite rectangular-strip preload player, with image-load/completion generations, cleanup, baseline/scale preservation, and isolation from plugin overrides.
+- `pet-activities-types.ts` / `control-center-pet-activities-ipc.ts`: Clone-safe activity UI snapshot and authorized narrow get/enable/play IPC contracts.
 - `pet-window-styles.ts`: Pet-window CSS generation for reaction/movement sprite states and V2 cursor-glance atlas overrides; V2 idle keeps its animated row-zero loop outside an active glance, and paused V2 idle holds the static neutral cell
 - `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override to the currently rendered sprite
 - `x11-pet-window-state.ts`: X11 client adapter that subscribes to StructureNotify before show, waits for matching MapNotify, sends post-map EWMH state additions, and observes `_NET_WM_STATE` until standard exclusion atoms and the KDE switcher atom when advertised by root `_NET_SUPPORTED` are present
@@ -380,18 +384,19 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
 - `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
-- `pet-file-safety.ts`: Bounded, no-follow regular-file reads, manifest-selected atlas checks (base atlas plus exact `outfits/` contents for wardrobe pets), and validated atlas read/write helpers shared by folder, ZIP, catalog, and Codex installs and installed-pet rendering
+- `pet-file-safety.ts`: Bounded, no-follow regular-file reads, manifest-selected atlas checks (base atlas plus exact `outfits/` and `activities/` contents), and validated atlas read/write helpers shared by folder, ZIP, catalog, and Codex installs; fully decodes bounded static activity strips separately from base-pet runtime reads
+- `pet-activities-core.ts`: Dependency-free optional activity package contract, readable metadata/image limits, unique-id/path validation, and derived one-shot duration calculation
 - `pet-wardrobe-core.ts`: Pure wardrobe contract — outfit/schedule validation for `pet.json`, lenient normalization of persisted per-pet wardrobe preferences, and first-match local-time outfit resolution (time/days/dates with midnight and new-year wrap)
 - `pet-wardrobe.ts`: Wardrobe owner — render-time outfit resolution for every pet window role, minute-aligned schedule timer that re-renders pets whose scheduled outfit changed, Control Center wardrobe snapshot, and validated preference updates (always-wear choice, user schedule, reset)
 - `pet-window-refresh.ts`: Re-renders every window showing one pet id across default, agent, plugin, LAN, and pinned roles after a per-pet presentation change (flip, outfit)
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
-- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths, normalized optional gaze anchors, and the optional validated `wardrobe`), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
+- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths, normalized optional gaze anchors, optional validated `wardrobe` and `activities`), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME (base or one declared outfit) for image protocols
 - `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
 - `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup (rejecting pets whose `minOpenPetsVersion` is newer than the app, and marking them `requiresOpenPetsVersion` for the UI), and V1/V2 sprite metadata conversion
 - `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata and optional pet package fields `wardrobeZip` / `minOpenPetsVersion`
-- `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection)
+- `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection), including declared wardrobe atlases and activity strips in root or single-wrapper pet packages
 
 **Plugins**:
 - `plugin-manifest.ts`: Manifest V1/V2/V3 schema/types and validation for declarative and JavaScript runtimes, permissions (`timer`/`schedule`, `pet:*`, `pets:*`, `audio`, `events`, `ui:*`, `notify`, `bus`, `ai`, `secrets`, `voice:*`, `auth`, `files`, `system:*`, `clipboard`, `network:*`), config schema, timer triggers, assets, panels, entry files, and pet actions.

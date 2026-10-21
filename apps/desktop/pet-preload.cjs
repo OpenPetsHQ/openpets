@@ -12,6 +12,22 @@ const {
 const { installDefaultPetSession } = require("./pet-session/session-overlay-view.cjs");
 const { createPetContentStageController } = require("./src/pet-content-stage.cjs");
 const { createPetAlphaHitTester, decodeSpriteSheetPixels } = require("./src/pet-alpha-hit-test.ts");
+const { createNativePetActivityPlayer } = require("./src/pet-activity-player.cjs");
+const nativeActivityPlayer = createNativePetActivityPlayer({
+  document,
+  createImage: () => new Image(),
+  setTimeout,
+  clearTimeout,
+  now: () => performance.now(),
+  onComplete: (payload) => ipcRenderer.send("openpets:pet-activity-complete", payload),
+});
+ipcRenderer.on("openpets:pet-activity", (_event, payload) => nativeActivityPlayer.play(payload));
+for (const eventName of ["mousedown", "contextmenu"]) {
+  document.addEventListener(eventName, () => {
+    nativeActivityPlayer.cancel();
+    ipcRenderer.send("openpets:pet-activity-interaction");
+  }, true);
+}
 
 // The pet window's preload runs sandboxed, where `require()` cannot load
 // arbitrary local modules. `pet-tts-helper.cjs` is only loadable when the
@@ -189,6 +205,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
         shell.appendChild(spriteOverrideElement);
       }
     }
+    nativeActivityPlayer.refreshStage();
     updateOnPetTalkButton(latestVoiceSnapshot);
     updateDefaultPetCheckInButton();
   };
@@ -218,6 +235,11 @@ const getPetAlphaHitTester = () => {
     petAlphaHitTester = createPetAlphaHitTester({
       document,
       loadSpritePixels: async (url) => {
+        if (url.startsWith("data:image/webp;base64,")) {
+          const binary = atob(url.slice("data:image/webp;base64,".length));
+          const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+          return decodeSpriteSheetPixels(bytes, document);
+        }
         const bytes = await ipcRenderer.invoke("openpets:pet-sprite-bytes", url);
         if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) throw new Error("Sprite bytes unavailable.");
         return decodeSpriteSheetPixels(bytes, document);
@@ -2055,7 +2077,10 @@ const installDefaultPetManagerCheckIn = () => {
 // --- Plugin sprite/scale overrides ------------------------------------------
 
 let spriteOverrideElement = null;
+let spriteOverrideGeneration = 0;
 ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
+  nativeActivityPlayer.cancel();
+  const generation = ++spriteOverrideGeneration;
   const shell = document.querySelector(".pet-shell");
   if (!shell) return;
   const base = shell.querySelector(".sprite, .installed-card");
@@ -2066,6 +2091,7 @@ ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
   }
   const probe = new Image();
   probe.onload = () => {
+    if (generation !== spriteOverrideGeneration || !shell.isConnected) return;
     const frame = probe.naturalHeight;
     const frames = Math.max(1, Math.floor(probe.naturalWidth / Math.max(1, frame)));
     const fps = Math.min(30, Math.max(1, Number(override.fps) || 8));

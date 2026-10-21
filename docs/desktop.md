@@ -472,6 +472,47 @@ destruction boundary, so interaction and gaze state remain installed for a later
 show; app shutdown destroys the window directly rather than routing through the
 canceled close request.
 
+#### Native Pet Activities
+
+Activities are package artwork, not plugins or replacement reaction rows.
+`pet-activities.ts` owns native window registrations and the main-process
+scheduler; the Electron-free `pet-activity-service.ts` owns one playback per pet,
+per-pet cooldown/history, and injectable clock/random selection. Default, pinned,
+and agent carriers participate; LAN visitors and plugin-owned carriers do not.
+
+Automatic playback is explicitly opt-in through the per-pet
+`enabledPetActivityIds` app-state preference (empty by default). Continuous
+eligibility requires 60 seconds idle, followed by a random 60–180 second
+opportunity. Each activity has a five-minute cooldown; alternatives prevent
+immediate repeats, while a sole enabled activity may repeat after its cooldown.
+Missed opportunities are never queued. Manual playback ignores these timing and
+opt-in gates, but still requires an existing, visible, idle carrier wearing the
+**actually rendered default outfit**. It never spawns a pet or changes clothes;
+base-atlas fallback carries its actual outfit identity into eligibility.
+
+Raw agent display/status, any movement (including vertical and sub-three-pixel
+movement), dragging, clicking/context menus, plugin takeover, attached chat,
+voice/reactions, hide/pause, renderer reload/replacement, appearance changes, removal,
+sleep, and shutdown interrupt playback and restart idle eligibility. The
+dedicated preload player uses 192×208 frames with normal pet scale, shell flip,
+and bottom baseline; alpha hit-testing samples the displayed strip. Generations
+guard asset reads, image loads, cancellation, completion, and a bounded fallback
+deadline. Native cleanup never clears a plugin override. An unreadable optional
+activity is disabled for that install, without marking the pet broken. Reimport
+refreshes all carriers of the same pet and restores validation of its assets.
+Noninteractive HUD body refreshes preserve the idle opportunity and any active
+clip; stage replacement reparents the native strip without restarting its clock.
+Window scale overrides survive renderer reload just as the base sprite's replayed
+override does. Enable/disable mutations prune saved ids no longer present in the
+current package, so replacing content cannot crowd out a newly installed activity.
+
+The existing `openPets` Control Center bridge exposes `getPetActivities`,
+`setPetActivityEnabled`, and `playPetActivity`; each returns the clone-safe
+`PetActivitiesSnapshot` from `pet-activities-types.ts`, including saved enablement,
+current playback, and unavailability reasons. Validated previews use
+`openpets-installed://activity/{petId}/{activityId}`; no new URL scheme or plugin
+authority is introduced.
+
 ### Local IPC server
 
 `local-ipc.ts` runs a `net.Server` over a Unix socket / Windows named pipe /

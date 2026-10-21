@@ -8,6 +8,7 @@ import { createVelocityTracker } from "./pet-throw-core.js";
 import { cancelPetThrow, startPetThrow, type PetThrowPhysics } from "./pet-throw.js";
 import { resetPetGazeWindow, setPetGazeDragging, setPetGazeRendererReady, suspendPetGazeForMovement } from "./pet-window-gaze.js";
 import type { PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
+import { finishPetActivitySpeech, interruptPetActivity, setPetActivityDragging } from "./pet-activities.js";
 
 export interface PetWindowInteractionDependencies {
   readonly useWaylandNativeDrag: boolean;
@@ -274,6 +275,7 @@ export function installPetWindowInteraction(
   const handleDragStart = (event: IpcMainEvent, point: unknown): void => {
     if (!isFromWindow(event) || !isScreenPoint(point) || window.isDestroyed()) return;
 
+    setPetActivityDragging(window, true);
     setPetGazeDragging(window, true);
     suspendPetGazeForMovement(window);
     if (useWaylandNativeDrag) {
@@ -319,6 +321,7 @@ export function installPetWindowInteraction(
   const handleDragEnd = (event: IpcMainEvent): void => {
     if (!isFromWindow(event)) return;
 
+    setPetActivityDragging(window, false);
     setPetGazeDragging(window, false);
     suspendPetGazeForMovement(window);
     if (useWaylandNativeDrag) {
@@ -381,12 +384,14 @@ export function installPetWindowInteraction(
       ? payload as Record<string, unknown>
       : {};
     if (name !== "pet:hover") debug("pet.window", "pet event", { windowId, name });
+    if (name !== "pet:hover") interruptPetActivity(window);
     onPetEvent?.(name, data);
   };
 
   const handleSpeechCompletion = (event: IpcMainEvent, payload: unknown): void => {
     if (!isFromWindow(event) || !isRecord(payload) || typeof payload.requestId !== "string" || payload.requestId.length === 0) return;
     if (payload.kind !== "system" || (payload.outcome !== "ended" && payload.outcome !== "error" && payload.outcome !== "stopped")) return;
+    finishPetActivitySpeech(window, payload.requestId);
 
     const completion: PetWindowSpeechCompletion = {
       window,

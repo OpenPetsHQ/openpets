@@ -76,6 +76,36 @@ schedule from Control Center and the pet context menu. Pets without a wardrobe
 are unchanged. The contract, resolution order, packaging, two-ZIP catalog
 distribution, and compatibility rules live in [Wardrobe](/wardrobe).
 
+## Activity packages
+
+A full pet package may optionally declare `pet.json.activities`: at most 16
+one-shot animations separate from its reaction atlas and wardrobe. Each entry
+has a unique lowercase `id` matching `^[a-z0-9][a-z0-9_-]{0,31}$`, a trimmed
+`displayName` of 1–40 characters, `outfitId: "default"`, and the exact
+`spritesheetPath: "activities/{id}.webp"`. `frameCount` is an integer from 4
+through 32 and `fps` is an integer from 1 through 12. Their derived duration
+(`frameCount × 1000 / fps`) must be between 1000 and 12000 milliseconds,
+inclusive. Omitted activities are equivalent to an empty list.
+
+Each activity is a static, fully decodable WebP horizontal strip of exactly
+`192 × frameCount` pixels wide and 208 pixels high, not an animated WebP. Each
+file is limited to 2 MiB and all activity files together to 16 MiB. The
+`activities/` directory must contain exactly the declared files: missing,
+extra, nested, mismatched, symlinked, or unsafe paths reject installation.
+`pet-activities-core.ts` owns the pure metadata and duration contract;
+`pet-file-safety.ts` owns bounded image reads and full decoding.
+
+Activities travel inside a complete pet folder or ZIP alongside `pet.json` and
+the base atlas, never as a standalone activity install root. ZIPs may use root
+files or one wrapper folder. Folder/Codex imports copy every declared activity
+into the private candidate. A successful re-import replaces the entire pet
+snapshot under its stable pet id, so removed declarations and assets disappear;
+validation or promotion failure preserves the previous install and state through
+the existing install transaction. Packages without activities retain their
+existing installation behavior. Runtime reads of optional activity assets stay
+separate from base-atlas validation, so a damaged optional strip need not make
+the base pet unusable.
+
 ## Teams-owned pets
 
 Teams adds a fourth explicit source kind, `team`. Persisted source ownership

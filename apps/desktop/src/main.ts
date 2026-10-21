@@ -39,7 +39,7 @@ import { initializeManagerCheckInService, type ManagerCheckInService } from "./m
 import { findTeamEnrollmentLink } from "./team-protocol.js";
 import { assertPetInstallZipUrl, findPetInstallLink, type PetInstallLinkParseResult } from "./pet-install-link-protocol.js";
 import { createPetInstallLinkHandler, type PetInstallLinkHandler } from "./pet-install-link-handler.js";
-import { installPetFromZipUrlWithResult } from "./pet-installation.js";
+import { installPetFromZipUrlWithResult, setPetInstallationChangeHandler } from "./pet-installation.js";
 import { resolveDevControlCenterRoute } from "./control-center-route.js";
 import { getSharedVoiceDeviceService } from "./voice-device-service.js";
 import { enumerateTrustedVoiceDevices, probeTrustedVoiceOutput } from "./voice-device-electron.js";
@@ -51,6 +51,8 @@ import { reclampPinnedPetWindows, syncPinnedPets } from "./pinned-pet-controller
 import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
+import { removePetActivitiesForPet, resetPetActivitiesForPet, startPetActivities, stopPetActivities, suspendPetActivities } from "./pet-activities.js";
+import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 
 let teamService: TeamService | null = null;
 let managerCheckInService: ManagerCheckInService | null = null;
@@ -149,6 +151,8 @@ if (!gotSingleInstanceLock) {
     },
     stopPetDisplayCoordinator: () => {
       petDisplayCoordinator?.stop();
+      stopPetActivities();
+      setPetInstallationChangeHandler(null);
     },
   });
 
@@ -188,6 +192,14 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
+    startPetActivities();
+    setPetInstallationChangeHandler((petId, removed) => {
+      if (removed) removePetActivitiesForPet(petId);
+      else resetPetActivitiesForPet(petId, true);
+      refreshPetWindowsForPetId(petId, removed ? "pet-remove" : "pet-install");
+    });
+    powerMonitor.on("suspend", () => suspendPetActivities(true));
+    powerMonitor.on("resume", () => suspendPetActivities(false));
     getSharedVoiceDeviceService({
       enumerate: enumerateTrustedVoiceDevices,
       probeOutputSelection: probeTrustedVoiceOutput,

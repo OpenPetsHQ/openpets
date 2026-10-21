@@ -23,6 +23,22 @@ const maxFiles = 500;
 const maxIndividualFileBytes = 100 * 1024 * 1024;
 const downloadTimeoutMs = 30_000;
 
+let installationChangeHandler: ((petId: string, removed: boolean) => void) | null = null;
+
+/** Main supplies window effects only after the install transaction has committed. */
+export function setPetInstallationChangeHandler(handler: typeof installationChangeHandler): void {
+  installationChangeHandler = handler;
+}
+
+function notifyPetInstallationChanged(petId: string, removed = false): void {
+  try {
+    installationChangeHandler?.(petId, removed);
+  } catch (error) {
+    // A presentation failure must not turn an already committed install into a reported rollback.
+    console.error("Pet installation presentation refresh failed.", { petId, error });
+  }
+}
+
 export interface LocalPetInstallResult {
   readonly state: OpenPetsStateV1;
   readonly petId: string;
@@ -51,7 +67,7 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
       if (metadata.id !== petId || metadata.id !== catalogPet.id) {
         throw new Error("Catalog pet package id does not match the requested pet.");
       }
-      return await runPetInstallTransaction({
+      const state = await runPetInstallTransaction({
         petsRoot,
         petId: metadata.id,
         candidateDir: candidate,
@@ -71,6 +87,8 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
           },
         }),
       });
+      notifyPetInstallationChanged(petId);
+      return state;
     } catch (error) {
       await rm(candidate, { recursive: true, force: true });
       throw error;
@@ -106,7 +124,7 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
       const metadata = await validateExtractedPet(candidate);
       if (metadata.id !== petId) throw new Error("Catalog wardrobe package id does not match the installed pet.");
       if (!metadata.wardrobe) throw new Error("Catalog wardrobe package does not contain a wardrobe.");
-      return await runPetInstallTransaction({
+      const state = await runPetInstallTransaction({
         petsRoot,
         petId,
         candidateDir: candidate,
@@ -126,6 +144,8 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
           },
         }),
       });
+      notifyPetInstallationChanged(petId);
+      return state;
     } catch (error) {
       await rm(candidate, { recursive: true, force: true });
       throw error;
@@ -176,6 +196,7 @@ async function installPetFromZipBufferWithResult(zip: Buffer): Promise<LocalPetI
       validateCandidate: async (directory) => { await validateExtractedPet(directory); },
       mutateState: () => upsertPetState({ id: metadata.id, displayName: metadata.displayName, description: metadata.description }),
     });
+    notifyPetInstallationChanged(metadata.id);
     return { state, petId: metadata.id, displayName: metadata.displayName };
   } catch (error) {
     await rm(candidate, { recursive: true, force: true });
@@ -210,6 +231,7 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
       validateCandidate: async (directory) => { await validateExtractedPet(directory); },
       mutateState: () => upsertPetState({ id: metadata.id, displayName: metadata.displayName, description: metadata.description }),
     });
+    notifyPetInstallationChanged(metadata.id);
     return { state, petId: metadata.id, displayName: metadata.displayName };
   } catch (error) {
     await rm(candidate, { recursive: true, force: true });
@@ -227,6 +249,7 @@ export async function removePet(petId: string): Promise<OpenPetsStateV1> {
     await assertNoUnresolvedPetInstallTransaction(petsRoot, petId);
     const dir = await getCanonicalInstalledPetDir(petsRoot, petId);
     const state = removePetState(petId);
+    notifyPetInstallationChanged(petId, true);
     try {
       await rm(dir, { recursive: true, force: true });
     } catch (error) {
@@ -376,7 +399,9 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
         const outputPath = resolve(tempDir, safePath.relativeOutputPath);
         assertOutputPathInside(tempDir, outputPath);
         seenRequired.add(safePath.relativeOutputPath);
-        if (safePath.isOutfitAtlas) await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
+        if (safePath.relativeOutputPath.includes("/")) {
+          await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
+        }
         await writeEntry(entry, zipFile, outputPath, entry.uncompressedSize, safePath.relativeOutputPath === "pet.json" ? maxCodexPetJsonBytes : maxIndividualFileBytes);
       };
 
@@ -386,7 +411,7 @@ async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
     zipFile.close();
   }
 
-  // Outfit atlases are matched against the manifest wardrobe in validateExtractedPet.
+  // Nested outfit/activity assets are matched against the manifest in validateExtractedPet.
   assertPetPackageFiles([...seenRequired].filter((path) => !path.includes("/")));
 }
 

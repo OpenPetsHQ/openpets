@@ -49,6 +49,8 @@ import { isPluginIconDataUrl } from "./plugin-icon.js";
 import { PetImage, SpriteFrame, imageDebug, installedPetSpritesheetUrl, logPetsEvent, safePetImage } from "./components/PetSprite.js";
 import { StatusPill, statusPillToneClass, type StatusTone } from "./components/ui/StatusPill.js";
 import { WardrobePanel } from "./pets/WardrobePanel.js";
+import { ActivitiesPanel } from "./pets/ActivitiesPanel.js";
+import type { PetActivitiesSnapshot } from "../../pet-activities-types.js";
 import { WhatsNewHost, type WhatsNewApi } from "./whats-new/WhatsNewDialog.js";
 import type { PetWardrobeSnapshot, PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
@@ -210,6 +212,9 @@ type ControlCenterApi = WhatsNewApi & {
   setPetPoolOrder(ids: string[]): Promise<SettingsState>;
   setPetPinned(petId: string, pinned: boolean): Promise<SettingsState>;
   getPetWardrobe(petId: string): Promise<PetWardrobeSnapshot | null>;
+  getPetActivities(petId: string): Promise<PetActivitiesSnapshot | null>;
+  setPetActivityEnabled(petId: string, activityId: string, enabled: boolean): Promise<PetActivitiesSnapshot | null>;
+  playPetActivity(petId: string, activityId: string): Promise<PetActivitiesSnapshot | null>;
   updatePetWardrobe(petId: string, patch: PetWardrobeUpdate): Promise<PetWardrobeSnapshot | null>;
   installPetWardrobe(petId: string): Promise<unknown>;
   getPluginsSnapshot(): Promise<PluginServiceSnapshot>;
@@ -4324,20 +4329,29 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                 </div>
 
                 {selected.installed && !selected.broken && (
-                  <WardrobePanel
-                    key={selected.id}
-                    petId={selected.id}
-                    spriteLayout={selected.spriteLayout}
-                    load={api.getPetWardrobe}
-                    update={api.updatePetWardrobe}
-                    installCatalogOutfits={selected.wardrobeZip && selected.installedZip && selected.installedZip !== selected.wardrobeZip
-                      ? async () => {
-                        await api.installPetWardrobe(selected.id);
-                        // The installed source changes, which retires the offer.
-                        await loadPetsData();
-                      }
-                      : undefined}
-                  />
+                  <>
+                    <WardrobePanel
+                      key={selected.id}
+                      petId={selected.id}
+                      spriteLayout={selected.spriteLayout}
+                      load={api.getPetWardrobe}
+                      update={api.updatePetWardrobe}
+                      installCatalogOutfits={selected.wardrobeZip && selected.installedZip && selected.installedZip !== selected.wardrobeZip
+                        ? async () => {
+                          await api.installPetWardrobe(selected.id);
+                          // The installed source changes, which retires the offer.
+                          await loadPetsData();
+                        }
+                        : undefined}
+                    />
+                    <ActivitiesPanel
+                      key={`activities-${selected.id}`}
+                      petId={selected.id}
+                      load={api.getPetActivities}
+                      setPetActivityEnabled={api.setPetActivityEnabled}
+                      playPetActivity={api.playPetActivity}
+                    />
+                  </>
                 )}
 
                 <div className="actions-container mt-6 flex flex-col gap-3 pet-detail-actions">

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import sharp from "sharp";
+import type { PetActivity } from "../src/pet-activities-core.js";
+import { createPetActivityEmptyFramePixels, createPetActivityPixels, petActivityFixture } from "./pet-activity-fixtures.js";
 
 const testRoot = realpathSync(mkdtempSync(join(tmpdir(), "openpets-wardrobe-install-")));
 const userDataPath = join(testRoot, "user-data");
@@ -270,6 +272,111 @@ try {
   await installPetFromFolderWithResult(plainFolder);
   assert.equal((await readInstalledPetMetadata("plain-pet")).wardrobe, undefined);
   assert.equal(existsSync(join(petsRoot, "plain-pet", "outfits")), false);
+
+  // Activities belong to a full pet snapshot, including folder/Codex copies and
+  // both ZIP layouts. Re-import replaces the same id rather than merging files.
+  const dance = petActivityFixture;
+  const wave = { ...dance, id: "wave", displayName: "Wave", spritesheetPath: "activities/wave.webp" };
+  const stripPixels = createPetActivityPixels();
+  const strip = await sharp(stripPixels, {
+    raw: { width: 1536, height: 208, channels: 4 },
+  }).webp().toBuffer();
+  const opaqueStrip = await sharp(strip).removeAlpha().webp().toBuffer();
+  const emptyFrameStrip = await sharp(createPetActivityEmptyFramePixels(), {
+    raw: { width: 1536, height: 208, channels: 4 },
+  }).webp().toBuffer();
+  const invalidArtwork: ReadonlyArray<readonly [string, Buffer]> = [
+    ["opaque strip", opaqueStrip],
+    ["empty final frame", emptyFrameStrip],
+  ];
+  const activityMetadata = (id: string, activities: readonly PetActivity[] = [dance]) => ({ ...metadata(id), wardrobe: undefined, activities });
+  const activityFiles = (id: string, prefix: string, activities: readonly PetActivity[] = [dance]) => [
+    { name: `${prefix}pet.json`, contents: Buffer.from(JSON.stringify(activityMetadata(id, activities))) },
+    { name: `${prefix}spritesheet.webp`, contents: base },
+    ...activities.map((activity) => ({ name: `${prefix}${activity.spritesheetPath}`, contents: strip })),
+  ];
+  const activityFolder = join(testRoot, "activity-folder");
+  mkdirSync(join(activityFolder, "activities"), { recursive: true });
+  writeFileSync(join(activityFolder, "pet.json"), JSON.stringify(activityMetadata("activity-pet", [dance, wave])));
+  writeFileSync(join(activityFolder, "spritesheet.webp"), base);
+  writeFileSync(join(activityFolder, dance.spritesheetPath), strip);
+  writeFileSync(join(activityFolder, wave.spritesheetPath), strip);
+  await installPetFromFolderWithResult(activityFolder);
+  assert.deepEqual((await readInstalledPetMetadata("activity-pet")).activities?.map((entry) => entry.id), ["dance", "wave"]);
+  assert.deepEqual(readFileSync(join(petsRoot, "activity-pet", wave.spritesheetPath)), strip);
+  appState.setDefaultPet("activity-pet");
+
+  const codexActivityFolder = join(fakeHome, ".codex", "pets", "codex-activity");
+  mkdirSync(join(codexActivityFolder, "activities"), { recursive: true });
+  for (const file of activityFiles("codex-activity", "")) {
+    writeFileSync(join(codexActivityFolder, file.name), file.contents);
+  }
+  await importCodexPet("codex-activity");
+  assert.deepEqual(readFileSync(join(petsRoot, "codex-activity", dance.spritesheetPath)), strip);
+
+  for (const prefix of ["", "wrapper/"]) {
+    writeFileSync(zipPath, createStoredZip([
+      { name: `${prefix}activities/`, contents: Buffer.alloc(0) },
+      ...activityFiles("activity-pet", prefix),
+    ]));
+    const installed = await installPetFromZipFileWithResult(zipPath);
+    assert.equal(installed.petId, "activity-pet");
+    assert.equal(appState.getAppStateSnapshot().preferences.defaultPetId, "activity-pet", "replacement preserves selection and identity");
+    assert.equal(existsSync(join(petsRoot, "activity-pet", wave.spritesheetPath)), false, "old activity assets are not merged into a new snapshot");
+    assert.deepEqual((await readInstalledPetMetadata("activity-pet")).activities?.map((entry) => entry.id), ["dance"]);
+  }
+
+  const installedMetadata = readFileSync(join(petsRoot, "activity-pet", "pet.json"));
+  const installedState = appState.getAppStateSnapshot();
+  const activityZipFiles = activityFiles("activity-pet", "");
+  const invalidActivityPackages: Array<[string, typeof activityZipFiles]> = [
+    ["missing activity", activityZipFiles.filter((file) => file.name !== dance.spritesheetPath)],
+    ["activity-only packages have no standalone install root", activityZipFiles.filter((file) => file.name !== "spritesheet.webp")],
+    ["extra activity", [...activityZipFiles, { name: "activities/extra.webp", contents: strip }]],
+    ["undecodable activity", activityZipFiles.map((file) => {
+      if (file.name === dance.spritesheetPath) return { ...file, contents: Buffer.from("not webp") };
+      return file;
+    })],
+    ["wrong strip dimensions", activityZipFiles.map((file) => {
+      if (file.name === dance.spritesheetPath) return { ...file, contents: base };
+      return file;
+    })],
+    ["unsafe activity path", [...activityZipFiles, { name: "activities/../extra.webp", contents: strip }]],
+    ["activities without declarations", activityZipFiles.map((file) => {
+      if (file.name !== "pet.json") return file;
+      const withoutActivities = { ...activityMetadata("activity-pet"), activities: undefined };
+      return { ...file, contents: Buffer.from(JSON.stringify(withoutActivities)) };
+    })],
+  ];
+  for (const [label, contents] of invalidArtwork) {
+    invalidActivityPackages.push([label, activityZipFiles.map((file) => {
+      if (file.name === dance.spritesheetPath) return { ...file, contents };
+      return file;
+    })]);
+  }
+  for (const [label, files] of invalidActivityPackages) {
+    writeFileSync(zipPath, createStoredZip(files));
+    await assert.rejects(() => installPetFromZipFileWithResult(zipPath), Error, label);
+    assert.deepEqual(readFileSync(join(petsRoot, "activity-pet", "pet.json")), installedMetadata, `${label}: previous metadata survives`);
+    assert.deepEqual(readFileSync(join(petsRoot, "activity-pet", dance.spritesheetPath)), strip, `${label}: previous activity survives`);
+    assert.deepEqual(appState.getAppStateSnapshot(), installedState, `${label}: state stays unchanged`);
+  }
+  for (const [label, contents] of [["undecodable strip", Buffer.from("broken replacement")], ...invalidArtwork] as const) {
+    writeFileSync(join(activityFolder, dance.spritesheetPath), contents);
+    await assert.rejects(() => installPetFromFolderWithResult(activityFolder), Error, label);
+    assert.deepEqual(readFileSync(join(petsRoot, "activity-pet", "pet.json")), installedMetadata, `${label}: failed folder replacement preserves metadata`);
+    assert.deepEqual(readFileSync(join(petsRoot, "activity-pet", dance.spritesheetPath)), strip, `${label}: failed folder replacement preserves assets`);
+    assert.deepEqual(appState.getAppStateSnapshot(), installedState, `${label}: failed folder replacement preserves state`);
+  }
+
+  // Replacing with an existing-format pet intentionally removes all activities.
+  writeFileSync(zipPath, createStoredZip([
+    { name: "pet.json", contents: Buffer.from(JSON.stringify({ ...activityMetadata("activity-pet"), activities: undefined })) },
+    { name: "spritesheet.webp", contents: base },
+  ]));
+  await installPetFromZipFileWithResult(zipPath);
+  assert.equal((await readInstalledPetMetadata("activity-pet")).activities, undefined);
+  assert.equal(existsSync(join(petsRoot, "activity-pet", "activities")), false);
 } finally {
   releaseStartupInstallLock();
   globalThis.fetch = originalFetch;

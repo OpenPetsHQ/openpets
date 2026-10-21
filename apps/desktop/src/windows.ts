@@ -21,6 +21,8 @@ import { recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPe
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
 import { defaultOutfitId, isSafeOutfitId } from "./pet-wardrobe-core.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
+import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
+import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
@@ -277,6 +279,14 @@ export function installInternalUiHandlers(): void {
       debug: (message, fields) => debug("ui", message, fields),
       error: (message, fields) => logError("ui", message, fields),
     },
+  });
+
+  installControlCenterPetActivitiesIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getPetActivities,
+    setPetActivityEnabled,
+    playPetActivity,
   });
 
   ipcMain.handle("openpets:get-settings-state", (event) => {
@@ -596,7 +606,16 @@ export function installInternalUiProtocol(): void {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
       const url = new URL(request.url);
-      if (url.hostname !== "spritesheet" || url.search || url.hash) return new Response(null, { status: 404 });
+      if (url.search || url.hash) return new Response(null, { status: 404 });
+      if (url.hostname === "activity") {
+        const parts = url.pathname.replace(/^\//, "").split("/").map(decodeURIComponent);
+        if (parts.length !== 2) return new Response(null, { status: 404 });
+        const [petId = "", activityId = ""] = parts;
+        return new Response(await readInstalledActivityAsset(petId, activityId), {
+          headers: { "Content-Type": "image/webp", "Cache-Control": "no-store" },
+        });
+      }
+      if (url.hostname !== "spritesheet") return new Response(null, { status: 404 });
       // `/{petId}` serves the base atlas; `/{petId}/{outfitId}` one wardrobe outfit.
       const [petId = "", outfitId, ...rest] = url.pathname.replace(/^\//, "").split("/").map((part) => decodeURIComponent(part));
       if (rest.length > 0 || (outfitId !== undefined && !isSafeOutfitId(outfitId))) return new Response(null, { status: 404 });
