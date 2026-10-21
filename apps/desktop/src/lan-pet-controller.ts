@@ -116,6 +116,7 @@ function showLanVisitingPet(pet: LanPetRecord): void {
   const position = clampToVisibleWorkArea({ x: base.x - offset * 48, y: base.y - offset * 28 }, defaultPetWindowSize);
   const motionHandleId = `lan:${pet.ownerHost}`;
   const window = createAgentPetWindow({
+    nativeActivities: false,
     petId: renderedPetId,
     displayName: `${installed.displayName} — ${pet.ownerHost}`,
     scale: state.preferences.petScale as PetScaleValue,

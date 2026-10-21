@@ -25,7 +25,10 @@ function isAllowedCodexPreview(value: string | undefined): value is string {
 }
 
 function isAllowedInstalledPetPreview(value: string | undefined): value is string {
-  return typeof value === "string" && /^openpets-installed:\/\/spritesheet\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}(?:\/[a-z0-9][a-z0-9_-]{0,31})?$/u.test(value);
+  return typeof value === "string" && (
+    /^openpets-installed:\/\/spritesheet\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}(?:\/[a-z0-9][a-z0-9_-]{0,31})?$/u.test(value) ||
+    /^openpets-installed:\/\/activity\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,64}$/u.test(value)
+  );
 }
 
 function isAllowedDefaultPetPreview(value: string | undefined): value is string {

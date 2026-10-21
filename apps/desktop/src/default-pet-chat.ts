@@ -28,6 +28,7 @@ import { getAppStateSnapshot } from "./app-state.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { defaultPetWindowSize, type Point, type WindowSize } from "./display.js";
 import { getManagerCheckInService, type ManagerCheckInPetSnapshot } from "./manager-check-in-service.js";
+import { interruptPetActivity } from "./pet-activities.js";
 
 let defaultPetWindowRef: BrowserWindow | null = null;
 const defaultPetPanelStates = ["collapsed", "compact-chat", "expanded-chat", "expanded-check-in", "expanded-session"] as const;
@@ -226,6 +227,7 @@ function expandedCarrierSizeFor(state: DefaultPetPanelState): WindowSize | null 
 function setCarrierMode(window: BrowserWindow, nextState: DefaultPetPanelState): void {
   if (window.isDestroyed()) return;
   if (carrierState === nextState) return;
+  interruptPetActivity(window);
   const previousState = carrierState;
   const wasExpanded = isExpandedCarrierState(previousState);
   const isExpanded = isExpandedCarrierState(nextState);

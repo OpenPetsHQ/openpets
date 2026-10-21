@@ -31,6 +31,17 @@ validNestedOutfitTracker.accept("pet-package/pet.json");
 assertRejectsEntrySet(["pet-package/pet.json", "outfits/pajamas.webp"]);
 assertRejectsEntrySet(["pet.json", "pet-package/outfits/pajamas.webp"]);
 
+// Activity strips share the full pet package layout, never a separate install root.
+for (const prefix of ["", "pet-package/"]) {
+  const tracker = new ZipEntryPathTracker();
+  tracker.accept(`${prefix}pet.json`);
+  tracker.accept(`${prefix}spritesheet.webp`);
+  tracker.accept(`${prefix}activities/`);
+  tracker.accept(`${prefix}activities/dance.webp`);
+}
+assertRejectsEntrySet(["pet.json", "pet-package/activities/dance.webp"]);
+assertRejectsEntrySet(["pet-package/pet.json", "activities/dance.webp"]);
+
 for (const unsafe of [
   "../pet.json",
   "pet-package/../pet.json",
@@ -50,6 +61,13 @@ for (const unsafe of [
   "outfits/deep/pajamas.webp",
   "a/b/outfits/pajamas.webp",
   "pet-package/outfits/extra/",
+  "activities/../dance.webp",
+  "activities/Dance.webp",
+  "activities/dance.svg",
+  "activities/dance.webp.js",
+  "activities/deep/dance.webp",
+  "a/b/activities/dance.webp",
+  "pet-package/activities/deep/",
 ]) {
   assertRejectsPath(unsafe);
 }

@@ -18,6 +18,7 @@ import {
 import { normalizePetPoolOrder } from "./pet-pool.js";
 import { normalizePinnedPetIds, normalizePinnedPetPositions, prunePinnedPetPositions } from "./pinned-pets.js";
 import { normalizePetWardrobePreference, normalizePetWardrobePreferences, type PetWardrobePreference, type PetWardrobePreferences } from "./pet-wardrobe-core.js";
+import { normalizePetActivityPreferences } from "./pet-activity-policy.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
 import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
@@ -131,6 +132,8 @@ export interface OpenPetsStateV1 {
     /** Per-pet wardrobe choices ("always wear" outfit, user-edited schedule). Absent = the
      * pet's own schedule, so pets without a wardrobe and existing users are unaffected. */
     readonly petWardrobePreferences?: PetWardrobePreferences;
+    /** Explicitly enabled native idle activities per pet. Absent means none. */
+    readonly enabledPetActivityIds?: Readonly<Record<string, readonly string[]>>;
     /** Newest app version whose Control Center "What's new" entries were dismissed.
      * Absent = an upgrade from a version that predates the dialog; fresh installs
      * record the running version on first launch so they never see it. */
@@ -275,6 +278,20 @@ export function isPetFlippedHorizontally(petId: string): boolean {
 
 export function getPetWardrobePreference(petId: string): PetWardrobePreference | undefined {
   return getInitializedState().preferences.petWardrobePreferences?.[petId];
+}
+
+export function getEnabledPetActivityIds(petId: string): readonly string[] {
+  return getInitializedState().preferences.enabledPetActivityIds?.[petId] ?? [];
+}
+
+export function setEnabledPetActivityIds(petId: string, ids: readonly string[]): void {
+  assertSafePetId(petId);
+  updatePreferences({
+    enabledPetActivityIds: {
+      ...getInitializedState().preferences.enabledPetActivityIds,
+      [petId]: ids,
+    },
+  });
 }
 
 /** Replace one pet's wardrobe preference; `undefined` restores the pet's own behavior. */
@@ -569,6 +586,9 @@ export function removePetState(petId: string, allowTeam = false): OpenPetsStateV
     preferences: {
       ...state.preferences,
       defaultPetId: nextDefaultPetId,
+      enabledPetActivityIds: Object.fromEntries(
+        Object.entries(state.preferences.enabledPetActivityIds ?? {}).filter(([id]) => id !== petId),
+      ),
     },
     pets: {
       installed: state.pets.installed.filter((pet) => pet.id !== petId),
@@ -766,6 +786,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     // cannot disagree about which positions are still meaningful.
     pinnedPetPositions: prunePinnedPetPositions(normalizePinnedPetPositions(value.pinnedPetPositions), pinnedPets),
     petWardrobePreferences: normalizePetWardrobePreferences(value.petWardrobePreferences),
+    enabledPetActivityIds: normalizePetActivityPreferences(value.enabledPetActivityIds),
     lastSeenWhatsNewVersion: normalizeLastSeenWhatsNewVersion(value.lastSeenWhatsNewVersion),
   };
 

@@ -136,6 +136,7 @@ export async function spawnPluginPet(opts: { pluginId: string; petId: string; na
   (pet as { arbiter: PetBubbleArbiter }).arbiter = new PetBubbleArbiter(sink);
 
   const window = createAgentPetWindow({
+    nativeActivities: false,
     petId: opts.petId,
     displayName: pet.name,
     scale: pet.scale,

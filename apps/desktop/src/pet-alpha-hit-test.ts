@@ -293,6 +293,7 @@ export function createPetAlphaHitTester(options: {
     // A plugin sprite override visually replaces the base sprite, which is
     // hidden while the override is active — sample whichever is displayed.
     return document.querySelector(".pet-shell .plugin-sprite-override")
+      ?? document.querySelector(".pet-shell .native-activity-sprite")
       ?? document.querySelector(".pet-shell .installed-sprite")
       ?? document.querySelector(".pet-shell .sprite");
   };

@@ -37,6 +37,8 @@ export interface AgentPetWindowOptions extends PetWindowInteractionHooks {
   readonly onCloseRequested: () => void;
   /** Skip the right-click plugin command section (plugin-spawned pets). */
   readonly plainContextMenu?: boolean;
+  /** LAN visitors and plugin-owned windows must not run native idle activities. */
+  readonly nativeActivities?: boolean;
   /** Optional callback to bring the associated terminal session window to focus. */
   readonly onFocusSessionWindow?: () => void;
   /** Called when an asynchronous layer-shell failure rebuilds this pet as a normal window. */
@@ -76,6 +78,10 @@ export interface PetShowMediaOptions {
 export type PetStatusBadgeReaction = Exclude<OpenPetsReaction, "idle">;
 
 export interface PetContentRender {
+  /** Actual rendered identity/appearance, including base-atlas fallback. */
+  readonly renderedPetId: string;
+  readonly renderedOutfitId: string;
+  readonly activities: readonly import("./pet-activities-core.js").PetActivity[];
   readonly html: string;
   readonly bodyHtml: string;
   readonly displayName: string;

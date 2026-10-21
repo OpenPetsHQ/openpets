@@ -296,6 +296,31 @@ describe("createPetAlphaHitTester", () => {
     assert.equal(tester.isOpaqueAt(5, 5), false);
   });
 
+  it("samples the current rectangular native activity frame rather than the hidden base", async () => {
+    const tester = createPetAlphaHitTester({
+      document: makeFakeDocument({
+        ".pet-shell .native-activity-sprite": {
+          left: 0,
+          top: 0,
+          width: 10,
+          height: 12,
+          style: {
+            backgroundImage: 'url("data:image/webp;base64,YQ==")',
+            backgroundPositionX: "-10px",
+            backgroundPositionY: "0px",
+            backgroundSize: "20px 12px",
+          },
+        },
+        ".pet-shell .sprite": makeSprite(0, 0),
+      }),
+      loadSpritePixels: async () => makePixels(20, 12, [[15, 6, 255]]),
+    });
+    tester.isOpaqueAt(5, 6);
+    await settleAsync();
+    assert.equal(tester.isOpaqueAt(5, 6), true);
+    assert.equal(tester.isOpaqueAt(1, 1), false);
+  });
+
   it("fails open while pixels load and after a load failure", async () => {
     let release: (pixels: SpriteSheetPixels) => void = () => undefined;
     const pendingTester = createPetAlphaHitTester({

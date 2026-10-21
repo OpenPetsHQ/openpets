@@ -20,6 +20,7 @@ interface PetGazeEntry {
   petScaleOverride: number | null;
   gazeSpriteBottomInset: number;
   pluginSpriteOverride: boolean;
+  activityOverride: boolean;
   rendererReady: boolean;
   dragging: boolean;
   movementSuspended: boolean;
@@ -49,6 +50,7 @@ export function registerPetGazeWindow(window: BrowserWindow): void {
     petScaleOverride: null,
     gazeSpriteBottomInset: getPetWindowSpriteBottomInset(false),
     pluginSpriteOverride: false,
+    activityOverride: false,
     rendererReady: false,
     dragging: false,
     movementSuspended: false,
@@ -134,6 +136,7 @@ function isPetGazeEligible(entry: PetGazeEntry): boolean {
     pluginSpriteOverride: entry.pluginSpriteOverride,
   })
     && !entry.dragging
+    && !entry.activityOverride
     && !entry.movementSuspended
     && entry.rendererReady
     && !entry.window.isDestroyed()
@@ -348,6 +351,14 @@ export function setPetGazePluginOverride(window: BrowserWindow, active: boolean)
   const entry = petGazeEntries.get(window);
   if (!entry) return;
   entry.pluginSpriteOverride = active;
+  resetPetGazeDirection(entry);
+  syncPetGazeTicker();
+}
+
+export function setPetGazeActivityOverride(window: BrowserWindow, active: boolean): void {
+  const entry = petGazeEntries.get(window);
+  if (!entry) return;
+  entry.activityOverride = active;
   resetPetGazeDirection(entry);
   syncPetGazeTicker();
 }

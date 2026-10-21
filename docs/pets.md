@@ -76,6 +76,36 @@ schedule from Control Center and the pet context menu. Pets without a wardrobe
 are unchanged. The contract, resolution order, packaging, two-ZIP catalog
 distribution, and compatibility rules live in [Wardrobe](/wardrobe).
 
+## Activity packages
+
+A full pet package may optionally declare `pet.json.activities`: at most 16
+one-shot animations separate from its reaction atlas and wardrobe. Each entry
+has a unique lowercase `id` matching `^[a-z0-9][a-z0-9_-]{0,31}$`, a trimmed
+`displayName` of 1–40 characters, `outfitId: "default"`, and the exact
+`spritesheetPath: "activities/{id}.webp"`. `frameCount` is an integer from 4
+through 32 and `fps` is an integer from 1 through 12. Their derived duration
+(`frameCount × 1000 / fps`) must be between 1000 and 12000 milliseconds,
+inclusive. Omitted activities are equivalent to an empty list.
+
+Each activity is a static, fully decodable WebP horizontal strip of exactly
+`192 × frameCount` pixels wide and 208 pixels high, not an animated WebP. Each
+file is limited to 2 MiB and all activity files together to 16 MiB. The
+`activities/` directory must contain exactly the declared files: missing,
+extra, nested, mismatched, symlinked, or unsafe paths reject installation.
+`pet-activities-core.ts` owns the pure metadata and duration contract;
+`pet-file-safety.ts` owns bounded image reads and full decoding.
+
+Activities travel inside a complete pet folder or ZIP alongside `pet.json` and
+the base atlas, never as a standalone activity install root. ZIPs may use root
+files or one wrapper folder. Folder/Codex imports copy every declared activity
+into the private candidate. A successful re-import replaces the entire pet
+snapshot under its stable pet id, so removed declarations and assets disappear;
+validation or promotion failure preserves the previous install and state through
+the existing install transaction. Packages without activities retain their
+existing installation behavior. Runtime reads of optional activity assets stay
+separate from base-atlas validation, so a damaged optional strip need not make
+the base pet unusable.
+
 ## Teams-owned pets
 
 Teams adds a fourth explicit source kind, `team`. Persisted source ownership
@@ -122,12 +152,19 @@ precise Linux hit-mask shapes.
   terminates, the lease is released within ~5 s and the pet window closes.
   See the lease model in [IPC and remote control](/ipc).
 - **User-pinned pets** (`pinned-pet-controller.ts`) - installed pets the user pins
-  in Control Center → Settings → General. They are user-owned windows, independent
+  with **Add to desktop** on their installed card or detail view in Control Center →
+  **Pets** (also managed in Settings → General). They are user-owned windows, independent
   of agent sessions, plugins, and leases, and return when the app launches again.
   Each pin remembers its own position and is clamped back onto a connected display.
-  Closing a pinned pet window unpins it. Uninstalling a pinned pet closes its window
+  Use **Remove from desktop**, or right-click the pinned pet and choose **Close pet**,
+  to remove only that pin. Quitting the app preserves pins for the next launch.
+  Uninstalling a pinned pet closes its window
   but retains the pin, so reinstalling it brings the window back. Pins are limited
-  to eight and cannot target the built-in or current default pet. The implicit pet-pool
+  to eight extra, different pets and cannot target a broken, built-in, or current
+  default pet. The default companion is separate: adding a pin does not select a
+  new default, and the same pet ID cannot be pinned twice. Pinned pets can play their
+  installed native Pet Activities under the usual idle, outfit, and opt-in rules.
+  The implicit pet-pool
   assignment skips pinned pets to avoid opening a second window for the same pet. See
   [Pinned pets in the desktop app](/desktop#pinned-pets) for settings and pool behavior.
 
