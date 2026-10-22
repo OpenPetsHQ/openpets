@@ -411,6 +411,13 @@ These send a `pets.install-local` request to the running app over IPC, which val
 The CLI resolves relative paths before sending them; the IPC/client protocol
 itself requires an absolute path plus an explicit `zip` or `folder` kind.
 
+Studio generates desktop-safe ASCII install ids (`^[a-z0-9][a-z0-9_-]{0,63}$`,
+excluding `builtin`) independently of Unicode display names. ZIP imports retain
+valid ids and regenerate invalid ones. Renaming a Studio pet changes its display
+name, not its install id. Older Studio records with invalid ids are repaired by
+the offline `web/studio/scripts/migrate_pet_ids.py` migration; owners then download
+a fresh ZIP. Desktop validation remains unchanged.
+
 ### From a website link
 
 Pet Studio's planned "Add to OpenPets" button opens (the site shows Download
