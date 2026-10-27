@@ -1139,6 +1139,20 @@ function ToggleRow({ title, description, checked, disabled, onChange, testId }: 
   </label>;
 }
 
+// Message keys for the speech bubble option labels, keyed by option value.
+const bubbleScaleLabelKeys = new Map<number, string>([
+  [0.85, "settings.general.bubbleScale.small"],
+  [1, "settings.general.bubbleScale.normal"],
+  [1.2, "settings.general.bubbleScale.large"],
+  [1.4, "settings.general.bubbleScale.huge"],
+]);
+const bubbleDurationLabelKeys = new Map<number, string>([
+  [0.6, "settings.general.bubbleDuration.short"],
+  [1, "settings.general.bubbleDuration.normal"],
+  [1.75, "settings.general.bubbleDuration.long"],
+  [2.5, "settings.general.bubbleDuration.veryLong"],
+]);
+
 function formatUpdateStatus(status: UpdateStatus | null, t: (key: string, vars?: Record<string, string | number>) => string): string {
   if (!status) return t("settings.update.notLoaded");
   if (status.state === "checking") return t("settings.update.checking");
@@ -1570,7 +1584,11 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     <small>{t("settings.general.bubbleScale.description")}</small>
                   </div>
                   <select className="settings-select" data-testid="setting-bubble-scale" value={settings?.preferences.bubbleScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ bubbleScale: Number(event.target.value) }, t("settings.toast.bubbleScaleSaved"))}>
-                    {(settings?.bubbleScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {(settings?.bubbleScaleOptions ?? []).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(bubbleScaleLabelKeys.get(option.value) ?? option.label)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="settings-row">
@@ -1579,7 +1597,11 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     <small>{t("settings.general.bubbleDuration.description")}</small>
                   </div>
                   <select className="settings-select" data-testid="setting-bubble-duration" value={settings?.preferences.bubbleDurationScale ?? ""} disabled={!settings || !!busy} onChange={(event) => patchPreferences({ bubbleDurationScale: Number(event.target.value) }, t("settings.toast.bubbleDurationSaved"))}>
-                    {(settings?.bubbleDurationScaleOptions ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {(settings?.bubbleDurationScaleOptions ?? []).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(bubbleDurationLabelKeys.get(option.value) ?? option.label)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <ToggleRow

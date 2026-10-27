@@ -23,7 +23,7 @@ import { defaultOutfitId, isSafeOutfitId } from "./pet-wardrobe-core.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
-import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
+import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference } from "./pet-window.js";
 import { getLanStatusSnapshot } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
@@ -522,10 +522,14 @@ export function installInternalUiHandlers(): void {
       refreshDefaultPetContent();
       broadcastDashboardRefresh();
     }
-    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.bubbleScale !== previousBubbleScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
+    if (state.preferences.petScale !== previousScale || state.preferences.hudScale !== previousHudScale || state.preferences.waitingAnimationDurationMs !== previousWaitingAnimationDurationMs || nextOverrides !== previousOverrides || petButtonPrefsChanged) {
       refreshDefaultPetContent();
       refreshAgentPetContent();
       refreshPinnedPetContent();
+    }
+    if (state.preferences.bubbleScale !== previousBubbleScale) {
+      // Speech bubbles show on every pet role, including plugin-spawned pets and LAN visitors.
+      refreshAllPetWindows("bubble scale change");
     }
     if (state.preferences.idleCursorGazeEnabled !== previousIdleCursorGazeEnabled) {
       refreshPetGazePreference();

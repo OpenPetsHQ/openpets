@@ -530,7 +530,10 @@ so the largest bubble still fits in the pet window above the pet (never below 1)
 and the same value drives both the CSS and the Linux input shape.
 `bubbleDurationScale` (Short 0.6, Normal 1, Long 1.75, Very long 2.5) multiplies the
 reading time computed by `getTransientDisplayDurationMs`; explicit caller and media
-durations are unchanged. Plugin bubble slots keep their own TTLs.
+durations are unchanged. Plugin bubble slots keep their own TTLs. Bubbles with a
+media preview use the larger `.bubble.has-media` box, so they get a tighter cap.
+Changing the size re-renders every pet window, including plugin-spawned pets and
+LAN visitors. The duration math lives in the pure `pet-transient-duration.ts`.
 
 ### Remote control service
 

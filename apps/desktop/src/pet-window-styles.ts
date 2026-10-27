@@ -35,6 +35,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
   // pinned HUD lifts the bubble higher in the window.
   const bubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom);
   const pinnedBubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom + pinnedLift);
+  const mediaBubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom, true);
+  const pinnedMediaBubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom + pinnedLift, true);
   const petButtonsSide = buttonPreferences.petButtonsPosition === "left" ? "left" : "right";
   const petButtonSizePx = buttonPreferences.petButtonsSize === "small" ? 18 : buttonPreferences.petButtonsSize === "large" ? 28 : 22;
   const petButtonIconPx = Math.round(petButtonSizePx * 0.55);
@@ -51,6 +53,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     body { -webkit-app-region: no-drag; pointer-events: none; }
     .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; --bubble-scale: ${bubbleScale}; }
     .stage.has-pinned { --bubble-scale: ${pinnedBubbleScale}; }
+    .stage .bubble.has-media { --bubble-scale: ${mediaBubbleScale}; }
+    .stage.has-pinned .bubble.has-media { --bubble-scale: ${pinnedMediaBubbleScale}; }
     .openpets-pet-buttons { position: absolute; ${petButtonsSide}: 12px; top: 4px; z-index: 5; display: flex; flex-direction: column; gap: 4px; pointer-events: auto; -webkit-app-region: no-drag; }
     .openpets-companion-launcher { width: ${petButtonSizePx}px; height: ${petButtonSizePx}px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
     .openpets-companion-launcher svg { width: ${petButtonIconPx}px; height: ${petButtonIconPx}px; }

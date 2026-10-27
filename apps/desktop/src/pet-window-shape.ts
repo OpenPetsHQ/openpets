@@ -22,6 +22,8 @@ export type PetInteractiveShapeOptions = {
   readonly hudScale?: number;
   /** Preferred speech bubble scale; the effective scale is capped by {@link getEffectiveBubbleScale}. */
   readonly bubbleScale?: number;
+  /** The transient bubble shows a media preview, which can be larger than a text bubble. */
+  readonly bubbleHasMedia?: boolean;
   readonly isExpanded?: boolean;
   readonly isCompactOpen?: boolean;
   /** Practice session overlay: orb + card fill the carrier, so the whole window is interactive. */
@@ -73,17 +75,26 @@ const defaultPanelTop = 14;
 // Largest box a transient speech bubble can take at scale 1 (matches the
 // `.bubble` max-width and the very-long-message max-height in pet-window-styles).
 const bubbleMaxWidth = 220;
+// Largest box of a bubble with a media preview (matches `.bubble.has-media`).
+const mediaBubbleMaxWidth = 232;
+const mediaBubbleMaxHeight = 224;
 const bubbleWindowGutter = 18;
+
+function getBubbleMaxHeight(hasMedia: boolean): number {
+  return hasMedia ? mediaBubbleMaxHeight : bubbleHeight;
+}
 
 /**
  * The speech bubble scale actually rendered. Shrinking is always honored;
  * growing is capped so the largest bubble still fits inside the pet window
- * above the pet, and never drops below the unscaled size.
+ * above the pet, and never drops below the unscaled size. Media bubbles are
+ * larger, so they get a tighter cap.
  */
-export function getEffectiveBubbleScale(preferredScale: number, windowWidth: number, windowHeight: number, bubbleBottom: number): number {
+export function getEffectiveBubbleScale(preferredScale: number, windowWidth: number, windowHeight: number, bubbleBottom: number, hasMedia = false): number {
   if (preferredScale <= 1) return preferredScale;
-  const fitWidth = (windowWidth - bubbleWindowGutter) / bubbleMaxWidth;
-  const fitHeight = (windowHeight - bubbleBottom) / bubbleHeight;
+  const maxWidth = hasMedia ? mediaBubbleMaxWidth : bubbleMaxWidth;
+  const fitWidth = (windowWidth - bubbleWindowGutter) / maxWidth;
+  const fitHeight = (windowHeight - bubbleBottom) / getBubbleMaxHeight(hasMedia);
   return Math.floor(Math.max(1, Math.min(preferredScale, fitWidth, fitHeight)) * 100) / 100;
 }
 
@@ -175,8 +186,9 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
 
   if (options.hasBubble && !options.isExpanded && !options.isCompactOpen) {
     const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8) + pinnedLift;
-    const bubbleScale = getEffectiveBubbleScale(options.bubbleScale ?? 1, options.windowWidth, options.windowHeight, bubbleBottom);
-    const scaledBubbleHeight = Math.ceil(bubbleHeight * bubbleScale);
+    const hasMedia = options.bubbleHasMedia === true;
+    const bubbleScale = getEffectiveBubbleScale(options.bubbleScale ?? 1, options.windowWidth, options.windowHeight, bubbleBottom, hasMedia);
+    const scaledBubbleHeight = Math.ceil(getBubbleMaxHeight(hasMedia) * bubbleScale);
     shape.push({
       x: 0,
       y: Math.max(0, options.windowHeight - bubbleBottom - scaledBubbleHeight),

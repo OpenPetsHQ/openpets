@@ -86,6 +86,12 @@ export function refreshPluginPetsForPetId(petId: string): void {
   }
 }
 
+export function refreshAllPluginPets(): void {
+  for (const pet of spawnedPets.values()) {
+    refreshSpawnedPet(pet);
+  }
+}
+
 function refreshSpawnedPet(pet: SpawnedPet): void {
   if (!pet.window || pet.window.isDestroyed()) return;
   void loadExplicitPetContent(pet.window, pet.petId, null, pet.statusReaction, undefined, pet.scale, pet.bubbles.transient || pet.bubbles.pinned ? pet.bubbles : null).then(() => {

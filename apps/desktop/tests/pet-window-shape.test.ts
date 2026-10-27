@@ -213,6 +213,24 @@ assert.equal(getPetWindowSpriteBottomInset(true, 1.25), 63);
   assert.ok(large.height > normal.height, "a larger bubble gets a larger input region");
   assert.ok(large.y >= 0, "the bubble region stays inside the window");
   assert.equal(large.y + large.height, normal.y + normal.height, "the bubble grows upward from the same anchor");
+
+  // Media previews use a taller box (`.bubble.has-media`, up to 224px), so
+  // Huge must be capped harder for them or the preview is cut off.
+  const mediaBubbleHeight = 224;
+  const bubbleBottom = 186;
+  const mediaScale = getEffectiveBubbleScale(1.4, width, height, bubbleBottom, true);
+  assert.ok(mediaScale * mediaBubbleHeight <= height - bubbleBottom, "an enlarged media bubble still fits above the pet");
+  const mediaShape = calculatePetInteractiveShape({
+    windowWidth: width,
+    windowHeight: height,
+    spriteWidth: 192,
+    spriteHeight: 208,
+    scale: 0.75,
+    hasBubble: true,
+    bubbleScale: 1,
+    bubbleHasMedia: true,
+  }).shape.at(-1)!;
+  assert.ok(mediaShape.height >= mediaBubbleHeight, "the whole media bubble stays clickable");
 }
 
 console.log("pet-window-shape tests passed.");

@@ -29,6 +29,28 @@ export function refreshPetWindowsForPetId(petId: string, reason: string): void {
     .catch((error: unknown) => logRefreshFailure("pinned", reason, error));
 }
 
+/**
+ * Re-render every pet window of every role. Used when a global presentation
+ * preference changes, such as the speech bubble size.
+ */
+export function refreshAllPetWindows(reason: string): void {
+  void import("./default-pet-controller.js")
+    .then(({ refreshDefaultPetContent }) => refreshDefaultPetContent())
+    .catch((error: unknown) => logRefreshFailure("default", reason, error));
+  void import("./agent-pet-controller.js")
+    .then(({ refreshAgentPetContent }) => refreshAgentPetContent())
+    .catch((error: unknown) => logRefreshFailure("agent", reason, error));
+  void import("./plugin-pet-registry.js")
+    .then(({ refreshAllPluginPets }) => refreshAllPluginPets())
+    .catch((error: unknown) => logRefreshFailure("plugin", reason, error));
+  void import("./lan-pet-controller.js")
+    .then(({ refreshAllLanVisitingPets }) => refreshAllLanVisitingPets())
+    .catch((error: unknown) => logRefreshFailure("lan", reason, error));
+  void import("./pinned-pet-controller.js")
+    .then(({ refreshPinnedPetContent }) => refreshPinnedPetContent())
+    .catch((error: unknown) => logRefreshFailure("pinned", reason, error));
+}
+
 function logRefreshFailure(role: string, reason: string, error: unknown): void {
   logError("pet.window", `refresh ${role} pet on ${reason} failed`, error instanceof Error ? error : { error });
 }

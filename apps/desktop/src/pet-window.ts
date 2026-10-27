@@ -18,7 +18,7 @@ import { getActiveChatPanelHeight, isDefaultPetCarrierExpanded, isDefaultPetChat
 import { getVoiceAssistantSnapshot } from "./voice-assistant-host.js";
 
 import type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
-import { createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
+import { bubbleHasMediaPreview, createBubbleMarkup, createBuiltInPetRender, createDefaultPetRenderContent, createInstalledPetRender } from "./pet-window-render.js";
 import { registerPetGazeWindow, resetPetGazeWindow, setPetGazeDragging, setPetGazeMotionState, setPetGazePluginOverride, setPetGazeReactionState, setPetGazeRendererReady, setPetGazeScale, suspendPetGazeForMovement, updatePetGazeConfiguration } from "./pet-window-gaze.js";
 import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
@@ -30,7 +30,8 @@ export type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, 
 export { createPetBodyMarkup, pluginBubblesCacheKey } from "./pet-window-render.js";
 export { refreshPetGazePreference } from "./pet-window-gaze.js";
 export { buildPetContextMenuTemplate, handlePetScaleChange } from "./pet-window-context-menu.js";
-export { clearTransientReaction, getTransientDisplayDurationMs, getTransientReactionAnimationMs, mergePetTransientDisplay, preparePetTransientDisplay } from "./pet-transient-policy.js";
+export { clearTransientReaction, getTransientReactionAnimationMs, mergePetTransientDisplay, preparePetTransientDisplay } from "./pet-transient-policy.js";
+export { getTransientDisplayDurationMs } from "./pet-transient-duration.js";
 
 const petWindowRenderCache = new WeakMap<BrowserWindow, string>();
 let petWindowSpeechSequence = 0;
@@ -458,7 +459,8 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const bubbleHtml = createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles);
   const hasBubble = Boolean(bubbleHtml.trim());
-  applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, hasBubble, hasPinned);
+  const hasMediaBubble = bubbleHasMediaPreview(display, paused, pluginBubbles);
+  applyLinuxPetWindowShape(window, getAppStateSnapshot().preferences.petScale as PetScaleValue, hasBubble, hasPinned, hasMediaBubble);
   if (tryUpdateLoadedPetContent(window, render, "default", sequence)) return;
   await loadPetHtmlFile(window, render.html, "default", sequence).then(() => {
     petWindowRenderCache.set(window, render.cacheKey);
@@ -505,7 +507,8 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     const hasPinned = Boolean(pluginBubbles?.pinned);
     const bubbleHtml = createBubbleMarkup(display, false, badge, dismissToken, pluginBubbles);
     const hasBubble = Boolean(bubbleHtml.trim());
-    applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned);
+    const hasMediaBubble = bubbleHasMediaPreview(display, false, pluginBubbles);
+    applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned, hasMediaBubble);
     if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence)) return;
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
     petWindowRenderCache.set(window, render.cacheKey);
@@ -619,7 +622,7 @@ export function readWindowPosition(window: BrowserWindow): Point {
   return clampToVisibleWorkArea(rawPos, defaultPetWindowSize);
 }
 
-function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean, hasPinned = false): void {
+function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean, hasPinned = false, hasMediaBubble = false): void {
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
   const isExpanded = isDefaultPetCarrierExpanded();
@@ -635,6 +638,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     hasPinned,
     hudScale,
     bubbleScale: getAppStateSnapshot().preferences.bubbleScale,
+    bubbleHasMedia: hasMediaBubble,
     isExpanded,
     isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
     isSessionOpen: isDefaultPetSessionOpen(),
