@@ -37,6 +37,13 @@ const darkBubbleCss = `
     .bubble:not(.is-pinned) .bubble-action:not(.is-primary):not(.is-danger) { background: rgba(148, 163, 184, 0.16); color: #e2e8f0; }
     .bubble:not(.is-pinned) .bubble-action:not(.is-primary):not(.is-danger):hover { background: rgba(148, 163, 184, 0.26); }
     .bubble:not(.is-pinned) .bubble-input-control { background: rgba(15, 23, 42, 0.6); color: #e2e8f0; border-color: rgba(148, 163, 184, 0.35); }
+    .bubble.is-plugin:not(.is-pinned).accent-blue { background: linear-gradient(135deg, rgba(30, 58, 138, 0.96), rgba(30, 41, 59, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-purple { background: linear-gradient(135deg, rgba(76, 29, 149, 0.96), rgba(46, 38, 78, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-green { background: linear-gradient(135deg, rgba(20, 83, 45, 0.96), rgba(30, 41, 59, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-amber { background: linear-gradient(135deg, rgba(120, 53, 15, 0.96), rgba(41, 37, 36, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-red { background: linear-gradient(135deg, rgba(127, 29, 29, 0.96), rgba(41, 37, 36, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-pink { background: linear-gradient(135deg, rgba(131, 24, 67, 0.96), rgba(46, 38, 78, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-slate { background: linear-gradient(135deg, rgba(51, 65, 85, 0.96), rgba(30, 41, 59, 0.95)); }
 `;
 
 /** Bubble color overrides for the theme preference; light keeps the base styles. */

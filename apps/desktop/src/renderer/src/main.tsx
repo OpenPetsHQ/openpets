@@ -1633,6 +1633,9 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     disabled={!settings || !!busy}
                     onClick={() => void run(t("settings.busy.showing"), async () => {
                       const result = await api.showTestSpeechBubble();
+                      if (result.reason === "plugin-bubble") {
+                        throw new Error(t("settings.general.bubbleTest.otherBubble"));
+                      }
                       if (!result.shown) {
                         throw new Error(t("settings.general.bubbleTest.notShown"));
                       }

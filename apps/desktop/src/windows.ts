@@ -17,7 +17,7 @@ import { codexV2SpriteLayout, getCodexPetSpriteLayout, maxCodexSpritesheetBytes,
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
-import { applyExternalPetSay, recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
+import { applyExternalPetSay, getDefaultPetPluginBubbles, recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
 import { defaultOutfitId, isSafeOutfitId } from "./pet-wardrobe-core.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
@@ -576,6 +576,10 @@ export function installInternalUiHandlers(): void {
     // A default pet visiting another LAN host must not be woken here.
     if (isDefaultPetAwayForLan()) {
       return { shown: false, reason: "away" };
+    }
+    // A plugin bubble in the transient slot is drawn instead of the sample.
+    if (getDefaultPetPluginBubbles()?.transient) {
+      return { shown: false, reason: "plugin-bubble" };
     }
     const result = applyExternalPetSay(t("settings.general.bubbleTest.message"), "waving");
     debug("ui", "test speech bubble requested", { shown: result.shown, reason: result.reason });

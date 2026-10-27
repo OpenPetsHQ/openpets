@@ -542,8 +542,9 @@ pinned plugin HUD keeps its own look. Changing the theme also re-renders every
 pet window.
 A **Show Test Message** button below these settings makes the default pet say a
 sample message through `applyExternalPetSay`, so size, duration and theme can be
-previewed. It does nothing while the pet is paused or visiting another LAN host,
-and the Control Center says so.
+previewed. It does nothing while the pet is paused, visiting another LAN host, or
+showing a plugin bubble in the transient slot, and the Control Center says so.
+In dark mode, plugin bubbles with an accent color get dark accent backgrounds.
 
 ### Remote control service
 

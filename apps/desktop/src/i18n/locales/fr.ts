@@ -380,6 +380,7 @@ export const fr: Partial<Messages> = {
   "settings.general.bubbleTest.button": "Afficher un message test",
   "settings.general.bubbleTest.message": "Salut ! Voici à quoi ressemblent mes bulles. Change la taille, la durée ou le thème et réessaie.",
   "settings.general.bubbleTest.notShown": "Votre mascotte n’a pas pu afficher le message. Elle est peut-être en pause, masquée ou en visite sur un autre ordinateur.",
+  "settings.general.bubbleTest.otherBubble": "Votre mascotte affiche déjà une autre bulle. Réessayez quand elle se ferme.",
   "settings.general.idleCursorGaze.title": "Suivi du curseur au repos",
   "settings.general.idleCursorGaze.description": "Permettre aux mascottes V2 de regarder votre curseur lorsqu’elles sont au repos.",
   "settings.appearance.title": "Apparence",
