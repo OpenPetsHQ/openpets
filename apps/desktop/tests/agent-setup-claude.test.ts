@@ -8,6 +8,10 @@ import { getClaudeSetup, runClaudeAction, type ClaudeCommandResult, type ClaudeS
 // This protects the Claude Code MCP status, configure action, custom-entry guard, and memory lifecycle.
 const homeDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-agent-setup-claude-"));
 let state: "missing" | "configured" | "custom" = "missing";
+// `claude mcp list` health-checks every MCP server, so with many servers it
+// outlasts the status timeout. `get` breaks when an old Claude lacks it.
+let listTimesOut = false;
+let getUnavailable = false;
 const journal: ClaudeSetupJournalEntry[] = [];
 
 function commandResult(overrides: Partial<ClaudeCommandResult> = {}): ClaudeCommandResult {
@@ -17,10 +21,13 @@ function commandResult(overrides: Partial<ClaudeCommandResult> = {}): ClaudeComm
 const runClaudeCommand = async (spec: { readonly command: string; readonly args: readonly string[] }): Promise<ClaudeCommandResult> => {
   if (spec.args[0] === "--version") return commandResult({ stdout: "Claude Code 1.0.0" });
   if (spec.args[0] === "mcp" && spec.args[1] === "list") {
+    if (listTimesOut) return commandResult({ ok: false, timedOut: true });
     if (state === "missing") return commandResult({ stdout: "No MCP servers configured" });
     return commandResult({ stdout: "openpets: configured" });
   }
   if (spec.args[0] === "mcp" && spec.args[1] === "get") {
+    if (getUnavailable) return commandResult({ ok: false, exitCode: 1, stderr: "error: unknown command 'get'" });
+    if (state === "missing") return commandResult({ ok: false, exitCode: 1, stderr: 'No MCP server named "openpets". Configured servers: github' });
     if (state === "custom") return commandResult({ stdout: JSON.stringify({ command: "node", args: ["custom.js"] }) });
     return commandResult({ stdout: JSON.stringify({ command: "npx", args: ["-y", "@open-pets/mcp"] }) });
   }
@@ -76,6 +83,25 @@ try {
   const customConfigure = await runClaudeAction("configure", createDependencies());
   assert.equal(customConfigure.ok, false);
   assert.equal(customConfigure.changed, false);
+
+  // A slow `claude mcp list` must not turn a working setup into an error.
+  state = "configured";
+  listTimesOut = true;
+  const slowListConfigured = await getClaudeSetup(createDependencies());
+  assert.equal(slowListConfigured.status.state, "configured");
+  state = "missing";
+  const slowListMissing = await getClaudeSetup(createDependencies());
+  assert.equal(slowListMissing.status.state, "needs_setup");
+  listTimesOut = false;
+
+  // Without a working `get`, status falls back to `claude mcp list`.
+  getUnavailable = true;
+  state = "configured";
+  const listFallback = await getClaudeSetup(createDependencies());
+  assert.equal(listFallback.status.state, "configured");
+  assert.equal(listFallback.status.openPetsEntry.source, "list");
+  getUnavailable = false;
+  state = "custom";
 
   const bundledFailure = await runClaudeAction("configure", {
     ...createDependencies("bundled"),

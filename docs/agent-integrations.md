@@ -118,6 +118,11 @@ The deepest integration, because Claude Code has a rich hook system.
   includes fnm default-alias directories plus the standard Windows npm
   global shim directory, so version-manager installs and globally
   installed CLIs resolve without shell profile evaluation.
+  The Control Center reads status with `claude mcp get openpets`, which only
+  checks the OpenPets entry. `claude mcp list` health-checks every configured
+  server and can outlast the status timeout, so it is only a fallback when
+  `get` fails for a reason other than "no such server"
+  (`apps/desktop/src/agent-setup-claude.ts`).
 - **Hooks** (`hook-settings.ts` + `hooks.ts`): installs command hooks into
   `~/.claude/settings.json` for the lifecycle events `UserPromptSubmit`,
   `PreToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`. Each
