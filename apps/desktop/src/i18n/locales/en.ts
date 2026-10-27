@@ -400,6 +400,11 @@ export const en = {
   "settings.general.bubbleTheme.light": "Light",
   "settings.general.bubbleTheme.dark": "Dark",
   "settings.general.bubbleTheme.system": "System default",
+  "settings.general.bubbleTest.title": "Preview speech bubble",
+  "settings.general.bubbleTest.description": "Make your pet say a sample message with the current size, duration and theme.",
+  "settings.general.bubbleTest.button": "Show Test Message",
+  "settings.general.bubbleTest.message": "Hi! This is how my speech bubbles look. Change the size, duration or theme and try again.",
+  "settings.general.bubbleTest.notShown": "Your pet couldn't show the message. It may be paused, hidden or visiting another computer.",
   "settings.general.idleCursorGaze.title": "Idle cursor gaze",
   "settings.general.idleCursorGaze.description": "Let V2 pets look toward your cursor while they are idle.",
   "settings.appearance.title": "Appearance",
@@ -491,6 +496,7 @@ export const en = {
   "settings.busy.resetting": "Resetting",
   "settings.busy.opening": "Opening",
   "settings.busy.checking": "Checking",
+  "settings.busy.showing": "Showing",
 
   // --- Settings: Pet Assistant personality (renderer) ---
   "settings.personality.eyebrow": "Conversation",

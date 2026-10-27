@@ -375,6 +375,11 @@ export const fr: Partial<Messages> = {
   "settings.general.bubbleTheme.light": "Clair",
   "settings.general.bubbleTheme.dark": "Sombre",
   "settings.general.bubbleTheme.system": "Paramètre système",
+  "settings.general.bubbleTest.title": "Aperçu des bulles",
+  "settings.general.bubbleTest.description": "Faites dire un message d’exemple à votre mascotte avec la taille, la durée et le thème actuels.",
+  "settings.general.bubbleTest.button": "Afficher un message test",
+  "settings.general.bubbleTest.message": "Salut ! Voici à quoi ressemblent mes bulles. Change la taille, la durée ou le thème et réessaie.",
+  "settings.general.bubbleTest.notShown": "Votre mascotte n’a pas pu afficher le message. Elle est peut-être en pause, masquée ou en visite sur un autre ordinateur.",
   "settings.general.idleCursorGaze.title": "Suivi du curseur au repos",
   "settings.general.idleCursorGaze.description": "Permettre aux mascottes V2 de regarder votre curseur lorsqu’elles sont au repos.",
   "settings.appearance.title": "Apparence",
@@ -466,6 +471,7 @@ export const fr: Partial<Messages> = {
   "settings.busy.resetting": "Réinitialisation",
   "settings.busy.opening": "Ouverture",
   "settings.busy.checking": "Vérification",
+  "settings.busy.showing": "Affichage",
 
   // --- Settings: Pet Assistant personality (renderer) ---
   "settings.personality.eyebrow": "Conversation",

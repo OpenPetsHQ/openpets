@@ -540,6 +540,10 @@ rules in `@media (prefers-color-scheme: dark)`, so it follows the desktop's dark
 mode live; the Control Center's own appearance setting does not affect it. The
 pinned plugin HUD keeps its own look. Changing the theme also re-renders every
 pet window.
+A **Show Test Message** button below these settings makes the default pet say a
+sample message through `applyExternalPetSay`, so size, duration and theme can be
+previewed. It does nothing while the pet is paused or visiting another LAN host,
+and the Control Center says so.
 
 ### Remote control service
 

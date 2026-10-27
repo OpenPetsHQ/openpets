@@ -205,6 +205,7 @@ type ControlCenterApi = WhatsNewApi & {
   getReactionAnimationSettings(): Promise<ReactionAnimationSettings>;
   getLaunchAtLogin(): Promise<LaunchAtLoginState>;
   setLaunchAtLogin(enabled: boolean): Promise<LaunchAtLoginState>;
+  showTestSpeechBubble(): Promise<{ shown: boolean; reason?: string }>;
   getUpdateStatus(): Promise<UpdateStatus>;
   checkForUpdates(): Promise<UpdateStatus>;
   openUpdateReleasePage(): Promise<void>;
@@ -1620,6 +1621,25 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                     <option value="dark">{t("settings.general.bubbleTheme.dark")}</option>
                     <option value="system">{t("settings.general.bubbleTheme.system")}</option>
                   </select>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.bubbleTest.title")}</strong>
+                    <small>{t("settings.general.bubbleTest.description")}</small>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    disabled={!settings || !!busy}
+                    onClick={() => void run(t("settings.busy.showing"), async () => {
+                      const result = await api.showTestSpeechBubble();
+                      if (!result.shown) {
+                        throw new Error(t("settings.general.bubbleTest.notShown"));
+                      }
+                    })}
+                  >
+                    {t("settings.general.bubbleTest.button")}
+                  </Button>
                 </div>
                 <ToggleRow
                   title={t("settings.general.idleCursorGaze.title")}
