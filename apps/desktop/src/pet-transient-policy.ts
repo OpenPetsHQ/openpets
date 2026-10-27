@@ -25,13 +25,18 @@ export function getTransientReactionAnimationMs(display: PetTransientDisplay): n
   return typeof iterations === "number" ? row.durationMs * iterations : null;
 }
 
-export function getTransientDisplayDurationMs(display: PetTransientDisplay): number {
+/**
+ * How long a transient display stays up. `durationScale` is the user's speech
+ * bubble duration preference; it stretches the computed reading time but never
+ * overrides an explicit caller duration or media duration.
+ */
+export function getTransientDisplayDurationMs(display: PetTransientDisplay, durationScale = 1): number {
   if (display.displayDurationMs) return display.displayDurationMs;
   if (display.mediaPath) return defaultMediaDurationMs;
   const baseMs = display.reaction === "success" || display.reaction === "error" ? 5_000 : 4_000;
   const message = display.message ?? display.reactionMessage;
-  if (!message) return baseMs;
-  return Math.min(12_000, Math.max(baseMs, message.length * 70));
+  const readingMs = message ? Math.min(12_000, Math.max(baseMs, message.length * 70)) : baseMs;
+  return Math.round(readingMs * durationScale);
 }
 
 export function clearTransientReaction(display: PetTransientDisplay): PetTransientDisplay {

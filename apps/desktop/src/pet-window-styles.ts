@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexV2GazeSpritePosition, getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { compactComposerGeometry, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
+import { compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
+import { defaultPetWindowSize } from "./display.js";
 import {
   calculateChatPanelBottom,
   calculateSessionOrbRadius,
@@ -30,6 +31,10 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
   // (HUD); the lift grows with the HUD's own scale so they never overlap.
   const pinnedLift = getPetWindowPinnedLift(true, hudScale);
   const buttonPreferences = getAppStateSnapshot().preferences;
+  // Speech bubbles scale from their arrow tip; the cap differs when the
+  // pinned HUD lifts the bubble higher in the window.
+  const bubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom);
+  const pinnedBubbleScale = getEffectiveBubbleScale(buttonPreferences.bubbleScale, defaultPetWindowSize.width, defaultPetWindowSize.height, bubbleBottom + pinnedLift);
   const petButtonsSide = buttonPreferences.petButtonsPosition === "left" ? "left" : "right";
   const petButtonSizePx = buttonPreferences.petButtonsSize === "small" ? 18 : buttonPreferences.petButtonsSize === "large" ? 28 : 22;
   const petButtonIconPx = Math.round(petButtonSizePx * 0.55);
@@ -44,7 +49,8 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; -webkit-font-smoothing: antialiased; }
     html { color: #172033; }
     body { -webkit-app-region: no-drag; pointer-events: none; }
-    .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; }
+    .stage { width: 100%; height: 100%; position: relative; box-sizing: border-box; overflow: visible; --bubble-scale: ${bubbleScale}; }
+    .stage.has-pinned { --bubble-scale: ${pinnedBubbleScale}; }
     .openpets-pet-buttons { position: absolute; ${petButtonsSide}: 12px; top: 4px; z-index: 5; display: flex; flex-direction: column; gap: 4px; pointer-events: auto; -webkit-app-region: no-drag; }
     .openpets-companion-launcher { width: ${petButtonSizePx}px; height: ${petButtonSizePx}px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(239, 246, 255, 0.94) 100%); color: #2563eb; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95); display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag; transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease, color 140ms ease, background 140ms ease; }
     .openpets-companion-launcher svg { width: ${petButtonIconPx}px; height: ${petButtonIconPx}px; }
@@ -140,7 +146,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
        preload, so the preload marks transparent-pixel hovers to lift it. */
     html[data-pet-alpha-transparent="true"] .pet-hitbox,
     html[data-pet-alpha-transparent="true"] .pet-shell { -webkit-app-region: no-drag; }
-    .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 92px; max-width: min(220px, calc(100vw - 18px)); max-height: 128px; padding: 10px 12px; background: linear-gradient(135deg, rgba(239, 246, 255, 0.97), rgba(237, 233, 254, 0.96)); color: #172033; font: 760 11px/14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; border: 1px solid rgba(255, 255, 255, 0.78); border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82); white-space: normal; overflow-wrap: break-word; word-break: normal; overflow: visible; pointer-events: auto; -webkit-app-region: no-drag; opacity: 1; backdrop-filter: ${bubbleBackdropFilter}; transform: translateX(-50%); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
+    .bubble { position: absolute; left: 50%; bottom: ${bubbleBottom}px; z-index: 4; box-sizing: border-box; display: inline-flex; flex-direction: column; width: fit-content; min-width: 92px; max-width: min(220px, calc(100vw - 18px)); max-height: 128px; padding: 10px 12px; background: linear-gradient(135deg, rgba(239, 246, 255, 0.97), rgba(237, 233, 254, 0.96)); color: #172033; font: 760 11px/14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; border: 1px solid rgba(255, 255, 255, 0.78); border-radius: 14px; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16), 0 2px 5px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82); white-space: normal; overflow-wrap: break-word; word-break: normal; overflow: visible; pointer-events: auto; -webkit-app-region: no-drag; opacity: 1; backdrop-filter: ${bubbleBackdropFilter}; transform: translateX(-50%) scale(var(--bubble-scale, 1)); transform-origin: 64% 100%; animation: bubble-in 180ms cubic-bezier(0.2, 0, 0, 1); }
     .bubble[data-dismiss-token] { cursor: pointer; }
     .bubble::after { content: ""; position: absolute; left: 64%; bottom: -7px; width: 12px; height: 12px; background: inherit; border-right: 1px solid rgba(255, 255, 255, 0.56); border-bottom: 1px solid rgba(255, 255, 255, 0.56); border-bottom-right-radius: 3px; transform: translateX(-50%) rotate(45deg); box-shadow: 3px 3px 7px rgba(15, 23, 42, 0.08); }
     .bubble-header { display: inline-flex; align-items: center; min-width: 0; gap: 7px; color: currentColor; font: 780 11px/14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0.01em; }
@@ -1442,7 +1448,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
       0%, 100% { opacity: 1; }
       50% { opacity: 0.15; }
     }
-    @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+    @keyframes bubble-in { from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(calc(var(--bubble-scale, 1) * 0.96)); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(var(--bubble-scale, 1)); } }
     @keyframes status-pulse { 0%, 100% { opacity: 0.52; } 50% { opacity: 1; } }
     @keyframes talk-pulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.44), 0 2px 8px rgba(239, 68, 68, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.25); }

@@ -64,7 +64,7 @@ export function applyLanVisitingPetSay(ownerHost: string, message: string, react
     activeDisplays.delete(ownerHost);
     const current = visitingPetWindows.get(ownerHost);
     if (current && !current.window.isDestroyed()) void loadExplicitPetContent(current.window, current.renderedPetId);
-  }, getTransientDisplayDurationMs(display));
+  }, getTransientDisplayDurationMs(display, getAppStateSnapshot().preferences.bubbleDurationScale));
   timer.unref?.();
   displayClearTimers.set(ownerHost, timer);
   return true;

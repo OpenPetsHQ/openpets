@@ -5,7 +5,7 @@
  * without an Electron process context.
  */
 
-import { normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type PetButtonsPosition, type PetButtonsSize, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { type BubbleDurationScaleValue, type BubbleScaleValue, normalizeBubbleDurationScale, normalizeBubbleScale, normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type PetButtonsPosition, type PetButtonsSize, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
 import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
@@ -17,6 +17,8 @@ export type PreferencePatch = {
   appearanceTheme?: AppearanceTheme;
   petScale?: number;
   hudScale?: number;
+  bubbleScale?: BubbleScaleValue;
+  bubbleDurationScale?: BubbleDurationScaleValue;
   waitingAnimationDurationMs?: WaitingAnimationDurationMs;
   idleCursorGazeEnabled?: boolean;
   reactionAnimationOverrides?: ReturnType<typeof validateReactionAnimationOverrides>;
@@ -114,6 +116,18 @@ export function validatePreferencePatch(value: unknown): PreferencePatch {
     const scale = normalizeHudScale(value.hudScale);
     if (scale !== value.hudScale) throw new Error("Invalid HUD scale value.");
     patch.hudScale = scale;
+  }
+
+  if ("bubbleScale" in value) {
+    const scale = normalizeBubbleScale(value.bubbleScale);
+    if (scale !== value.bubbleScale) throw new Error("Invalid speech bubble scale value.");
+    patch.bubbleScale = scale;
+  }
+
+  if ("bubbleDurationScale" in value) {
+    const durationScale = normalizeBubbleDurationScale(value.bubbleDurationScale);
+    if (durationScale !== value.bubbleDurationScale) throw new Error("Invalid speech bubble duration value.");
+    patch.bubbleDurationScale = durationScale;
   }
 
   if ("waitingAnimationDurationMs" in value) {

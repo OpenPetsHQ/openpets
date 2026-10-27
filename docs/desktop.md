@@ -520,6 +520,18 @@ TCP, routes a versioned JSON protocol, and writes a discovery file so clients
 can find it. The lease manager (`lease-manager.ts`) sits behind it. Full
 contract in [IPC and remote control](/ipc).
 
+#### Speech bubble size and duration
+
+Two preferences in Control Center → Settings → Pet Behavior tune transient
+speech bubbles (`pet.say`, reaction messages) without touching the pinned plugin
+HUD. `bubbleScale` (Small 0.85, Normal 1, Large 1.2, Huge 1.4) scales the bubble
+from its arrow tip; `getEffectiveBubbleScale` in `pet-window-shape.ts` caps growth
+so the largest bubble still fits in the pet window above the pet (never below 1),
+and the same value drives both the CSS and the Linux input shape.
+`bubbleDurationScale` (Short 0.6, Normal 1, Long 1.75, Very long 2.5) multiplies the
+reading time computed by `getTransientDisplayDurationMs`; explicit caller and media
+durations are unchanged. Plugin bubble slots keep their own TTLs.
+
 ### Remote control service
 
 `remote-control-service.ts` is deliberately not a mode of `local-ipc.ts`. It is
@@ -569,7 +581,7 @@ state, locale preference, the pet pool preference (ordered pet list +
 `petPoolEnabled` toggle), the pinned-pet preference (ordered `pinnedPets` list plus the
 per-pet `pinnedPetPositions` map, written through the dedicated
 `openpets:set-pet-pinned` / `setPinnedPets` paths rather than the preference patch), the host Pet Assistant personality profile, and display-roaming preferences (`petConfinementEnabled`,
-`petCrossDisplayEnabled`), plus the global `waitingAnimationDurationMs`
+`petCrossDisplayEnabled`), speech bubble `bubbleScale` / `bubbleDurationScale`, plus the global `waitingAnimationDurationMs`
 preference, the `idleCursorGazeEnabled` V2 idle-gaze toggle, and canonical
 `voiceAssistantShortcut` accelerator, and `lastSeenWhatsNewVersion` (the newest
 version whose What's new entries were dismissed; written on first launch of a

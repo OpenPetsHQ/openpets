@@ -27,6 +27,35 @@ export const hudScaleOptions = [
 export type HudScaleValue = typeof hudScaleOptions[number]["value"];
 export const defaultHudScale: HudScaleValue = 1.1;
 
+// Scale for transient speech bubbles (pet.say, reaction messages). Separate
+// from hudScale: this is about reading speech, not the pinned plugin HUD.
+export const bubbleScaleOptions = [
+  { label: "Small", value: 0.85 },
+  { label: "Normal", value: 1 },
+  { label: "Large", value: 1.2 },
+  { label: "Huge", value: 1.4 },
+] as const;
+export type BubbleScaleValue = typeof bubbleScaleOptions[number]["value"];
+export const defaultBubbleScale: BubbleScaleValue = 1;
+
+export function normalizeBubbleScale(value: unknown): BubbleScaleValue {
+  return bubbleScaleOptions.find((option) => option.value === value)?.value ?? defaultBubbleScale;
+}
+
+// Multiplier for how long a transient speech bubble stays visible.
+export const bubbleDurationScaleOptions = [
+  { label: "Short", value: 0.6 },
+  { label: "Normal", value: 1 },
+  { label: "Long", value: 1.75 },
+  { label: "Very long", value: 2.5 },
+] as const;
+export type BubbleDurationScaleValue = typeof bubbleDurationScaleOptions[number]["value"];
+export const defaultBubbleDurationScale: BubbleDurationScaleValue = 1;
+
+export function normalizeBubbleDurationScale(value: unknown): BubbleDurationScaleValue {
+  return bubbleDurationScaleOptions.find((option) => option.value === value)?.value ?? defaultBubbleDurationScale;
+}
+
 export function getHudScaleForPetScale(petScale: PetScaleValue): HudScaleValue {
   switch (petScale) {
     case 0.35:

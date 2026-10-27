@@ -241,4 +241,12 @@ for (const { key, errMsg } of booleanKeys) {
   console.log("validatePreferencePatch: physics fractions — PASS");
 }
 
+{
+  assert.equal(validatePreferencePatch({ bubbleScale: 1.2 }).bubbleScale, 1.2);
+  assert.equal(validatePreferencePatch({ bubbleDurationScale: 2.5 }).bubbleDurationScale, 2.5);
+  assert.throws(() => validatePreferencePatch({ bubbleScale: 3 }), /Invalid speech bubble scale/);
+  assert.throws(() => validatePreferencePatch({ bubbleDurationScale: "long" }), /Invalid speech bubble duration/);
+  console.log("validatePreferencePatch: speech bubble size and duration — PASS");
+}
+
 console.log("\nAll preference-patch tests passed.");

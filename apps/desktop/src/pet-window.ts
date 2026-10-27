@@ -634,6 +634,7 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     hasBubble,
     hasPinned,
     hudScale,
+    bubbleScale: getAppStateSnapshot().preferences.bubbleScale,
     isExpanded,
     isCompactOpen: !isExpanded && isDefaultPetChatCompactOpen(),
     isSessionOpen: isDefaultPetSessionOpen(),

@@ -383,6 +383,10 @@ export const en = {
   "settings.general.petScale.description": "Adjust how large the default desktop pet appears.",
   "settings.general.hudScale.title": "Plugin HUD scale",
   "settings.general.hudScale.description": "Adjust how large the plugin HUD panel under the pet appears.",
+  "settings.general.bubbleScale.title": "Speech bubble size",
+  "settings.general.bubbleScale.description": "Adjust how large speech bubbles appear. Large sizes are capped so the bubble fits above the pet.",
+  "settings.general.bubbleDuration.title": "Speech bubble duration",
+  "settings.general.bubbleDuration.description": "Adjust how long speech bubbles stay on screen.",
   "settings.general.idleCursorGaze.title": "Idle cursor gaze",
   "settings.general.idleCursorGaze.description": "Let V2 pets look toward your cursor while they are idle.",
   "settings.appearance.title": "Appearance",
@@ -399,6 +403,8 @@ export const en = {
   "settings.toast.loginStartupSaved": "Login startup preference saved.",
   "settings.toast.petScaleSaved": "Pet scale saved.",
   "settings.toast.hudScaleSaved": "HUD scale saved.",
+  "settings.toast.bubbleScaleSaved": "Speech bubble size saved.",
+  "settings.toast.bubbleDurationSaved": "Speech bubble duration saved.",
   "settings.toast.idleCursorGazeSaved": "Idle cursor gaze setting saved.",
 
   // --- Companion assistant (Chat & Voice) settings ---
