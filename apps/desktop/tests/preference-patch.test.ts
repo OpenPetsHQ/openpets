@@ -246,7 +246,9 @@ for (const { key, errMsg } of booleanKeys) {
   assert.equal(validatePreferencePatch({ bubbleDurationScale: 2.5 }).bubbleDurationScale, 2.5);
   assert.throws(() => validatePreferencePatch({ bubbleScale: 3 }), /Invalid speech bubble scale/);
   assert.throws(() => validatePreferencePatch({ bubbleDurationScale: "long" }), /Invalid speech bubble duration/);
-  console.log("validatePreferencePatch: speech bubble size and duration — PASS");
+  assert.equal(validatePreferencePatch({ bubbleTheme: "dark" }).bubbleTheme, "dark");
+  assert.throws(() => validatePreferencePatch({ bubbleTheme: "blue" }), /Invalid speech bubble theme/);
+  console.log("validatePreferencePatch: speech bubble size, duration and theme — PASS");
 }
 
 console.log("\nAll preference-patch tests passed.");

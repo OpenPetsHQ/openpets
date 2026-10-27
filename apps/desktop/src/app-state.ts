@@ -5,7 +5,7 @@ import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 import { validatePetSpritesheetPath } from "install-pet/spritesheet";
 
-import { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, normalizeBubbleDurationScale, normalizeBubbleScale, type BubbleDurationScaleValue, type BubbleScaleValue, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
+import { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, defaultBubbleTheme, normalizeBubbleDurationScale, normalizeBubbleScale, normalizeBubbleTheme, type BubbleDurationScaleValue, type BubbleScaleValue, type BubbleTheme, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
 import { normalizeDefaultPetPositionState, normalizePosition, recordDefaultPetPositionState, resetDefaultPetPositionState, type DefaultPetPosition, type DefaultPetPositionState } from "./default-pet-position-state.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/catalog.js";
@@ -68,6 +68,8 @@ export interface OpenPetsStateV1 {
     readonly bubbleScale: BubbleScaleValue;
     /** Multiplier for how long transient speech bubbles stay visible. */
     readonly bubbleDurationScale: BubbleDurationScaleValue;
+    /** Color scheme of transient speech bubbles; "system" follows the desktop's dark mode. */
+    readonly bubbleTheme: BubbleTheme;
     readonly waitingAnimationDurationMs: WaitingAnimationDurationMs;
     /** Whether idle V2 pets follow the global cursor. Defaults to true. */
     readonly idleCursorGazeEnabled: boolean;
@@ -163,7 +165,7 @@ export type OpenPetsActivityRecord =
   | { readonly kind: "say"; readonly reaction?: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" }
   | { readonly kind: "react"; readonly reaction: OpenPetsReaction; readonly petId?: string; readonly surface?: "default" | "agent" };
 
-export { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, normalizeBubbleDurationScale, normalizeBubbleScale, type BubbleDurationScaleValue, type BubbleScaleValue, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
+export { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, normalizeBubbleDurationScale, normalizeBubbleScale, type BubbleDurationScaleValue, type BubbleScaleValue, type BubbleTheme, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetHorizontalFlip, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs };
 export { defaultPetAssistantPersonality, normalizePetAssistantPersonality, resolveCompanionDisplayName, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 
 export type OpenPetsPreferencePatch = Omit<Partial<OpenPetsStateV1["preferences"]>, "personality"> & {
@@ -759,6 +761,7 @@ function normalizePreferences(value: Partial<OpenPetsStateV1["preferences"]>): O
     hudScale: normalizeHudScale(value.hudScale),
     bubbleScale: normalizeBubbleScale(value.bubbleScale),
     bubbleDurationScale: normalizeBubbleDurationScale(value.bubbleDurationScale),
+    bubbleTheme: normalizeBubbleTheme(value.bubbleTheme),
     waitingAnimationDurationMs: normalizeWaitingAnimationDurationMs(value.waitingAnimationDurationMs),
     idleCursorGazeEnabled: normalizeIdleCursorGazeEnabled(value.idleCursorGazeEnabled, defaultState.preferences.idleCursorGazeEnabled),
     reactionAnimationOverrides: normalizeReactionAnimationOverrides(value.reactionAnimationOverrides),
@@ -879,6 +882,7 @@ function createDefaultState(): OpenPetsStateV1 {
       hudScale: defaultHudScale,
       bubbleScale: defaultBubbleScale,
       bubbleDurationScale: defaultBubbleDurationScale,
+      bubbleTheme: defaultBubbleTheme,
       waitingAnimationDurationMs: defaultWaitingAnimationDurationMs,
       idleCursorGazeEnabled: defaultIdleCursorGazeEnabled,
       reactionAnimationOverrides: undefined,

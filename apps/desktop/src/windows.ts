@@ -103,7 +103,7 @@ function syncDockVisibilityForInternalUi(): void {
 }
 
 function getSettingsStateSnapshot(): {
-  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "bubbleScale" | "bubbleDurationScale" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "pinnedPets" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "petBounciness" | "petFloorFriction" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
+  preferences: Pick<ReturnType<typeof getAppStateSnapshot>["preferences"], "openDefaultPetOnLaunch" | "appearanceTheme" | "petScale" | "hudScale" | "bubbleScale" | "bubbleDurationScale" | "bubbleTheme" | "waitingAnimationDurationMs" | "idleCursorGazeEnabled" | "reactionAnimationOverrides" | "petPoolOrder" | "petPoolEnabled" | "pinnedPets" | "petConfinementEnabled" | "petCrossDisplayEnabled" | "petGravityEnabled" | "petBounciness" | "petFloorFriction" | "personality" | "voiceAssistantShortcut" | "chatShortcut" | "petToggleShortcut" | "showChatButton" | "showTalkButton" | "petButtonsPosition" | "petButtonsSize">;
   petScaleOptions: typeof petScaleOptions;
   hudScaleOptions: typeof hudScaleOptions;
   bubbleScaleOptions: typeof bubbleScaleOptions;
@@ -125,6 +125,7 @@ function getSettingsStateSnapshot(): {
       hudScale: state.preferences.hudScale,
       bubbleScale: state.preferences.bubbleScale,
       bubbleDurationScale: state.preferences.bubbleDurationScale,
+      bubbleTheme: state.preferences.bubbleTheme,
       waitingAnimationDurationMs: state.preferences.waitingAnimationDurationMs,
       idleCursorGazeEnabled: state.preferences.idleCursorGazeEnabled,
       reactionAnimationOverrides: state.preferences.reactionAnimationOverrides,
@@ -486,6 +487,7 @@ export function installInternalUiHandlers(): void {
     const previousScale = getAppStateSnapshot().preferences.petScale;
     const previousHudScale = getAppStateSnapshot().preferences.hudScale;
     const previousBubbleScale = getAppStateSnapshot().preferences.bubbleScale;
+    const previousBubbleTheme = getAppStateSnapshot().preferences.bubbleTheme;
     const previousWaitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
     const previousIdleCursorGazeEnabled = getAppStateSnapshot().preferences.idleCursorGazeEnabled;
     const previousOverrides = JSON.stringify(getAppStateSnapshot().preferences.reactionAnimationOverrides ?? {});
@@ -527,9 +529,11 @@ export function installInternalUiHandlers(): void {
       refreshAgentPetContent();
       refreshPinnedPetContent();
     }
-    if (state.preferences.bubbleScale !== previousBubbleScale) {
+    const bubbleLookChanged = state.preferences.bubbleScale !== previousBubbleScale
+      || state.preferences.bubbleTheme !== previousBubbleTheme;
+    if (bubbleLookChanged) {
       // Speech bubbles show on every pet role, including plugin-spawned pets and LAN visitors.
-      refreshAllPetWindows("bubble scale change");
+      refreshAllPetWindows("speech bubble change");
     }
     if (state.preferences.idleCursorGazeEnabled !== previousIdleCursorGazeEnabled) {
       refreshPetGazePreference();
