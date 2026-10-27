@@ -358,6 +358,10 @@ export const fr: Partial<Messages> = {
   "settings.general.petScale.description": "Ajustez la taille de la mascotte par défaut sur le bureau.",
   "settings.general.hudScale.title": "Taille du HUD des plugins",
   "settings.general.hudScale.description": "Ajustez la taille du panneau HUD des plugins sous la mascotte.",
+  "settings.general.bubbleScale.title": "Taille des bulles",
+  "settings.general.bubbleScale.description": "Ajustez la taille des bulles de dialogue. Les grandes tailles sont limitées pour que la bulle tienne au-dessus de la mascotte.",
+  "settings.general.bubbleDuration.title": "Durée des bulles",
+  "settings.general.bubbleDuration.description": "Ajustez combien de temps les bulles de dialogue restent à l’écran.",
   "settings.general.idleCursorGaze.title": "Suivi du curseur au repos",
   "settings.general.idleCursorGaze.description": "Permettre aux mascottes V2 de regarder votre curseur lorsqu’elles sont au repos.",
   "settings.appearance.title": "Apparence",
@@ -374,6 +378,8 @@ export const fr: Partial<Messages> = {
   "settings.toast.loginStartupSaved": "Préférence de lancement à l’ouverture de session enregistrée.",
   "settings.toast.petScaleSaved": "Taille de la mascotte enregistrée.",
   "settings.toast.hudScaleSaved": "Taille du HUD enregistrée.",
+  "settings.toast.bubbleScaleSaved": "Taille des bulles enregistrée.",
+  "settings.toast.bubbleDurationSaved": "Durée des bulles enregistrée.",
   "settings.toast.idleCursorGazeSaved": "Paramètre de suivi du curseur enregistré.",
 
   // --- Companion assistant (Chat & Voice) settings ---
