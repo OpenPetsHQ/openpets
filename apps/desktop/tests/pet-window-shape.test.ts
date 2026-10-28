@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { calculatePetInteractiveShape, compactComposerGeometry, getPetWindowPinnedLift, getPetWindowSpriteBottomInset, isRectangleContained } from "../src/pet-window-shape.js";
+import { calculatePetInteractiveShape, compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, getPetWindowSpriteBottomInset, isRectangleContained } from "../src/pet-window-shape.js";
 import { defaultPetWindowSize } from "../src/display.js";
 import { calculateChatPanelBottom, defaultPetChatPanelLayout, expandedPetWindowSize } from "../src/default-pet-chat-geometry.js";
 
@@ -186,6 +186,51 @@ assert.equal(getPetWindowSpriteBottomInset(true, 1.25), 63);
   assert.ok(hudRect.width > 0 && hudRect.width <= defaultPetWindowSize.width);
   assert.ok(hudRect.height > 0);
   assert.equal(hudRect.y + hudRect.height, defaultPetWindowSize.height);
+}
+
+// --- Speech bubble scale ---
+// Contract: a larger bubble never spills outside the pet window, never ends up
+// smaller than the default, and the Linux input shape grows with it so the
+// bubble stays clickable.
+{
+  const { width, height } = defaultPetWindowSize;
+  assert.equal(getEffectiveBubbleScale(0.85, width, height, 200), 0.85, "smaller sizes are honored as-is");
+  assert.equal(getEffectiveBubbleScale(1.2, width, height, 186), 1.2, "room above a medium pet allows Large");
+  assert.equal(getEffectiveBubbleScale(1.4, width, height, 240), 1.15, "a taller pet caps Huge to what fits above it");
+  assert.equal(getEffectiveBubbleScale(1.4, width, height, 400), 1, "no room keeps the default size");
+
+  const shapeFor = (bubbleScale: number) => calculatePetInteractiveShape({
+    windowWidth: width,
+    windowHeight: height,
+    spriteWidth: 192,
+    spriteHeight: 208,
+    scale: 0.75,
+    hasBubble: true,
+    bubbleScale,
+  }).shape.at(-1)!;
+  const normal = shapeFor(1);
+  const large = shapeFor(1.2);
+  assert.ok(large.height > normal.height, "a larger bubble gets a larger input region");
+  assert.ok(large.y >= 0, "the bubble region stays inside the window");
+  assert.equal(large.y + large.height, normal.y + normal.height, "the bubble grows upward from the same anchor");
+
+  // Media previews use a taller box (`.bubble.has-media`, up to 224px), so
+  // Huge must be capped harder for them or the preview is cut off.
+  const mediaBubbleHeight = 224;
+  const bubbleBottom = 186;
+  const mediaScale = getEffectiveBubbleScale(1.4, width, height, bubbleBottom, true);
+  assert.ok(mediaScale * mediaBubbleHeight <= height - bubbleBottom, "an enlarged media bubble still fits above the pet");
+  const mediaShape = calculatePetInteractiveShape({
+    windowWidth: width,
+    windowHeight: height,
+    spriteWidth: 192,
+    spriteHeight: 208,
+    scale: 0.75,
+    hasBubble: true,
+    bubbleScale: 1,
+    bubbleHasMedia: true,
+  }).shape.at(-1)!;
+  assert.ok(mediaShape.height >= mediaBubbleHeight, "the whole media bubble stays clickable");
 }
 
 console.log("pet-window-shape tests passed.");

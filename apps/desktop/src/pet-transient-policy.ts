@@ -1,6 +1,5 @@
 import { getAppStateSnapshot } from "./app-state.js";
 import { getActiveLocale } from "./i18n/index.js";
-import { defaultMediaDurationMs } from "./local-ipc-protocol.js";
 import { getConfiguredSpriteStates } from "./reaction-animation-mapping.js";
 import { pickReactionMessage } from "./reaction-messages.js";
 import { getReactionSpriteState } from "./pet-window-render.js";
@@ -23,15 +22,6 @@ export function getTransientReactionAnimationMs(display: PetTransientDisplay): n
   const row = getConfiguredSpriteStates(getAppStateSnapshot().preferences.waitingAnimationDurationMs)[state];
   const iterations = "iterations" in row ? row.iterations : "infinite";
   return typeof iterations === "number" ? row.durationMs * iterations : null;
-}
-
-export function getTransientDisplayDurationMs(display: PetTransientDisplay): number {
-  if (display.displayDurationMs) return display.displayDurationMs;
-  if (display.mediaPath) return defaultMediaDurationMs;
-  const baseMs = display.reaction === "success" || display.reaction === "error" ? 5_000 : 4_000;
-  const message = display.message ?? display.reactionMessage;
-  if (!message) return baseMs;
-  return Math.min(12_000, Math.max(baseMs, message.length * 70));
 }
 
 export function clearTransientReaction(display: PetTransientDisplay): PetTransientDisplay {

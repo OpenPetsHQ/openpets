@@ -64,7 +64,7 @@ export function applyLanVisitingPetSay(ownerHost: string, message: string, react
     activeDisplays.delete(ownerHost);
     const current = visitingPetWindows.get(ownerHost);
     if (current && !current.window.isDestroyed()) void loadExplicitPetContent(current.window, current.renderedPetId);
-  }, getTransientDisplayDurationMs(display));
+  }, getTransientDisplayDurationMs(display, getAppStateSnapshot().preferences.bubbleDurationScale));
   timer.unref?.();
   displayClearTimers.set(ownerHost, timer);
   return true;
@@ -72,11 +72,22 @@ export function applyLanVisitingPetSay(ownerHost: string, message: string, react
 
 export function refreshLanVisitingPetsForPetId(petId: string): void {
   for (const entry of visitingPetWindows.values()) {
-    if (entry.renderedPetId === petId && !entry.window.isDestroyed()) {
-      const display = activeDisplays.get(entry.ownerHost) ?? null;
-      void loadExplicitPetContent(entry.window, entry.renderedPetId, display, null, display?.dismissToken, getAppStateSnapshot().preferences.petScale as PetScaleValue);
+    if (entry.renderedPetId === petId) {
+      refreshLanVisitingPet(entry);
     }
   }
+}
+
+export function refreshAllLanVisitingPets(): void {
+  for (const entry of visitingPetWindows.values()) {
+    refreshLanVisitingPet(entry);
+  }
+}
+
+function refreshLanVisitingPet(entry: { readonly window: BrowserWindow; readonly ownerHost: string; readonly renderedPetId: string }): void {
+  if (entry.window.isDestroyed()) return;
+  const display = activeDisplays.get(entry.ownerHost) ?? null;
+  void loadExplicitPetContent(entry.window, entry.renderedPetId, display, null, display?.dismissToken, getAppStateSnapshot().preferences.petScale as PetScaleValue);
 }
 
 export function reclampLanVisitingPetWindows(): void {

@@ -274,7 +274,7 @@ function getOrCreateAgentPresentation(petId: string): PetTransientPresentation {
   let presentation: PetTransientPresentation;
   presentation = createPetTransientPresentation({
     mergeDisplay: mergePetTransientDisplay,
-    getDisplayDurationMs: (preparedDisplay) => getTransientDisplayDurationMs(preparedDisplay),
+    getDisplayDurationMs: (preparedDisplay) => getTransientDisplayDurationMs(preparedDisplay, getAppStateSnapshot().preferences.bubbleDurationScale),
     getReactionAnimationMs: getTransientReactionAnimationMs,
     clearReaction: clearTransientReaction,
     badgeExpiryMs: { busy: busyStatusBadgeMs, normal: transientDisplayMs },

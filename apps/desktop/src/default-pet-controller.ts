@@ -479,7 +479,7 @@ function getDefaultTransientReactionAnimationMs(transientDisplay: PetTransientDi
 }
 
 function getDefaultTransientDisplayDurationMs(transientDisplay: PetTransientDisplay): number {
-  return getTransientDisplayDurationMs(transientDisplay);
+  return getTransientDisplayDurationMs(transientDisplay, getAppStateSnapshot().preferences.bubbleDurationScale);
 }
 
 function showDefaultPetForExternalEvent(): void {

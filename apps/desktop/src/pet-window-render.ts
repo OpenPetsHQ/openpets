@@ -62,7 +62,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     renderedPetId: builtInPet.id,
     renderedOutfitId: outfitId,
     activities: [],
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:outfit-${outfitId}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:bubble${getAppStateSnapshot().preferences.bubbleScale}:${petButtonsCacheToken()}:outfit-${outfitId}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,
@@ -217,7 +217,7 @@ export async function createInstalledPetRender(
     renderedPetId: petId,
     renderedOutfitId: outfitId,
     activities: metadata.activities ?? [],
-    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:${petButtonsCacheToken()}:${atlasRelativePath}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
+    cacheKey: `${cachePrefix}:${paused}:${scale}:hud${hudScale}:bubble${getAppStateSnapshot().preferences.bubbleScale}:${petButtonsCacheToken()}:${atlasRelativePath}:v${spriteLayout.version}:gaze${metadata.gazeAnchor?.x ?? "default"},${metadata.gazeAnchor?.y ?? "default"}:${spritesheet.mtimeMs}:${spritesheet.size}:${getConfiguredSpriteCacheKey(waitingAnimationDurationMs)}:${getActiveLocale()}:${petFlipCacheToken(petId)}`,
     bodyHtml,
     displayName,
     assetName: assetDisplayName,
@@ -457,12 +457,17 @@ export function pluginBubblesCacheKey(pluginBubbles: PetPluginBubbles | null): s
   return `${pluginBubbles.transient?.token ?? "-"}:${pluginBubbles.pinned?.token ?? "-"}`;
 }
 
+/** Whether the transient bubble shows a media preview (it gets the larger `.has-media` box). */
+export function bubbleHasMediaPreview(display: PetTransientDisplay | null, paused: boolean, pluginBubbles: PetPluginBubbles | null): boolean {
+  return !pluginBubbles?.transient && !paused && Boolean(display?.mediaPath);
+}
+
 export function createBubbleMarkup(display: PetTransientDisplay | null, paused: boolean, badgeReaction: PetStatusBadgeReaction | null, dismissToken?: string, pluginBubbles: PetPluginBubbles | null = null): string {
   if (pluginBubbles?.transient) return createPluginBubbleMarkup(pluginBubbles.transient, false);
   const suppressReactionMessage = display?.suppressReactionMessage === true;
   const text = display?.message ?? display?.reactionMessage ?? (!suppressReactionMessage && display?.reaction ? pickReactionMessage(display.reaction, Math.random, getActiveLocale()) : undefined) ?? (paused ? t("pet.paused") : "");
   const status = !paused && !suppressReactionMessage && badgeReaction ? getStatusBadge(badgeReaction) : null;
-  const media = !paused && display?.mediaPath ? `<img class="bubble-media-preview" src="${escapeHtml(pathToFileURL(display.mediaPath).toString())}" alt="" draggable="false">` : "";
+  const media = display?.mediaPath && bubbleHasMediaPreview(display, paused, pluginBubbles) ? `<img class="bubble-media-preview" src="${escapeHtml(pathToFileURL(display.mediaPath).toString())}" alt="" draggable="false">` : "";
   if (!text && !status && !media) return "";
   const isExplicitMessage = Boolean(display?.message && !display?.reactionMessage);
   const className = getBubbleClassName(text, isExplicitMessage, status?.className) + (media ? " has-media" : "") + (media && display?.clickUrl ? " is-link" : "");
