@@ -315,32 +315,58 @@ async function detectClaudeCodeStatus(dependencies: ClaudeSetupDependencies): Pr
     );
   }
 
-  const list = await runClaudeCommandWithTimeoutRetry(dependencies, { command: "claude", args: ["mcp", "list"] });
-  if (!list.ok) {
+  const versionOutput = dependencies.sanitizeOutput(version.stdout || version.stderr);
+  const { result, entry } = await readOpenPetsMcpEntry(dependencies);
+  if (!result.ok && !entry.present && !isMissingMcpServerResult(result)) {
     return createStatus(
       "error",
       "Error / needs attention",
-      `Claude Code was detected, but MCP status failed: ${dependencies.summarizeCommandResult(list)}`,
-      dependencies.sanitizeOutput(version.stdout || version.stderr),
-      list,
-      { present: false, source: "none", verified: false, matchesExpected: false },
+      `Claude Code was detected, but MCP status failed: ${dependencies.summarizeCommandResult(result)}`,
+      versionOutput,
+      result,
+      entry,
     );
   }
 
-  const listed = classifyClaudeMcpStatus(list.stdout, undefined, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
-  let entry = listed;
-  if (listed.present) {
-    const get = await dependencies.runClaudeCommand(buildClaudeMcpGetCommand());
-    if (get.ok) {
-      entry = classifyClaudeMcpStatus(list.stdout, get.stdout, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
-    }
+  if (!entry.present) return createStatus("needs_setup", "Needs setup", "Claude Code is detected, but OpenPets MCP is not configured.", versionOutput, result, entry);
+  if (entry.verified && entry.matchesExpected) return createStatus("configured", "Configured", "Claude Code has the expected OpenPets MCP entry.", versionOutput, result, entry);
+  if (entry.verified) return createStatus("configured", "Installed — custom", "Claude Code has an openpets MCP entry with a custom command. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, result, entry);
+  return createStatus("configured", "Installed — unverified", "Claude Code lists an openpets MCP entry, but command details were not available. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, result, entry);
+}
+
+const missingMcpEntry: ParsedClaudeMcpEntry = { present: false, source: "none", verified: false, matchesExpected: false };
+
+/**
+ * Reads the OpenPets MCP entry. `claude mcp get openpets` only looks at our
+ * server, while `claude mcp list` health-checks every configured server and
+ * can take far longer than the status timeout when many are configured. So
+ * `get` comes first, and `list` is only a fallback when `get` fails for a
+ * reason other than "no such server".
+ */
+async function readOpenPetsMcpEntry(dependencies: ClaudeSetupDependencies): Promise<{ readonly result: ClaudeCommandResult; readonly entry: ParsedClaudeMcpEntry }> {
+  const get = await dependencies.runClaudeCommand(buildClaudeMcpGetCommand());
+  if (get.ok) {
+    const entry = classifyClaudeMcpStatus("", get.stdout, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
+    return { result: get, entry };
+  }
+  if (isMissingMcpServerResult(get)) {
+    return { result: get, entry: missingMcpEntry };
   }
 
-  const versionOutput = dependencies.sanitizeOutput(version.stdout || version.stderr);
-  if (!entry.present) return createStatus("needs_setup", "Needs setup", "Claude Code is detected, but OpenPets MCP is not configured.", versionOutput, list, entry);
-  if (entry.verified && entry.matchesExpected) return createStatus("configured", "Configured", "Claude Code has the expected OpenPets MCP entry.", versionOutput, list, entry);
-  if (entry.verified) return createStatus("configured", "Installed — custom", "Claude Code has an openpets MCP entry with a custom command. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, list, entry);
-  return createStatus("configured", "Installed — unverified", "Claude Code lists an openpets MCP entry, but command details were not available. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, list, entry);
+  const list = await runClaudeCommandWithTimeoutRetry(dependencies, { command: "claude", args: ["mcp", "list"] });
+  if (!list.ok) {
+    return { result: list, entry: missingMcpEntry };
+  }
+  const entry = classifyClaudeMcpStatus(list.stdout, undefined, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
+  return { result: list, entry };
+}
+
+/** `claude mcp get` exits non-zero with "No MCP server named …" when the entry does not exist. */
+function isMissingMcpServerResult(result: ClaudeCommandResult): boolean {
+  if (result.ok || result.timedOut) {
+    return false;
+  }
+  return /No MCP server named/i.test(`${result.stderr}\n${result.stdout}`);
 }
 
 async function runClaudeCommandWithTimeoutRetry(dependencies: ClaudeSetupDependencies, spec: ClaudeCommandSpec): Promise<ClaudeCommandResult> {
@@ -356,7 +382,7 @@ function createStatus(
   label: string,
   details: string,
   version: string | undefined,
-  listResult: ClaudeCommandResult,
+  mcpResult: ClaudeCommandResult,
   entry: ParsedClaudeMcpEntry,
 ): ClaudeCodeStatus {
   return {
@@ -365,7 +391,7 @@ function createStatus(
     details,
     claudeCommand: "claude",
     version,
-    mcpListWorks: listResult.ok,
+    mcpListWorks: mcpResult.ok || isMissingMcpServerResult(mcpResult),
     openPetsEntry: entry,
     canConfigure: state === "needs_setup",
     canReplace: entry.present && !(entry.verified && entry.matchesExpected),
