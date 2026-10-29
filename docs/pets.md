@@ -79,8 +79,10 @@ distribution, and compatibility rules live in [Wardrobe](/wardrobe).
 ## Idle Activities
 
 Control Center calls these animations **Idle Activities**. On a pet's detail
-page, they can be played once or enabled to play automatically while idle. They
-currently require the default outfit.
+page, they can be played once or enabled to play automatically while idle. Each
+activity uses artwork matching the pet's rendered outfit; without a matching
+representation, it is skipped rather than switching the pet's clothes. Automatic
+play preferences and cooldowns belong to the activity and are shared across outfits.
 
 A full pet package may optionally declare `pet.json.activities`: at most 16
 logical one-shot animations separate from its reaction atlas. Each entry

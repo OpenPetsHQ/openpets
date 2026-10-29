@@ -11,6 +11,7 @@ const activity = (id: string): PetActivity => ({
 const state = {
   activities: [activity("read")],
   enabled: ["read"],
+  readAsset: async (): Promise<Buffer> => Buffer.from("validated activity bytes"),
   save(ids: readonly string[]) {
     this.enabled = [...(normalizePetActivityPreferences({ cat: ids })?.cat ?? [])];
   },
@@ -28,9 +29,11 @@ const modules: Record<string, string> = {
   "./built-in-pet.js": "export const builtInPet = { id: 'builtin' };",
   "./installed-pet-layout.js": "export const readInstalledPetMetadata = async () => ({ activities: globalThis.__petActivitiesRuntimeTest.activities });",
   "./logger.js": "export const info = () => {}; export const warn = () => {};",
-  "./pet-atlas-validation.js": "export const readPetActivitySpritesheet = async () => Buffer.from('validated activity bytes');",
+  "./pet-atlas-validation.js": "export const readPetActivitySpritesheet = async () => globalThis.__petActivitiesRuntimeTest.readAsset();",
   "./pet-paths.js": "export const assertSafePetId = () => {}; export const getPetDir = () => '/pets/cat';",
   "./pet-window-gaze.js": "export const setPetGazeActivityOverride = () => {};",
+  "./pet-window-render.js": "export const resolveRenderableAtlas = async () => ({ outfitId: 'default' });",
+  "./pet-activity-asset-cache.js": "export class PetActivityAssetCache { retainPets() {} forgetPet() {} clear() {} async getUnavailableIds() { return new Set(); } }",
 };
 const mocks = Object.fromEntries(Object.entries(modules).map(([name, source]) => [name, `data:text/javascript,${encodeURIComponent(source)}`]));
 register(`data:text/javascript,${encodeURIComponent(`
@@ -135,7 +138,27 @@ try {
   const beforeAppearanceChange = cancels().length;
   runtime.updatePetActivityRender(window, { ...render, cacheKey: "pajamas-atlas", renderedOutfitId: "pajamas" });
   assert.equal(cancels().length, beforeAppearanceChange + 1);
-  await assert.rejects(runtime.playPetActivity("cat", "read"), /default outfit/);
+  await assert.rejects(runtime.playPetActivity("cat", "read"), /no artwork/);
+
+  // A read begun by playback cannot paint after an outfit replacement.
+  runtime.updatePetActivityRender(window, render);
+  let release!: (bytes: Buffer) => void;
+  let reads = 0;
+  state.readAsset = () => {
+    reads += 1;
+    return reads === 1
+      ? Promise.resolve(Buffer.from("validated activity bytes"))
+      : new Promise<Buffer>((resolve) => { release = resolve; });
+  };
+  const beforePending = plays().length;
+  await runtime.playPetActivity("cat", "read");
+  await settle();
+  assert.equal(reads, 2);
+  runtime.updatePetActivityRender(window, { ...render, cacheKey: "pajamas-atlas", renderedOutfitId: "pajamas" });
+  release(Buffer.from("old outfit bytes"));
+  await settle();
+  assert.equal(plays().length, beforePending, "late old-outfit bytes never paint");
+  state.readAsset = async () => Buffer.from("validated activity bytes");
 
   // Replacing one id in a full sixteen-activity package must leave room to enable its replacement.
   state.enabled = Array.from({ length: 16 }, (_, index) => `activity-${index}`);

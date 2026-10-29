@@ -112,7 +112,7 @@ function fixture(enabled: readonly string[] = ["read", "stretch"]) {
   assert.equal(f.played.length, 2);
   f.service.cancel(1);
   f.service.register(f.carrier(1, "pajamas"));
-  assert.throws(() => f.service.play("cat", "read"), /default outfit/);
+  assert.throws(() => f.service.play("cat", "read"), /unavailable/);
   f.service.register(f.carrier());
   f.busy("chat is open");
   assert.throws(() => f.service.play("cat", "read"), /chat is open/);
@@ -147,6 +147,55 @@ function fixture(enabled: readonly string[] = ["read", "stretch"]) {
   assert.equal(f.service.getPlayingActivityId("cat"), null);
   assert.deepEqual(f.failed, ["read"]);
   assert.equal(f.stopped.length, 1);
+}
+
+// Outfit selection filters before random choice and retains the logical cooldown.
+{
+  let now = 0;
+  const played: Array<{ activity: PetActivity; generation: number }> = [];
+  const stopped: number[] = [];
+  const failures: string[] = [];
+  const variant: PetActivity = {
+    ...activities[1]!,
+    outfitVariants: [{ outfitId: "pajamas", spritesheetPath: "activities/stretch.pajamas.webp", frameCount: 12, fps: 6 }],
+  };
+  const service = new PetActivityService({
+    now: () => now, random: () => 0, enabledIds: () => ["read", "stretch"],
+    onFailure: (_pet, id, outfit) => failures.push(`${id}:${outfit}`),
+  });
+  const carrier = (outfitId: string): PetActivityCarrier => ({
+    id: 1, petId: "cat", outfitId, activities: [activities[0]!, variant],
+    availabilityReason: () => null,
+    play: (activity, generation) => played.push({ activity, generation }),
+    stop: (generation) => stopped.push(generation),
+  });
+  service.register(carrier("pajamas"));
+  assert.throws(() => service.play("cat", "read"), /unavailable/);
+  service.tick();
+  now = 120_000;
+  service.tick();
+  assert.equal(played[0]?.activity.id, "stretch");
+  assert.equal(played[0]?.activity.outfitId, "pajamas");
+  assert.equal(played[0]?.activity.frameCount, 12);
+  assert.equal(played[0]?.activity.fps, 6);
+  const first = played[0]!;
+  service.register(carrier("default"));
+  assert.deepEqual(stopped, [first.generation]);
+  assert.equal(service.isCurrent(1, first.generation), false);
+  service.complete(1, first.generation, true);
+  assert.deepEqual(failures, []);
+  service.tick();
+  now = 240_000;
+  service.tick();
+  assert.equal(played[1]?.activity.id, "read", "cooldown is shared across outfit representations");
+  service.complete(1, played[1]!.generation);
+  service.register(carrier("pajamas"));
+  service.play("cat", "stretch");
+  service.complete(1, played[2]!.generation, true);
+  assert.deepEqual(failures, ["stretch:pajamas"]);
+  service.register(carrier("default"));
+  service.play("cat", "stretch");
+  assert.equal(played[3]?.activity.outfitId, "default", "a failed outfit does not suppress the default representation");
 }
 
 assert.equal(normalizePetActivityPreferences(undefined), undefined);

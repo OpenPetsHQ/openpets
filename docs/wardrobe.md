@@ -217,8 +217,8 @@ catalog must keep serving them something they can install.
 
 | Catalog field | Contents | Who installs it |
 |---------------|----------|-----------------|
-| `zip` (unchanged) | `pet.json` **without** `wardrobe` + base atlas | Old apps; also `install-pet` CLI fallback |
-| `wardrobeZip` (new, optional) | `pet.json` with `wardrobe` + base atlas + `outfits/` | Apps with wardrobe support |
+| `zip` (unchanged) | `pet.json` **without** `wardrobe` or `activities` + base atlas | Old apps; also `install-pet` CLI fallback |
+| `wardrobeZip` (optional) | Full metadata, base atlas, declared outfits and activity strips | Supported apps, including activity-only pets |
 
 - Host rules are the same as `zip`: `https://zip.openpets.dev/pets/…`.
   Convention: `pets/{slug}/{installId}.wardrobe.zip`.
@@ -243,6 +243,13 @@ old apps — but the web pipeline sets `minOpenPetsVersion: "4.1.0"` on them to
 document the requirement (it only affects app versions that know the field,
 and all of them are 4.1 or later). It exists so the next breaking package
 change can gate cleanly.
+
+Activity packages require the publisher's explicitly configured
+`OPENPETS_ACTIVITY_MIN_APP_VERSION`, the confirmed first released desktop
+version supporting outfit activities. No version is inferred from the checkout.
+The greatest applicable requirement is published. The full content-addressed
+ZIP is retained losslessly in web Git LFS for repair; activity-only entries do
+not imply a wardrobe preview or any outfits.
 
 ### Upgrading installed pets
 

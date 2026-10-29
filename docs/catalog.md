@@ -190,12 +190,18 @@ dimensions/complexity are specified in [Pets](/pets#static-svg-atlas-profile).
 Catalog v3 `spritesheet` URLs may point to the canonical `.svg` atlas;
 thumbnails can remain raster images.
 
-A pet entry's optional **`wardrobeZip`** points at a second archive that also
-contains `outfits/{id}.webp|svg` — exactly the outfits its `pet.json` declares.
-`zip` must stay the outfit-free base package (with `wardrobe` stripped from its
+A pet entry's optional **`wardrobeZip`** points at a second archive containing
+all declared outfits and activity strips, including for activity-only pets.
+The field name is historical: its presence means a full package exists, not
+that it contains outfits. Desktop records the installed package URL as its source
+identity and offers an extras update only when the catalog full-package URL differs.
+`zip` must stay the two-file base package (with `wardrobe` and `activities` stripped from its
 `pet.json`), because apps released before wardrobes reject `outfits/`. Entries
 may also carry **`minOpenPetsVersion`** (`MAJOR.MINOR.PATCH`); apps that know
 the field disable installs when they are older. Old apps ignore both fields.
+Activity publication requires an explicitly configured confirmed released
+supporting version; the full ZIP and SHA-256 are retained in web Git LFS for
+lossless repair rather than reconstructed from preview images.
 See [Wardrobe](/wardrobe#catalog-distribution-and-compatibility).
 
 Those files may be at the archive root or below exactly one top-level directory.

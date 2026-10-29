@@ -42,7 +42,7 @@ export class PetActivityAssetCache {
       return new Set();
     }
     const declaration = activities.map((activity) => {
-      return `${activity.id}:${activity.spritesheetPath}:${activity.frameCount}`;
+      return `${activity.id}:${activity.outfitId}:${activity.spritesheetPath}:${activity.frameCount}`;
     }).join("/");
     let pet = this.pets.get(petId);
     if (!pet || pet.directory !== directory || pet.declaration !== declaration) {
@@ -60,16 +60,17 @@ export class PetActivityAssetCache {
   }
 
   private async isAvailable(pet: PetValidation, activity: PetActivity): Promise<boolean> {
+    const key = `${activity.id}:${activity.outfitId}`;
     let version: string;
     try {
       version = await readAssetVersion(pet.directory, activity);
     } catch {
       // A missing/unsafe path is checked again next snapshot, not negatively
       // cached forever. A repaired file can become available without reinstall.
-      pet.activities.delete(activity.id);
+      pet.activities.delete(key);
       return false;
     }
-    const previous = pet.activities.get(activity.id);
+    const previous = pet.activities.get(key);
     if (previous?.version === version) return previous.available;
 
     const available = this.readSpritesheet(pet.directory, activity).then(async () => {
@@ -78,7 +79,7 @@ export class PetActivityAssetCache {
     }).catch(() => false);
     // Store the pending result too, so simultaneous polls share one decode.
     // Invalidation detaches this map; completion never repopulates it.
-    pet.activities.set(activity.id, { version, available });
+    pet.activities.set(key, { version, available });
     return available;
   }
 }

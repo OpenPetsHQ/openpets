@@ -7,6 +7,8 @@ type Handler = (event: Event, payload: unknown) => Promise<PetActivitiesSnapshot
 const handlers = new Map<string, Handler>();
 const calls: unknown[][] = [];
 const snapshot: PetActivitiesSnapshot = {
+  outfitId: "default",
+  outfitDisplayName: "Default",
   petId: "cat", activities: [], availabilityReason: null, playingActivityId: null,
 };
 installControlCenterPetActivitiesIpcHandlers({

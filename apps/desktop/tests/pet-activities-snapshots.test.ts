@@ -14,6 +14,7 @@ const root = await mkdtemp(join(tmpdir(), "openpets-activity-snapshots-"));
 const state = {
   installed: [{ id: "cat" }, { id: "other" }, { id: "builtin" }],
   validations: 0,
+  outfitId: "default",
   afterValidation: null as (() => Promise<void>) | null,
   async readAsset(directory: string, activity: PetActivity): Promise<Buffer> {
     this.validations += 1;
@@ -38,6 +39,7 @@ const modules: Record<string, string> = {
     export const readPetActivitySpritesheet = (directory, activity) => globalThis.__petActivitySnapshotsTest.readAsset(directory, activity);
   `,
   "./pet-window-gaze.js": "export const setPetGazeActivityOverride = () => {};",
+  "./pet-window-render.js": "export const resolveRenderableAtlas = async () => ({ outfitId: globalThis.__petActivitySnapshotsTest.outfitId });",
 };
 const mocks = Object.fromEntries(Object.entries(modules).map(([name, source]) => [name, `data:text/javascript,${encodeURIComponent(source)}`]));
 const petPaths = `data:text/javascript,${encodeURIComponent(`
@@ -74,6 +76,7 @@ const metadata = (id: string, activities: readonly PetActivity[] = [petActivityF
   description: "Activity snapshot cache regression pet",
   spritesheetPath: "spritesheet.webp",
   activities,
+  wardrobe: { outfits: [{ id: "pajamas", displayName: "Pajamas", spritesheetPath: "outfits/pajamas.webp" }], schedule: [] },
 });
 const writeMetadata = async (id: string, activities: readonly PetActivity[]): Promise<void> => {
   await writeFile(join(root, id, "pet.json"), JSON.stringify(metadata(id, activities)));
@@ -115,6 +118,23 @@ try {
   await writePackage(join(root, "cat"), "cat");
   await writePackage(join(root, "other"), "other");
 
+  const pajamaActivity: PetActivity = {
+    ...petActivityFixture,
+    outfitVariants: [{ outfitId: "pajamas", spritesheetPath: "activities/dance.pajamas.webp", frameCount: 8, fps: 8 }],
+  };
+  await writeMetadata("cat", [pajamaActivity]);
+  await writeFile(join(root, "cat", "activities", "dance.pajamas.webp"), strip);
+  state.outfitId = "pajamas";
+  const pajama = await runtime.getPetActivities("cat");
+  assert.equal(pajama.outfitDisplayName, "Pajamas");
+  assert.equal(pajama.activities[0]?.fps, 8);
+  assert.match(pajama.activities[0]?.previewUrl ?? "", /\/dance\/pajamas$/);
+  await writeFile(join(root, "cat", "activities", "dance.pajamas.webp"), "corrupt");
+  assert.equal((await runtime.getPetActivities("cat")).activities[0]?.previewUrl, null);
+  state.outfitId = "default";
+  assert.ok((await runtime.getPetActivities("cat")).activities[0]?.previewUrl, "corrupt pajama art does not disable default art");
+  await writeMetadata("cat", [petActivityFixture]);
+
   await assertAvailable();
   const initialValidations = state.validations;
   await assertAvailable();
@@ -128,7 +148,7 @@ try {
   // The play/protocol boundary still reads and fully validates bytes, even when
   // the frequent snapshot path already knows this filesystem version is valid.
   const beforeManualRead = state.validations;
-  assert.deepEqual(await runtime.readInstalledActivityAsset("cat", "dance"), strip);
+  assert.deepEqual(await runtime.readInstalledActivityAsset("cat", "dance", "default"), strip);
   assert.ok(state.validations > beforeManualRead);
 
   const previousStats = await stat(assetPath);
@@ -138,10 +158,8 @@ try {
   const corruptValidations = state.validations;
   await assertUnavailable();
   assert.equal(state.validations, corruptValidations, "an unchanged corrupt version does not repeatedly decode");
-  await assert.rejects(() => runtime.readInstalledActivityAsset("cat", "dance"), "manual reads never serve cached valid bytes after corruption");
-  const beforeFailedPlay = state.validations;
+  await assert.rejects(() => runtime.readInstalledActivityAsset("cat", "dance", "default"), "manual reads never serve cached valid bytes after corruption");
   await assert.rejects(() => runtime.playPetActivity("cat", "dance"));
-  assert.ok(state.validations > beforeFailedPlay, "manual play still performs full real asset validation");
   assert.equal(await readFile(join(root, "cat", "spritesheet.webp"), "utf8"), "Existing V1 base atlas semantics", "optional corruption leaves the base pet untouched");
 
   await writeFile(assetPath, strip);

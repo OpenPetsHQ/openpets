@@ -10,6 +10,12 @@ export interface PetSpriteLayout {
   };
 }
 
+/** Activity previews address one declared outfit representation of an installed pet. */
+export function isAllowedPetActivityPreview(value: string | undefined): value is string {
+  return typeof value === "string"
+    && /^openpets-installed:\/\/activity\/[a-z0-9][a-z0-9_-]{0,63}\/[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/u.test(value);
+}
+
 export interface PetSpritePreviewModel {
   readonly atlasColumns: number;
   readonly atlasRows: number;

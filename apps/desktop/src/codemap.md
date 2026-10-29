@@ -338,8 +338,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 
 **Pets**:
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, gaze configuration, and plugin scale override updates; companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
-- `pet-activities.ts`: Native activity runtime adapter: eligible carrier registration, raw busy/interruption signals, validated optional assets, saved opt-ins, Control Center snapshots, and dedicated generation-guarded playback IPC.
-- `pet-activity-service.ts` / `pet-activity-policy.ts`: Electron-free single-playback-per-pet scheduling, continuous idle opportunities, cooldown/repeat history, cancellation/completion ownership, and preference normalization with injectable time/random.
+- `pet-activities.ts`: Native activity runtime adapter: exact rendered-outfit carrier registration, raw busy/interruption signals, outfit-specific validated assets and previews, saved logical opt-ins, Control Center snapshots, and dedicated generation-guarded playback IPC.
+- `pet-activity-service.ts` / `pet-activity-policy.ts`: Electron-free logical-activity scheduling and exact-outfit selection, continuous idle opportunities, cooldown/repeat history, cancellation/completion ownership, and preference normalization with injectable time/random.
+- `pet-activity-asset-cache.ts`: Snapshot-only outfit-specific asset validation cache, keyed by activity and outfit with filesystem freshness checks and bounded installed-pet ownership.
 - `pet-activity-player.cjs`: Dedicated finite rectangular-strip preload player, with image-load/completion generations, cleanup, baseline/scale preservation, and isolation from plugin overrides.
 - `pet-activities-types.ts` / `control-center-pet-activities-ipc.ts`: Clone-safe activity UI snapshot and authorized narrow get/enable/play IPC contracts.
 - `pet-window-styles.ts`: Pet-window CSS generation for reaction/movement sprite states and V2 cursor-glance atlas overrides; V2 idle keeps its animated row-zero loop outside an active glance, and paused V2 idle holds the static neutral cell

@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 
 import { defaultPetSprite } from "@open-pets/pet-format/animation";
-import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout } from "../src/renderer/src/pet-preview-state.js";
+import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout, isAllowedPetActivityPreview } from "../src/renderer/src/pet-preview-state.js";
+
+// The renderer must accept only the exact installed activity protocol shape;
+// rejecting it turns valid outfit artwork into a placeholder.
+assert.equal(isAllowedPetActivityPreview("openpets-installed://activity/activity-fixture/shared/default"), true);
+assert.equal(isAllowedPetActivityPreview("openpets-installed://activity/activity-fixture/shared/pajamas"), true);
+for (const invalid of [
+  "openpets-installed://activity/activity-fixture/shared",
+  "openpets-installed://activity/activity-fixture/shared/pajamas/extra",
+  "openpets-installed://activity/activity-fixture/../default",
+  "openpets-installed://activity/activity-fixture/%2e%2e/default",
+  "openpets-installed://activity/activity-fixture/shared/%2fdefault",
+  "openpets-installed://activity/activity-fixture/shared/default?x=1",
+  "https://activity/activity-fixture/shared/default",
+]) {
+  assert.equal(isAllowedPetActivityPreview(invalid), false, invalid);
+}
 
 assert.deepEqual(
   buildPetSpritePreviewModel(defaultPetSpriteLayout, { row: 0, frames: 6 }, true),

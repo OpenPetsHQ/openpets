@@ -159,7 +159,7 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
  * back to the base atlas instead of breaking the pet; the base atlas itself
  * failing still throws so the caller can mark the pet broken.
  */
-async function resolveRenderableAtlas(petId: string, petDirectory: string, metadata: CodexPetMetadata): Promise<{ readonly outfitId: string; readonly atlasRelativePath: string; readonly spritesheetPath: string; readonly spritesheet: Stats }> {
+export async function resolveRenderableAtlas(petId: string, petDirectory: string, metadata: CodexPetMetadata): Promise<{ readonly outfitId: string; readonly atlasRelativePath: string; readonly spritesheetPath: string; readonly spritesheet: Stats }> {
   const outfitId = resolveRenderedPetOutfit(petId, metadata.wardrobe);
   const outfit = metadata.wardrobe?.outfits.find((candidate) => candidate.id === outfitId);
   if (outfit) {

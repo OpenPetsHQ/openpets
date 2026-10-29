@@ -486,9 +486,11 @@ eligibility requires 60 seconds idle, followed by a random 60–180 second
 opportunity. Each activity has a five-minute cooldown; alternatives prevent
 immediate repeats, while a sole enabled activity may repeat after its cooldown.
 Missed opportunities are never queued. Manual playback ignores these timing and
-opt-in gates, but still requires an existing, visible, idle carrier wearing the
-**actually rendered default outfit**. It never spawns a pet or changes clothes;
-base-atlas fallback carries its actual outfit identity into eligibility.
+opt-in gates, but still requires an existing, visible, idle carrier with artwork
+for its **actually rendered outfit**. It never spawns a pet or changes clothes;
+base-atlas fallback carries its actual outfit identity into eligibility. Automatic
+selection filters exact outfit matches before choosing, while preferences and
+cooldowns remain attached to the logical activity across outfits.
 
 Raw agent display/status, any movement (including vertical and sub-three-pixel
 movement), dragging, clicking/context menus, plugin takeover, attached chat,
@@ -498,7 +500,8 @@ dedicated preload player uses 192×208 frames with normal pet scale, shell flip,
 and bottom baseline; alpha hit-testing samples the displayed strip. Generations
 guard asset reads, image loads, cancellation, completion, and a bounded fallback
 deadline. Native cleanup never clears a plugin override. An unreadable optional
-activity is disabled for that install, without marking the pet broken. Reimport
+activity representation is disabled for that outfit, without marking the pet broken
+or disabling other outfits. Reimport
 refreshes all carriers of the same pet and restores validation of its assets.
 Noninteractive HUD body refreshes preserve the idle opportunity and any active
 clip; stage replacement reparents the native strip without restarting its clock.
@@ -509,8 +512,11 @@ current package, so replacing content cannot crowd out a newly installed activit
 The existing `openPets` Control Center bridge exposes `getPetActivities`,
 `setPetActivityEnabled`, and `playPetActivity`; each returns the clone-safe
 `PetActivitiesSnapshot` from `pet-activities-types.ts`, including saved enablement,
-current playback, and unavailability reasons. Validated previews use
-`openpets-installed://activity/{petId}/{activityId}`; no new URL scheme or plugin
+current rendered outfit, matching artwork and timing, current playback, and
+unavailability reasons. With no carrier, the same atlas fallback decision projects
+the selected installed outfit without opening a window. Automatic preferences remain
+configurable even when no matching artwork or carrier is available. Validated previews use
+`openpets-installed://activity/{petId}/{activityId}/{outfitId}`; no new URL scheme or plugin
 authority is introduced.
 
 ### Local IPC server

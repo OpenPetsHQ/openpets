@@ -1,4 +1,4 @@
-import { getPetActivityDurationMs, type PetActivity } from "@open-pets/pet-format/activities";
+import { getPetActivityDurationMs, resolvePetActivityAnimation, type PetActivity } from "@open-pets/pet-format/activities";
 import { nextActivityOpportunityMs, selectIdlePetActivity } from "./pet-activity-policy.js";
 
 export interface PetActivityCarrier {
@@ -33,7 +33,7 @@ export class PetActivityService {
     readonly now: () => number;
     readonly random: () => number;
     readonly enabledIds: (petId: string) => readonly string[];
-    readonly onFailure: (petId: string, activityId: string) => void;
+    readonly onFailure: (petId: string, activityId: string, outfitId: string) => void;
   }) {}
 
   register(carrier: PetActivityCarrier): void {
@@ -94,13 +94,14 @@ export class PetActivityService {
     return reasons[0] ?? null;
   }
 
-  play(petId: string, activityId: string): void {
+  play(petId: string, activityId: string, outfitId?: string): void {
     const reason = this.getAvailabilityReason(petId);
     if (reason) throw new Error(reason);
     const entry = [...this.carriers.values()].find((candidate) => {
       return candidate.carrier.petId === petId
+        && (outfitId === undefined || candidate.carrier.outfitId === outfitId)
         && this.carrierReason(candidate) === null
-        && candidate.carrier.activities.some((activity) => activity.id === activityId);
+        && candidate.carrier.activities.some((activity) => activity.id === activityId && resolvePetActivityAnimation(activity, candidate.carrier.outfitId));
     });
     const activity = entry?.carrier.activities.find((candidate) => candidate.id === activityId);
     if (!entry || !activity) throw new Error("This activity is unavailable. Reinstall the pet to restore its activity asset.");
@@ -114,13 +115,13 @@ export class PetActivityService {
     this.cancel(id);
     if (failed) {
       for (const candidate of this.carriers.values()) {
-        if (candidate.carrier.petId !== entry.carrier.petId) continue;
+        if (candidate.carrier.petId !== entry.carrier.petId || candidate.carrier.outfitId !== entry.carrier.outfitId) continue;
         candidate.carrier = {
           ...candidate.carrier,
           activities: candidate.carrier.activities.filter((activity) => activity.id !== activityId),
         };
       }
-      this.options.onFailure(entry.carrier.petId, activityId);
+      this.options.onFailure(entry.carrier.petId, activityId, entry.carrier.outfitId);
     }
   }
 
@@ -142,7 +143,8 @@ export class PetActivityService {
       if (entry.opportunityAt === null) entry.opportunityAt = now + nextActivityOpportunityMs(this.options.random);
       if (now < entry.opportunityAt) continue;
       const history = this.getHistory(entry.carrier.petId);
-      const activity = selectIdlePetActivity(entry.carrier.activities, this.options.enabledIds(entry.carrier.petId), history.playedAt, history.lastId, now, this.options.random);
+      const matching = entry.carrier.activities.filter((activity) => resolvePetActivityAnimation(activity, entry.carrier.outfitId));
+      const activity = selectIdlePetActivity(matching, this.options.enabledIds(entry.carrier.petId), history.playedAt, history.lastId, now, this.options.random);
       if (activity) {
         this.start(entry, activity);
       } else {
@@ -152,7 +154,6 @@ export class PetActivityService {
   }
 
   private carrierReason(entry: CarrierEntry): string | null {
-    if (entry.carrier.outfitId !== "default") return "Activities are available only while wearing the default outfit.";
     return entry.carrier.availabilityReason();
   }
 
@@ -166,13 +167,16 @@ export class PetActivityService {
   }
 
   private start(entry: CarrierEntry, activity: PetActivity): void {
+    const animation = resolvePetActivityAnimation(activity, entry.carrier.outfitId);
+    if (!animation) throw new Error("This activity has no artwork for the current outfit.");
+    const selected = { ...activity, ...animation };
     const now = this.options.now();
     const generation = ++this.generation;
-    entry.active = { activity, generation, deadline: now + getPetActivityDurationMs(activity) + 5_000 };
+    entry.active = { activity: selected, generation, deadline: now + getPetActivityDurationMs(selected) + 5_000 };
     entry.opportunityAt = null;
     const history = this.getHistory(entry.carrier.petId);
     history.lastId = activity.id;
     history.playedAt.set(activity.id, now);
-    entry.carrier.play(activity, generation);
+    entry.carrier.play(selected, generation);
   }
 }

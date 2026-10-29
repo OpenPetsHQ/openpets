@@ -640,9 +640,10 @@ export function installInternalUiProtocol(): void {
       if (url.search || url.hash) return new Response(null, { status: 404 });
       if (url.hostname === "activity") {
         const parts = url.pathname.replace(/^\//, "").split("/").map(decodeURIComponent);
-        if (parts.length !== 2) return new Response(null, { status: 404 });
-        const [petId = "", activityId = ""] = parts;
-        return new Response(await readInstalledActivityAsset(petId, activityId), {
+        if (parts.length !== 3) return new Response(null, { status: 404 });
+        const [petId = "", activityId = "", outfitId = ""] = parts;
+        if (!isSafeOutfitId(outfitId)) return new Response(null, { status: 404 });
+        return new Response(await readInstalledActivityAsset(petId, activityId, outfitId), {
           headers: { "Content-Type": "image/webp", "Cache-Control": "no-store" },
         });
       }

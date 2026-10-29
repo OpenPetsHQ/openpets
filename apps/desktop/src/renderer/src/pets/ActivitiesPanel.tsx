@@ -236,6 +236,11 @@ export function ActivitiesPanel({
         <div>
           <p className="eyebrow">{t("pets.activities.eyebrow")}</p>
           <h3>{t("pets.activities.title")}</h3>
+          {snapshot.outfitDisplayName && (
+            <p className="text-xs text-slatecopy dark:text-slate-400 mt-0.5">
+              {t("pets.activities.outfitContext", { outfit: snapshot.outfitDisplayName })}
+            </p>
+          )}
         </div>
         <div className="wardrobe-head-actions">
           <StatusPill tone={globalAvailability ? "orange" : "purple"}>
@@ -255,7 +260,8 @@ export function ActivitiesPanel({
         {snapshot.activities.map((activity) => {
           const isPlaying = snapshot.playingActivityId === activity.id || playingId === activity.id;
           const isBusy = savingId !== null || playingId !== null;
-          const cardUnavailable = globalAvailability || activity.availabilityReason;
+          const cardUnavailable = globalAvailability || activity.availabilityReason || (!activity.availableForCurrentOutfit ? (activity.availabilityReason || t("pets.activities.noOutfitAnimation")) : undefined);
+          const previewSrc = activity.availableForCurrentOutfit ? activity.previewUrl : null;
 
           return (
             <div
@@ -266,7 +272,7 @@ export function ActivitiesPanel({
             >
               <div className="flex items-start gap-3 mb-3">
                 <ActivityPreview
-                  src={activity.previewUrl}
+                  src={previewSrc}
                   label={activity.displayName}
                   frameCount={activity.frameCount}
                   fps={activity.fps}
@@ -274,10 +280,21 @@ export function ActivitiesPanel({
                 <div className="flex-1 min-w-0">
                   <h4 className="text-sm font-bold text-navy dark:text-slate-100 truncate">{activity.displayName}</h4>
                   <p className="text-xs text-slatecopy dark:text-slate-400 mt-1 line-clamp-2">
-                    {t("pets.activities.cardSubtitle", { frames: activity.frameCount, fps: activity.fps })}
+                    {activity.availableForCurrentOutfit
+                      ? t("pets.activities.cardSubtitle", { frames: activity.frameCount, fps: activity.fps })
+                      : t("pets.activities.noOutfitAnimation")}
                   </p>
                 </div>
-                <div className="shrink-0">
+              </div>
+
+              <div className="flex flex-col gap-2 pt-3 border-t border-blue-100/60 dark:border-slate-700/60 mt-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${activity.enabled ? "bg-emerald-500 dark:bg-emerald-400 animate-pulse" : "bg-blue-300 dark:bg-slate-600"}`} />
+                    <span className="text-xs font-medium text-slatecopy dark:text-slate-400">
+                      {activity.enabled ? t("pets.activities.autoIdleActive") : t("pets.activities.manualOnly")}
+                    </span>
+                  </div>
                   <Button
                     variant={activity.enabled ? "primary" : "secondary"}
                     size="compact"
@@ -287,25 +304,18 @@ export function ActivitiesPanel({
                     {activity.enabled ? t("pets.activities.enabled") : t("pets.activities.enable")}
                   </Button>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-blue-100/60 dark:border-slate-700/60 mt-2">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${activity.enabled ? "bg-emerald-500 dark:bg-emerald-400 animate-pulse" : "bg-blue-300 dark:bg-slate-600"}`} />
-                  <span className="text-xs font-medium text-slatecopy dark:text-slate-400">
-                    {activity.enabled ? t("pets.activities.autoIdleActive") : t("pets.activities.manualOnly")}
-                  </span>
+                <div className="flex items-center justify-end pt-1">
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    disabled={isBusy || !!cardUnavailable}
+                    title={cardUnavailable || t("pets.activities.playHint")}
+                    icon={<PlayIcon />}
+                    onClick={() => void handlePlay(activity.id)}
+                  >
+                    {isPlaying ? t("pets.activities.playing") : t("pets.activities.play")}
+                  </Button>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="compact"
-                  disabled={isBusy || !!cardUnavailable}
-                  title={cardUnavailable || t("pets.activities.playHint")}
-                  icon={<PlayIcon />}
-                  onClick={() => void handlePlay(activity.id)}
-                >
-                  {isPlaying ? t("pets.activities.playing") : t("pets.activities.play")}
-                </Button>
               </div>
             </div>
           );

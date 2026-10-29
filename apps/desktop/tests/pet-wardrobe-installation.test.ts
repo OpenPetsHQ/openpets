@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import sharp from "sharp";
 import type { PetActivity } from "@open-pets/pet-format/activities";
 import { createPetActivityEmptyFramePixels, createPetActivityPixels, petActivityFixture } from "./pet-activity-fixtures.js";
+import { hasCatalogPetExtrasUpdate } from "../src/renderer/src/pets/wardrobe-state.js";
 
 const testRoot = realpathSync(mkdtempSync(join(tmpdir(), "openpets-wardrobe-install-")));
 const userDataPath = join(testRoot, "user-data");
@@ -216,7 +217,7 @@ try {
   offer(false);
   await installPet("zip-wardrobe");
   assert.equal((await readInstalledPetMetadata("zip-wardrobe")).wardrobe, undefined, "the base package installs without outfits");
-  await assert.rejects(() => installPetWardrobe("zip-wardrobe"), /no outfits/, "no upgrade without a catalog wardrobe package");
+  await assert.rejects(() => installPetWardrobe("zip-wardrobe"), /no extras/, "no upgrade without a catalog full package");
   appState.setPetWardrobePreference("zip-wardrobe", { outfit: "pajamas" });
   offer(true);
   await installPetWardrobe("zip-wardrobe");
@@ -295,6 +296,25 @@ try {
     { name: `${prefix}spritesheet.webp`, contents: base },
     ...activities.map((activity) => ({ name: `${prefix}${activity.spritesheetPath}`, contents: strip })),
   ];
+  // An older base-only catalog install can upgrade to an activity-only full package.
+  await removePet("zip-wardrobe");
+  offer(false);
+  await installPet("zip-wardrobe");
+  appState.setEnabledPetActivityIds("zip-wardrobe", [dance.id]);
+  const beforeExtras = appState.getAppStateSnapshot().pets.installed.find((pet) => pet.id === "zip-wardrobe");
+  const beforeZip = beforeExtras?.source && "zip" in beforeExtras.source ? beforeExtras.source.zip : undefined;
+  assert.equal(hasCatalogPetExtrasUpdate(beforeZip, catalogWardrobeZipUrl), true);
+  served.set(catalogWardrobeZipUrl, createStoredZip(activityFiles("zip-wardrobe", "zip-wardrobe/")));
+  offer(true);
+  await installPetWardrobe("zip-wardrobe");
+  assert.equal((await readInstalledPetMetadata("zip-wardrobe")).wardrobe, undefined);
+  assert.deepEqual((await readInstalledPetMetadata("zip-wardrobe")).activities?.map((entry) => entry.id), [dance.id]);
+  assert.deepEqual(readFileSync(join(petsRoot, "zip-wardrobe", dance.spritesheetPath)), strip);
+  assert.deepEqual(appState.getEnabledPetActivityIds("zip-wardrobe"), [dance.id]);
+  const afterExtras = appState.getAppStateSnapshot().pets.installed.find((pet) => pet.id === "zip-wardrobe");
+  const afterZip = afterExtras?.source && "zip" in afterExtras.source ? afterExtras.source.zip : undefined;
+  assert.equal(hasCatalogPetExtrasUpdate(afterZip, catalogWardrobeZipUrl), false, "installed full package retires the offer");
+  assert.equal(hasCatalogPetExtrasUpdate(undefined, catalogWardrobeZipUrl), false, "local pets do not get catalog replacement offers");
   const activityFolder = join(testRoot, "activity-folder");
   mkdirSync(join(activityFolder, "activities"), { recursive: true });
   writeFileSync(join(activityFolder, "pet.json"), JSON.stringify(activityMetadata("activity-pet", [dance, wave])));

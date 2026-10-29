@@ -3,7 +3,7 @@ import { getAppStateSnapshot, getEnabledPetActivityIds, setEnabledPetActivityIds
 import { builtInPet } from "./built-in-pet.js";
 import { readInstalledPetMetadata } from "./installed-pet-layout.js";
 import { info, warn } from "./logger.js";
-import type { PetActivity } from "@open-pets/pet-format/activities";
+import { enumeratePetActivityAnimations, resolvePetActivityAnimation, type PetActivity } from "@open-pets/pet-format/activities";
 import type { PetActivitiesSnapshot } from "./pet-activities-types.js";
 import { PetActivityService } from "./pet-activity-service.js";
 import { PetActivityAssetCache } from "./pet-activity-asset-cache.js";
@@ -12,6 +12,8 @@ import { readPetActivitySpritesheet } from "./pet-atlas-validation.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { setPetGazeActivityOverride } from "./pet-window-gaze.js";
 import type { PetContentRender } from "./pet-window-types.js";
+import { resolveRenderableAtlas } from "./pet-window-render.js";
+import type { CodexPetMetadata } from "@open-pets/pet-format/metadata";
 
 interface WindowEntry {
   readonly window: BrowserWindow;
@@ -39,11 +41,11 @@ const service = new PetActivityService({
   now: Date.now,
   random: Math.random,
   enabledIds: getEnabledPetActivityIds,
-  onFailure: (petId, activityId) => {
+  onFailure: (petId, activityId, outfitId) => {
     const ids = unavailable.get(petId) ?? new Set<string>();
-    ids.add(activityId);
+    ids.add(`${activityId}:${outfitId}`);
     unavailable.set(petId, ids);
-    warn("pet.activities", "activity disabled for this install", { petId, activityId });
+    warn("pet.activities", "activity outfit disabled for this install", { petId, activityId, outfitId });
   },
 });
 
@@ -161,11 +163,11 @@ export function updatePetActivityRender(window: BrowserWindow, render: PetConten
     id: window.id,
     petId: render.renderedPetId,
     outfitId: render.renderedOutfitId,
-    activities: render.activities.filter((activity) => !unavailable.get(render.renderedPetId)?.has(activity.id)),
+    activities: render.activities.filter((activity) => !unavailable.get(render.renderedPetId)?.has(`${activity.id}:${render.renderedOutfitId}`)),
     availabilityReason: () => getWindowBusyReason(entry),
     play: (activity, generation) => {
       setPetGazeActivityOverride(window, true);
-      void readInstalledActivityAsset(render.renderedPetId, activity.id).then((bytes) => {
+      void readInstalledActivityAsset(render.renderedPetId, activity.id, activity.outfitId).then((bytes) => {
         if (!service.isCurrent(window.id, generation) || window.isDestroyed()) return;
         if (getWindowBusyReason(entry)) {
           service.cancel(window.id);
@@ -293,50 +295,68 @@ export function removePetActivitiesForPet(petId: string): void {
   }
 }
 
-export async function readInstalledActivityAsset(petId: string, activityId: string): Promise<Buffer> {
+export async function readInstalledActivityAsset(petId: string, activityId: string, outfitId: string): Promise<Buffer> {
   const { activities, source } = await readActivities(petId);
   const activity = activities.find((candidate) => candidate.id === activityId);
-  if (!activity) throw new Error("Unknown pet activity.");
-  return readPetActivitySpritesheet(getPetDir(petId, source), activity);
+  const animation = activity && resolvePetActivityAnimation(activity, outfitId);
+  if (!activity || !animation) throw new Error("This activity has no artwork for the current outfit.");
+  return readPetActivitySpritesheet(getPetDir(petId, source), { ...activity, ...animation });
 }
 
-async function readActivities(petId: string): Promise<{ readonly activities: readonly PetActivity[]; readonly source: "personal" | "team" }> {
+async function readActivities(petId: string): Promise<{ readonly activities: readonly PetActivity[]; readonly source: "personal" | "team"; readonly metadata: CodexPetMetadata | null }> {
   const installed = getAppStateSnapshot().pets.installed;
   assetValidation.retainPets(installed.map((pet) => pet.id));
   const pet = installed.find((candidate) => candidate.id === petId);
   if (!pet || pet.broken) throw new Error("This pet is unavailable.");
   const source = pet.source?.kind === "team" ? "team" : "personal";
-  if (pet.id === builtInPet.id) return { activities: [], source };
+  if (pet.id === builtInPet.id) return { activities: [], source, metadata: null };
   assertSafePetId(petId);
-  return { activities: (await readInstalledPetMetadata(petId, source)).activities ?? [], source };
+  const metadata = await readInstalledPetMetadata(petId, source);
+  return { activities: metadata.activities ?? [], source, metadata };
 }
 
 export async function getPetActivities(petId: string): Promise<PetActivitiesSnapshot> {
-  const { activities, source } = await readActivities(petId);
+  const { activities, source, metadata } = await readActivities(petId);
+  const carrier = [...windows.values()].find((entry) => entry.render?.renderedPetId === petId);
+  const outfitId = carrier?.render?.renderedOutfitId ?? (metadata
+    ? (await resolveRenderableAtlas(petId, getPetDir(petId, source), metadata)).outfitId
+    : "default");
+  const outfitDisplayName = metadata?.wardrobe?.outfits.find((outfit) => outfit.id === outfitId)?.displayName ?? "Default";
   const availabilityReason = service.getAvailabilityReason(petId);
   const enabled = getEnabledPetActivityIds(petId);
   let invalidAssets: ReadonlySet<string> = new Set();
   if (activities.length === 0) {
     assetValidation.forgetPet(petId);
   } else {
-    invalidAssets = await assetValidation.getUnavailableIds(petId, getPetDir(petId, source), activities);
+    const matching = activities.flatMap((activity) => {
+      const animation = resolvePetActivityAnimation(activity, outfitId);
+      return animation ? [{ ...activity, ...animation }] : [];
+    });
+    invalidAssets = await assetValidation.getUnavailableIds(petId, getPetDir(petId, source), matching);
   }
   const items = activities.map((activity) => {
-    const reason = unavailable.get(petId)?.has(activity.id) || invalidAssets.has(activity.id)
+    const animation = resolvePetActivityAnimation(activity, outfitId);
+    const reason = !animation
+      ? "This activity has no artwork for the current outfit."
+      : unavailable.get(petId)?.has(`${activity.id}:${outfitId}`) || invalidAssets.has(activity.id)
       ? "Activity asset unavailable. Reinstall this pet to restore it."
       : null;
     return {
       id: activity.id,
       displayName: activity.displayName,
-      frameCount: activity.frameCount,
-      fps: activity.fps,
+      availableOutfitIds: enumeratePetActivityAnimations(activity).map((variant) => variant.outfitId),
+      availableForCurrentOutfit: animation !== null,
+      frameCount: animation?.frameCount ?? activity.frameCount,
+      fps: animation?.fps ?? activity.fps,
       enabled: enabled.includes(activity.id),
-      previewUrl: reason ? null : `openpets-installed://activity/${encodeURIComponent(petId)}/${encodeURIComponent(activity.id)}`,
+      previewUrl: reason ? null : `openpets-installed://activity/${encodeURIComponent(petId)}/${encodeURIComponent(activity.id)}/${encodeURIComponent(outfitId)}`,
       availabilityReason: reason ?? availabilityReason,
     };
   });
   return {
     petId,
+    outfitId,
+    outfitDisplayName,
     activities: items,
     availabilityReason,
     playingActivityId: service.getPlayingActivityId(petId),
@@ -358,7 +378,10 @@ export async function setPetActivityEnabled(petId: string, activityId: string, e
 }
 
 export async function playPetActivity(petId: string, activityId: string): Promise<PetActivitiesSnapshot> {
-  await readInstalledActivityAsset(petId, activityId);
-  service.play(petId, activityId);
+  const snapshot = await getPetActivities(petId);
+  const item = snapshot.activities.find((activity) => activity.id === activityId);
+  if (!item || item.availabilityReason) throw new Error(item?.availabilityReason ?? "Unknown pet activity.");
+  await readInstalledActivityAsset(petId, activityId, snapshot.outfitId);
+  service.play(petId, activityId, snapshot.outfitId);
   return getPetActivities(petId);
 }

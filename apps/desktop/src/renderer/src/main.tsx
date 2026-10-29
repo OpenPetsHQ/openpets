@@ -52,7 +52,7 @@ import { WardrobePanel } from "./pets/WardrobePanel.js";
 import { ActivitiesPanel } from "./pets/ActivitiesPanel.js";
 import type { PetActivitiesSnapshot } from "../../pet-activities-types.js";
 import { WhatsNewHost, type WhatsNewApi } from "./whats-new/WhatsNewDialog.js";
-import type { PetWardrobeSnapshot, PetWardrobeUpdate } from "./pets/wardrobe-state.js";
+import { hasCatalogPetExtrasUpdate, type PetWardrobeSnapshot, type PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
 type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string; zip?: string } | { kind: "codex"; path: string } };
@@ -4498,7 +4498,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       spriteLayout={selected.spriteLayout}
                       load={api.getPetWardrobe}
                       update={api.updatePetWardrobe}
-                      installCatalogOutfits={selected.wardrobeZip && selected.installedZip && selected.installedZip !== selected.wardrobeZip
+                      installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
                         ? async () => {
                           await api.installPetWardrobe(selected.id);
                           // The installed source changes, which retires the offer.
@@ -4507,7 +4507,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                         : undefined}
                     />
                     <ActivitiesPanel
-                      key={`activities-${selected.id}`}
+                      key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
                       petId={selected.id}
                       load={api.getPetActivities}
                       setPetActivityEnabled={api.setPetActivityEnabled}

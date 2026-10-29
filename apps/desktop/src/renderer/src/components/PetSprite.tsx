@@ -1,5 +1,5 @@
 import defaultThumbUrl from "../../../../assets/default-pet-thumbnail.png";
-import { buildPetSpritePreviewModel, type PetSpriteLayout } from "../pet-preview-state.js";
+import { buildPetSpritePreviewModel, isAllowedPetActivityPreview, type PetSpriteLayout } from "../pet-preview-state.js";
 
 // Pet images and animated sprite frames shared by Control Center views. Only
 // allow-listed image sources render; anything else falls back to the default thumbnail.
@@ -27,7 +27,7 @@ function isAllowedCodexPreview(value: string | undefined): value is string {
 function isAllowedInstalledPetPreview(value: string | undefined): value is string {
   return typeof value === "string" && (
     /^openpets-installed:\/\/spritesheet\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}(?:\/[a-z0-9][a-z0-9_-]{0,31})?$/u.test(value) ||
-    /^openpets-installed:\/\/activity\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,128}\/[a-zA-Z0-9%][a-zA-Z0-9%_-]{0,64}$/u.test(value)
+    isAllowedPetActivityPreview(value)
   );
 }
 

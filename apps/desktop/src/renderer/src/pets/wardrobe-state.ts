@@ -110,3 +110,7 @@ function formatMonthDay(value: string, locale: string): string {
   // A leap year keeps Feb 29 representable.
   return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(2000, month - 1, day));
 }
+/** Full-package URLs are content-addressed; installed catalog source records the chosen URL. */
+export function hasCatalogPetExtrasUpdate(installedZip: string | undefined, fullZip: string | undefined): boolean {
+  return Boolean(installedZip && fullZip && installedZip !== fullZip);
+}

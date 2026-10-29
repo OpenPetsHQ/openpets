@@ -51,7 +51,7 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
     // The lock intentionally covers catalog lookup and download: an install
     // must not recreate a removed or duplicate ID after its preflight check.
     const catalogPet = await getCatalogPet(petId);
-    // Apps with wardrobe support take the full package; `zip` is the outfit-free base for older apps.
+    // The historical wardrobeZip field carries the full package, including activity-only extras.
     const zipUrl = catalogPet.wardrobeZip ?? catalogPet.zip;
     const zip = await downloadPetZip(zipUrl);
     const candidate = await createPetInstallCandidate(petsRoot, petId);
@@ -91,8 +91,7 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
 }
 
 /**
- * Replace an installed catalog pet with its catalog wardrobe package ("Get
- * outfits" / "Update outfits"). Reuses the backup-and-promote install
+ * Replace an installed catalog pet with its full catalog package. Reuses the backup-and-promote install
  * transaction, so a failed download or invalid package leaves the current pet
  * untouched. Wardrobe preferences are keyed by pet id and survive the swap.
  */
@@ -106,10 +105,10 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
     // Local folder/ZIP imports have no source; replacing them with the catalog
     // package would discard local edits, so only catalog installs qualify.
     if (!installed.source || !("zip" in installed.source)) {
-      throw new Error("Only pets installed from the catalog can get outfits from the catalog.");
+      throw new Error("Only pets installed from the catalog can get pet extras from the catalog.");
     }
     const catalogPet = await getCatalogPet(petId);
-    if (!catalogPet.wardrobeZip) throw new Error("This pet has no outfits in the catalog.");
+    if (!catalogPet.wardrobeZip) throw new Error("This pet has no extras in the catalog.");
     const wardrobeZip = catalogPet.wardrobeZip;
     const zip = await downloadPetZip(wardrobeZip);
     const candidate = await createPetInstallCandidate(petsRoot, petId);
@@ -117,7 +116,7 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
       await extractPetZip(zip, candidate);
       const metadata = await validateExtractedPet(candidate);
       if (metadata.id !== petId) throw new Error("Catalog wardrobe package id does not match the installed pet.");
-      if (!metadata.wardrobe) throw new Error("Catalog wardrobe package does not contain a wardrobe.");
+      if (!metadata.wardrobe && !metadata.activities?.length) throw new Error("Catalog full package does not contain pet extras.");
       const state = await runPetInstallTransaction({
         petsRoot,
         petId,
@@ -125,7 +124,7 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
         lockAlreadyHeld: true,
         validateCandidate: async (directory) => {
           const validated = await validateExtractedPet(directory);
-          if (validated.id !== petId || !validated.wardrobe) throw new Error("Catalog wardrobe package changed during installation.");
+          if (validated.id !== petId || (!validated.wardrobe && !validated.activities?.length)) throw new Error("Catalog full package changed during installation.");
         },
         mutateState: () => upsertPetState({
           id: petId,

@@ -31,7 +31,7 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
   readonly spriteLayout?: PetSpriteLayout;
   readonly load: (petId: string) => Promise<PetWardrobeSnapshot | null>;
   readonly update: (petId: string, patch: PetWardrobeUpdate) => Promise<PetWardrobeSnapshot | null>;
-  /** Set when the catalog offers a first or newer wardrobe package than the installed copy. */
+  /** Set when the catalog offers a first or newer full package than the installed copy. */
   readonly installCatalogOutfits?: () => Promise<unknown>;
 }) {
   const { t, locale } = useI18n();
@@ -80,10 +80,10 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
   if (wardrobe === null) {
     if (!installCatalogOutfits) return error ? <p className="wardrobe-error" role="alert">{error}</p> : null;
     return (
-      <section className="wardrobe wardrobe-offer" aria-label={t("pets.wardrobe.title")}>
+      <section className="wardrobe wardrobe-offer" aria-label={t("pets.wardrobe.extrasTitle")}>
         <div>
-          <p className="eyebrow">{t("pets.wardrobe.eyebrow")}</p>
-          <p className="wardrobe-offer-text">{t("pets.wardrobe.offer")}</p>
+          <p className="eyebrow">{t("pets.wardrobe.extrasTitle")}</p>
+          <p className="wardrobe-offer-text">{t("pets.wardrobe.extrasOffer")}</p>
         </div>
         <Button variant="primary" size="compact" disabled={saving} onClick={() => void getCatalogOutfits()}>
           {saving ? t("pets.wardrobe.gettingOutfits") : t("pets.wardrobe.getOutfits")}
