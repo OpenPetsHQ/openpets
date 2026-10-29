@@ -14,7 +14,8 @@ interface GalleryProps {
   pending: boolean;
   onSearch(query: string): void;
   onPageChange(page: number): void;
-  onSelectPet(id: string): void;
+  onAddPet(id: string): void;
+  atCapacity: boolean;
   onInstallPet(id: string): void;
   onRetry(): void;
 }
@@ -49,7 +50,8 @@ export function Gallery({
   pending,
   onSearch,
   onPageChange,
-  onSelectPet,
+  onAddPet,
+  atCapacity,
   onInstallPet,
   onRetry,
 }: GalleryProps) {
@@ -61,6 +63,11 @@ export function Gallery({
           <p className="muted">Install a pet, then choose when to use it.</p>
         </div>
       </div>
+      {atCapacity && (
+        <p className="muted small-text" role="status">
+          Scene is full. Remove a companion to add another.
+        </p>
+      )}
       <div className="search-row">
         <label className="search-field">
           <svg className="search-mark" aria-hidden="true" viewBox="0 0 24 24">
@@ -130,15 +137,17 @@ export function Gallery({
                   </span>
                   <button
                     className={pet.installed ? "button secondary" : "button"}
-                    disabled={pending || (!pet.installed && !pet.canInstall)}
+                    disabled={
+                      pending || (pet.installed ? atCapacity : !pet.canInstall)
+                    }
                     onClick={() =>
-                      pet.installed ? onSelectPet(pet.id) : onInstallPet(pet.id)
+                      pet.installed ? onAddPet(pet.id) : onInstallPet(pet.id)
                     }
                   >
                     {installingId === pet.id
                       ? "Installing…"
                       : pet.installed
-                        ? "Use pet"
+                        ? "Add to scene"
                         : pet.canInstall
                           ? "Install"
                           : "Unavailable"}

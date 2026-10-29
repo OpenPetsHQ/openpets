@@ -138,6 +138,9 @@ h3 {
   padding: 18px 14px 14px;
   min-height: min-content;
 }
+.companion-page > * {
+  flex-shrink: 0;
+}
 .companion-heading p {
   font-size: 12px;
   margin-top: 3px;
@@ -602,4 +605,98 @@ input::placeholder {
 .vscode-high-contrast-light .outfit-card,
 .vscode-high-contrast-light .companion-stage {
   border-color: var(--vscode-contrastBorder, var(--line));
+}
+
+/* Scene controls stay compact in the sidebar and use VS Code theme tokens. */
+.scene-controls {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.scene-control-heading,
+.inspector-actions,
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.instance-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.instance-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+}
+.instance-chip:hover {
+  background: var(--hover);
+}
+.instance-chip[aria-pressed="true"] {
+  background: var(--selected);
+  border-color: var(--focus);
+}
+.instance-inspector {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.rename-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rename-row input {
+  flex: 1 1 80px;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid var(--vscode-input-border, var(--line));
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, var(--fg));
+}
+.asset-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.asset-picker p {
+  width: 100%;
+}
+.scene-settings {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.scene-settings summary {
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 12px;
+}
+.scene-settings[open] {
+  display: grid;
+}
+.scene-settings .settings-row {
+  margin: 10px 0;
+}
+.wide-segment button {
+  width: auto;
+  padding: 0 8px;
+}
+.wardrobe-pet {
+  overflow-wrap: anywhere;
 }

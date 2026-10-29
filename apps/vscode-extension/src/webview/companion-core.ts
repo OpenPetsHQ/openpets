@@ -45,6 +45,15 @@ export function getCompanionFrame(
   const state = playingClick ? clickState : "idle";
   const stateElapsed =
     clicked && !playingClick ? elapsed - clickDuration : elapsed;
+  return getSpriteStateFrame(layout, state, stateElapsed);
+}
+
+export function getSpriteStateFrame(
+  layout: PetSpriteLayout,
+  state: UniversalSpriteState,
+  elapsedMs: number,
+): SpriteFrame {
+  const stateElapsed = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
   const definition: SpriteStateDefinition = defaultPetSprite.states[state];
   const position = getPetSpritePosition(layout, definition);
   const frameCount = position.endColumn - position.startColumn;

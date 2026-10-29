@@ -11,6 +11,14 @@ await rm(resolve(root, "dist"), { recursive: true, force: true });
 await mkdir(resolve(root, "dist", "media"), { recursive: true });
 await mkdir(resolve(root, "dist", "decoder"), { recursive: true });
 await Promise.all([
+  build({
+    entryPoints: [resolve(root, "src/host/scene-worker.ts")],
+    outfile: resolve(root, "dist/scene-worker.cjs"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+  }),
   ...[
     "vips-node.mjs",
     "vips.wasm",

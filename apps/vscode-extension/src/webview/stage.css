@@ -1,12 +1,21 @@
+.scene-stage-shell {
+  display: flex;
+  flex: 1;
+  min-height: min-content;
+  flex-direction: column;
+  gap: 8px;
+}
 .companion-stage {
   position: relative;
   flex: 1;
-  min-height: 290px;
+  min-height: 200px;
   width: 100%;
   overflow: hidden;
   background: var(--vscode-editor-background);
   border: 1px solid var(--line);
   border-radius: 3px;
+}
+.stage-dots {
   background-image: radial-gradient(
     circle,
     var(--line) 0.7px,
@@ -14,62 +23,66 @@
   );
   background-size: 20px 20px;
 }
-
-.stage-companion {
+.stage-aiming {
+  cursor: crosshair;
+  touch-action: none;
+}
+.stage-canvas {
   position: absolute;
   top: 0;
   left: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  user-select: none;
-}
-
-.stage-companion[hidden] {
-  display: none;
-}
-.stage-canvas {
   display: block;
-  flex: none;
   cursor: grab;
   touch-action: none;
+  user-select: none;
 }
 .stage-canvas:active {
   cursor: grabbing;
 }
-.stage-caption {
-  width: 100%;
-  padding: 6px 0 12px;
-  display: grid;
-  gap: 2px;
-  text-align: center;
-  overflow-wrap: anywhere;
-  font-size: 10px;
-  line-height: 17px;
+.stage-ball {
+  z-index: 8;
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  background: var(--vscode-button-background);
+  border: 2px solid var(--vscode-button-foreground);
+  box-sizing: border-box;
+  pointer-events: none;
 }
-.stage-caption span {
+.stage-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stage-hint {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .stage-message {
+  z-index: 9;
   position: absolute;
-  inset: 12px;
-  text-align: center;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  margin: 0;
+  pointer-events: none;
 }
 .stage-inactive {
+  z-index: 10;
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 18px;
   text-align: center;
   color: var(--muted);
+  background: var(--vscode-editor-background);
 }
-
-.vscode-high-contrast .companion-stage,
-.vscode-high-contrast-light .companion-stage {
+.vscode-high-contrast .stage-dots,
+.vscode-high-contrast-light .stage-dots {
   background-image: none;
 }

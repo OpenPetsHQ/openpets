@@ -4,9 +4,14 @@ import type {
   CompanionSnapshot,
   SurfaceState,
 } from "../protocol.js";
-import { WebviewBackend } from "./backend.js";
-import { acceptSnapshot, acceptSurface, projectCatalogInstallations } from "./view-state.js";
-import { CompanionStage } from "./CompanionStage.js";
+import { CompanionRequestError, WebviewBackend } from "./backend.js";
+import {
+  acceptSnapshot,
+  acceptSurface,
+  projectCatalogInstallations,
+} from "./view-state.js";
+import { SceneStage } from "./SceneStage.js";
+import { SceneControls } from "./SceneControls.js";
 import { Gallery } from "./Gallery.js";
 import { Wardrobe } from "./Wardrobe.js";
 
@@ -39,7 +44,8 @@ export function App({ backend }: { backend: WebviewBackend }) {
   const pendingRef = useRef(false);
   const aliveRef = useRef(true);
   const retryRef = useRef<(() => void) | undefined>(undefined);
-  const [dragOffset, setDragOffset] = useState(savedUiState.dragOffset);
+  const [unknownOutcome, setUnknownOutcome] = useState(false);
+  const unknownOutcomeRef = useRef(false);
   const [catalogReload, setCatalogReload] = useState(0);
 
   useEffect(() => {
@@ -74,8 +80,8 @@ export function App({ backend }: { backend: WebviewBackend }) {
   }, [backend]);
 
   useEffect(() => {
-    backend.writeUiState({ activeTab, searchQuery, catalogPage, dragOffset });
-  }, [backend, activeTab, searchQuery, catalogPage, dragOffset]);
+    backend.writeUiState({ activeTab, searchQuery, catalogPage });
+  }, [backend, activeTab, searchQuery, catalogPage]);
 
   useEffect(() => {
     if (activeTab !== "gallery") return;
@@ -109,10 +115,11 @@ export function App({ backend }: { backend: WebviewBackend }) {
     operation: () => Promise<CompanionSnapshot | void>,
     completed?: () => void,
   ) => {
-    if (pendingRef.current) return;
+    if (pendingRef.current || unknownOutcomeRef.current) return;
     pendingRef.current = true;
     setPending(true);
     setError("");
+    setUnknownOutcome(false);
     retryRef.current = () => run(operation, completed);
     void operation()
       .then((next) => {
@@ -121,8 +128,20 @@ export function App({ backend }: { backend: WebviewBackend }) {
         completed?.();
       })
       .catch((reason: unknown) => {
-        if (aliveRef.current)
-          setError(reason instanceof Error ? reason.message : String(reason));
+        if (aliveRef.current) {
+          const unknown =
+            reason instanceof CompanionRequestError &&
+            reason.outcome === "unknown";
+          unknownOutcomeRef.current = unknown;
+          setUnknownOutcome(unknown);
+          setError(
+            unknown
+              ? "Result unknown. Refresh to check before retrying."
+              : reason instanceof Error
+                ? reason.message
+                : String(reason),
+          );
+        }
       })
       .finally(() => {
         pendingRef.current = false;
@@ -154,12 +173,43 @@ export function App({ backend }: { backend: WebviewBackend }) {
     );
   }
 
-  const currentPet = snapshot.installedPets.find(
-    (pet) => pet.id === snapshot.active.petId,
-  );
-  const currentOutfit = currentPet?.outfits.find(
-    (outfit) => outfit.id === snapshot.active.outfitId,
-  );
+  const addPet = (id: string) => {
+    const pet = snapshot.installedPets.find((item) => item.id === id);
+    if (!pet) {
+      retryRef.current = undefined;
+      setError("This pet is no longer installed. Refresh and try again.");
+      return;
+    }
+    run(
+      () => backend.addInstance(id, pet.displayName),
+      () => setActiveTab("companion"),
+    );
+  };
+  const refresh = () => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    void backend
+      .ready()
+      .then((ready) => {
+        if (!aliveRef.current) return;
+        setSnapshot((current) => acceptSnapshot(current, ready.snapshot));
+        setSurface((current) => acceptSurface(current, ready.surface));
+        setError("");
+        unknownOutcomeRef.current = false;
+        setUnknownOutcome(false);
+      })
+      .catch((reason: unknown) => {
+        if (aliveRef.current)
+          setError(
+            `Refresh failed: ${reason instanceof Error ? reason.message : String(reason)}`,
+          );
+      })
+      .finally(() => {
+        pendingRef.current = false;
+        if (aliveRef.current) setPending(false);
+      });
+  };
 
   return (
     <div className="openpets-app">
@@ -203,11 +253,19 @@ export function App({ backend }: { backend: WebviewBackend }) {
             <button
               className="button secondary"
               disabled={pending}
-              onClick={() => retryRef.current?.()}
+              onClick={() =>
+                unknownOutcome || !retryRef.current
+                  ? refresh()
+                  : retryRef.current()
+              }
             >
-              Retry
+              {unknownOutcome || !retryRef.current ? "Refresh" : "Retry"}
             </button>
-            <button className="text-button" onClick={() => setError("")}>
+            <button
+              className="text-button"
+              disabled={unknownOutcome}
+              onClick={() => setError("")}
+            >
               Dismiss
             </button>
           </div>
@@ -221,54 +279,55 @@ export function App({ backend }: { backend: WebviewBackend }) {
         {activeTab === "companion" && (
           <section className="companion-page" aria-label="Your companion">
             <div className="companion-heading">
-              <h2>{currentPet?.displayName ?? "Your companion"}</h2>
-              <p className="muted">Click to interact. Drag to move.</p>
+              <h2>Your companions</h2>
+              <p className="muted">
+                {unknownOutcome
+                  ? "Refresh to interact with your companions."
+                  : pending
+                    ? "Please wait before interacting with your companions."
+                    : "Click to interact. Drag to move."}
+              </p>
             </div>
-            <CompanionStage
-              sprite={snapshot.active.sprite}
-              size={snapshot.size}
-              enabled={surface.playbackEnabled && surface.visible}
-              petName={currentPet?.displayName ?? "Companion"}
-              outfitName={currentOutfit?.displayName}
-              initialPosition={dragOffset}
-              onPositionChange={setDragOffset}
-              onShowSidebar={
-                surface.kind === "view"
-                  ? () => run(() => backend.showSidebar())
-                  : undefined
+            <SceneStage
+              instances={snapshot.instances}
+              settings={snapshot.settings}
+              selectedInstanceId={snapshot.selectedInstanceId}
+              playbackEnabled={surface.playbackEnabled && surface.visible}
+              canInteract={() =>
+                !pendingRef.current && !unknownOutcomeRef.current && !pending && !unknownOutcome
+              }
+              onSelect={(id) => {
+                if (id !== snapshot.selectedInstanceId)
+                  run(() => backend.selectInstance(id));
+              }}
+            />
+            <SceneControls
+              snapshot={snapshot}
+              pending={pending || unknownOutcome}
+              onSelect={(id) => run(() => backend.selectInstance(id))}
+              onRename={(id, name) =>
+                run(() => backend.renameInstance(id, name))
+              }
+              onRemove={(id) => run(() => backend.removeInstance(id))}
+              onAdd={addPet}
+              onGallery={() => setActiveTab("gallery")}
+              onSettings={(changes) =>
+                run(() => backend.setSceneSettings(changes))
               }
             />
-            <footer className="companion-controls">
-              <div className="size-control">
-                <span className="control-label">Size</span>
-                <div className="segmented" aria-label="Companion size">
-                  {(["small", "medium", "large"] as const).map((size) => (
-                    <button
-                      key={size}
-                      aria-pressed={snapshot.size === size}
-                      disabled={pending}
-                      onClick={() => run(() => backend.setSize(size))}
-                    >
-                      {size === "small" ? "S" : size === "medium" ? "M" : "L"}
-                      <span className="sr-only"> — {size}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button
-                className="button secondary surface-action"
-                disabled={pending}
-                onClick={() =>
-                  run(() =>
-                    surface.kind === "view"
-                      ? backend.openEditor()
-                      : backend.showSidebar(),
-                  )
-                }
-              >
-                {surface.kind === "view" ? "Open pet space" : "Show in sidebar"}
-              </button>
-            </footer>
+            <button
+              className="button secondary surface-action"
+              disabled={pending || unknownOutcome}
+              onClick={() =>
+                run(() =>
+                  surface.kind === "view"
+                    ? backend.openEditor()
+                    : backend.showSidebar(),
+                )
+              }
+            >
+              {surface.kind === "view" ? "Open pet space" : "Show in sidebar"}
+            </button>
           </section>
         )}
         {activeTab === "gallery" && (
@@ -281,18 +340,14 @@ export function App({ backend }: { backend: WebviewBackend }) {
             catalogLoading={catalogLoading}
             catalogError={catalogError}
             installingId={installingId}
-            pending={pending}
+            pending={pending || unknownOutcome}
             onSearch={(query) => {
               setSearchQuery(query);
               setCatalogPage(0);
             }}
             onPageChange={setCatalogPage}
-            onSelectPet={(id) =>
-              run(
-                () => backend.selectPet(id),
-                () => setActiveTab("companion"),
-              )
-            }
+            atCapacity={snapshot.instances.length >= 6}
+            onAddPet={addPet}
             onInstallPet={(id) => {
               if (pendingRef.current) return;
               setInstallingId(id);
@@ -307,22 +362,17 @@ export function App({ backend }: { backend: WebviewBackend }) {
         {activeTab === "wardrobe" && (
           <Wardrobe
             snapshot={snapshot}
-            pending={pending}
+            pending={pending || unknownOutcome}
             wardrobeInstallingId={wardrobeInstallingId}
-            onSelectPet={(id) => run(() => backend.selectPet(id))}
+            onSelectInstance={(id) => run(() => backend.selectInstance(id))}
+            onRefreshWardrobe={(id) => run(() => backend.refreshWardrobe(id))}
             onInstallWardrobe={(id) => {
               if (pendingRef.current) return;
               setWardrobeInstallingId(id);
               run(() => backend.installWardrobe(id));
             }}
-            onSelectOutfit={(petId, outfitId) =>
-              run(async () => {
-                const next = await backend.selectOutfit(petId, outfitId);
-                if (!aliveRef.current) return;
-                setSnapshot((current) => acceptSnapshot(current, next));
-                if (next.active.petId === petId) return next;
-                return backend.selectPet(petId);
-              })
+            onSelectOutfit={(instanceId, outfitId) =>
+              run(() => backend.setInstanceOutfit(instanceId, outfitId))
             }
           />
         )}

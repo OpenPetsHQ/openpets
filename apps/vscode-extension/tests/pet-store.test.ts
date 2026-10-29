@@ -1,8 +1,9 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { build } from "esbuild";
 import { crc32 } from "node:zlib";
 import type { CatalogPetV3 } from "@open-pets/pet-format/catalog-validation";
 import { getPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
@@ -10,6 +11,7 @@ import { Preferences, writePreferenceRecord } from "../src/host/preferences.js";
 import { PetStore } from "../src/host/pet-store.js";
 import { CompanionService } from "../src/host/companion-service.js";
 import { CatalogService } from "../src/host/catalog-service.js";
+import { SceneStore } from "../src/host/scene-store.js";
 
 function zip(entries: Record<string, string>): Buffer {
   const data: Buffer[] = [];
@@ -139,343 +141,81 @@ test("failed replacement preserves the installed reference and previous generati
   }
 });
 
-test("shutdown aborts the active download and queued installs do not start", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-shutdown-"));
-  const preferences = new Preferences(root);
-  const pet: CatalogPetV3 = {
-    id: "cat",
-    displayName: "Cat",
-    description: "Cat",
-    thumbnail: "https://openpets.dev/pets/cat.webp",
-    spritesheet: "https://openpets.dev/pets/cat.webp",
-    zip: "https://zip.openpets.dev/pets/cat.zip",
-    category: "western",
-    original: true,
-  };
-  const index = {
-    version: 3 as const,
-    generatedAt: "2026-01-01",
-    total: 1,
-    pageSize: 1,
-    search: "",
-    filters: { categories: [] },
-    pages: [""],
-  };
-  const catalog = new CatalogService(new AbortController().signal, {
-    getIndex: async () => index,
-    getSearch: async () => [
-      {
-        id: "cat",
-        displayName: "Cat",
-        searchText: "cat",
-        category: "western",
-        catalogPage: 0,
-        original: true,
-      },
-    ],
-    getPage: async () => [pet],
-  });
-  const store = new PetStore(root, preferences);
-  const service = new CompanionService(
-    preferences,
-    "/builtin.webp",
-    root,
-    () => {},
-    catalog,
-    store,
-  );
-  const originalFetch = globalThis.fetch;
-  let started!: () => void;
-  const startedPromise = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  let requests = 0;
-  globalThis.fetch = async (_input, init) => {
-    requests++;
-    started();
-    return await new Promise<Response>((_resolve, reject) => {
-      const signal = init?.signal;
-      if (signal?.aborted) reject(signal.reason);
-      else
-        signal?.addEventListener("abort", () => reject(signal.reason), {
-          once: true,
-        });
-    });
-  };
-  try {
-    await service.initialize();
-    const first = service.installPet("cat");
-    const second = service.installPet("cat");
-    const results = Promise.allSettled([first, second]);
-    await startedPromise;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await assert.rejects(
-        Promise.race([
-          service.setSize("large"),
-          new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(
-              () => reject(new Error("control did not settle promptly")),
-              1000,
-            );
-          }),
-        ]),
-        /installation is in progress/,
-      );
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
-    await service.dispose();
-    assert.deepEqual(
-      (await results).map((result) => result.status),
-      ["rejected", "rejected"],
-    );
-    assert.equal(requests, 1);
-    assert.equal(preferences.installed("cat"), undefined);
-    assert.equal(preferences.size, "medium");
-  } finally {
-    globalThis.fetch = originalFetch;
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("offline startup restores saved pet and falls back from a corrupt outfit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-offline-"));
-  const preferences = new Preferences(root);
-  const pet: CatalogPetV3 = {
-    id: "cat",
-    displayName: "Cat",
-    description: "Cat",
-    thumbnail: "https://openpets.dev/pets/cat.webp",
-    spritesheet: "https://openpets.dev/pets/cat.webp",
-    zip: "https://zip.openpets.dev/pets/cat.zip",
-    category: "western",
-    original: true,
-  };
-  const metadata = {
-    id: "cat",
-    displayName: "Cat",
-    description: "Cat",
-    spritesheetPath: "spritesheet.webp",
-    wardrobe: {
-      outfits: [
-        { id: "hat", displayName: "Hat", spritesheetPath: "outfits/hat.webp" },
-      ],
-      schedule: [],
-    },
-  };
-  const validator: ConstructorParameters<typeof PetStore>[2] = async (path) => {
-    const valid = await readFile(
-      join(path, "outfits", "hat.webp"),
-      "utf8",
-    ).then(
-      (value) => value === "good",
-      () => false,
-    );
-    return {
-      metadata: {
-        ...metadata,
-        spritesheetPath: "spritesheet.webp",
-        wardrobe: {
-          outfits: [
-            {
-              id: "hat",
-              displayName: "Hat",
-              spritesheetPath: "outfits/hat.webp",
-            },
-          ],
-          schedule: [],
-        },
-      },
-      layout: getPetSpriteLayout({}),
-      availableOutfitIds: valid ? ["hat"] : [],
-      ...(valid ? {} : { outfitProblems: ["hat: invalid"] }),
-    };
-  };
-  const store = new PetStore(root, preferences, validator);
-  const archive = zip({
-    "pet.json": JSON.stringify(metadata),
-    "spritesheet.webp": "base",
-    "outfits/hat.webp": "good",
-  });
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input) => {
-    const response = new Response(new Uint8Array(archive));
-    Object.defineProperty(response, "url", { value: String(input) });
-    return response;
-  };
-  try {
-    await preferences.initialize();
-    await store.initialize();
-    const installed = await store.install(
-      pet,
-      false,
-      new AbortController().signal,
-    );
-    await preferences.setPet("cat");
-    await preferences.setOutfit("cat", "hat");
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(join(installed.root, "outfits", "hat.webp"), "bad");
-    globalThis.fetch = async () => {
-      throw new Error("offline");
-    };
-    const service = new CompanionService(
-      preferences,
-      "/builtin.webp",
-      root,
-      () => {},
-      undefined,
-      store,
-    );
-    await service.initialize();
-    const snapshot = await service.getSnapshot();
-    assert.equal(snapshot.active.petId, "cat");
-    assert.equal(snapshot.active.outfitId, "default");
-    assert.ok(snapshot.notice);
-    assert.match(
-      snapshot.installedPets.find((item) => item.id === "cat")?.problem ?? "",
-      /hat/,
-    );
-    await service.dispose();
-    globalThis.fetch = async (input) => {
-      const response = new Response(new Uint8Array(archive));
-      Object.defineProperty(response, "url", { value: String(input) });
-      return response;
-    };
-    const repaired = await store.install(
-      pet,
-      false,
-      new AbortController().signal,
-    );
-    assert.notEqual(repaired.root, installed.root);
-    assert.equal(
-      await readFile(join(installed.root, "outfits", "hat.webp"), "utf8"),
-      "bad",
-    );
-    assert.equal(
-      await readFile(join(repaired.root, "outfits", "hat.webp"), "utf8"),
-      "good",
-    );
-    assert.deepEqual(
-      (await store.load("cat", new AbortController().signal)).package
-        .availableOutfitIds,
-      ["hat"],
-    );
-    await store.dispose();
-  } finally {
-    globalThis.fetch = originalFetch;
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("the bundled companion can install and manually select its catalog wardrobe", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-builtin-"));
+test("bundled wardrobe installation preserves scene choices and repairs an offline corrupt outfit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openpets-wardrobe-repair-"));
+  const workerPath = join(root, "worker.cjs");
   const preferences = new Preferences(root);
   const metadata = {
-    id: "hoodie-cat",
-    displayName: "Hoodie Cat",
-    description: "Cat",
-    spritesheetPath: "spritesheet.webp" as const,
-    wardrobe: {
-      outfits: [
-        {
-          id: "hat",
-          displayName: "Hat",
-          spritesheetPath: "outfits/hat.webp" as const,
-        },
-      ],
-      schedule: [],
-    },
+    id: "hoodie-cat", displayName: "Hoodie Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const,
+    wardrobe: { outfits: [{ id: "hat", displayName: "Hat", spritesheetPath: "outfits/hat.webp" as const }], schedule: [] },
   };
   const pet: CatalogPetV3 = {
-    id: "hoodie-cat",
-    displayName: "Hoodie Cat",
-    description: "Cat",
-    thumbnail: "https://openpets.dev/pets/cat.webp",
-    spritesheet: "https://openpets.dev/pets/cat.webp",
-    zip: "https://zip.openpets.dev/pets/cat.zip",
-    wardrobeZip: "https://zip.openpets.dev/pets/cat-wardrobe.zip",
-    category: "western",
-    original: true,
+    id: metadata.id, displayName: metadata.displayName, description: metadata.description,
+    thumbnail: "https://openpets.dev/pets/cat.webp", spritesheet: "https://openpets.dev/pets/cat.webp",
+    zip: "https://zip.openpets.dev/pets/cat.zip", wardrobeZip: "https://zip.openpets.dev/pets/cat-wardrobe.zip",
+    category: "western", original: true,
   };
-  const archive = zip({
-    "pet.json": JSON.stringify(metadata),
-    "spritesheet.webp": "base",
-    "outfits/hat.webp": "hat",
-  });
-  const cleanupErrors: string[] = [];
-  const store = new PetStore(
-    root,
-    preferences,
-    async () => ({
-      metadata,
-      layout: getPetSpriteLayout({}),
-      availableOutfitIds: ["hat"],
-    }),
-    (message) => cleanupErrors.push(message),
-    async () => {
-      throw new Error("cleanup failed");
-    },
-  );
-  const index = {
-    version: 3 as const,
-    generatedAt: "2026-01-01",
-    total: 1,
-    pageSize: 1,
-    search: "",
-    filters: { categories: [] },
-    pages: [""],
-  };
+  let catalogRequests = 0;
   const catalog = new CatalogService(new AbortController().signal, {
-    getIndex: async () => index,
-    getSearch: async () => [
-      {
-        id: "hoodie-cat",
-        displayName: "Hoodie Cat",
-        searchText: "cat",
-        category: "western",
-        catalogPage: 0,
-        original: true,
-      },
-    ],
+    getIndex: async () => { catalogRequests++; return { version: 3, generatedAt: "2026-01-01", total: 1, pageSize: 1, search: "", filters: { categories: [] }, pages: [""] }; },
+    getSearch: async () => [{ id: pet.id, displayName: pet.displayName, searchText: "cat", category: "western", catalogPage: 0, original: true }],
     getPage: async () => [pet],
   });
-  const service = new CompanionService(
-    preferences,
-    "/builtin.webp",
-    root,
-    () => {},
-    catalog,
-    store,
-  );
+  const validate: ConstructorParameters<typeof PetStore>[2] = async (path) => {
+    const valid = await readFile(join(path, "outfits/hat.webp"), "utf8").then((value) => value === "good", () => false);
+    return { metadata, layout: getPetSpriteLayout({}), availableOutfitIds: valid ? ["hat"] : [], ...(valid ? {} : { outfitProblems: ["hat: invalid"] }) };
+  };
+  const store = new PetStore(root, preferences, validate);
+  let service: CompanionService | undefined;
   const originalFetch = globalThis.fetch;
+  let base = "base";
   let requested = "";
-  globalThis.fetch = async (input) => {
+  const online: typeof fetch = async (input) => {
     requested = String(input);
-    const response = new Response(new Uint8Array(archive));
+    const response = new Response(new Uint8Array(zip({ "pet.json": JSON.stringify(metadata), "spritesheet.webp": base, "outfits/hat.webp": "good" })));
     Object.defineProperty(response, "url", { value: requested });
     return response;
   };
+  const makeService = () => new CompanionService(preferences, "/builtin.webp", root, () => {}, catalog, store, new SceneStore({ databasePath: join(root, "scene.sqlite"), workerPath }));
   try {
+    await build({ entryPoints: [resolve("src/host/scene-worker.ts")], outfile: workerPath, bundle: true, platform: "node", format: "cjs", target: "node22" });
+    globalThis.fetch = online;
+    service = makeService();
     await service.initialize();
-    assert.equal((await service.listCatalog("", 0)).pets[0].installed, false);
+    const first = (await service.getSnapshot()).selectedInstanceId!;
+    const second = (await service.addInstance("builtin", "Second")).selectedInstanceId!;
+    assert.equal((await service.refreshWardrobe("builtin")).installedPets[0].wardrobeStatus, "install");
+    const before = await service.getSnapshot();
     const installed = await service.installWardrobe("builtin");
-    assert.ok(cleanupErrors.length);
-    assert.ok(preferences.installed("hoodie-cat"));
-    assert.ok(installed.installedPets.some((item) => item.id === "hoodie-cat"));
-    assert.equal((await service.listCatalog("", 0)).pets[0].installed, true);
     assert.equal(requested, pet.wardrobeZip);
-    assert.equal(installed.selectedPetId, "builtin");
-    assert.equal(installed.active.outfitId, "default");
-    const dressed = await service.selectOutfit("builtin", "hat");
-    assert.equal(dressed.active.petId, "builtin");
-    assert.equal(dressed.active.outfitId, "hat");
-    assert.equal(
-      (await service.selectOutfit("builtin", "default")).active.outfitId,
-      "default",
-    );
+    assert.deepEqual(installed.instances.map(({ id, outfitId }) => ({ id, outfitId })), before.instances.map(({ id, outfitId }) => ({ id, outfitId })));
+    assert.equal(installed.selectedInstanceId, before.selectedInstanceId);
+    const dressed = await service.setInstanceOutfit(first, "hat");
+    assert.equal(dressed.instances.find((item) => item.id === first)?.outfitId, "hat");
+    assert.equal(dressed.instances.find((item) => item.id === second)?.outfitId, "default");
+    const previous = await store.load("hoodie-cat", new AbortController().signal);
+    await writeFile(join(previous.root, "outfits/hat.webp"), "bad");
     await service.dispose();
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    const requestsBeforeRestart = catalogRequests;
+    service = makeService();
+    await service.initialize();
+    assert.equal(catalogRequests, requestsBeforeRestart);
+    const fallback = (await service.getSnapshot()).instances.find((item) => item.id === first)!;
+    assert.equal(fallback.outfitId, "hat");
+    assert.equal(fallback.appearance.fallback, true);
+    assert.equal(fallback.appearance.outfitName, "Default");
+    base = "new generation";
+    globalThis.fetch = online;
+    const repairedSnapshot = await service.installWardrobe("builtin");
+    const repaired = await store.load("hoodie-cat", new AbortController().signal);
+    assert.notEqual(repaired.root, previous.root);
+    assert.equal(await readFile(join(previous.root, "outfits/hat.webp"), "utf8"), "bad");
+    assert.equal(await readFile(join(repaired.root, "outfits/hat.webp"), "utf8"), "good");
+    assert.equal(repairedSnapshot.instances.find((item) => item.id === first)?.appearance.fallback, false);
+    assert.equal(repairedSnapshot.instances.find((item) => item.id === first)?.outfitId, "hat");
   } finally {
+    await service?.dispose();
     globalThis.fetch = originalFetch;
     await rm(root, { recursive: true, force: true });
   }

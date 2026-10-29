@@ -2,6 +2,14 @@ import type { PetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
 
 export type CompanionSize = "small" | "medium" | "large";
 export type SurfaceKind = "view" | "editor";
+export type SceneMotion = "still" | "calm" | "playful";
+export type SceneBackdrop = "plain" | "dots";
+export interface SceneSettings {
+  size: CompanionSize;
+  motion: SceneMotion;
+  paused: boolean;
+  backdrop: SceneBackdrop;
+}
 
 export interface SpriteAsset<Location = string> {
   uri: Location;
@@ -20,20 +28,28 @@ export interface InstalledPetView<Location = string> {
   description: string;
   source: "builtin" | "catalog";
   outfits: readonly OutfitView<Location>[];
-  wardrobeAction: "none" | "install" | "update";
+  wardrobeStatus: "unknown" | "none" | "install" | "update" | "current";
   problem?: string;
 }
 
+export interface SceneInstanceView<Location = string> {
+  id: string;
+  petId: string;
+  name: string;
+  outfitId: string;
+  appearance: {
+    sprite: SpriteAsset<Location>;
+    outfitName: string;
+    fallback: boolean;
+  };
+  problem?: string;
+}
 export interface CompanionSnapshot<Location = string> {
   revision: number;
-  size: CompanionSize;
-  selectedPetId: string;
+  settings: SceneSettings;
+  selectedInstanceId: string | null;
+  instances: readonly SceneInstanceView<Location>[];
   installedPets: readonly InstalledPetView<Location>[];
-  active: {
-    petId: string;
-    outfitId: string;
-    sprite: SpriteAsset<Location>;
-  };
   notice?: string;
 }
 
@@ -79,9 +95,13 @@ export interface Requests {
   listCatalog: { query: string; page: number };
   installPet: { petId: string };
   installWardrobe: { petId: string };
-  selectPet: { petId: string };
-  selectOutfit: { petId: string; outfitId: string };
-  setSize: { size: CompanionSize };
+  addInstance: { petId: string; name: string };
+  renameInstance: { instanceId: string; name: string };
+  removeInstance: { instanceId: string };
+  selectInstance: { instanceId: string };
+  setInstanceOutfit: { instanceId: string; outfitId: string };
+  setSceneSettings: { changes: Partial<SceneSettings> };
+  refreshWardrobe: { petId: string };
   openEditor: undefined;
   showSidebar: undefined;
 }
@@ -91,9 +111,13 @@ export interface Results {
   listCatalog: CatalogListing;
   installPet: CompanionSnapshot;
   installWardrobe: CompanionSnapshot;
-  selectPet: CompanionSnapshot;
-  selectOutfit: CompanionSnapshot;
-  setSize: CompanionSnapshot;
+  addInstance: CompanionSnapshot;
+  renameInstance: CompanionSnapshot;
+  removeInstance: CompanionSnapshot;
+  selectInstance: CompanionSnapshot;
+  setInstanceOutfit: CompanionSnapshot;
+  setSceneSettings: CompanionSnapshot;
+  refreshWardrobe: CompanionSnapshot;
   openEditor: null;
   showSidebar: null;
 }
@@ -118,7 +142,7 @@ export type Response =
       type: "response";
       id: string;
       ok: false;
-      error: { message: string };
+      error: { message: string; outcome?: "unknown" };
     };
 
 export type HostEvent =
@@ -130,9 +154,16 @@ export interface CompanionBackend {
   listCatalog(query: string, page: number): Promise<CatalogListing>;
   installPet(petId: string): Promise<CompanionSnapshot>;
   installWardrobe(petId: string): Promise<CompanionSnapshot>;
-  selectPet(petId: string): Promise<CompanionSnapshot>;
-  selectOutfit(petId: string, outfitId: string): Promise<CompanionSnapshot>;
-  setSize(size: CompanionSize): Promise<CompanionSnapshot>;
+  addInstance(petId: string, name: string): Promise<CompanionSnapshot>;
+  renameInstance(instanceId: string, name: string): Promise<CompanionSnapshot>;
+  removeInstance(instanceId: string): Promise<CompanionSnapshot>;
+  selectInstance(instanceId: string): Promise<CompanionSnapshot>;
+  setInstanceOutfit(
+    instanceId: string,
+    outfitId: string,
+  ): Promise<CompanionSnapshot>;
+  setSceneSettings(changes: Partial<SceneSettings>): Promise<CompanionSnapshot>;
+  refreshWardrobe(petId: string): Promise<CompanionSnapshot>;
   openEditor(): Promise<void>;
   showSidebar(): Promise<void>;
   onSnapshot(listener: (value: CompanionSnapshot) => void): () => void;

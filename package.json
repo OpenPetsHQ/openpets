@@ -27,7 +27,7 @@
     "package:desktop": "pnpm build && pnpm --filter @open-pets/desktop package",
     "release:desktop": "node apps/desktop/scripts/release-local.mjs",
     "release:npm": "node scripts/release-npm.mjs",
-    "vscode:check": "pnpm --filter 'openpets-vscode^...' build && pnpm --filter openpets-vscode check && pnpm --filter openpets-vscode test",
+    "vscode:check": "pnpm --filter 'openpets-vscode^...' build && pnpm --filter openpets-vscode build && pnpm --filter openpets-vscode check && pnpm --filter openpets-vscode test",
     "vscode:build": "pnpm --filter 'openpets-vscode^...' build && pnpm --filter openpets-vscode build",
     "vscode:package": "pnpm --filter 'openpets-vscode^...' build && pnpm --filter openpets-vscode package:local",
     "plugins:locales": "node scripts/check-plugin-locales.mjs",

@@ -1,8 +1,12 @@
 import { getPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { watch, type FSWatcher } from "node:fs";
+import type { SceneStore } from "./scene-store.js";
+import type { StoredScene, SceneStoreCommand } from "./scene-state.js";
 import type {
   CatalogListing,
-  CompanionSize,
+  SceneSettings,
   CompanionSnapshot,
   InstalledPetView,
   OutfitView,
@@ -29,30 +33,39 @@ export class CompanionService {
   private disposing?: Promise<void>;
   private closed = false;
   private pendingInstalls = 0;
+  private scene?: StoredScene;
+  private watcher?: FSWatcher;
+  private refreshTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly preferences: Preferences,
     private readonly atlasPath: string,
-    storagePath?: string,
+    private readonly storagePath?: string,
     private readonly log: (message: string) => void = () => {},
     catalog?: CatalogService,
     store?: PetStore,
+    private readonly sceneStore?: Pick<
+      SceneStore,
+      "initialize" | "read" | "mutate" | "dispose"
+    >,
   ) {
     this.catalog = catalog ?? new CatalogService(this.shutdown.signal);
     this.store =
       store ??
-      (storagePath
-        ? new PetStore(storagePath, preferences, undefined, log)
+      (this.storagePath
+        ? new PetStore(this.storagePath, preferences, undefined, log)
         : undefined);
   }
 
   async initialize(): Promise<void> {
+    if (!this.sceneStore) throw new Error("Scene storage is unavailable.");
     await this.preferences.initialize();
-    if (!this.store) return;
-    await this.store.initialize();
-    for (const id of this.preferences.installedIds()) {
+    const store = this.store;
+    if (store) await store.initialize();
+    for (const id of store ? this.preferences.installedIds() : []) {
       try {
-        const pet = await this.store.load(id, this.shutdown.signal);
+        if (!store) throw new Error("Pet storage is unavailable.");
+        const pet = await store.load(id, this.shutdown.signal);
         this.installed.set(id, pet);
         if (pet.package.outfitProblems?.length)
           this.problems.set(
@@ -67,10 +80,59 @@ export class CompanionService {
         this.log(`[storage] ${id}: ${message}`);
       }
     }
+    this.scene = await this.sceneStore.initialize();
+    this.startSceneWatcher();
   }
 
   async getSnapshot(): Promise<HostSnapshot> {
-    const selectedPetId = this.preferences.selectedPetId;
+    this.assertOpen();
+    const result = this.queue.then(() => this.refreshScene());
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private async refreshScene(): Promise<HostSnapshot> {
+    const scene = await this.requireSceneStore().read();
+    if (JSON.stringify(scene) !== JSON.stringify(this.scene)) {
+      this.scene = scene;
+      if (!this.closed) return this.publish();
+    }
+    return this.buildSnapshot();
+  }
+
+  private startSceneWatcher(): void {
+    if (!this.storagePath || this.closed) return;
+    try {
+      const watcher = watch(this.storagePath, (_event, filename) => {
+        if (this.closed || (filename !== null && filename.toString() !== "scene.sqlite" && filename.toString() !== "scene.sqlite-journal")) return;
+        if (this.refreshTimer) clearTimeout(this.refreshTimer);
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTimer = undefined;
+          if (this.closed) return;
+          const refresh = this.queue.then(() => this.refreshScene());
+          this.queue = refresh.then(() => undefined, (error: unknown) => {
+            if (!this.closed) this.log(`[scene] Watch refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }, 50);
+      });
+      this.watcher = watcher;
+      watcher.on("error", (error) => {
+        this.log(`[scene] Watcher unavailable: ${error.message}`);
+        watcher.close();
+        if (this.watcher === watcher) this.watcher = undefined;
+        if (this.refreshTimer) clearTimeout(this.refreshTimer);
+        this.refreshTimer = undefined;
+      });
+    } catch (error) {
+      this.log(`[scene] Watcher unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private buildSnapshot(): HostSnapshot {
+    if (!this.scene) throw new Error("Scene is not initialized.");
     const builtinSprite = {
       uri: { kind: "local" as const, path: this.atlasPath },
       layout: getPetSpriteLayout({ spriteVersionNumber: 2 }),
@@ -87,9 +149,9 @@ export class CompanionService {
       description: "The bundled OpenPets companion.",
       source: "builtin",
       outfits: builtinOutfits,
-      wardrobeAction: this.wardrobeAction("hoodie-cat", builtinPackage),
+      wardrobeStatus: this.wardrobeStatus("hoodie-cat", builtinPackage),
     };
-    const installedPets = [
+    const installedPets: InstalledPetView<AssetLocation>[] = [
       builtin,
       ...[...this.installed.values()].map((pet) => ({
         id: pet.id,
@@ -97,37 +159,41 @@ export class CompanionService {
         description: pet.package.metadata.description,
         source: "catalog" as const,
         outfits: this.outfits(pet),
-        wardrobeAction: this.wardrobeAction(pet.id, pet),
+        wardrobeStatus: this.wardrobeStatus(pet.id, pet),
         ...(this.problems.has(pet.id)
           ? { problem: this.problems.get(pet.id) }
           : {}),
       })),
     ];
-    const selected = installedPets.find((pet) => pet.id === selectedPetId);
-    const activePet = selected ?? builtin;
-    const savedOutfit = this.preferences.outfit(activePet.id);
-    const outfit =
-      activePet.outfits.find((item) => item.id === savedOutfit) ??
-      activePet.outfits[0];
-    let notice: string | undefined;
-    if (!selected)
-      notice =
-        `Saved pet ${selectedPetId} is unavailable; using Hoodie Cat. ${this.problems.get(selectedPetId) ?? ""}`.trim();
-    else if (savedOutfit !== outfit.id)
-      notice = `Saved outfit ${savedOutfit} is unavailable; using the base atlas.`;
-    else if (activePet.id === "builtin" && this.problems.has("hoodie-cat"))
-      notice = `Hoodie Cat wardrobe: ${this.problems.get("hoodie-cat")}`;
+    const instances = this.scene.instances.map((instance) => {
+      const pet = installedPets.find((item) => item.id === instance.petId);
+      const visiblePet = pet ?? builtin;
+      const outfit = pet
+        ? (visiblePet.outfits.find((item) => item.id === instance.outfitId) ??
+          visiblePet.outfits[0])
+        : visiblePet.outfits[0];
+      const fallback = !pet || outfit.id !== instance.outfitId;
+      const problem = !pet
+        ? `Pet ${instance.petId} is unavailable; using Hoodie Cat.`
+        : outfit.id !== instance.outfitId
+          ? `Outfit ${instance.outfitId} is unavailable; using the base atlas.`
+          : undefined;
+      return {
+        ...instance,
+        appearance: {
+          sprite: outfit.sprite,
+          outfitName: outfit.displayName,
+          fallback,
+        },
+        ...(problem ? { problem } : {}),
+      };
+    });
     return {
       revision: this.revision,
-      size: this.preferences.size,
-      selectedPetId,
+      settings: this.scene.settings,
+      selectedInstanceId: this.scene.selectedInstanceId,
+      instances,
       installedPets,
-      active: {
-        petId: activePet.id,
-        outfitId: outfit.id,
-        sprite: outfit.sprite,
-      },
-      ...(notice ? { notice } : {}),
     };
   }
 
@@ -138,7 +204,7 @@ export class CompanionService {
     try {
       const result = await work;
       this.assertOpen();
-      await this.publish();
+      await this.commit(async () => {});
       return result;
     } finally {
       this.inFlight.delete(work);
@@ -150,29 +216,85 @@ export class CompanionService {
   async installWardrobe(petId: string): Promise<HostSnapshot> {
     return this.install(petId, true);
   }
-  async selectPet(petId: string): Promise<HostSnapshot> {
+  async addInstance(petId: string, name: string): Promise<HostSnapshot> {
+    return this.sceneMutation(
+      { type: "addInstance", id: randomUUID(), petId, name },
+      async () => {
+        if (petId !== "builtin" && !this.installed.has(petId))
+          throw new Error("This pet is not installed or is unavailable.");
+      },
+    );
+  }
+  async renameInstance(
+    instanceId: string,
+    name: string,
+  ): Promise<HostSnapshot> {
+    return this.sceneMutation({ type: "renameInstance", instanceId, name });
+  }
+  async removeInstance(instanceId: string): Promise<HostSnapshot> {
+    return this.sceneMutation({ type: "removeInstance", instanceId });
+  }
+  async selectInstance(instanceId: string): Promise<HostSnapshot> {
+    return this.sceneMutation({ type: "selectInstance", instanceId });
+  }
+  async setInstanceOutfit(
+    instanceId: string,
+    outfitId: string,
+  ): Promise<HostSnapshot> {
+    return this.sceneMutation(
+      { type: "setInstanceOutfit", instanceId, outfitId },
+      async () => {
+        await this.refreshScene();
+        const instance = this.scene?.instances.find(
+          (item) => item.id === instanceId,
+        );
+        if (!instance) return;
+        const pet = this.buildSnapshot().installedPets.find(
+          (item) => item.id === instance.petId,
+        );
+        if (!pet?.outfits.some((item) => item.id === outfitId))
+          throw new Error("This outfit is not installed or is unavailable.");
+      },
+    );
+  }
+  async setSceneSettings(
+    changes: Partial<SceneSettings>,
+  ): Promise<HostSnapshot> {
+    return this.sceneMutation({ type: "setSceneSettings", changes });
+  }
+  async refreshWardrobe(petId: string): Promise<HostSnapshot> {
+    this.assertControlsAvailable();
+    if (petId !== "builtin" && !this.installed.has(petId))
+      throw new Error("This pet is not installed or is unavailable.");
+    const work = this.catalog.find(
+      petId === "builtin" ? "hoodie-cat" : petId,
+      this.shutdown.signal,
+    );
+    this.inFlight.add(work);
+    try {
+      await work;
+      this.assertOpen();
+      return await this.commit(async () => {});
+    } finally {
+      this.inFlight.delete(work);
+    }
+  }
+  private sceneMutation(
+    command: SceneStoreCommand,
+    check?: () => Promise<void>,
+  ): Promise<HostSnapshot> {
     this.assertControlsAvailable();
     return this.commit(async () => {
-      if (petId !== "builtin" && !this.installed.has(petId))
-        throw new Error("This pet is not installed or is unavailable.");
-      await this.preferences.setPet(petId);
+      if (check) await check();
+      this.scene = await this.requireSceneStore().mutate(command);
     });
   }
-  async selectOutfit(petId: string, outfitId: string): Promise<HostSnapshot> {
-    this.assertControlsAvailable();
-    return this.commit(async () => {
-      const snapshot = await this.getSnapshot();
-      const pet = snapshot.installedPets.find((item) => item.id === petId);
-      if (!pet?.outfits.some((item) => item.id === outfitId))
-        throw new Error("This outfit is not installed or is unavailable.");
-      await this.preferences.setOutfit(petId, outfitId);
-    });
-  }
-  async setSize(size: CompanionSize): Promise<HostSnapshot> {
-    this.assertControlsAvailable();
-    if (size !== "small" && size !== "medium" && size !== "large")
-      throw new Error("Invalid companion size.");
-    return this.commit(() => this.preferences.setSize(size));
+  private requireSceneStore(): Pick<
+    SceneStore,
+    "initialize" | "read" | "mutate" | "dispose"
+  > {
+    if (!this.sceneStore) throw new Error("Scene storage is unavailable.");
+    return this.sceneStore;
   }
   onSnapshot(listener: (snapshot: HostSnapshot) => void): () => void {
     this.assertOpen();
@@ -182,11 +304,19 @@ export class CompanionService {
   dispose(): Promise<void> {
     if (this.disposing) return this.disposing;
     this.closed = true;
+    this.watcher?.close();
+    this.watcher = undefined;
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
     this.shutdown.abort(new Error("OpenPets is shutting down."));
     this.disposing = Promise.allSettled([this.queue, ...this.inFlight]).then(
       async () => {
         this.listeners.clear();
-        await this.store?.dispose();
+        try {
+          await this.store?.dispose();
+        } finally {
+          await this.sceneStore?.dispose();
+        }
       },
     );
     return this.disposing;
@@ -250,18 +380,20 @@ export class CompanionService {
         })),
     ];
   }
-  private wardrobeAction(
+  private wardrobeStatus(
     id: string,
     installed?: InstalledPet,
-  ): "none" | "install" | "update" {
+  ): "unknown" | "none" | "install" | "update" | "current" {
     const known = this.catalog.knownPet(id);
-    if (!known?.wardrobeZip || compatibilityProblem(known)) return "none";
+    if (!known) return "unknown";
+    if (!known.wardrobeZip || compatibilityProblem(known)) return "none";
     if (!installed?.package.metadata.wardrobe) return "install";
-    return installed.receipt.url === known.wardrobeZip ? "none" : "update";
+    return installed.receipt.url === known.wardrobeZip ? "current" : "update";
   }
   private async publish(): Promise<HostSnapshot> {
+    if (this.closed) return this.buildSnapshot();
     this.revision++;
-    const snapshot = await this.getSnapshot();
+    const snapshot = this.buildSnapshot();
     for (const listener of this.listeners) listener(snapshot);
     return snapshot;
   }

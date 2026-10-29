@@ -14,10 +14,12 @@ import type {
 import { parseRequest } from "./request-validation.js";
 import { SurfaceCoordinator } from "./surface-coordinator.js";
 import { webviewHtml } from "./webview-html.js";
+import { SceneMutationOutcomeUnknownError } from "./scene-store.js";
 
 export class WebviewSession implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
+  private playbackActive = false;
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -58,7 +60,21 @@ export class WebviewSession implements vscode.Disposable {
     });
     this.disposables.push({
       dispose: coordinator.subscribe((surface) => {
-        if (surface.surfaceId === id) this.post({ type: "surface", surface });
+        if (surface.surfaceId !== id) return;
+        this.post({ type: "surface", surface });
+        const active = surface.visible && surface.playbackEnabled;
+        if (active && !this.playbackActive) {
+          void this.service.getSnapshot().then(
+            (snapshot) =>
+              this.post({
+                type: "snapshot",
+                snapshot: this.projectSnapshot(snapshot),
+              }),
+            (error: unknown) =>
+              this.log.appendLine(`[session] refresh failed: ${String(error)}`),
+          );
+        }
+        this.playbackActive = active;
       }),
     });
     webview.html = webviewHtml(webview, extensionUri);
@@ -93,7 +109,9 @@ export class WebviewSession implements vscode.Disposable {
     return url.toString();
   }
   private projectSnapshot(snapshot: HostSnapshot): CompanionSnapshot {
-    const sprite = (asset: HostSnapshot["active"]["sprite"]) => ({
+    const sprite = (
+      asset: HostSnapshot["instances"][number]["appearance"]["sprite"],
+    ) => ({
       ...asset,
       uri: this.projectLocation(asset.uri),
     });
@@ -106,7 +124,13 @@ export class WebviewSession implements vscode.Disposable {
           sprite: sprite(outfit.sprite),
         })),
       })),
-      active: { ...snapshot.active, sprite: sprite(snapshot.active.sprite) },
+      instances: snapshot.instances.map((instance) => ({
+        ...instance,
+        appearance: {
+          ...instance.appearance,
+          sprite: sprite(instance.appearance.sprite),
+        },
+      })),
     };
   }
   private async receive(value: unknown): Promise<void> {
@@ -160,7 +184,12 @@ export class WebviewSession implements vscode.Disposable {
         type: "response",
         id: request.id,
         ok: false,
-        error: { message },
+        error: {
+          message,
+          ...(error instanceof SceneMutationOutcomeUnknownError
+            ? { outcome: "unknown" as const }
+            : {}),
+        },
       });
     }
   }
@@ -196,20 +225,42 @@ export class WebviewSession implements vscode.Disposable {
         return this.projectSnapshot(
           await this.service.installWardrobe(request.params.petId),
         );
-      case "selectPet":
+      case "addInstance":
         return this.projectSnapshot(
-          await this.service.selectPet(request.params.petId),
-        );
-      case "selectOutfit":
-        return this.projectSnapshot(
-          await this.service.selectOutfit(
+          await this.service.addInstance(
             request.params.petId,
+            request.params.name,
+          ),
+        );
+      case "renameInstance":
+        return this.projectSnapshot(
+          await this.service.renameInstance(
+            request.params.instanceId,
+            request.params.name,
+          ),
+        );
+      case "removeInstance":
+        return this.projectSnapshot(
+          await this.service.removeInstance(request.params.instanceId),
+        );
+      case "selectInstance":
+        return this.projectSnapshot(
+          await this.service.selectInstance(request.params.instanceId),
+        );
+      case "setInstanceOutfit":
+        return this.projectSnapshot(
+          await this.service.setInstanceOutfit(
+            request.params.instanceId,
             request.params.outfitId,
           ),
         );
-      case "setSize":
+      case "setSceneSettings":
         return this.projectSnapshot(
-          await this.service.setSize(request.params.size),
+          await this.service.setSceneSettings(request.params.changes),
+        );
+      case "refreshWardrobe":
+        return this.projectSnapshot(
+          await this.service.refreshWardrobe(request.params.petId),
         );
       case "openEditor":
         this.commands.openEditor();

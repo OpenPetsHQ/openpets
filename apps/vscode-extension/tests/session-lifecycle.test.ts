@@ -1,14 +1,19 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { build } from "esbuild";
 import type * as vscode from "vscode";
 import { CompanionService } from "../src/host/companion-service.js";
 import { Preferences } from "../src/host/preferences.js";
 import { SurfaceCoordinator } from "../src/host/surface-coordinator.js";
+import { applySceneCommand, createDefaultScene } from "../src/host/scene-state.js";
 
 test("disposed sidebar request cannot close a replacement editor panel", async () => {
+  const storage = await mkdtemp(join(tmpdir(), "openpets-session-"));
+  let service: CompanionService | undefined;
   const panels: Array<{
     disposed: boolean;
     listeners: Set<() => void>;
@@ -114,10 +119,26 @@ test("disposed sidebar request cannot close a replacement editor panel", async (
       },
       postMessage: async () => true,
     } as unknown as vscode.Webview;
-    const service = new CompanionService(
-      new Preferences("/unused-test-storage"),
+    let scene = createDefaultScene("seed");
+    const sceneStore = {
+      initialize: async () => scene,
+      read: async () => scene,
+      mutate: async (command: unknown) => {
+        scene = applySceneCommand(scene, command);
+        return scene;
+      },
+      dispose: async () => {},
+    };
+    service = new CompanionService(
+      new Preferences(storage),
       "/cat.webp",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sceneStore,
     );
+    await service.initialize();
     const session = new host.WebviewSession(
       webview,
       "view",
@@ -149,8 +170,8 @@ test("disposed sidebar request cannot close a replacement editor panel", async (
     receive({
       type: "request",
       id: "late",
-      method: "setSize",
-      params: { size: "large" },
+      method: "setSceneSettings",
+      params: { changes: { size: "large" } },
     });
     editor.close();
     editor.show();
@@ -159,12 +180,15 @@ test("disposed sidebar request cannot close a replacement editor panel", async (
     assert.equal(panels.length, 2);
     assert.equal(panels[1].disposed, false);
     assert.equal((await service.getSnapshot()).revision, 0);
+    assert.equal((await service.getSnapshot()).settings.size, "medium");
     staleClose();
     assert.equal(panels[1].disposed, false);
     session.dispose();
     editor.dispose();
     await service.dispose();
   } finally {
+    await service?.dispose();
+    await rm(storage, { recursive: true, force: true });
     Reflect.deleteProperty(globalThis, "__openpetsVscode");
   }
 });

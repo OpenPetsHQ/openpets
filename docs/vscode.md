@@ -6,12 +6,12 @@ description: Agreed product direction and first-release scope for standalone Ope
 
 ## Status and product direction
 
-The standalone extension is under active implementation in `apps/vscode-extension/`.
-The base standalone catalog, manual outfits, independent storage, and two companion
-surfaces are implemented. The 26-test suite and live-backend/dev-host checks
-provide evidence for the base; clean installed-VSIX, restart and offline acceptance
-remain pending. Nothing here claims a public release. The expanded competitive
-features below are approved for first release but remain planned or in progress.
+The standalone extension in `apps/vscode-extension/` is locally packaged for
+private evaluation. Catalog, manual outfits, independent storage, two surfaces,
+and scene UI are implemented. Host, core and UI gates passed, including the UI
+gate's live-pointer condition. The final installed VSIX has been exercised on
+macOS, with the limits described below. It is not Marketplace-published; public
+release requires an owner-confirmed publisher identity and explicit authorization.
 
 OpenPets for VS Code will be a standalone companion experience: existing OpenPets
 pets and their outfits, inside the editor. It must not require the desktop app,
@@ -34,11 +34,11 @@ Do not assume that another project's code license covers its artwork.
 | Installation | Install the extension and use it without a desktop dependency or AI configuration. |
 | Pet gallery | Browse and search the existing catalog v3, preview pets, and install them into extension-owned storage. |
 | Companion surface | One shared scene in a movable sidebar view or dedicated editor-tab pet space beside the code; only one surface is active at a time. |
-| Scene (planned) | Up to six independently named instances, including multiple instances of the same installed pet with independent outfits. Add, remove, name and select instances; installing an asset does not add it and removing an instance does not uninstall it. An intentionally empty scene stays empty across restart. |
+| Scene | Up to six independently named instances, including multiple instances of the same installed pet with independent outfits. Add, remove, name and select instances; installing an asset does not add it and removing an instance does not uninstall it. An intentionally empty scene stays empty across restart. |
 | Animation | Faithful support for existing OpenPets spritesheet layouts and animation mappings, not static-preview-only compatibility. |
 | Outfits | Download available compatible wardrobes and manually choose an outfit or return to the base appearance. |
-| Interaction | Existing click and webview-local drag; planned direction-aware dragging and release, bounded autonomous roaming, and ball play. |
-| Focused settings | Planned Still, Calm (default), and Playful motion modes; durable Pause is independent. VS Code-only sprite widths are 48/72/96 CSS pixels with proportional height; desktop sizes do not change. Planned Plain/Dots CSS backdrops. |
+| Interaction | Click and webview-local direction-aware dragging and release, bounded autonomous roaming, and ball play. |
+| Focused settings | Still, Calm (default), and Playful motion modes; durable Pause is independent. VS Code-only sprite widths are 48/72/96 CSS pixels with proportional height; desktop sizes do not change. Plain/Dots CSS backdrops. |
 | Persistence | Restore the scene, names, outfits, size and settings between editor sessions; installed assets and scenes remain usable offline. |
 
 Catalog browsing and new downloads require network access. Previously installed
@@ -71,9 +71,9 @@ The standalone installer entry is not used as a VS Code host.
 
 Desktop movement and interaction largely control Electron windows, screen
 geometry, and IPC. They cannot simply be mounted inside a VS Code webview.
-Click reactions and webview-local dragging exist. Ball play, autonomous roaming,
-direction-aware drag/release and a multi-instance scene are planned, not existing
-portable features. The authored atlases do not provide lifted, sleep, climb or
+The scene renderer implements click, webview-local direction-aware dragging,
+autonomous roaming and ball play. These are VS Code-specific, not desktop
+movement. The authored atlases do not provide lifted, sleep, climb or
 hang rows; do not promise those animations. Source inspection of vscode-pets
 shows the value of independent named pets, visible movement and simple ball play,
 while its species-specific state graphs cannot be assumed for OpenPets assets.
@@ -94,21 +94,22 @@ while its species-specific state graphs cannot be assumed for OpenPets assets.
 - Keep the host boundary clear enough for later plugin support, but do not build
   speculative SDK adapters or a plugin framework in the first release.
 
-The current host stores independent atomic JSON records for each installation, per-pet
-outfit, selected pet and size under extension-owned global storage. It promotes
-validated packages to uniquely named immutable generations, recording the archive
-SHA-256 separately. Reinstallation creates a fresh generation so damaged assets
-can be repaired without disturbing existing readers. A saved but unusable pet falls back to the
-bundled companion without erasing the choice. Missing or invalid optional
-outfits fall back to the base atlas. Installation does not select a pet. Install
-operations retain their cancellable, 150-second phase deadline semantics.
-The scene storage implementation remains undecided pending proof of true
-cross-process transaction safety; no new locking mechanism or scene protocol
-is claimed as shipped.
+`SceneStore` and its SQLite worker own scene transactions, settings, selection and
+up to six independently named instances with per-instance outfits; an intentionally
+empty scene remains empty. Installed-asset receipts are separate atomic JSON
+records owned by `preferences.ts` and `pet-store.ts`. Validated packages are
+promoted to uniquely named immutable generations with archive SHA-256 recorded
+separately; reinstalling repairs damaged assets without replacing old readers.
+Installing does not add an instance; removing one does not uninstall its asset.
+Unavailable assets and outfits fall back without erasing saved choices. Wardrobe
+metadata can be unknown: users can explicitly check it rather than treating unknown
+as unavailable. Install operations retain cancellable 150-second phase deadlines.
 
-A planned single scene scheduler owns motion on the active surface, with at most
-one ball and one chaser. Hidden scenes pause and resume without accumulating
-ticks or deferred actions. Each scene remains offline-safe.
+One active playback surface runs one shared scene scheduler; positions and the
+single ball/chaser are transient webview state. Hidden scenes pause and resume
+without accumulating ticks. The packaged SQLite worker was exercised in isolated
+VS Code 1.101 and 1.142 hosts and a cross-process contention/recovery test on
+macOS arm64; that is not Windows/Linux or power-loss proof.
 
 For local development, run `pnpm --filter openpets-vscode build` and
 `pnpm --filter openpets-vscode package:local`. Open **OpenPets: Open Pet Space**
@@ -123,7 +124,7 @@ publisher and separate approval.
 - Automatic outfit schedules.
 - Desktop synchronization or a desktop connection.
 - Friendships, import/export, species-specific wall behavior, mini-games beyond
-  the planned ball play, and desktop-equivalent throw physics.
+  ball play, and desktop-equivalent throw physics.
 
 These are not required for the approved first release.
 
@@ -139,24 +140,22 @@ silently become no-ops, and existing plugins must be audited before being
 advertised as supported. No cross-host plugin-state synchronization or execution
 ownership protocol is included in this first release.
 
-## First-release acceptance
+## Validation status and limits
 
-- Install and use the extension with the desktop app absent; catalog downloads
-  work online and installed pets, outfits and scenes remain usable offline.
-- Create up to six named instances, including two of the same pet with different
-  outfits; add, select, rename and remove independently. Installation never adds
-  an instance and removal never uninstalls assets. An intentionally empty scene,
-  names, outfits and choices survive a full restart.
-- Roaming, direction-aware drag/release and one-ball/one-chaser play use available
-  authored animations and give visible feedback without invented atlas rows.
-- Still/Calm/Playful, separate durable Pause, Plain/Dots and all three proportional
-  VS Code sizes work; pets and names stay contained at a 220px sidebar width.
-- Sidebar/editor handoff has one active scene scheduler; hiding pauses work and
-  reopening resumes without buildup or leaking timers and listeners.
-- Failed downloads, invalid individual records and damaged assets offer honest
-  recovery or fallback without erasing valid choices; optional outfit failures
-  fall back to the base atlas. Verify cross-process storage safety before relying
-  on a scene transaction implementation.
-- Run focused behavior tests and verify the actual installed VSIX in VS Code,
-  including real catalog/install, offline restart, scene interactions and failure
-  recovery before release. Existing dev-host evidence is not final acceptance.
+- The full 56-test suite, typecheck and build passed. On macOS, development-host
+  checks exercised six pets in a 220px sidebar and wide editor, real pointer
+  gestures, roaming, ball play, pause and mutation admission. Hidden-state
+  behavior was simulated; true OS hide lifecycle and quantitative six-pet
+  performance are not fully established.
+- The final installed VSIX restored two independently named, differently dressed
+  instances after restart and preserved an intentionally empty scene. An installed
+  path harness rendered local outfits with zero startup fetches while intercepting
+  fetch; that is not an OS-level offline test. Scene V1 pixels and all size
+  combinations were not independently verified in the installed product.
+- A separate production-source service test observed cross-process watcher
+  updates; it was not a two-GUI-window test of the installed product. The latest
+  watcher test passed, but the cause of an earlier filesystem-watcher timeout
+  remains unconfirmed. Windows and Linux have not been verified in these checks.
+
+These observations support private evaluation, not a claim that every release
+acceptance condition has passed or authorization to publish.

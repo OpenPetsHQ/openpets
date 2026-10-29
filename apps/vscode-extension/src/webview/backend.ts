@@ -18,30 +18,37 @@ export interface WebviewUiState {
   readonly activeTab: "companion" | "gallery" | "wardrobe";
   readonly searchQuery: string;
   readonly catalogPage: number;
-  readonly dragOffset: { readonly x: number; readonly y: number };
 }
 
 export function validateWebviewUiState(value: unknown): WebviewUiState {
-  const record = typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-  const position = typeof record.dragOffset === "object" && record.dragOffset !== null && !Array.isArray(record.dragOffset)
-    ? record.dragOffset as Record<string, unknown>
-    : {};
-  const activeTab = record.activeTab === "gallery" || record.activeTab === "wardrobe"
-    ? record.activeTab
-    : "companion";
+  const record =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const activeTab =
+    record.activeTab === "gallery" || record.activeTab === "wardrobe"
+      ? record.activeTab
+      : "companion";
   return {
     activeTab,
-    searchQuery: typeof record.searchQuery === "string" ? record.searchQuery : "",
-    catalogPage: typeof record.catalogPage === "number" && Number.isSafeInteger(record.catalogPage) && record.catalogPage >= 0
-      ? record.catalogPage
-      : 0,
-    dragOffset: {
-      x: typeof position.x === "number" && Number.isFinite(position.x) ? position.x : 0,
-      y: typeof position.y === "number" && Number.isFinite(position.y) ? position.y : 0,
-    },
+    searchQuery:
+      typeof record.searchQuery === "string" ? record.searchQuery : "",
+    catalogPage:
+      typeof record.catalogPage === "number" &&
+      Number.isSafeInteger(record.catalogPage) &&
+      record.catalogPage >= 0
+        ? record.catalogPage
+        : 0,
   };
+}
+
+export class CompanionRequestError extends Error {
+  constructor(
+    message: string,
+    readonly outcome?: "unknown",
+  ) {
+    super(message);
+  }
 }
 
 export class WebviewBackend implements CompanionBackend {
@@ -53,6 +60,7 @@ export class WebviewBackend implements CompanionBackend {
       resolve(value: unknown): void;
       reject(error: Error): void;
       timer: ReturnType<typeof setTimeout>;
+      isMutation: boolean;
     }
   >();
   private readonly snapshots = new Set<(snapshot: CompanionSnapshot) => void>();
@@ -80,16 +88,29 @@ export class WebviewBackend implements CompanionBackend {
       return Promise.reject(new Error("Too many pending requests."));
     const id = `${this.documentId}:${++this.nextId}`;
     const isInstall = method === "installPet" || method === "installWardrobe";
+    const isMutation =
+      isInstall ||
+      method === "addInstance" ||
+      method === "renameInstance" ||
+      method === "removeInstance" ||
+      method === "selectInstance" ||
+      method === "setInstanceOutfit" ||
+      method === "setSceneSettings";
     // Installation needs room for a future 150s host operation and delivery.
-    const timeoutMs = isInstall ? 180_000 : 15_000;
+    const timeoutMs = isInstall
+      ? 180_000
+      : method === "refreshWardrobe"
+        ? 30_000
+        : 15_000;
     return new Promise<Results[M]>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new Error(
-            isInstall
-              ? "OpenPets installation response timed out. The operation may still complete; refresh to check its status."
+          new CompanionRequestError(
+            isMutation
+              ? "OpenPets response timed out. The operation may still complete; refresh to check its status."
               : "OpenPets request timed out.",
+            isMutation ? "unknown" : undefined,
           ),
         );
       }, timeoutMs);
@@ -97,6 +118,7 @@ export class WebviewBackend implements CompanionBackend {
         resolve: (value) => resolve(value as Results[M]),
         reject,
         timer,
+        isMutation,
       });
       this.api.postMessage({ type: "request", id, method, params });
     });
@@ -116,14 +138,30 @@ export class WebviewBackend implements CompanionBackend {
       if ("ok" in value && value.ok === true && "result" in value)
         pending.resolve(value.result);
       else if (
+        "ok" in value &&
+        value.ok === false &&
         "error" in value &&
         value.error &&
         typeof value.error === "object" &&
         "message" in value.error &&
-        typeof value.error.message === "string"
+        typeof value.error.message === "string" &&
+        (!("outcome" in value.error) || value.error.outcome === "unknown")
       )
-        pending.reject(new Error(value.error.message));
-      else pending.reject(new Error("Invalid response."));
+        pending.reject(
+          new CompanionRequestError(
+            value.error.message,
+            "outcome" in value.error && value.error.outcome === "unknown"
+              ? "unknown"
+              : undefined,
+          ),
+        );
+      else
+        pending.reject(
+          new CompanionRequestError(
+            "Invalid response.",
+            pending.isMutation ? "unknown" : undefined,
+          ),
+        );
     } else if (value.type === "snapshot" && "snapshot" in value) {
       const snapshot = (value as HostEvent & { type: "snapshot" }).snapshot;
       if (snapshot.revision > this.revision) {
@@ -153,14 +191,26 @@ export class WebviewBackend implements CompanionBackend {
   installWardrobe(petId: string) {
     return this.call("installWardrobe", { petId });
   }
-  selectPet(petId: string) {
-    return this.call("selectPet", { petId });
+  addInstance(petId: string, name: string) {
+    return this.call("addInstance", { petId, name });
   }
-  selectOutfit(petId: string, outfitId: string) {
-    return this.call("selectOutfit", { petId, outfitId });
+  renameInstance(instanceId: string, name: string) {
+    return this.call("renameInstance", { instanceId, name });
   }
-  setSize(size: Requests["setSize"]["size"]) {
-    return this.call("setSize", { size });
+  removeInstance(instanceId: string) {
+    return this.call("removeInstance", { instanceId });
+  }
+  selectInstance(instanceId: string) {
+    return this.call("selectInstance", { instanceId });
+  }
+  setInstanceOutfit(instanceId: string, outfitId: string) {
+    return this.call("setInstanceOutfit", { instanceId, outfitId });
+  }
+  setSceneSettings(changes: Requests["setSceneSettings"]["changes"]) {
+    return this.call("setSceneSettings", { changes });
+  }
+  refreshWardrobe(petId: string) {
+    return this.call("refreshWardrobe", { petId });
   }
   async openEditor() {
     await this.call("openEditor", undefined);
@@ -188,7 +238,12 @@ export class WebviewBackend implements CompanionBackend {
     window.removeEventListener("message", this.receive);
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error("Connection disposed."));
+      pending.reject(
+        new CompanionRequestError(
+          "Connection disposed.",
+          pending.isMutation ? "unknown" : undefined,
+        ),
+      );
     }
     this.pending.clear();
     this.snapshots.clear();

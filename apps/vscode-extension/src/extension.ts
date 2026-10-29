@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { SceneStore } from "./host/scene-store.js";
 import { CompanionService } from "./host/companion-service.js";
 import { Preferences } from "./host/preferences.js";
 import { SurfaceCoordinator } from "./host/surface-coordinator.js";
@@ -61,8 +63,25 @@ export async function activate(
     ).fsPath,
     storagePath,
     (message) => log.appendLine(message),
+    undefined,
+    undefined,
+    new SceneStore({
+      databasePath: join(storagePath, "scene.sqlite"),
+      workerPath: join(context.extensionPath, "dist", "scene-worker.cjs"),
+      log: (message) => log.appendLine(message),
+    }),
   );
-  await service.initialize();
+  try {
+    await service.initialize();
+  } catch (error) {
+    await service
+      .dispose()
+      .catch((cleanup: unknown) =>
+        log.appendLine(`[activation] cleanup failed: ${String(cleanup)}`),
+      );
+    service = undefined;
+    throw error;
+  }
   const companion = service;
   const coordinator = new SurfaceCoordinator();
   let editor: EditorPetPanel;
@@ -109,7 +128,7 @@ export async function activate(
   context.subscriptions.push({ dispose: stopAdmission });
   const snapshot = await companion.getSnapshot();
   log.appendLine(
-    `[activation] ready; selected=${snapshot.selectedPetId}, active=${snapshot.active.petId}${snapshot.notice ? `; ${snapshot.notice}` : ""}`,
+    `[activation] ready; selected=${snapshot.selectedInstanceId ?? "none"}, instances=${snapshot.instances.length}${snapshot.notice ? `; ${snapshot.notice}` : ""}`,
   );
 }
 

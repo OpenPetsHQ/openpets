@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { WebviewBackend } from "../src/webview/backend.js";
+import {
+  CompanionRequestError,
+  WebviewBackend,
+} from "../src/webview/backend.js";
 
 test("document IDs isolate delayed responses and installs outlive control deadlines", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -59,8 +62,73 @@ test("document IDs isolate delayed responses and installs outlive control deadli
     assert.equal((await install).revision, 7);
     const timeout = current.installWardrobe("cat");
     t.mock.timers.tick(180_000);
-    await assert.rejects(timeout, /may still complete/);
+    await assert.rejects(
+      timeout,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === "unknown",
+    );
+    const refresh = current.refreshWardrobe("cat");
+    t.mock.timers.tick(16_000);
+    deliver(messages[4].id, { revision: 8 });
+    assert.equal((await refresh).revision, 8);
+    const settings = current.setSceneSettings({ motion: "calm" });
+    t.mock.timers.tick(15_000);
+    await assert.rejects(
+      settings,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === "unknown",
+    );
+    const rename = current.renameInstance("i", "Cat");
+    for (const listener of listeners)
+      listener({
+        data: {
+          type: "response",
+          id: messages[6].id,
+          ok: false,
+          error: { message: "Unknown", outcome: "unknown" },
+        },
+      });
+    await assert.rejects(
+      rename,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === "unknown",
+    );
+    const malformedMutation = current.addInstance("cat", "Cat");
+    const mutationId = messages[messages.length - 1].id;
+    const malformedRead = current.listCatalog("cat", 0);
+    const readId = messages[messages.length - 1].id;
+    const count = messages.length;
+    for (const listener of listeners) {
+      listener({ data: { type: "response", id: mutationId, ok: true } });
+      listener({ data: { type: "response", id: readId, ok: false } });
+    }
+    await assert.rejects(
+      malformedMutation,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === "unknown",
+    );
+    await assert.rejects(
+      malformedRead,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === undefined,
+    );
+    assert.equal(messages.length, count);
+    const disposedMutation = current.installPet("cat");
+    const disposedRead = current.listCatalog("cat", 0);
+    const beforeDispose = messages.length;
     current.dispose();
+    await assert.rejects(
+      disposedMutation,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === "unknown",
+    );
+    await assert.rejects(
+      disposedRead,
+      (error: unknown) =>
+        error instanceof CompanionRequestError && error.outcome === undefined,
+    );
+    t.mock.timers.tick(180_000);
+    assert.equal(messages.length, beforeDispose);
     assert.throws(() => current.onSnapshot(() => {}), /disposed/);
   } finally {
     if (previousWindow)
