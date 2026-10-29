@@ -7,8 +7,12 @@ import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, isPetFlippedHorizontally, markPetBroken, resolveCompanionDisplayName, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { builtInPet, builtInPetOutfitFileName, builtInPetWardrobe } from "./built-in-pet.js";
-import { getCodexPetSpriteLayout, maxCodexSpritesheetBytes, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata } from "./codex-pets-core.js";
-import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
+import { getCodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexSpritesheetBytes, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
+import { withAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
+import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { warn } from "./logger.js";
 import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
 import { readInstalledPetMetadata } from "./installed-pet-layout.js";
@@ -18,7 +22,7 @@ import { defaultMediaDurationMs, type OpenPetsReaction } from "./local-ipc-proto
 import { pickReactionMessage } from "./reaction-messages.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
-import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, resolveEffectiveSpriteState, resolveReactionSpriteState, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, resolveEffectiveSpriteState, resolveReactionSpriteState, type UniversalSpriteState } from "@open-pets/pet-format/animation";
 import { createPetWindowCss, createCodexV2GazeCss, createInstalledSpriteStateCss, createSpriteStateCss, escapeCssUrl } from "./pet-window-styles.js";
 import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
 import type { PetContentRender, PetPluginBubbles, PetStatusBadgeReaction, PetTransientDisplay } from "./pet-window-types.js";

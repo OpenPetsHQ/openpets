@@ -76,7 +76,7 @@ pet-window.ts
 ├── createDefaultPetWindow() / createAgentPetWindow()
 ├── loadDefaultPetContent() / loadExplicitPetContent()
 │   ├── HTML generation with CSS sprite animation
-│   ├── reaction-animation-mapping.ts (resolveReactionSpriteState)
+│   ├── @open-pets/pet-format/animation (resolveReactionSpriteState)
 │   ├── reaction-messages.ts (pickReactionMessage for bubbles)
 │   ├── i18n/reactions (localized reaction speech pools)
 │   └── Speech bubbles, alert indicators, pinned HUDs, status reactions, and Linux compact/expanded input shapes
@@ -173,8 +173,8 @@ codex-pets.ts → validated Codex metadata/assets → runPetInstallTransaction()
 **Catalog Flow**:
 ```
 catalog.ts
-├── catalog-remote.ts → bounded HTTP, final-URL validation, and remote caches
-├── V3 index/pages/search → schema validation and V3-to-V2 page conversion
+├── catalog-remote.ts → shared pet-format V3 client and V2 fallback cache
+├── shared V3 validation, transport, and curated hydration → V3-to-V2 conversion
 ├── V3-only curated visibility and virtual page/search composition
 └── V3 → V2 → fixture fallback, with all validated V2/fixture pets browseable and lookupable
 ```
@@ -260,7 +260,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
   - `pet-window.ts` ↔ `pet-window-interaction.ts`, `default-pet-controller.ts`, `agent-pet-controller.ts`
   - `default-pet-chat.ts` ↔ `pet-window.ts` for main-owned compact/expanded carrier focus and Linux input-shape transitions
   - `pet-window.ts` ↔ `plugin-bubble-arbiter.ts`, `plugin-pet-registry.ts`, `pet-motion-engine.ts` for plugin-driven bubbles, spawned pets, and movement updates
-  - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, `zip-safety.ts`
+  - `pet-installation.ts` ↔ `app-state.ts`, `catalog.ts`, shared archive and atlas validation
   - `pet-install-transaction-protocol.ts` ↔ `pet-install-transaction.ts`; owns the stable durable journal/schema, managed naming, topology classifiers, and recovery policy
   - `pet-install-transaction.ts` ↔ `pet-installation.ts`, `codex-pets.ts`, `main.ts`; owns filesystem/side-effect orchestration, private staged promotion, per-ID serialization, journal cleanup, and conservative startup recovery
   - `plugin-service.ts` ↔ `plugin-state.ts`, `plugin-runtime.ts`, `plugin-catalog.ts`, `plugin-package.ts`, `plugin-local-loader.ts`, `plugin-js-host.ts`, `plugin-sdk-bridge.ts`, plugin SDK namespace modules, diagnostics, assets, settings, panels, voice, OAuth, secrets, and user sounds
@@ -363,7 +363,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-throw-core.ts` / `pet-throw.ts`: Ball-like throw after a drag release — pure velocity tracking and bounce/gravity stepping, plus the shared-timer adapter
 - `built-in-pet.ts`: Built-in pet constant and its bundled wardrobe (`assets/default-pet-outfits/`)
 - `reaction-messages.ts`: Message pools for each reaction type
-- `reaction-animation-mapping.ts`: Reaction-to-animation state mapping, user-configurable overrides, bundled V2 Hoodie Cat atlas metadata, canonical sprite state definitions, and derived waiting-duration state tables
+- `@open-pets/pet-format/animation`: Shared reaction-to-animation mapping, configurable overrides, sprite state definitions, and waiting-duration tables.
 - `i18n/`: Host message catalogs and localized reaction pools; see [i18n/codemap.md](i18n/codemap.md)
 
 **IPC**:
@@ -385,19 +385,18 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-install-transaction-protocol.ts`: Electron-free stable pet-install journal/schema, managed naming, topology classifiers, and recovery decision policy
 - `pet-install-transaction.ts`: Electron-free staged pet commit filesystem/side-effect orchestrator, canonical private-root/marker validation, per-ID lock, rollback execution, bounded cleanup warnings, and idempotent startup recovery
 - `pet-paths.ts`: Safe path resolution for pet directories
-- `pet-file-safety.ts`: Bounded, no-follow regular-file reads, manifest-selected atlas checks (base atlas plus exact `outfits/` and `activities/` contents), and validated atlas read/write helpers shared by folder, ZIP, catalog, and Codex installs; fully decodes bounded static activity strips separately from base-pet runtime reads
-- `pet-activities-core.ts`: Dependency-free optional activity package contract, readable metadata/image limits, unique-id/path validation, and derived one-shot duration calculation
-- `pet-wardrobe-core.ts`: Pure wardrobe contract — outfit/schedule validation for `pet.json`, lenient normalization of persisted per-pet wardrobe preferences, and first-match local-time outfit resolution (time/days/dates with midnight and new-year wrap)
+- `pet-atlas-validation.ts`: Sharp decoder adapter for shared package atlas and activity validation.
+- `@open-pets/pet-format/activities` and `/wardrobe`: Pure activity metadata and wardrobe/schedule contracts shared with other hosts.
 - `pet-wardrobe.ts`: Wardrobe owner — render-time outfit resolution for every pet window role, minute-aligned schedule timer that re-renders pets whose scheduled outfit changed, Control Center wardrobe snapshot, and validated preference updates (always-wear choice, user schedule, reset)
 - `pet-window-refresh.ts`: Re-renders every window showing one pet id across default, agent, plugin, LAN, and pinned roles after a per-pet presentation change (flip, outfit), or every pet window after a global one (speech bubble size)
 - `codex-pets.ts`: Import from `~/.codex/pets/` with validation
-- `codex-pets-core.ts`: Codex V1/V2 metadata (including canonical WebP/SVG atlas paths, normalized optional gaze anchors, optional validated `wardrobe` and `activities`), exact V2 WebP validation, shared static SVG profile validation through `install-pet/spritesheet`, neutral-pose layouts, and gaze coordinate geometry
+- `codex-pets-core.ts`: Desktop gaze geometry and Codex enumeration limits; metadata, layout, and atlas policy belong to `@open-pets/pet-format`.
 - `codex-pet-migration.ts`: Idempotent startup repair for legacy Codex V2 imports gated by canonical source, exact local atlas validation, and byte hash equality
 - `installed-pet-layout.ts`: Bounded installed-manifest reader shared by pet windows and Control Center sprite previews, preserving metadata such as gaze anchors; resolves and validates manifest-selected atlas bytes/MIME (base or one declared outfit) for image protocols
-- `catalog-remote.ts`: Remote catalog HTTP, bounded streaming, endpoint checks, validation, and per-client V3/V2 caches
+- `catalog-remote.ts`: Shared V3 client adapter, V3-to-V2 conversion, and V2 fallback cache
 - `catalog.ts`: Public catalog façade with V3 pagination/search composition, V3-only curated visibility, all-pet V2/fixture fallback, lookup (rejecting pets whose `minOpenPetsVersion` is newer than the app, and marking them `requiresOpenPetsVersion` for the UI), and V1/V2 sprite metadata conversion
-- `catalog-validation.ts`: CatalogV2/V3 schema validation, including optional exact V2 sprite-version metadata and optional pet package fields `wardrobeZip` / `minOpenPetsVersion`
-- `zip-safety.ts`: ZIP entry path validation (traversal prevention, case collision detection), including declared wardrobe atlases and activity strips in root or single-wrapper pet packages
+- `@open-pets/pet-format/catalog-validation`: Shared catalog validation and V3-to-V2 adaptation, imported directly by desktop catalog consumers
+- `@open-pets/pet-format/node/archive` and `/node/paths`: ZIP extraction and entry path validation for root or single-wrapper pet packages.
 
 **Plugins**:
 - `plugin-manifest.ts`: Manifest V1/V2/V3 schema/types and validation for declarative and JavaScript runtimes, permissions (`timer`/`schedule`, `pet:*`, `pets:*`, `audio`, `events`, `ui:*`, `notify`, `bus`, `ai`, `secrets`, `voice:*`, `auth`, `files`, `system:*`, `clipboard`, `network:*`), config schema, timer triggers, assets, panels, entry files, and pet actions.

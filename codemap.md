@@ -2,13 +2,14 @@
 
 ## Project Responsibility
 
-OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plus npm packages that let coding agents control animated desktop pets. The workspace provides a local IPC protocol, MCP server, CLI tooling, and editor/agent integrations for Claude Code, OpenCode, Cursor, Zed, Devin, Pi, and OpenClaw.
+OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a standalone VS Code extension foundation, and npm packages that let coding agents control animated desktop pets. The workspace provides a local IPC protocol, MCP server, CLI tooling, and editor/agent integrations for Claude Code, OpenCode, Cursor, Zed, Devin, Pi, and OpenClaw.
 
 ## System Entry Points
 
 - `package.json`: workspace scripts for building, checking, testing, desktop packaging, and npm release orchestration.
 - `pnpm-workspace.yaml`: workspace membership for `apps/*` and `packages/*`.
 - `apps/desktop/src/main.ts`: Electron main-process bootstrap for the desktop pet app.
+- `apps/vscode-extension/src/extension.ts`: VS Code UI-host extension foundation activation and surface registration.
 - `packages/cli/src/index.ts`: command-line setup, pet management, MCP launch, and plugin scaffold/validation entry point.
 - `packages/mcp/src/index.ts`: MCP server entry point used by agents.
 - `packages/client/src/index.ts`: public IPC client API consumed by integrations and tools.
@@ -25,8 +26,9 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 
 | Directory | Responsibility Summary | Detailed Map |
 |-----------|------------------------|--------------|
-| `apps/` | Deployable application workspace, currently the tray-first Electron desktop app that consumes shared packages, local IPC, pet windows, and desktop plugin support. | [View Map](apps/codemap.md) |
+| `apps/` | Application workspace containing the tray-first Electron desktop app and a standalone VS Code extension foundation. | [View Map](apps/codemap.md) |
 | `apps/desktop/` | User-facing Electron companion app: tray UX, pet windows, pet installation, host-owned Pet Assistant/local conversation archive, plugin automation/runtime, agent setup including OpenClaw management, update checks, and local IPC server. | [View Map](apps/desktop/codemap.md) |
+| `apps/vscode-extension/` | Standalone VS Code UI-host foundation with editor/sidebar webviews; not a released full product. | — |
 | `apps/desktop/contracts/` | Desktop public-boundary contract tests for catalog fixtures, local IPC protocol behavior, and plugin manifest schema validation. | [View Map](apps/desktop/contracts/codemap.md) |
 | `apps/desktop/src/` | Main-process service layer for app lifecycle, state, tray/windows, IPC routing, lease-managed agent pets, catalog installation, SDK v3 plugin subsystem, i18n, and editor integration. | [View Map](apps/desktop/src/codemap.md) |
 | `apps/desktop/src/i18n/` | Desktop host i18n catalogs and localized reaction speech pools. | [View Map](apps/desktop/src/i18n/codemap.md) |
@@ -62,8 +64,8 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 | `packages/pi/src/` | Pi extension entry point, event classification, OpenPets command parsing, and validation checks. | [View Map](packages/pi/src/codemap.md) |
 | `packages/openclaw/` | Native OpenClaw plugin package with local-only lifecycle reactions and OpenClaw install/status planning. | [View Map](packages/openclaw/codemap.md) |
 | `packages/openclaw/src/` | OpenClaw plugin entry/runtime, management command planning, and package contract checks. | [View Map](packages/openclaw/src/codemap.md) |
-| `packages/pet-format/` | Minimal package marker/type interface for OpenPets pet package identity. | [View Map](packages/pet-format/codemap.md) |
-| `packages/pet-format/src/` | Marker source export for pet-format package consumers. | [View Map](packages/pet-format/src/codemap.md) |
+| `packages/pet-format/` | Shared pet contracts, catalog client, and Node package-validation policy. | [View Map](packages/pet-format/codemap.md) |
+| `packages/pet-format/src/` | Reaction, sprite, animation, metadata, wardrobe, activity, catalog, and Node validation implementations. | [View Map](packages/pet-format/src/codemap.md) |
 | `packages/sdk/` | Public plugin SDK v3 type package and deterministic test harness. | [View Map](packages/sdk/codemap.md) |
 | `packages/sdk/src/` | SDK type contract, mock runtime, fake clock, and plugin test harness implementation. | [View Map](packages/sdk/src/codemap.md) |
 | `plugins/` | Root product source for first-party SDK v3 OpenPets plugins before catalog packaging and R2 upload. | [View Map](plugins/codemap.md) |
@@ -79,6 +81,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app plu
 6. Pet windows render reaction-driven animations, localized speech, host-rendered bubbles/alerts/HUDs, and status reactions using desktop state plus reaction mapping metadata.
 7. Pet assets are resolved from built-in assets, locally developed Codex pets, or remotely downloaded catalog ZIPs.
 8. Workspace packages share TypeScript/ESM build conventions and are wired together through pnpm `workspace:*` dependencies.
+9. The VS Code foundation runs independently in the UI extension host with a bundled pet and webview surfaces; it does not depend on the desktop IPC service. Its gallery and installation flows are not yet implemented.
 
 ## Working Notes
 

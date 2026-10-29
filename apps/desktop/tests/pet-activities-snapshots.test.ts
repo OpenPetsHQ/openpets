@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import sharp from "sharp";
 
-import type { PetActivity } from "../src/pet-activities-core.js";
-import { readPetActivitySpritesheet } from "../src/pet-file-safety.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
+import { readPetActivitySpritesheet } from "../src/pet-atlas-validation.js";
 import { createPetActivityPixels, petActivityFixture } from "./pet-activity-fixtures.js";
 
 const root = await mkdtemp(join(tmpdir(), "openpets-activity-snapshots-"));
@@ -34,7 +34,7 @@ const modules: Record<string, string> = {
   `,
   "./built-in-pet.js": "export const builtInPet = { id: 'builtin' };",
   "./logger.js": "export const info = () => {}; export const warn = () => {};",
-  "./pet-file-safety.js": `
+  "./pet-atlas-validation.js": `
     export const readPetActivitySpritesheet = (directory, activity) => globalThis.__petActivitySnapshotsTest.readAsset(directory, activity);
   `,
   "./pet-window-gaze.js": "export const setPetGazeActivityOverride = () => {};",

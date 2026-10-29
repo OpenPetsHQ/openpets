@@ -29,7 +29,7 @@ import type { PluginCommandForm } from "./plugin-sdk-bridge.js";
 import { escapeHtml } from "./pet-window-render.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
-import { defaultOutfitId } from "./pet-wardrobe-core.js";
+import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
 import { setWindowPosition } from "./window-position.js";
 
 export function installPetContextMenu(

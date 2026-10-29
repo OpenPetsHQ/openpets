@@ -25,7 +25,7 @@ import {
   toCollapsedPosition,
 } from "./default-pet-chat-geometry.js";
 import { getAppStateSnapshot } from "./app-state.js";
-import { defaultPetSprite } from "./reaction-animation-mapping.js";
+import { defaultPetSprite } from "@open-pets/pet-format/animation";
 import { defaultPetWindowSize, type Point, type WindowSize } from "./display.js";
 import { getManagerCheckInService, type ManagerCheckInPetSnapshot } from "./manager-check-in-service.js";
 import { interruptPetActivity } from "./pet-activities.js";

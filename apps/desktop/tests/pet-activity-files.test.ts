@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import sharp from "sharp";
 
-import { validateCodexPetMetadata } from "../src/codex-pets-core.js";
-import { readPetActivitySpritesheet, validatePetActivitySpritesheet, validatePetAtlases } from "../src/pet-file-safety.js";
-import { maxPetActivitySpritesheetBytes, validatePetActivities } from "../src/pet-activities-core.js";
+import { validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { readPetActivitySpritesheet, validatePetActivitySpritesheet, validatePetAtlases } from "../src/pet-atlas-validation.js";
+import { maxPetActivitySpritesheetBytes, validatePetActivities } from "@open-pets/pet-format/activities";
 import { codexV1Fixture } from "./codex-pet-fixtures.js";
 import { createPetActivityEmptyFramePixels, createPetActivityPixels, petActivityFixture } from "./pet-activity-fixtures.js";
 

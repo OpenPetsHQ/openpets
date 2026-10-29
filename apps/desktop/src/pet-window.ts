@@ -8,7 +8,7 @@ import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWin
 import { builtInPet } from "./built-in-pet.js";
 import { t } from "./i18n/index.js";
 import { debug, error as logError, info, warn } from "./logger.js";
-import { defaultPetSprite, type PetMotionState, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, type PetMotionState, type UniversalSpriteState } from "@open-pets/pet-format/animation";
 import { computeEffectiveWaylandBackend, isLayerShellBackendRequested, shouldPetWindowBeFocusable } from "./wayland-backend.js";
 import { adoptPetWindowForLayerShell, isLayerShellHelperAvailable } from "./wayland-layer-backend.js";
 import { isLatestPetRenderSequence } from "./pet-render-lifecycle.js";

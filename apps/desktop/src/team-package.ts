@@ -4,7 +4,8 @@ import { dirname, join, posix } from "node:path";
 import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
 
-import { validateCodexPetMetadata, validateCodexPetSpritesheet } from "./codex-pets-core.js";
+import { validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
 import { assertPetPackageFiles } from "install-pet/spritesheet";
 import { readCatalogPluginManifestFromZip } from "./plugin-package.js";
 import { validatePluginConfigReplacement } from "./plugin-config.js";

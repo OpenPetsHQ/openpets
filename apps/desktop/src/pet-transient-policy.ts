@@ -1,6 +1,6 @@
 import { getAppStateSnapshot } from "./app-state.js";
 import { getActiveLocale } from "./i18n/index.js";
-import { getConfiguredSpriteStates } from "./reaction-animation-mapping.js";
+import { getConfiguredSpriteStates } from "@open-pets/pet-format/animation";
 import { pickReactionMessage } from "./reaction-messages.js";
 import { getReactionSpriteState } from "./pet-window-render.js";
 import type { PetTransientDisplay } from "./pet-window-types.js";

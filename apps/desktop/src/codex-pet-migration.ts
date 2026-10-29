@@ -2,8 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
-import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
-import { readBoundedRegularFile } from "./pet-file-safety.js";
+import { getCodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 
 export interface LegacyCodexImportRecord {
   readonly id: string;

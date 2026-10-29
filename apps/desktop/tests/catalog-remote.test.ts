@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createCatalogRemoteClient } from "../src/catalog-remote.js";
-import type { CatalogV3Index } from "../src/catalog-validation.js";
+import type { CatalogV3Index } from "@open-pets/pet-format/catalog-validation";
 
 const v2Url = "https://openpets.dev/pets/catalog.v2.json";
 const v3Url = "https://openpets.dev/pets/catalog.v3.json";
@@ -176,7 +176,7 @@ async function testPageCachingAndRetry(): Promise<void> {
   assert.equal(calls.get(pageUrl), 2);
 }
 
-async function testConcurrentUncachedPagesDoNotCoalesce(): Promise<void> {
+async function testConcurrentUncachedPagesCoalesce(): Promise<void> {
   let calls = 0;
   const fetchImpl: typeof fetch = async (input) => {
     calls += 1;
@@ -186,7 +186,7 @@ async function testConcurrentUncachedPagesDoNotCoalesce(): Promise<void> {
 
   const pages = await Promise.all([client.getV3Page(0, index), client.getV3Page(0, index)]);
 
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.equal(pages[0]?.[0]?.id, "malou");
   assert.equal(pages[1]?.[0]?.id, "malou");
 }
@@ -233,7 +233,7 @@ await testV3IndexFailureRetries();
 await testV3SearchIndexFailureRetries();
 await testV3SearchPageFailureRetries();
 await testPageCachingAndRetry();
-await testConcurrentUncachedPagesDoNotCoalesce();
+await testConcurrentUncachedPagesCoalesce();
 await testSearchFlattenPreservesPageOrder();
 await testEndpointAndByteLimits();
 

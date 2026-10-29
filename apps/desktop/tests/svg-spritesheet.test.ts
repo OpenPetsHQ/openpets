@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import sharp from "sharp";
-import { validateCodexPetMetadata, validateCodexPetSpritesheet, getCodexPetSpriteLayout } from "../src/codex-pets-core.js";
+import { getCodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "../src/pet-atlas-validation.js";
 
 // SVG chooses a format, not another animation model: row/frame geometry and
 // transparency must survive validation and ordinary image rasterization.

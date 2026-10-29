@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 
 import sharp from "sharp";
 
-import { codexV2GazeDeadZonePx, codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition, getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, validateCodexPetMetadata, validateCodexPetSpritesheet } from "../src/codex-pets-core.js";
-import { getConfiguredSpriteStates } from "../src/reaction-animation-mapping.js";
+import { codexV2SpriteLayout, getCodexPetSpriteLayout, getCodexPetSpritePosition } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexSpritesheetBytes, validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "../src/pet-atlas-validation.js";
+import { codexV2GazeDeadZonePx, getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, maxCodexPets, maxCodexThumbnailSourceBytes, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection } from "../src/codex-pets-core.js";
+import { getConfiguredSpriteStates } from "@open-pets/pet-format/animation";
 import { codexV1Fixture, codexV2Fixture } from "./codex-pet-fixtures.js";
 
 const valid = validateCodexPetMetadata(codexV1Fixture, "aiko");

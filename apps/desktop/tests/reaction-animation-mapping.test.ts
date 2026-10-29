@@ -18,7 +18,7 @@ import {
   type SpriteStateDefinition,
   type UniversalSpriteState,
   type UserSelectableAnimationState,
-} from "../src/reaction-animation-mapping.js";
+} from "@open-pets/pet-format/animation";
 
 // Expected contract values for runtime assertions.
 const EXPECTED_SPRITE_STATE_IDS: UniversalSpriteState[] = [

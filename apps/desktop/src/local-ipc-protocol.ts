@@ -1,3 +1,5 @@
+import { allowedReactions, type OpenPetsReaction } from "@open-pets/pet-format/reactions";
+export { allowedReactions, type OpenPetsReaction } from "@open-pets/pet-format/reactions";
 import { randomUUID } from "node:crypto";
 import { extname, isAbsolute } from "node:path";
 
@@ -11,21 +13,6 @@ export const maxMediaDurationMs = 30_000;
 export const defaultMediaDurationMs = 8_000;
 export const allowedMediaExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"] as const;
 
-export const allowedReactions = [
-  "idle",
-  "thinking",
-  "working",
-  "editing",
-  "running",
-  "testing",
-  "waiting",
-  "waving",
-  "success",
-  "error",
-  "celebrating",
-] as const;
-
-export type OpenPetsReaction = typeof allowedReactions[number];
 export type OpenPetsIpcMethod = "hello" | "status" | "pets.list" | "pets.install" | "lease.acquire" | "lease.heartbeat" | "lease.release" | "pet.react" | "pet.say" | "pet.showMedia" | "pets.install-local";
 
 export interface OpenPetsIpcRequest {

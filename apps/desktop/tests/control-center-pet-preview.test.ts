@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { defaultPetSprite } from "../src/reaction-animation-mapping.js";
+import { defaultPetSprite } from "@open-pets/pet-format/animation";
 import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout } from "../src/renderer/src/pet-preview-state.js";
 
 assert.deepEqual(

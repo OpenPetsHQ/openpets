@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { getPetActivityDurationMs, validatePetActivities } from "../src/pet-activities-core.js";
-import { validateCodexPetMetadata } from "../src/codex-pets-core.js";
+import { getPetActivityDurationMs, validatePetActivities } from "@open-pets/pet-format/activities";
+import { validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
 import { codexV1Fixture } from "./codex-pet-fixtures.js";
 import { petActivityFixture } from "./pet-activity-fixtures.js";
 

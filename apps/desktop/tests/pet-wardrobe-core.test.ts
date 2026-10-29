@@ -5,7 +5,7 @@ import {
   resolveWornOutfitId,
   validatePetWardrobe,
   type PetWardrobe,
-} from "../src/pet-wardrobe-core.js";
+} from "@open-pets/pet-format/wardrobe";
 
 const wardrobe: PetWardrobe = validatePetWardrobe({
   outfits: [

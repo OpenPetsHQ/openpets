@@ -28,9 +28,9 @@ when they disagree with the generated catalog.
 
 | Data                             | URL                                                    | Owner in app                  |
 | -------------------------------- | ------------------------------------------------------ | ----------------------------- |
-| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` façade |
-| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
-| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | `catalog-remote.ts` transport/cache; `catalog.ts` policy |
+| Pet catalog v3 (index)           | `https://openpets.dev/pets/catalog.v3.json`            | shared pet-format V3 client; `catalog.ts` façade |
+| Pet catalog v3 pages             | `…/pets/catalog.v3/page-NNN.json`                      | shared V3 client; desktop policy |
+| Pet catalog v3 search            | `…/pets/catalog.v3/search.json` (+ search pages)       | shared V3 client; desktop policy |
 | Pet catalog v2 (legacy/fallback) | `https://openpets.dev/pets/catalog.v2.json`            | `catalog-remote.ts` transport/cache; `catalog.ts` fallback |
 | Pet ZIPs                         | `https://zip.openpets.dev/pets/{slug}/{installId}.zip` | `pet-installation.ts`         |
 | Plugin catalog v2 (active)       | `https://openpets.dev/plugins/catalog.v2.json`         | `plugin-catalog.ts`           |
@@ -67,7 +67,7 @@ generator drops the rest and logs a warning. To keep the app UI clean, the
 Control Center browsing/search indexes surface only "curated" (original or
 featured) pets. However, explicit lookup/installation by ID allows installing
 any valid v3 catalog pet. The validators on the app side live
-in `catalog-validation.ts` (`validateCatalogV3Index`, `validateCatalogV3Page`,
+in `packages/pet-format/src/catalog-validation.ts` (`validateCatalogV3Index`, `validateCatalogV3Page`,
 `validateCatalogV3SearchIndex`, `validateCatalogV3SearchPage`, plus
 `validateCatalogV2`). Treat the generator output plus those validators as the
 contract, not any hand-written copy.
@@ -79,10 +79,10 @@ contract, not any hand-written copy.
 should never be the path real users hit online; it is a last-resort floor, not a
 shipping catalog.
 
-`catalog-remote.ts` owns remote HTTP requests, five-second deadlines, bounded
-streaming, final-URL checks, schema validation and V1-marker normalization at
-the remote boundary, and the module-instance caches for the V3
-index/pages/search data and V2 catalog. Successful V3 data stays cacheable;
+The shared `catalog-v3.ts` owns HTTP requests, five-second deadlines, bounded
+streaming, final-URL checks, validation, V1-marker normalization, curated page
+hydration, and per-client V3 caches. Desktop `catalog-remote.ts` adapts V3
+pets to its V2-compatible shape and caches V2. Successful V3 data stays cacheable;
 failed V3 index, search, or page requests can be retried, while successful
 search/index data remains coalesced and cached. Local V2/fixture validation
 does not accept an explicit V1 marker; omission is the internal V1 form.

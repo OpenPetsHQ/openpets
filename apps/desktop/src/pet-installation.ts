@@ -1,26 +1,20 @@
-import { createWriteStream } from "node:fs";
-import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { Transform } from "node:stream";
+import { lstat, realpath, rm, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 
-import yauzl from "yauzl";
-import type { Entry, ZipFile } from "yauzl";
 import { assertPetPackageFiles } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, upsertPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { getCatalogPet } from "./catalog.js";
-import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "./codex-pets-core.js";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
 import { builtInPet } from "./built-in-pet.js";
-import { readBoundedRegularFile, validatePetAtlases } from "./pet-file-safety.js";
+import { defaultPetZipLimits, extractPetZip as extractPetArchive } from "@open-pets/pet-format/node/archive";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
+import { assertOutputPathInside, hasSupportedZipMagic } from "@open-pets/pet-format/node/paths";
+import { validatePetAtlases } from "./pet-atlas-validation.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
-import { assertOutputPathInside, hasSupportedZipMagic, ZipEntryPathTracker } from "./zip-safety.js";
 
-const maxZipDownloadBytes = 50 * 1024 * 1024;
-const maxExtractedTotalBytes = 200 * 1024 * 1024;
-const maxFiles = 500;
-const maxIndividualFileBytes = 100 * 1024 * 1024;
+const { maxZipDownloadBytes, maxIndividualFileBytes } = defaultPetZipLimits;
 const downloadTimeoutMs = 30_000;
 
 let installationChangeHandler: ((petId: string, removed: boolean) => void) | null = null;
@@ -347,157 +341,8 @@ function validateZipMagic(buffer: Buffer): void {
 }
 
 async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
-  const zipFile = await openZipFromBuffer(zip);
-  const pathTracker = new ZipEntryPathTracker();
-  const seenRequired = new Set<string>();
-  let fileCount = 0;
-  let extractedTotal = 0;
-
-  try {
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-      let settled = false;
-
-      const reject = (error: unknown): void => {
-        if (settled) return;
-        settled = true;
-        zipFile.close();
-        rejectPromise(error instanceof Error ? error : new Error("Zip extraction failed."));
-      };
-
-      zipFile.on("error", reject);
-      zipFile.on("end", () => {
-        if (settled) return;
-        settled = true;
-        resolvePromise();
-      });
-
-      zipFile.on("entry", (entry) => {
-        void processEntry(entry).then(() => {
-          if (!settled) zipFile.readEntry();
-        }).catch(reject);
-      });
-
-      const processEntry = async (entry: Entry): Promise<void> => {
-        validateEntryMetadata(entry);
-        const safePath = pathTracker.accept(entry.fileName);
-
-        if (safePath.isDirectory) {
-          return;
-        }
-
-        if (!safePath.relativeOutputPath) {
-          throw new Error("Zip file entry is missing an output path.");
-        }
-
-        fileCount += 1;
-        if (fileCount > maxFiles) throw new Error("Zip contains too many files.");
-        if (safePath.relativeOutputPath === "pet.json" && entry.uncompressedSize > maxCodexPetJsonBytes) throw new Error("pet.json is too large.");
-        if (entry.uncompressedSize > maxIndividualFileBytes) throw new Error("Zip entry is too large.");
-        extractedTotal += entry.uncompressedSize;
-        if (extractedTotal > maxExtractedTotalBytes) throw new Error("Zip extracted total is too large.");
-
-        const outputPath = resolve(tempDir, safePath.relativeOutputPath);
-        assertOutputPathInside(tempDir, outputPath);
-        seenRequired.add(safePath.relativeOutputPath);
-        if (safePath.relativeOutputPath.includes("/")) {
-          await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
-        }
-        await writeEntry(entry, zipFile, outputPath, entry.uncompressedSize, safePath.relativeOutputPath === "pet.json" ? maxCodexPetJsonBytes : maxIndividualFileBytes);
-      };
-
-      zipFile.readEntry();
-    });
-  } finally {
-    zipFile.close();
-  }
-
-  // Nested outfit/activity assets are matched against the manifest in validateExtractedPet.
-  assertPetPackageFiles([...seenRequired].filter((path) => !path.includes("/")));
-}
-
-function openZipFromBuffer(buffer: Buffer): Promise<ZipFile> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    yauzl.fromBuffer(buffer, { lazyEntries: true, validateEntrySizes: true, strictFileNames: true }, (error, zipFile) => {
-      if (error) {
-        rejectPromise(error);
-        return;
-      }
-
-      if (!zipFile) {
-        rejectPromise(new Error("Zip file could not be opened."));
-        return;
-      }
-
-      resolvePromise(zipFile);
-    });
-  });
-}
-
-function validateEntryMetadata(entry: Entry): void {
-  if (entry.isEncrypted()) throw new Error("Encrypted zip entries are not supported.");
-  if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
-    throw new Error("Unsupported zip entry compression method.");
-  }
-  if (entry.compressedSize > maxZipDownloadBytes) throw new Error("Zip entry compressed size is too large.");
-  if (entry.uncompressedSize > maxIndividualFileBytes) throw new Error("Zip entry uncompressed size is too large.");
-
-  const unixMode = getUnixMode(entry);
-  if (unixMode === null) return;
-
-  const type = unixMode & 0o170000;
-  const isKnownFileType = type !== 0;
-  const isRegularFile = type === 0o100000;
-  const isDirectory = type === 0o040000;
-  if (isKnownFileType && !isRegularFile && !isDirectory) {
-    throw new Error("Zip entry special files are not supported.");
-  }
-}
-
-function getUnixMode(entry: Entry): number | null {
-  if ((entry.versionMadeBy >> 8) !== 3) {
-    return null;
-  }
-
-  return (entry.externalFileAttributes >> 16) & 0o177777;
-}
-
-function writeEntry(entry: Entry, zipFile: ZipFile, outputPath: string, expectedBytes: number, maxBytes: number): Promise<void> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    zipFile.openReadStream(entry, (error, readStream) => {
-      if (error) {
-        rejectPromise(error);
-        return;
-      }
-
-      if (!readStream) {
-        rejectPromise(new Error("Zip entry stream could not be opened."));
-        return;
-      }
-
-      let actualBytes = 0;
-      const counter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          actualBytes += chunk.byteLength;
-          if (actualBytes > maxBytes) {
-            callback(new Error("Zip entry exceeded individual size limit."));
-            return;
-          }
-          callback(null, chunk);
-        },
-      });
-
-      pipeline(readStream, counter, createWriteStream(outputPath, { mode: 0o600 }))
-        .then(() => {
-          if (actualBytes !== expectedBytes) {
-            rejectPromise(new Error("Zip entry extracted size did not match metadata."));
-            return;
-          }
-
-          resolvePromise();
-        })
-        .catch(rejectPromise);
-    });
-  });
+  const files = await extractPetArchive(zip, tempDir);
+  assertPetPackageFiles(files);
 }
 
 async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> {

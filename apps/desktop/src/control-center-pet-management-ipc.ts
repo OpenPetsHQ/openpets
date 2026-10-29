@@ -1,5 +1,5 @@
 import type { getAppStateSnapshot } from "./app-state.js";
-import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
 
 export type ControlCenterPetManagementIpcChannel =
   | "openpets:get-pets-state"

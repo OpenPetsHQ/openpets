@@ -28,7 +28,7 @@ Do not assume that another project's code license covers its artwork.
 | --- | --- |
 | Installation | Install the extension and use it without a desktop dependency or AI configuration. |
 | Pet gallery | Browse and search the existing catalog v3, preview pets, and install them into extension-owned storage. |
-| Companion surface | One active pet in a polished webview that can be docked in the VS Code sidebar or panel. |
+| Companion surface | One selected companion, shown in a movable sidebar view or a dedicated editor-tab pet space beside the code. Both surfaces use the same saved companion and customization. |
 | Animation | Faithful support for existing OpenPets spritesheet layouts and animation mappings, not static-preview-only compatibility. |
 | Outfits | Download available compatible wardrobes and manually choose an outfit or return to the base appearance. |
 | Interaction | Drag the pet within its webview and click it for a visible reaction. |
@@ -38,7 +38,11 @@ Catalog browsing and new downloads require network access. Previously installed
 assets and saved choices must not depend on the catalog remaining reachable.
 
 Pet movement is contained within the companion webview; this is not an OS-level
-desktop pet. Closing VS Code ends its execution. No separate background process
+desktop pet or an overlay on the code editor. The sidebar view can be moved to
+VS Code's bottom Panel using the editor's view-placement controls. Separately,
+an OpenPets command opens the pet space as an editor tab, like vscode-pets'
+`panel` mode; that reference's setting does not mean the bottom Panel container.
+Closing VS Code ends its execution. No separate background process
 will be introduced to keep the companion alive.
 
 ## Existing foundations and missing pieces

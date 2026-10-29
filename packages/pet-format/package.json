@@ -15,14 +15,69 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./sprite-layout": {
+      "types": "./dist/sprite-layout.d.ts",
+      "default": "./dist/sprite-layout.js"
+    },
+    "./reactions": {
+      "types": "./dist/reactions.d.ts",
+      "default": "./dist/reactions.js"
+    },
+    "./animation": {
+      "types": "./dist/animation.d.ts",
+      "default": "./dist/animation.js"
+    },
+    "./metadata": {
+      "types": "./dist/metadata.d.ts",
+      "default": "./dist/metadata.js"
+    },
+    "./wardrobe": {
+      "types": "./dist/wardrobe.d.ts",
+      "default": "./dist/wardrobe.js"
+    },
+    "./activities": {
+      "types": "./dist/activities.d.ts",
+      "default": "./dist/activities.js"
+    },
+    "./catalog-validation": {
+      "types": "./dist/catalog-validation.d.ts",
+      "default": "./dist/catalog-validation.js"
+    },
+    "./catalog-v3": {
+      "types": "./dist/catalog-v3.d.ts",
+      "default": "./dist/catalog-v3.js"
+    },
+    "./node/archive": {
+      "types": "./dist/node/archive.d.ts",
+      "default": "./dist/node/archive.js"
+    },
+    "./node/files": {
+      "types": "./dist/node/files.d.ts",
+      "default": "./dist/node/files.js"
+    },
+    "./node/paths": {
+      "types": "./dist/node/paths.d.ts",
+      "default": "./dist/node/paths.js"
+    },
+    "./node/atlas-validation": {
+      "types": "./dist/node/atlas-validation.d.ts",
+      "default": "./dist/node/atlas-validation.js"
     }
   },
   "scripts": {
     "check": "pnpm typecheck",
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "pnpm build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "install-pet": "workspace:*",
+    "yauzl": "3.3.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@types/yauzl": "2.10.3",
     "typescript": "^6.0.3"
   }
 }

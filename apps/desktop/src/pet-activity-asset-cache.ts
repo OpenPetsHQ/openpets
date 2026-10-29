@@ -1,8 +1,8 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { PetActivity } from "./pet-activities-core.js";
-import { readPetActivitySpritesheet } from "./pet-file-safety.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
+import { readPetActivitySpritesheet } from "./pet-atlas-validation.js";
 
 interface AssetValidation {
   readonly version: string;

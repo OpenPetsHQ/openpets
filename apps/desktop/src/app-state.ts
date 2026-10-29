@@ -17,11 +17,11 @@ import {
 } from "./pet-paths.js";
 import { normalizePetPoolOrder } from "./pet-pool.js";
 import { normalizePinnedPetIds, normalizePinnedPetPositions, prunePinnedPetPositions } from "./pinned-pets.js";
-import { normalizePetWardrobePreference, normalizePetWardrobePreferences, type PetWardrobePreference, type PetWardrobePreferences } from "./pet-wardrobe-core.js";
+import { normalizePetWardrobePreference, normalizePetWardrobePreferences, type PetWardrobePreference, type PetWardrobePreferences } from "@open-pets/pet-format/wardrobe";
 import { normalizePetActivityPreferences } from "./pet-activity-policy.js";
 import { normalizeVoiceDeviceId } from "./voice-device-resolver.js";
 import { publishPluginAgentActivity } from "./plugin-events-source.js";
-import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "./reaction-animation-mapping.js";
+import { normalizeReactionAnimationOverrides, type ReactionAnimationOverrides } from "@open-pets/pet-format/animation";
 import { defaultPetAssistantPersonality, mergePetAssistantPersonality, normalizePetAssistantPersonality, type PetAssistantPersonality, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 import { DEFAULT_VOICE_ASSISTANT_SHORTCUT, isCanonicalVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 import { normalizeLastSeenWhatsNewVersion, resolveMarkedSeenWhatsNewVersion, resolveStartupLastSeenWhatsNewVersion } from "./whats-new.js";

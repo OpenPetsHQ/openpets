@@ -1,4 +1,4 @@
-import { validatePetWardrobe, type PetWardrobe } from "./pet-wardrobe-core.js";
+import { validatePetWardrobe, type PetWardrobe } from "@open-pets/pet-format/wardrobe";
 
 export const builtInPet = {
   id: "builtin",

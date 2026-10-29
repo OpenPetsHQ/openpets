@@ -6,7 +6,7 @@ import {
   defaultReactionToSpriteState,
   isLoopingSpriteState,
   resolveEffectiveSpriteState,
-} from "../src/reaction-animation-mapping.js";
+} from "@open-pets/pet-format/animation";
 
 // Regression coverage for https://github.com/OpenPetsHQ/openpets/issues/91.
 //

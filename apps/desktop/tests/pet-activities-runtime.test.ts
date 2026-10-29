@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { register } from "node:module";
 import { mock } from "node:test";
-import type { PetActivity } from "../src/pet-activities-core.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
 import { normalizePetActivityPreferences } from "../src/pet-activity-policy.js";
 
 const activity = (id: string): PetActivity => ({
@@ -28,7 +28,7 @@ const modules: Record<string, string> = {
   "./built-in-pet.js": "export const builtInPet = { id: 'builtin' };",
   "./installed-pet-layout.js": "export const readInstalledPetMetadata = async () => ({ activities: globalThis.__petActivitiesRuntimeTest.activities });",
   "./logger.js": "export const info = () => {}; export const warn = () => {};",
-  "./pet-file-safety.js": "export const readPetActivitySpritesheet = async () => Buffer.from('validated activity bytes');",
+  "./pet-atlas-validation.js": "export const readPetActivitySpritesheet = async () => Buffer.from('validated activity bytes');",
   "./pet-paths.js": "export const assertSafePetId = () => {}; export const getPetDir = () => '/pets/cat';",
   "./pet-window-gaze.js": "export const setPetGazeActivityOverride = () => {};",
 };

@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { app } from "electron";
+import { isCuratedCatalogPet } from "@open-pets/pet-format/catalog-v3";
 
 import { builtInPetCatalogIds } from "./built-in-pet.js";
 import { createCatalogRemoteClient } from "./catalog-remote.js";
-import { validateCatalogV2, type CatalogPetPackageMeta, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "./catalog-validation.js";
+import { validateCatalogV2, type CatalogPetPackageMeta, type CatalogPetV2, type CatalogV2, type CatalogV3Index, type CatalogV3SearchPet } from "@open-pets/pet-format/catalog-validation";
 import { isVersionNewer } from "./update-version.js";
 
 export const catalogUrl = "https://openpets.dev/pets/catalog.v2.json";
@@ -179,11 +180,7 @@ function withInstallRequirements(pets: readonly CatalogPetV2[]): readonly Catalo
 }
 
 function filterSurfaceablePets<T extends { readonly original?: boolean; readonly featured?: boolean }>(pets: readonly T[]): readonly T[] {
-  return pets.filter(isSurfaceablePet);
-}
-
-function isSurfaceablePet(pet: { readonly original?: boolean; readonly featured?: boolean }): boolean {
-  return pet.original === true || pet.featured === true;
+  return pets.filter(isCuratedCatalogPet);
 }
 
 function getSurfaceableSearchPets(pets: readonly CatalogV3SearchPet[], index: CatalogV3Index): readonly CatalogV3SearchPet[] {
@@ -215,13 +212,7 @@ async function tryLoadRemoteCatalogV3Index(): Promise<{ readonly ok: true; reado
 
 async function tryLoadSurfaceableCatalogV3Page(page: number, index: CatalogV3Index): Promise<{ readonly ok: true; readonly pets: readonly CatalogPetV2[] } | { readonly ok: false; readonly error: string }> {
   try {
-    const searchPets = filterSurfaceablePets(await catalogRemote.getV3Search(index));
-    const pageSearchPets = searchPets.slice(page * index.pageSize, (page + 1) * index.pageSize);
-    const ids = new Set(pageSearchPets.map((pet) => pet.id));
-    const catalogPageNumbers = [...new Set(pageSearchPets.map((pet) => pet.catalogPage))];
-    const catalogPages = await Promise.all(catalogPageNumbers.map((catalogPage) => catalogRemote.getV3Page(catalogPage, index)));
-    const petsById = new Map(catalogPages.flat().filter((pet) => ids.has(pet.id) && isSurfaceablePet(pet)).map((pet) => [pet.id, pet]));
-    return { ok: true, pets: pageSearchPets.map((pet) => petsById.get(pet.id)).filter((pet): pet is CatalogPetV2 => Boolean(pet)) };
+    return { ok: true, pets: await catalogRemote.getCuratedPage(page, index) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "unknown error" };
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PetActivityService, type PetActivityCarrier } from "../src/pet-activity-service.js";
 import { normalizePetActivityPreferences } from "../src/pet-activity-policy.js";
-import type { PetActivity } from "../src/pet-activities-core.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
 
 const activities: readonly PetActivity[] = ["read", "stretch"].map((id) => ({
   id, displayName: id, outfitId: "default", spritesheetPath: `activities/${id}.webp`, frameCount: 8, fps: 4,

@@ -1,13 +1,23 @@
-import { allowedReactions, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { defaultWaitingAnimationDurationMs, type WaitingAnimationDurationMs } from "./app-state-core.js";
-import { codexV2SpriteLayout } from "./codex-pets-core.js";
+import { allowedReactions, type OpenPetsReaction } from "./reactions.js";
+import { codexV2SpriteLayout } from "./sprite-layout.js";
 
 export type PetMotionState = "idle" | "run-left" | "run-right";
 export type UniversalSpriteState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
 export type UserSelectableAnimationState = Exclude<UniversalSpriteState, "running-left" | "running-right">;
 export type ReactionAnimationOverrides = Partial<Record<OpenPetsReaction, UserSelectableAnimationState>>;
 
-export { defaultWaitingAnimationDurationMs, normalizeWaitingAnimationDurationMs, waitingAnimationDurationOptions, type WaitingAnimationDurationMs } from "./app-state-core.js";
+export const waitingAnimationDurationOptions = [
+  { value: 1010, label: "Normal" },
+  { value: 2200, label: "Relaxed" },
+] as const;
+export type WaitingAnimationDurationMs = typeof waitingAnimationDurationOptions[number]["value"];
+export const defaultWaitingAnimationDurationMs: WaitingAnimationDurationMs = waitingAnimationDurationOptions[0].value;
+
+export function normalizeWaitingAnimationDurationMs(value: unknown): WaitingAnimationDurationMs {
+  return waitingAnimationDurationOptions.find((option) => option.value === value)?.value ?? defaultWaitingAnimationDurationMs;
+}
+
+
 
 export interface SpriteStateDefinition {
   readonly row: number;

@@ -1,10 +1,14 @@
 import { join } from "node:path";
 
-import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, withAtlasFormat, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { assertPetSpritesheetFiles, getOutfitAtlasFormat, readBoundedRegularFile } from "./pet-file-safety.js";
+import { getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
+import { withAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
+import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
 import { petSpritesheetMimeType } from "install-pet/spritesheet";
 import { getPetDir } from "./pet-paths.js";
-import { defaultOutfitId } from "./pet-wardrobe-core.js";
+import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
 
 export async function readInstalledPetSpriteLayout(
   petId: string,

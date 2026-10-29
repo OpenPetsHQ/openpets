@@ -7,7 +7,7 @@
 
 import { type BubbleDurationScaleValue, type BubbleScaleValue, type BubbleTheme, normalizeBubbleDurationScale, normalizeBubbleScale, normalizeBubbleTheme, normalizeAppearanceTheme, normalizeHudScale, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetScale, normalizeWaitingAnimationDurationMs, type AppearanceTheme, type PetButtonsPosition, type PetButtonsSize, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { isSupportedLocale, type LocalePreference } from "./i18n/index.js";
-import { validateReactionAnimationOverrides } from "./reaction-animation-mapping.js";
+import { validateReactionAnimationOverrides } from "@open-pets/pet-format/animation";
 import { validatePetAssistantPersonalityPatch, type PetAssistantPersonalityPatch } from "./pet-assistant-personality.js";
 import { validateVoiceAssistantShortcut } from "./voice-assistant-shortcut.js";
 

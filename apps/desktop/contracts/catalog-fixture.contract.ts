@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { validateCatalogV2 } from "../src/catalog-validation.js";
+import { validateCatalogV2 } from "@open-pets/pet-format/catalog-validation";
 
 const fixture = JSON.parse(await readFile("catalog.v2.fixture.json", "utf8")) as unknown;
 validateCatalogV2(fixture);

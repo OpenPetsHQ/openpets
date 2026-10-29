@@ -16,7 +16,7 @@ import {
   type OutfitScheduleRule,
   type PetWardrobe,
   type PetWardrobePreference,
-} from "./pet-wardrobe-core.js";
+} from "@open-pets/pet-format/wardrobe";
 
 /**
  * Owns which outfit each rendered pet wears: resolution at render time, the

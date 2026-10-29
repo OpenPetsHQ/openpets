@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { normalizeRemoteCatalogSpriteVersionOne, toCatalogPetV2Compat, validateCatalogV2, validateCatalogV3Page, validateCatalogV3SearchPage } from "../src/catalog-validation.js";
+import { normalizeRemoteCatalogSpriteVersionOne, toCatalogPetV2Compat, validateCatalogV2, validateCatalogV3Page, validateCatalogV3SearchPage } from "@open-pets/pet-format/catalog-validation";
 
 const generatedAt = "2026-01-01T00:00:00.000Z";
 const preview = "https://openpets.dev/pets/malou/thumb.webp";

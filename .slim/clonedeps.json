@@ -1,7 +1,17 @@
 {
   "version": "1.0.0",
-  "updatedAt": "2026-09-24T00:00:00.000Z",
+  "updatedAt": "2026-10-29T00:00:00.000Z",
   "dependencies": [
+    {
+      "name": "vscode-pets",
+      "resolvedVersion": "1.36.0",
+      "repoUrl": "https://github.com/tonybaloney/vscode-pets",
+      "ref": "c38ed64b0b5a298bf029f358e4e28f23c8b646ab",
+      "commit": "c38ed64b0b5a298bf029f358e4e28f23c8b646ab",
+      "path": ".slim/clonedeps/repos/tonybaloney__vscode-pets",
+      "packagePath": null,
+      "reason": "Reference VS Code pet view placement, webview lifecycle, animation, interaction, and state ownership for the standalone OpenPets extension; inspect artwork licensing separately before any reuse."
+    },
     {
       "name": "electron",
       "resolvedVersion": "42.0.0",

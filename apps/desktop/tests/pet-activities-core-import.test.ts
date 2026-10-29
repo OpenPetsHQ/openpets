@@ -12,7 +12,7 @@ register(`data:text/javascript,${encodeURIComponent(`
   }
 `)}`, import.meta.url);
 
-const { validatePetActivities, getPetActivityDurationMs } = await import("../src/pet-activities-core.js");
+const { validatePetActivities, getPetActivityDurationMs } = await import("@open-pets/pet-format/activities");
 const activities = validatePetActivities([petActivityFixture]);
 assert.equal(getPetActivityDurationMs(activities[0]!), 2_000);
 console.log("Pet activity pure import passed.");

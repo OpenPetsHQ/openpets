@@ -1,3 +1,5 @@
+import { codexV1SpriteLayout } from "./sprite-layout.js";
+
 /** Package-owned one-shot animations, separate from reaction atlases and outfits. */
 export interface PetActivity {
   readonly id: string;
@@ -9,8 +11,8 @@ export interface PetActivity {
 }
 
 export const maxPetActivities = 16;
-export const petActivityFrameWidth = 192;
-export const petActivityFrameHeight = 208;
+export const petActivityFrameWidth = codexV1SpriteLayout.frameWidth;
+export const petActivityFrameHeight = codexV1SpriteLayout.frameHeight;
 export const minPetActivityFrameCount = 4;
 export const maxPetActivityFrameCount = 32;
 export const minPetActivityFps = 1;

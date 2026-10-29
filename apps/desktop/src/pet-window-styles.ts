@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getAppStateSnapshot, type BubbleTheme, type HudScaleValue, type PetScaleValue } from "./app-state.js";
-import { getCodexV2GazeSpritePosition, getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { getCodexV2GazeSpritePosition } from "./codex-pets-core.js";
 import { compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
 import { defaultPetWindowSize } from "./display.js";
 import {
@@ -15,8 +16,8 @@ import {
   sessionOrbCardGap,
   sessionOrbGlowReach,
 } from "./default-pet-chat-geometry.js";
-import { defaultPetSprite } from "./reaction-animation-mapping.js";
-import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+import { defaultPetSprite } from "@open-pets/pet-format/animation";
+import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "@open-pets/pet-format/animation";
 
 // Dark colors for transient speech bubbles. The pinned plugin HUD keeps its own look.
 const darkBubbleCss = `

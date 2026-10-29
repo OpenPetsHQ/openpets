@@ -1,4 +1,4 @@
-import type { PetActivity } from "./pet-activities-core.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
 
 export const activityIdleDelayMs = 60_000;
 export const activityCooldownMs = 300_000;

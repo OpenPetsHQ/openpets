@@ -7,8 +7,13 @@ import { petSpritesheetMimeType } from "install-pet/spritesheet";
 
 import { getAppStateSnapshot, installPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { migrateLegacyCodexV2Imports, type LegacyCodexV2MigrationResult } from "./codex-pet-migration.js";
-import { getCodexPetSpriteLayout, maxCodexPetJsonBytes, maxCodexPets, maxCodexSpritesheetBytes, maxCodexThumbnailSourceBytes, validateCodexPetMetadata, validateCodexPetSpritesheet, type CodexPetMetadata, type CodexPetSpriteLayout } from "./codex-pets-core.js";
-import { assertPetSpritesheetFiles, readBoundedRegularFile, validatePetAtlases } from "./pet-file-safety.js";
+import { getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
+import { maxCodexPets, maxCodexThumbnailSourceBytes } from "./codex-pets-core.js";
+import { assertPetSpritesheetFiles } from "@open-pets/pet-format/node/atlas-validation";
+import { validatePetAtlases } from "./pet-atlas-validation.js";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, runPetInstallTransaction } from "./pet-install-transaction.js";
 import { assertSafePetId, getPetsRoot } from "./pet-paths.js";
 

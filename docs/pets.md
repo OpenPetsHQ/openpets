@@ -92,8 +92,9 @@ Each activity is a static, fully decodable WebP horizontal strip of exactly
 file is limited to 2 MiB and all activity files together to 16 MiB. The
 `activities/` directory must contain exactly the declared files: missing,
 extra, nested, mismatched, symlinked, or unsafe paths reject installation.
-`pet-activities-core.ts` owns the pure metadata and duration contract;
-`pet-file-safety.ts` owns bounded image reads and full decoding.
+`@open-pets/pet-format/activities` owns the pure metadata and duration contract;
+`@open-pets/pet-format/node/atlas-validation` owns bounded image validation,
+using the desktop's `pet-atlas-validation.ts` Sharp decoder adapter.
 
 Activities travel inside a complete pet folder or ZIP alongside `pet.json` and
 the base atlas, never as a standalone activity install root. ZIPs may use root
@@ -221,7 +222,7 @@ A **reaction** is a categorical pet state (thinking, editing, testing, waiting
 for permission, success, error, idle, …). The rendering pipeline turns a
 reaction into something visible:
 
-1. `reaction-animation-mapping.ts` resolves a reaction to a **sprite animation
+1. `@open-pets/pet-format/animation` resolves a reaction to a **sprite animation
    state** (`resolveReactionSpriteState`). This mapping is **user-configurable** - users can override which animation a reaction plays, and overrides persist in
    app state. The selectable animation states include idle, review, running,
    waiting, waving, jumping, and failed; `waving` covers attention/notification
@@ -367,8 +368,8 @@ also accepts local ZIP/folder imports and website install links.
 1. `getCatalogPet()` resolves the pet from the catalog (`catalog.ts`).
 2. `downloadPetZip()` streams the ZIP from `zip.openpets.dev`, validating magic
    bytes.
-3. `extractPetZip()` extracts with `yauzl` under strict entry validation
-   (`zip-safety.ts`): no path traversal, no symlinks, case-collision detection,
+3. The shared `@open-pets/pet-format/node/archive` extractor uses `yauzl` under strict entry validation
+   (`node/paths`): no path traversal, no symlinks, case-collision detection,
    size/file-count caps.
 4. Extraction is atomic (temp dir → rename) into `userData/pets/{id}/`, and
    `installPetState()` records it in app state.
@@ -594,14 +595,14 @@ images silently fall back to the default pet. This is the single most common
 
 | If you're touching… | Start in |
 |---------------------|----------|
-| How a reaction looks | `reaction-animation-mapping.ts` |
+| How a reaction looks | `packages/pet-format/src/animation.ts` |
 | What a pet says | `reaction-messages.ts` + `i18n/reactions/` |
 | Window behavior (drag, click-through, horizontal flip) | `pet-window.ts`, `pet-window-interaction.ts`, `pet-preload.cjs` |
 | Default vs agent visibility | `default-pet-controller.ts`, `agent-pet-controller.ts` |
-| Installing / extracting | `pet-installation.ts`, `zip-safety.ts` |
+| Installing / extracting | `pet-installation.ts`, `packages/pet-format/src/node/archive.ts` |
 | Standalone install | `packages/install-pet/` |
 | Local pet authoring | `codex-pets.ts` |
-| Outfits / wardrobe schedule | `pet-wardrobe-core.ts`, `pet-wardrobe.ts`, `renderer/src/pets/WardrobePanel.tsx` |
+| Outfits / wardrobe schedule | `packages/pet-format/src/wardrobe.ts`, `pet-wardrobe.ts`, `renderer/src/pets/WardrobePanel.tsx` |
 | Movement | `pet-motion-engine.ts` |
 | Display containment / cross-screen | `display.ts`, `confinement-manager.ts` |
 | Topology-change reclamp | `pet-display-coordinator.ts` → default and pet-controller reclamp leaves |

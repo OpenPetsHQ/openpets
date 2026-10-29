@@ -1,11 +1,11 @@
 import type { BrowserWindow } from "electron";
 
 import type { PetScaleValue } from "./app-state.js";
-import type { CodexPetGazeAnchor } from "./codex-pets-core.js";
+import type { CodexPetGazeAnchor } from "@open-pets/pet-format/metadata";
 import type { Point } from "./display.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
-import type { UniversalSpriteState } from "./reaction-animation-mapping.js";
+import type { UniversalSpriteState } from "@open-pets/pet-format/animation";
 
 export interface PetWindowInteractionHooks {
   readonly onBubbleDismissed?: (dismissToken: string) => void;
@@ -81,7 +81,7 @@ export interface PetContentRender {
   /** Actual rendered identity/appearance, including base-atlas fallback. */
   readonly renderedPetId: string;
   readonly renderedOutfitId: string;
-  readonly activities: readonly import("./pet-activities-core.js").PetActivity[];
+  readonly activities: readonly import("@open-pets/pet-format/activities").PetActivity[];
   readonly html: string;
   readonly bodyHtml: string;
   readonly displayName: string;

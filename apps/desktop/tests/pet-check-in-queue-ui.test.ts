@@ -64,8 +64,9 @@ const {
 
 const { createBuiltInPetRender, createPetBodyMarkup } = await import("../src/pet-window-render.js");
 const { createCodexV2GazeCss, createInstalledSpriteStateCss, createPetWindowCss, createSpriteStateCss } = await import("../src/pet-window-styles.js");
-const { codexV1SpriteLayout, codexV2SpriteLayout, getCodexV2GazeSpritePosition } = await import("../src/codex-pets-core.js");
-const { getConfiguredSpriteStates } = await import("../src/reaction-animation-mapping.js");
+const { codexV1SpriteLayout, codexV2SpriteLayout } = await import("@open-pets/pet-format/sprite-layout");
+const { getCodexV2GazeSpritePosition } = await import("../src/codex-pets-core.js");
+const { getConfiguredSpriteStates } = await import("@open-pets/pet-format/animation");
 
 function assertV2IdleSpriteRules(): void {
   const states = getConfiguredSpriteStates();

@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { petSpritesheetMimeType, validateSvgSpritesheet } from "install-pet/spritesheet";
-import { readBoundedRegularFile } from "./pet-file-safety.js";
+import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { join, resolve, relative } from "node:path";
 import sharp from "sharp";
 
@@ -13,13 +13,14 @@ import { applyRoamingToAllPets } from "./pet-roaming-controller.js";
 import { createAppIcon } from "./assets.js";
 import { getCatalogPageUiState, getCatalogSearchUiState, getCatalogUiState } from "./catalog.js";
 import { getCodexPetsUiState, importCodexPet, readCodexPetSpritesheet } from "./codex-pets.js";
-import { codexV2SpriteLayout, getCodexPetSpriteLayout, maxCodexSpritesheetBytes, type CodexPetSpriteLayout } from "./codex-pets-core.js";
+import { codexV2SpriteLayout, getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { maxCodexSpritesheetBytes } from "@open-pets/pet-format/metadata";
 import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { applyExternalPetSay, getDefaultPetPluginBubbles, recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
-import { defaultOutfitId, isSafeOutfitId } from "./pet-wardrobe-core.js";
+import { defaultOutfitId, isSafeOutfitId } from "@open-pets/pet-format/wardrobe";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
@@ -37,7 +38,7 @@ import {
   type PluginServiceResult,
 } from "./plugin-service.js";
 import { builtInPet, builtInPetOutfitFileName } from "./built-in-pet.js";
-import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "./reaction-animation-mapping.js";
+import { defaultPetSprite, getConfiguredSpriteStates, reactionAnimationMetadata, selectableAnimationMetadata, waitingAnimationDurationOptions } from "@open-pets/pet-format/animation";
 import { readSafePluginManifest } from "./plugin-manifest-reader.js";
 import { registerSessionMediaProtocol } from "./session-media-cache.js";
 import { registerPluginAssetProtocol } from "./plugin-asset-protocol.js";

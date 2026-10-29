@@ -1,0 +1,77 @@
+{
+  "name": "openpets-vscode",
+  "displayName": "OpenPets",
+  "description": "A standalone OpenPets companion for VS Code (foundation preview).",
+  "version": "0.1.0",
+  "publisher": "openpets-local-development",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenPetsHQ/openpets.git",
+    "directory": "apps/vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onView:openpets.companion"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "openpets.openEditor",
+        "title": "OpenPets: Open Pet Space"
+      },
+      {
+        "command": "openpets.showSidebar",
+        "title": "OpenPets: Show Pet in Sidebar"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openpets",
+          "title": "OpenPets",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "openpets": [
+        {
+          "type": "webview",
+          "id": "openpets.companion",
+          "name": "Companion"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "package:local": "pnpm build && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "dependencies": {
+    "@open-pets/pet-format": "workspace:*",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "wasm-vips": "0.0.19"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/vscode": "^1.101.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.0.0",
+    "typescript": "^6.0.3"
+  }
+}

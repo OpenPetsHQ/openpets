@@ -1,3 +1,5 @@
+export { defaultWaitingAnimationDurationMs, normalizeWaitingAnimationDurationMs, waitingAnimationDurationOptions, type WaitingAnimationDurationMs } from "@open-pets/pet-format/animation";
+
 export interface OnboardingPreferenceLike {
   readonly onboardingCompleted?: unknown;
 }
@@ -97,13 +99,6 @@ export function normalizePetButtonsSize(value: unknown): PetButtonsSize {
   return value === "small" || value === "medium" || value === "large" ? value : defaultPetButtonsSize;
 }
 
-export const waitingAnimationDurationOptions = [
-  { value: 1010, label: "Normal" },
-  { value: 2200, label: "Relaxed" },
-] as const;
-export type WaitingAnimationDurationMs = typeof waitingAnimationDurationOptions[number]["value"];
-export const defaultWaitingAnimationDurationMs: WaitingAnimationDurationMs = waitingAnimationDurationOptions[0].value;
-
 /** Whether idle V2 pets follow the global cursor by default. */
 export const defaultIdleCursorGazeEnabled = true;
 
@@ -117,10 +112,6 @@ export const defaultAppearanceTheme: AppearanceTheme = "system";
 
 export function normalizeAppearanceTheme(value: unknown): AppearanceTheme {
   return appearanceThemeOptions.find((option) => option === value) ?? defaultAppearanceTheme;
-}
-
-export function normalizeWaitingAnimationDurationMs(value: unknown): WaitingAnimationDurationMs {
-  return waitingAnimationDurationOptions.find((option) => option.value === value)?.value ?? defaultWaitingAnimationDurationMs;
 }
 
 export function normalizePetScale(value: unknown): PetScaleValue {

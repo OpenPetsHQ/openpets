@@ -3,12 +3,12 @@ import { getAppStateSnapshot, getEnabledPetActivityIds, setEnabledPetActivityIds
 import { builtInPet } from "./built-in-pet.js";
 import { readInstalledPetMetadata } from "./installed-pet-layout.js";
 import { info, warn } from "./logger.js";
-import type { PetActivity } from "./pet-activities-core.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
 import type { PetActivitiesSnapshot } from "./pet-activities-types.js";
 import { PetActivityService } from "./pet-activity-service.js";
 import { PetActivityAssetCache } from "./pet-activity-asset-cache.js";
 import { updateEnabledPetActivityIds } from "./pet-activity-policy.js";
-import { readPetActivitySpritesheet } from "./pet-file-safety.js";
+import { readPetActivitySpritesheet } from "./pet-atlas-validation.js";
 import { assertSafePetId, getPetDir } from "./pet-paths.js";
 import { setPetGazeActivityOverride } from "./pet-window-gaze.js";
 import type { PetContentRender } from "./pet-window-types.js";

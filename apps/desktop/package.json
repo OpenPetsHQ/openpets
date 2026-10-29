@@ -62,6 +62,7 @@
     "@open-pets/mcp": "workspace:*",
     "@open-pets/openclaw": "workspace:*",
     "@open-pets/opencode": "workspace:*",
+    "@open-pets/pet-format": "workspace:*",
     "@open-pets/zed": "workspace:*",
     "get-windows": "^9.3.0",
     "install-pet": "workspace:*",

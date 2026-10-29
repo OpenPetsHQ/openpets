@@ -142,11 +142,11 @@ upgraded.
 
 | Concern | Owner |
 |---------|-------|
-| Contract, validation, resolution (pure) | `apps/desktop/src/pet-wardrobe-core.ts` |
+| Contract, validation, resolution (pure) | `packages/pet-format/src/wardrobe.ts` |
 | Render-time resolution, schedule timer, snapshot, preference updates | `apps/desktop/src/pet-wardrobe.ts` |
-| `wardrobe` in validated metadata | `codex-pets-core.ts` (`validateCodexPetMetadata`) |
-| Atlas file checks, validated read/write for installs | `pet-file-safety.ts` |
-| ZIP entry paths (`outfits/…`) | `zip-safety.ts` |
+| `wardrobe` in validated metadata | `packages/pet-format/src/metadata.ts` (`validateCodexPetMetadata`) |
+| Atlas file checks, validated read/write for installs | `packages/pet-format/src/node/atlas-validation.ts` and desktop `pet-atlas-validation.ts` Sharp adapter |
+| ZIP entry paths (`outfits/…`) | `packages/pet-format/src/node/paths.ts` |
 | Folder / ZIP / catalog installs, wardrobe upgrade | `pet-installation.ts` |
 | Codex dev imports | `codex-pets.ts` |
 | Choosing the atlas a window renders | `pet-window-render.ts` (`resolveRenderableAtlas`) |
@@ -315,7 +315,7 @@ Pet Studio (`web/studio`, OpenPetsHQ/dev.openpets) builds wardrobes end to end;
   such as Pajamas, Weekend, Halloween, Winter Holidays, Summer, each with a
   suggested rule, or an existing spritesheet), *Try the schedule* (any moment,
   day and year timelines), and the schedule editor, using the same rule
-  semantics as `pet-wardrobe-core.ts`.
+   semantics as `packages/pet-format/src/wardrobe.ts`.
 - Each outfit is a child project (`outfitOf`) drawn like a pet: looks of the
   same character in the outfit (from the pet's chosen look), then every row,
   each also given the pet's own frames for that row so motion matches. Outfits
@@ -354,7 +354,7 @@ Cat following its schedule), in the gallery (a *Wardrobes* tab, a spotlight,
 and an *Outfits* badge on cards with `wardrobeZip`), and on pet pages (pick an
 outfit to preview every animation in it, the schedule in words, ZIPs with and
 without outfits). Matching logic for those previews lives in
-`web/app/lib/wardrobe.js` and must stay in step with `pet-wardrobe-core.ts`.
+`web/app/lib/wardrobe.js` and must stay in step with `packages/pet-format/src/wardrobe.ts`.
 
 ## What's new in 4.1
 

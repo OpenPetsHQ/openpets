@@ -18,7 +18,7 @@ from a public catalog.
 
 ## Runtime topology
 
-There are three runtime worlds. Keep them distinct in your head.
+There are four runtime worlds. Keep them distinct in your head.
 
 1. **The desktop app** (`apps/desktop/`) - an Electron process tree. The main
    process owns state, windows, the tray, the pet windows, the plugin runtime,
@@ -40,6 +40,11 @@ There are three runtime worlds. Keep them distinct in your head.
    catalogs and asset hosting. The app fetches pet/plugin catalogs and downloads
    ZIPs from here. Only the *data* side of `web/` (catalogs, ZIP hosting, pet
    metadata) is in scope for these docs; the marketing site/frontend is not.
+4. **The VS Code extension foundation** (`apps/vscode-extension/`) - a standalone
+   UI-host preview with local preferences and editor/sidebar webviews. It does
+   not require the desktop app or its IPC server. The current shell renders the
+   bundled pet; catalog browsing, installation and wardrobe installation are
+   not yet implemented and it is not a released full product.
 
 ```
 coding agent  ──(hook/MCP/plugin event)──▶  @open-pets/client
@@ -99,7 +104,7 @@ Whisper-compatible transcription retain their distinct wire contracts.
 | `@open-pets/dsh` | Strict local-only v1 Cordis bundle for DSH lifecycle reactions | [Agent integrations](/agent-integrations) |
 | `@open-pets/plugin-sdk` | Public SDK v3 type contract + deterministic test harness | [Plugin SDK v3](/sdk) |
 | `install-pet` | Standalone pet installer (works with or without the running app) | [Pets](/pets) |
-| `pet-format` | Tiny marker/identity type for pet packages | - |
+| `@open-pets/pet-format` | Shared pet metadata, animation, catalog and Node package-validation contracts | [Pets](/pets), [Catalogs](/catalog) |
 
 The dependency spine: every runtime integration, including `@open-pets/dsh` and
 `@open-pets/openclaw`, depends on `@open-pets/client`; `openclaw` also uses
@@ -115,6 +120,14 @@ Devin package manages config files and maps hook payloads; the CLI's
 `dispatchHookDecision()`.
 `@open-pets/dsh` is strict local-only v1: it always uses local IPC and the
 default pet and ignores remote configuration.
+
+`@open-pets/pet-format` owns host-neutral reaction, sprite layout, animation,
+metadata, wardrobe and activity contracts, plus catalog V3 validation and
+bounded transport. Its separate Node subpaths own archive, path, file and atlas
+validation policy; image decoding is injected by the host. Desktop supplies the
+Sharp adapter in `apps/desktop/src/pet-atlas-validation.ts`. The VS Code UI-host
+foundation and desktop remain independent consumers, with their own lifecycle,
+storage and presentation.
 
 ## End-to-end flows
 

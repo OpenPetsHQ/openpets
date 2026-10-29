@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { builtInPetCatalogIds, builtInPetOutfitFileName, builtInPetWardrobe } from "../src/built-in-pet.js";
-import { validateCodexPetOutfitSpritesheet } from "../src/codex-pets-core.js";
-import { resolveWornOutfitId } from "../src/pet-wardrobe-core.js";
+import { validateCodexPetOutfitSpritesheet } from "../src/pet-atlas-validation.js";
+import { resolveWornOutfitId } from "@open-pets/pet-format/wardrobe";
 
 // The test runner works from the desktop package root, where assets/ lives.
 const assetsDirectory = join(process.cwd(), "assets");

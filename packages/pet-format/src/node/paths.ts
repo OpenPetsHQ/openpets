@@ -1,11 +1,10 @@
 import { resolve, sep } from "node:path";
-import type { PetSpritesheetPath } from "install-pet/spritesheet";
 
 export interface SafeZipEntryPath {
   readonly originalName: string;
   readonly normalizedName: string;
   readonly topLevelDirectory: string;
-  readonly relativeOutputPath: "pet.json" | PetSpritesheetPath | `outfits/${string}` | `activities/${string}` | null;
+  readonly relativeOutputPath: "pet.json" | "spritesheet.webp" | "spritesheet.svg" | `outfits/${string}` | `activities/${string}` | null;
   readonly isDirectory: boolean;
   /** A wardrobe atlas under `outfits/`; the manifest decides later whether it is expected. */
   readonly isOutfitAtlas: boolean;

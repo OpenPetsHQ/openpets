@@ -2,11 +2,13 @@ import { screen, type BrowserWindow } from "electron";
 
 import { getAppStateSnapshot } from "./app-state.js";
 import { defaultPetScale } from "./app-state-core.js";
-import { codexV2SpriteLayout, getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze, type CodexPetGazeAnchor } from "./codex-pets-core.js";
+import { codexV2SpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { type CodexPetGazeAnchor } from "@open-pets/pet-format/metadata";
+import { getCodexV2GazeAnchorPoint, getCodexV2GazeSpritePosition, isCodexV2GazeActive, mirrorCodexV2GazeIndex, quantizeCodexV2GazeDirection, shouldTrackCodexV2Gaze } from "./codex-pets-core.js";
 import type { Point } from "./display.js";
 import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
 import type { PetContentRender } from "./pet-window-types.js";
-import type { PetMotionState, UniversalSpriteState } from "./reaction-animation-mapping.js";
+import type { PetMotionState, UniversalSpriteState } from "@open-pets/pet-format/animation";
 
 interface PetGazeEntry {
   readonly window: BrowserWindow;

@@ -1,19 +1,84 @@
-import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { assertPetPackageFiles, type PetSpritesheetPath } from "install-pet/spritesheet";
-import sharp from "sharp";
-
-import { validateCodexPetOutfitSpritesheet, validateCodexPetSpritesheet, type CodexPetMetadata } from "./codex-pets-core.js";
-import type { PetOutfit } from "./pet-wardrobe-core.js";
+import { lstat, mkdir, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { assertPetPackageFiles, getPetSpritesheetSpec, validateSvgSpritesheet, type PetSpritesheetPath } from "install-pet/spritesheet";
+import type { CodexPetMetadata } from "../metadata.js";
+import type { PetOutfit } from "../wardrobe.js";
 import {
-  maxPetActivitySpritesheetBytes,
-  maxPetActivityTotalBytes,
-  maxPetActivityFrameCount,
-  petActivityFrameHeight,
-  petActivityFrameWidth,
-  type PetActivity,
-} from "./pet-activities-core.js";
+  maxPetActivitySpritesheetBytes, maxPetActivityTotalBytes, maxPetActivityFrameCount,
+  petActivityFrameHeight, petActivityFrameWidth, type PetActivity,
+} from "../activities.js";
+import { readBoundedRegularFile } from "./files.js";
+
+/** Image facts must describe the original encoded image, including animation markers. */
+export interface ImageMetadata {
+  readonly format?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly hasAlpha?: boolean;
+  readonly pages?: number;
+  readonly loop?: number;
+  readonly delay?: readonly number[];
+}
+
+/**
+ * Adapter over a real decoder. `open` must use strict decoding, include animation
+ * metadata, and enforce `limitInputPixels` before allocating decoded pixels.
+ * `metadata` inspects the original image. `decode` must fully decode it, not
+ * just parse headers. `decodeWithAlpha` fully decodes tightly packed, 8-bit
+ * pixels in row-major order with alpha in the last channel; `channels` is the
+ * number of bytes per pixel. All methods reject malformed/truncated inputs.
+ */
+export interface ImageDecoder {
+  open(bytes: Uint8Array, limitInputPixels: number): {
+    metadata(): Promise<ImageMetadata>;
+    decode(): Promise<void>;
+    decodeWithAlpha(): Promise<{ readonly data: Uint8Array; readonly channels: number }>;
+  };
+}
+
+export function withAtlasFormat(metadata: Pick<CodexPetMetadata, "spriteVersionNumber">, format: PetSpritesheetPath): Pick<CodexPetMetadata, "spriteVersionNumber" | "spritesheetPath"> {
+  return { ...(metadata.spriteVersionNumber === 2 ? { spriteVersionNumber: 2 as const } : {}), spritesheetPath: format };
+}
+
+export async function validateCodexPetSpritesheet(bytes: Uint8Array, metadata: Pick<CodexPetMetadata, "spriteVersionNumber" | "spritesheetPath">, decoder: ImageDecoder): Promise<void> {
+  const spec = getPetSpritesheetSpec(metadata);
+  if (metadata.spritesheetPath === "spritesheet.svg") {
+    validateSvgSpritesheet(bytes, spec.width, spec.height);
+    return;
+  }
+  if (spec.version === 1) return;
+  await assertDecodableWebpAtlas(bytes, spec, "Codex V2 spritesheet", true, decoder);
+}
+
+export async function validateCodexPetOutfitSpritesheet(bytes: Uint8Array, metadata: Pick<CodexPetMetadata, "spriteVersionNumber">, format: PetSpritesheetPath, decoder: ImageDecoder): Promise<void> {
+  const formatMetadata = withAtlasFormat(metadata, format);
+  await validateCodexPetSpritesheet(bytes, formatMetadata, decoder);
+  const spec = getPetSpritesheetSpec(formatMetadata);
+  if (format === "spritesheet.webp" && spec.version === 1) {
+    await assertDecodableWebpAtlas(bytes, spec, "Outfit spritesheet", false, decoder);
+  }
+}
+
+async function assertDecodableWebpAtlas(bytes: Uint8Array, spec: { readonly width: number; readonly height: number }, label: string, requireAlpha: boolean, decoder: ImageDecoder): Promise<void> {
+  const image = decoder.open(bytes, 50_000_000);
+  let metadata: ImageMetadata;
+  try {
+    metadata = await image.metadata();
+  } catch {
+    throw new Error(`${label} metadata is invalid.`);
+  }
+  if (metadata.format !== "webp") throw new Error(`${label} must be WebP.`);
+  if (requireAlpha && !metadata.hasAlpha) throw new Error(`${label} must include transparency.`);
+  if ((metadata.pages ?? 1) !== 1) throw new Error(`${label} must contain exactly one image.`);
+  if (metadata.width !== spec.width || metadata.height !== spec.height) {
+    throw new Error(`${label} must be exactly ${spec.width}x${spec.height}.`);
+  }
+  try {
+    await image.decode();
+  } catch {
+    throw new Error(`${label} must be fully decodable.`);
+  }
+}
 
 const outfitsDirectoryName = "outfits";
 const activitiesDirectoryName = "activities";
@@ -62,6 +127,7 @@ export async function validatePetAtlases(
   directory: string,
   metadata: CodexPetMetadata,
   maxBytes: number,
+  decoder: ImageDecoder,
   { exactPackage = false, copyTo }: { readonly exactPackage?: boolean; readonly copyTo?: string } = {},
 ): Promise<void> {
   await assertPetSpritesheetFiles(directory, metadata, exactPackage);
@@ -69,20 +135,20 @@ export async function validatePetAtlases(
   // directory is package data and must match the declarations exactly.
   if (!exactPackage) await assertPetActivityFiles(directory, metadata.activities ?? []);
   const base = await readBoundedRegularFile(join(directory, metadata.spritesheetPath), maxBytes, metadata.spritesheetPath);
-  await validateCodexPetSpritesheet(base, metadata);
+  await validateCodexPetSpritesheet(base, metadata, decoder);
   if (copyTo) await writeFile(join(copyTo, metadata.spritesheetPath), base, { mode: 0o600, flag: "wx" });
   const outfits = metadata.wardrobe?.outfits ?? [];
   if (copyTo && outfits.length > 0) await mkdir(join(copyTo, outfitsDirectoryName), { mode: 0o700 });
   for (const outfit of outfits) {
     const bytes = await readBoundedRegularFile(join(directory, outfit.spritesheetPath), maxBytes, outfit.spritesheetPath);
-    await validateCodexPetOutfitSpritesheet(bytes, metadata, getOutfitAtlasFormat(outfit));
+    await validateCodexPetOutfitSpritesheet(bytes, metadata, getOutfitAtlasFormat(outfit), decoder);
     if (copyTo) await writeFile(join(copyTo, outfit.spritesheetPath), bytes, { mode: 0o600, flag: "wx" });
   }
   const activities = metadata.activities ?? [];
   if (copyTo && activities.length > 0) await mkdir(join(copyTo, activitiesDirectoryName), { mode: 0o700 });
   let activityTotalBytes = 0;
   for (const activity of activities) {
-    const bytes = await readPetActivitySpritesheet(directory, activity);
+    const bytes = await readPetActivitySpritesheet(directory, activity, decoder);
     activityTotalBytes += bytes.byteLength;
     if (activityTotalBytes > maxPetActivityTotalBytes) throw new Error("Pet activity spritesheets exceed the total size limit.");
     if (copyTo) await writeFile(join(copyTo, activity.spritesheetPath), bytes, { mode: 0o600, flag: "wx" });
@@ -103,25 +169,21 @@ async function assertPetActivityFiles(directory: string, activities: readonly Pe
 }
 
 /** Read only one declared activity; optional corruption never validates or breaks the base atlas. */
-export async function readPetActivitySpritesheet(directory: string, activity: PetActivity): Promise<Buffer> {
+export async function readPetActivitySpritesheet(directory: string, activity: PetActivity, decoder: ImageDecoder): Promise<Buffer> {
   const activityDirectory = join(directory, activitiesDirectoryName);
   const stats = await lstat(activityDirectory);
   if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Pet activities must be a directory.");
   const bytes = await readBoundedRegularFile(join(directory, activity.spritesheetPath), maxPetActivitySpritesheetBytes, activity.spritesheetPath);
-  await validatePetActivitySpritesheet(bytes, activity);
+  await validatePetActivitySpritesheet(bytes, activity, decoder);
   return bytes;
 }
 
 /** Fully decode bounded static WebP strips before they enter an install candidate or renderer. */
-export async function validatePetActivitySpritesheet(bytes: Buffer, activity: PetActivity): Promise<void> {
+export async function validatePetActivitySpritesheet(bytes: Buffer, activity: PetActivity, decoder: ImageDecoder): Promise<void> {
   if (bytes.byteLength === 0 || bytes.byteLength > maxPetActivitySpritesheetBytes) {
     throw new Error("Pet activity spritesheet size is invalid.");
   }
-  const image = sharp(bytes, {
-    animated: true,
-    failOn: "error",
-    limitInputPixels: petActivityFrameWidth * maxPetActivityFrameCount * petActivityFrameHeight,
-  });
+  const image = decoder.open(bytes, petActivityFrameWidth * maxPetActivityFrameCount * petActivityFrameHeight);
   try {
     const metadata = await image.metadata();
     if (metadata.format !== "webp") throw new Error("Pet activity spritesheet must be WebP.");
@@ -133,15 +195,18 @@ export async function validatePetActivitySpritesheet(bytes: Buffer, activity: Pe
       throw new Error(`Pet activity spritesheet must be exactly ${width}x${petActivityFrameHeight}.`);
     }
     if (!metadata.hasAlpha) throw new Error("Pet activity spritesheet needs transparency in every frame.");
-    const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { data, channels } = await image.decodeWithAlpha();
+    if (channels < 2 || data.byteLength !== width * petActivityFrameHeight * channels) {
+      throw new Error("Pet activity spritesheet decoded pixels are invalid.");
+    }
     for (let frame = 0; frame < activity.frameCount; frame += 1) {
       let visiblePixels = 0;
       let hasTransparentPixel = false;
       const frameLeft = frame * petActivityFrameWidth;
       for (let y = 0; y < petActivityFrameHeight; y += 1) {
         for (let x = 0; x < petActivityFrameWidth; x += 1) {
-          const pixelOffset = (y * width + frameLeft + x) * info.channels;
-          const alpha = data[pixelOffset + info.channels - 1]!;
+          const pixelOffset = (y * width + frameLeft + x) * channels;
+          const alpha = data[pixelOffset + channels - 1]!;
           if (alpha > petActivityVisibleAlphaThreshold) visiblePixels += 1;
           if (alpha === 0) hasTransparentPixel = true;
         }
@@ -165,20 +230,4 @@ export function getOutfitAtlasFormat(outfit: PetOutfit): PetSpritesheetPath {
 
 function outfitFileName(outfit: PetOutfit): string {
   return outfit.spritesheetPath.slice(outfitsDirectoryName.length + 1);
-}
-
-export async function readBoundedRegularFile(path: string, maxBytes: number, label: string): Promise<Buffer> {
-  const resolved = resolve(path);
-  const stats = await lstat(resolved);
-  if (stats.isSymbolicLink()) throw new Error(`${label} cannot be a symlink.`);
-  if (!stats.isFile()) throw new Error(`${label} must be a file.`);
-  if (stats.size <= 0 || stats.size > maxBytes) throw new Error(`${label} size is invalid.`);
-  const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const openedStats = await file.stat();
-    if (!openedStats.isFile() || openedStats.size !== stats.size || openedStats.size <= 0 || openedStats.size > maxBytes) throw new Error(`${label} size is invalid.`);
-    return await file.readFile();
-  } finally {
-    await file.close();
-  }
 }

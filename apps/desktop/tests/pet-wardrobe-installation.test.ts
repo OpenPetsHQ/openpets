@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import sharp from "sharp";
-import type { PetActivity } from "../src/pet-activities-core.js";
+import type { PetActivity } from "@open-pets/pet-format/activities";
 import { createPetActivityEmptyFramePixels, createPetActivityPixels, petActivityFixture } from "./pet-activity-fixtures.js";
 
 const testRoot = realpathSync(mkdtempSync(join(tmpdir(), "openpets-wardrobe-install-")));

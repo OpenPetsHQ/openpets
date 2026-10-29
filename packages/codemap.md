@@ -5,7 +5,7 @@ Monorepo workspace containing all OpenPets npm packages. Each package is publish
 ## Responsibility
 
 Provides modular, reusable components for the OpenPets ecosystem:
-- **pet-format**: Package marker interface for type identification
+- **pet-format**: Shared pet metadata, wardrobe, activity, reaction and animation contracts, catalog v3 client, and Node package-validation policy
 - **agent-events**: Speech pools and validation for agent feedback messages
 - **client**: Core IPC client for communicating with OpenPets desktop app
 - **cli**: Main CLI tool for configuring agents, creating plugins from templates, and managing pets
@@ -87,6 +87,7 @@ SDK Type definitions & Test Harness (packages/sdk/)
 - `install-pet` depends on: `client`
 - `sdk` (type-only and test harness) is consumed by template code scaffolded by `cli`
 - `desktop` mirrors `sdk` through `apps/desktop/src/plugin-sdk-bridge.ts` and conformance checks
+- `desktop` and the VS Code foundation consume `pet-format`; Node atlas policy accepts a host decoder, with desktop providing the Sharp adapter.
 
 **External Integrations**:
 - `@modelcontextprotocol/sdk` - MCP protocol implementation
@@ -111,7 +112,7 @@ Runtime packages ultimately communicate with the OpenPets desktop app via the IP
 | `install-pet/` | Standalone gallery pet installer package. | [View Map](install-pet/codemap.md) |
 | `mcp/` | OpenPets MCP stdio server package. | [View Map](mcp/codemap.md) |
 | `opencode/` | OpenCode plugin/config integration package. | [View Map](opencode/codemap.md) |
-| `pet-format/` | Pet package identity marker package. | [View Map](pet-format/codemap.md) |
+| `pet-format/` | Shared pet contracts, catalog, and Node package-validation policy. | [View Map](pet-format/codemap.md) |
 | `pi/` | Pi coding-agent extension integration package. | [View Map](pi/codemap.md) |
 | `openclaw/` | Native OpenClaw plugin, lifecycle management, and contract checks. | [View Map](openclaw/codemap.md) |
 | `openclaw/src/` | OpenClaw entry/runtime and management implementation. | [View Map](openclaw/src/codemap.md) |

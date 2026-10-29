@@ -1,4 +1,4 @@
-import { getPetActivityDurationMs, type PetActivity } from "./pet-activities-core.js";
+import { getPetActivityDurationMs, type PetActivity } from "@open-pets/pet-format/activities";
 import { nextActivityOpportunityMs, selectIdlePetActivity } from "./pet-activity-policy.js";
 
 export interface PetActivityCarrier {

@@ -229,6 +229,7 @@ FYI: third-parties/ folder contains other repos related to openpets, putting her
 Read-only dependency source repositories are available under
 `.slim/clonedeps/repos/` for inspection. Do not edit these clones.
 
+- `.slim/clonedeps/repos/tonybaloney__vscode-pets/` — `tonybaloney/vscode-pets` at `c38ed64b0b5a298bf029f358e4e28f23c8b646ab` (manifest version `1.36.0`); inspect editor pet placement, webview lifecycle, animation, and state ownership without assuming artwork reuse rights.
 - `.slim/clonedeps/repos/electron__electron/` — `electron/electron` at `v42.0.0`; inspect Electron BrowserWindow behavior, including Linux window hints that affect taskbar, switcher, and focus visibility, alongside general Linux and Wayland geometry behavior.
 - `.slim/clonedeps/repos/KDE__kwin/` — `KDE/kwin` at `v5.27.11` (`c328a2fd746a8c838b3d6d3c47475d8191d05b7f`); inspect KDE Wayland handling of taskbar, switcher, and focus roles for xdg toplevels, alongside movement, activation, and window geometry constraints.
 - `.slim/clonedeps/repos/GNOME__mutter/` — `GNOME/mutter` at `46.0` (`c4753689e3413cd9332d885dd0297b3b7d9ba9ca`); inspect GNOME Wayland handling of taskbar, switcher, and focus roles, alongside window movement, activation, and geometry constraints.

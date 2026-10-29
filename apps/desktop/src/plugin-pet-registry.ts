@@ -10,7 +10,7 @@ import { motionMoveTo, motionSetFollowCursor, motionSetPhysics, motionStop, type
 import { createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
 import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
-import { resolveReactionSpriteState } from "./reaction-animation-mapping.js";
+import { resolveReactionSpriteState } from "@open-pets/pet-format/animation";
 import type { PluginAnimationSpec, PluginPetInfo, PluginPetState } from "./plugin-sdk-bridge.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { setWindowPosition } from "./window-position.js";
