@@ -6,13 +6,18 @@ description: Agreed product direction and first-release scope for standalone Ope
 
 ## Status and product direction
 
-This is the agreed product plan, not documentation of an implemented extension.
+The standalone extension is under active implementation in `apps/vscode-extension/`.
+The base standalone catalog, manual outfits, independent storage, and two companion
+surfaces are implemented. The 26-test suite and live-backend/dev-host checks
+provide evidence for the base; clean installed-VSIX, restart and offline acceptance
+remain pending. Nothing here claims a public release. The expanded competitive
+features below are approved for first release but remain planned or in progress.
 
 OpenPets for VS Code will be a standalone companion experience: existing OpenPets
 pets and their outfits, inside the editor. It must not require the desktop app,
 an Electron background service, an account, an AI provider, or agent setup.
 
-The first release promises **your OpenPets companion and outfits, inside VS Code**.
+The first release promises **a lively OpenPets companion scene and outfits, inside VS Code**.
 It should be complete and enjoyable on its own, rather than a preview of desktop
 features or an unfinished plugin platform.
 
@@ -28,11 +33,13 @@ Do not assume that another project's code license covers its artwork.
 | --- | --- |
 | Installation | Install the extension and use it without a desktop dependency or AI configuration. |
 | Pet gallery | Browse and search the existing catalog v3, preview pets, and install them into extension-owned storage. |
-| Companion surface | One selected companion, shown in a movable sidebar view or a dedicated editor-tab pet space beside the code. Both surfaces use the same saved companion and customization. |
+| Companion surface | One shared scene in a movable sidebar view or dedicated editor-tab pet space beside the code; only one surface is active at a time. |
+| Scene (planned) | Up to six independently named instances, including multiple instances of the same installed pet with independent outfits. Add, remove, name and select instances; installing an asset does not add it and removing an instance does not uninstall it. An intentionally empty scene stays empty across restart. |
 | Animation | Faithful support for existing OpenPets spritesheet layouts and animation mappings, not static-preview-only compatibility. |
 | Outfits | Download available compatible wardrobes and manually choose an outfit or return to the base appearance. |
-| Interaction | Drag the pet within its webview and click it for a visible reaction. |
-| Persistence | Remember the selected pet, outfit, and size between editor sessions. Installed companions remain usable offline. |
+| Interaction | Existing click and webview-local drag; planned direction-aware dragging and release, bounded autonomous roaming, and ball play. |
+| Focused settings | Planned Still, Calm (default), and Playful motion modes; durable Pause is independent. VS Code-only sprite widths are 48/72/96 CSS pixels with proportional height; desktop sizes do not change. Planned Plain/Dots CSS backdrops. |
+| Persistence | Restore the scene, names, outfits, size and settings between editor sessions; installed assets and scenes remain usable offline. |
 
 Catalog browsing and new downloads require network access. Previously installed
 assets and saved choices must not depend on the catalog remaining reachable.
@@ -55,20 +62,21 @@ The repository already supplies useful foundations:
   [catalog.md](catalog.md).
 - Wardrobe contracts and compatibility rules. Outfits are alternate atlases, and
   wardrobe downloads are distinct from base-pet ZIPs: [wardrobe.md](wardrobe.md).
-- Existing animation mappings in
-  `apps/desktop/src/reaction-animation-mapping.ts`, atlas validation in
-  `packages/install-pet/src/spritesheet.ts`, and pure wardrobe logic in
-  `apps/desktop/src/pet-wardrobe-core.ts`.
+- Shared animation, metadata, catalog, wardrobe, archive and atlas policy in
+  `packages/pet-format/`, and SVG validation in `install-pet/spritesheet`.
 
-There is not yet a complete portable pet runtime. Several relevant owners live
-inside the desktop app, and `@open-pets/pet-format` is not a complete parser or
-runtime. The standalone installer is also not a ready-made VS Code host.
+Portable pet contracts and validation live in `@open-pets/pet-format`; the
+extension supplies its own storage, worker-based decoder, surfaces and UI.
+The standalone installer entry is not used as a VS Code host.
 
 Desktop movement and interaction largely control Electron windows, screen
 geometry, and IPC. They cannot simply be mounted inside a VS Code webview.
-Click reactions and webview-local dragging need implementation. Ball chasing,
-autonomous ambient wandering, and a multi-pet editor scene must not be presented
-as existing portable features.
+Click reactions and webview-local dragging exist. Ball play, autonomous roaming,
+direction-aware drag/release and a multi-instance scene are planned, not existing
+portable features. The authored atlases do not provide lifted, sleep, climb or
+hang rows; do not promise those animations. Source inspection of vscode-pets
+shows the value of independent named pets, visible movement and simple ball play,
+while its species-specific state graphs cannot be assumed for OpenPets assets.
 
 ## Implementation boundaries
 
@@ -86,20 +94,38 @@ as existing portable features.
 - Keep the host boundary clear enough for later plugin support, but do not build
   speculative SDK adapters or a plugin framework in the first release.
 
-Exact module extraction, extension packaging, and UI details are implementation
-decisions still to be worked through; they are not established by this plan.
+The current host stores independent atomic JSON records for each installation, per-pet
+outfit, selected pet and size under extension-owned global storage. It promotes
+validated packages to uniquely named immutable generations, recording the archive
+SHA-256 separately. Reinstallation creates a fresh generation so damaged assets
+can be repaired without disturbing existing readers. A saved but unusable pet falls back to the
+bundled companion without erasing the choice. Missing or invalid optional
+outfits fall back to the base atlas. Installation does not select a pet. Install
+operations retain their cancellable, 150-second phase deadline semantics.
+The scene storage implementation remains undecided pending proof of true
+cross-process transaction safety; no new locking mechanism or scene protocol
+is claimed as shipped.
+
+A planned single scene scheduler owns motion on the active surface, with at most
+one ball and one chaser. Hidden scenes pause and resume without accumulating
+ticks or deferred actions. Each scene remains offline-safe.
+
+For local development, run `pnpm --filter openpets-vscode build` and
+`pnpm --filter openpets-vscode package:local`. Open **OpenPets: Open Pet Space**
+for the editor tab or **OpenPets: Show Pet in Sidebar** for the movable view.
+The publisher is a local placeholder; public release requires an owner-confirmed
+publisher and separate approval.
 
 ## Explicitly deferred
 
 - Plugin installation and execution.
 - AI assistants and agent integrations.
 - Automatic outfit schedules.
-- Multiple simultaneous pets.
-- Ball chasing, mini-games, and desktop-equivalent throw physics.
 - Desktop synchronization or a desktop connection.
+- Friendships, import/export, species-specific wall behavior, mini-games beyond
+  the planned ball play, and desktop-equivalent throw physics.
 
-These are not required to make the first release complete. Additional play and
-plugin abilities should build on an already enjoyable companion experience.
+These are not required for the approved first release.
 
 ## Later plugin direction
 
@@ -115,16 +141,22 @@ ownership protocol is included in this first release.
 
 ## First-release acceptance
 
-- A user can install and use the extension with the desktop app absent.
-- Catalog selection produces a faithfully animated installed pet.
-- Compatible outfits can be installed, selected, and removed without changing
-  the pet's identity or corrupting its saved choice.
-- Click and drag interactions work inside the companion surface without
-  requiring plugins.
-- Reopening VS Code restores the selected companion, outfit, and size.
-- Installed pets and outfits still work without network access.
-- Closing, hiding, and reopening the companion surface has deliberate resource
-  ownership and does not accumulate timers or listeners.
-- Validate portable contracts with focused unit tests and run the actual
-  extension in VS Code to verify installation, rendering, interactions,
-  persistence, and offline behavior before release.
+- Install and use the extension with the desktop app absent; catalog downloads
+  work online and installed pets, outfits and scenes remain usable offline.
+- Create up to six named instances, including two of the same pet with different
+  outfits; add, select, rename and remove independently. Installation never adds
+  an instance and removal never uninstalls assets. An intentionally empty scene,
+  names, outfits and choices survive a full restart.
+- Roaming, direction-aware drag/release and one-ball/one-chaser play use available
+  authored animations and give visible feedback without invented atlas rows.
+- Still/Calm/Playful, separate durable Pause, Plain/Dots and all three proportional
+  VS Code sizes work; pets and names stay contained at a 220px sidebar width.
+- Sidebar/editor handoff has one active scene scheduler; hiding pauses work and
+  reopening resumes without buildup or leaking timers and listeners.
+- Failed downloads, invalid individual records and damaged assets offer honest
+  recovery or fallback without erasing valid choices; optional outfit failures
+  fall back to the base atlas. Verify cross-process storage safety before relying
+  on a scene transaction implementation.
+- Run focused behavior tests and verify the actual installed VSIX in VS Code,
+  including real catalog/install, offline restart, scene interactions and failure
+  recovery before release. Existing dev-host evidence is not final acceptance.

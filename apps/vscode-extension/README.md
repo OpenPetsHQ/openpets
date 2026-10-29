@@ -1,5 +1,5 @@
 # OpenPets for VS Code
 
-Internal foundation preview. The bundled Hoodie Cat works without the desktop app. Catalog, installation, wardrobe, and full interactions are not implemented yet. Open **OpenPets: Open Pet Space** for an editor tab or **OpenPets: Show Pet in Sidebar** for the movable view.
+Unreleased preview. OpenPets runs independently of the desktop app, with a bundled Hoodie Cat and extension-owned pets and manual outfits. Catalog browsing and installation require network access; installed pets and saved choices are available offline in extension-owned storage. Controls report when installation is in progress. Open **OpenPets: Open Pet Space** for an editor tab or **OpenPets: Show Pet in Sidebar** for the movable view. Product UI integration and clean-profile verification remain in progress.
 
 Run `pnpm --filter openpets-vscode build` then `pnpm --filter openpets-vscode package:local` to create a local VSIX. The placeholder publisher `openpets-local-development` is not an assertion of ownership. **Public release is blocked** until the owner confirms and configures a durable Marketplace publisher, authorizes publishing, validates the package and clean-profile installation, and explicitly approves release. Never publish under the placeholder.

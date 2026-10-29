@@ -40,6 +40,9 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm dev:desktop:third-parties` | Dev with direct plugin folders under `third-parties` hot-loaded |
 | `pnpm capture <cmd>` | Long-running dev capture session for transparent pet/plugin screenshots (see [Screenshots](/screenshots)) |
 | `pnpm package:desktop` / `:dir` | Build + package the desktop app (full / unpacked dir) |
+| `pnpm vscode:check` | Build extension workspace dependencies, then type-check and test the VS Code extension |
+| `pnpm vscode:build` | Build extension workspace dependencies and bundles |
+| `pnpm vscode:package` | Build dependencies and package a local VSIX without dependency collection |
 | `pnpm release:desktop` | macOS-local build, automatic SignPath Windows signing, and verified GitHub publication |
 | `pnpm release:npm` | Publish npm packages |
 | `pnpm plugins:*` | Plugin test/validate/package/publish/deploy (see below) |
@@ -167,6 +170,26 @@ provider responses. Cancellation records use the available reason (`user`,
 provider or capture failure without exposing content.
 
 ## Release flows
+
+### VS Code extension
+
+`pnpm vscode:check`, `pnpm vscode:build`, and `pnpm vscode:package` run from
+the repository root. The package command uses the extension's `package:local`
+script (`vsce package --no-dependencies`) and produces a VSIX under
+`apps/vscode-extension/`. The build bundles extension code and includes its
+decoder assets; it does not rely on a workspace `node_modules` tree inside the
+VSIX. `.github/workflows/vscode-extension.yml` runs those commands after a
+frozen-lockfile install on path-filtered pull requests or manual dispatch and
+uploads the local VSIX as an artifact; it does not publish it.
+
+The current `openpets-local-development` publisher is a placeholder for local
+packages, not a Marketplace identity. Before a public release, the owner must
+create or choose a Marketplace publisher, explicitly confirm its publisher ID
+and name, configure that identity in the extension manifest, and establish
+the Marketplace release credentials and approval process. No public publish
+automation is configured, and a local VSIX or passing workflow does not establish
+Marketplace readiness. See [Testing and validation](/testing-and-validation)
+for the release gates.
 
 ### npm packages
 

@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -11,10 +11,18 @@ await rm(resolve(root, "dist"), { recursive: true, force: true });
 await mkdir(resolve(root, "dist", "media"), { recursive: true });
 await mkdir(resolve(root, "dist", "decoder"), { recursive: true });
 await Promise.all([
-  ...["vips-node.mjs", "vips.wasm", "vips-heif.wasm", "vips-jxl.wasm", "vips-resvg.wasm"].map((file) =>
-    cp(resolve(vipsRoot, "lib", file), resolve(root, "dist", "decoder", file))),
+  ...[
+    "vips-node.mjs",
+    "vips.wasm",
+    "vips-heif.wasm",
+    "vips-jxl.wasm",
+    "vips-resvg.wasm",
+  ].map((file) =>
+    cp(resolve(vipsRoot, "lib", file), resolve(root, "dist", "decoder", file)),
+  ),
   ...["LICENSE", "THIRD-PARTY-NOTICES.md"].map((file) =>
-    cp(resolve(vipsRoot, file), resolve(root, "dist", "decoder", file))),
+    cp(resolve(vipsRoot, file), resolve(root, "dist", "decoder", file)),
+  ),
 ]);
 await cp(
   resolve(root, "../desktop/assets/default-pet-spritesheet.webp"),
@@ -55,3 +63,5 @@ await Promise.all([
     target: "es2022",
   }),
 ]);
+// A missing renderer stylesheet is a broken build, not an empty-style fallback.
+await access(resolve(root, "dist/webview/main.css"));

@@ -1,0 +1,57 @@
+name: Validate VS Code extension
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/vscode-extension.yml"
+      - "apps/vscode-extension/**"
+      - "apps/desktop/assets/default-pet-spritesheet.webp"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Check and package local VSIX
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check and test extension
+        run: pnpm vscode:check
+
+      - name: Build extension
+        run: pnpm vscode:build
+
+      - name: Package local VSIX
+        run: pnpm vscode:package
+
+      - name: Upload local VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: openpets-vscode-local-vsix
+          path: apps/vscode-extension/*.vsix
+          if-no-files-found: error

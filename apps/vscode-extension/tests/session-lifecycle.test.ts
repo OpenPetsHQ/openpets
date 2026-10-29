@@ -114,12 +114,10 @@ test("disposed sidebar request cannot close a replacement editor panel", async (
       },
       postMessage: async () => true,
     } as unknown as vscode.Webview;
-    const state: vscode.Memento = {
-      keys: () => [],
-      get: <T>(_key: string, fallback?: T) => fallback,
-      update: async () => {},
-    };
-    const service = new CompanionService(new Preferences(state), "/cat.webp");
+    const service = new CompanionService(
+      new Preferences("/unused-test-storage"),
+      "/cat.webp",
+    );
     const session = new host.WebviewSession(
       webview,
       "view",

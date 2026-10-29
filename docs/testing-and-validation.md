@@ -140,6 +140,24 @@ Each package runs its own `check`/`test`. Notable contract/boundary coverage:
   interrupted-write recovery, uninstall preserving user entries).
   See [Agent integrations](/agent-integrations).
 
+## VS Code extension validation and release gate
+
+From the repository root, run `pnpm vscode:check` for the extension typecheck
+and behavior tests, `pnpm vscode:build` for its bundles, and
+`pnpm vscode:package` for the self-contained local VSIX. These commands build
+workspace dependencies first. The path-filtered/manual VS Code workflow runs
+the same commands after `pnpm install --frozen-lockfile` and uploads the VSIX;
+it neither installs the artifact in a real editor nor publishes it.
+
+Before any public Marketplace release, verify the actual packaged VSIX in a
+supported VS Code host, including its decoder and relevant user flows, in
+addition to the automated checks. The current `openpets-local-development`
+publisher is a local placeholder: the owner must choose or create a real
+Marketplace publisher and explicitly confirm its ID and name, configure that
+identity and the release credentials/approval process, and complete those
+checks before publishing. No Marketplace publish job is configured; successful
+packaging or CI alone does not establish Marketplace readiness.
+
 ## Plugin testing
 
 - **Unit**: each official plugin has a `test.js` using

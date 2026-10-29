@@ -26,10 +26,11 @@ export async function activate(
     );
   }
   let storageFileUri: vscode.Uri;
+  let storagePath: string;
   try {
     // VS Code documents globalStoragePath as the native absolute path even when
     // the storage URI uses its local vscode-userdata filesystem provider.
-    const storagePath = context.globalStoragePath;
+    storagePath = context.globalStoragePath;
     storageFileUri = vscode.Uri.file(storagePath);
     validateLocalStoragePath(
       context.globalStorageUri,
@@ -49,13 +50,17 @@ export async function activate(
     throw new Error(message);
   }
   service = new CompanionService(
-    new Preferences(context.globalState),
+    new Preferences(storagePath, undefined, (message) =>
+      log.appendLine(message),
+    ),
     vscode.Uri.joinPath(
       context.extensionUri,
       "dist",
       "media",
       "default-pet-spritesheet.webp",
     ).fsPath,
+    storagePath,
+    (message) => log.appendLine(message),
   );
   await service.initialize();
   const companion = service;

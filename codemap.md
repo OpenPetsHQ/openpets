@@ -28,7 +28,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a 
 |-----------|------------------------|--------------|
 | `apps/` | Application workspace containing the tray-first Electron desktop app and a standalone VS Code extension foundation. | [View Map](apps/codemap.md) |
 | `apps/desktop/` | User-facing Electron companion app: tray UX, pet windows, pet installation, host-owned Pet Assistant/local conversation archive, plugin automation/runtime, agent setup including OpenClaw management, update checks, and local IPC server. | [View Map](apps/desktop/codemap.md) |
-| `apps/vscode-extension/` | Standalone VS Code UI-host foundation with editor/sidebar webviews; not a released full product. | — |
+| `apps/vscode-extension/` | Standalone VS Code UI-host companion, catalog and wardrobe base with editor/sidebar webviews; not publicly released. | [View Map](apps/vscode-extension/codemap.md) |
 | `apps/desktop/contracts/` | Desktop public-boundary contract tests for catalog fixtures, local IPC protocol behavior, and plugin manifest schema validation. | [View Map](apps/desktop/contracts/codemap.md) |
 | `apps/desktop/src/` | Main-process service layer for app lifecycle, state, tray/windows, IPC routing, lease-managed agent pets, catalog installation, SDK v3 plugin subsystem, i18n, and editor integration. | [View Map](apps/desktop/src/codemap.md) |
 | `apps/desktop/src/i18n/` | Desktop host i18n catalogs and localized reaction speech pools. | [View Map](apps/desktop/src/i18n/codemap.md) |
@@ -81,7 +81,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a 
 6. Pet windows render reaction-driven animations, localized speech, host-rendered bubbles/alerts/HUDs, and status reactions using desktop state plus reaction mapping metadata.
 7. Pet assets are resolved from built-in assets, locally developed Codex pets, or remotely downloaded catalog ZIPs.
 8. Workspace packages share TypeScript/ESM build conventions and are wired together through pnpm `workspace:*` dependencies.
-9. The VS Code foundation runs independently in the UI extension host with a bundled pet and webview surfaces; it does not depend on the desktop IPC service. Its gallery and installation flows are not yet implemented.
+9. The standalone VS Code UI host provides a bundled pet, catalog gallery and installation, manual outfits, and editor/sidebar webviews without the desktop IPC service. Multi-pet scenes, roaming, ball play and expanded settings are approved next-phase work, not implemented features.
 
 ## Working Notes
 

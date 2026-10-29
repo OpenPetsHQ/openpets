@@ -8,7 +8,41 @@ import type {
   SurfaceState,
 } from "../protocol.js";
 
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
+declare function acquireVsCodeApi(): {
+  postMessage(message: unknown): void;
+  getState(): unknown;
+  setState(state: WebviewUiState): void;
+};
+
+export interface WebviewUiState {
+  readonly activeTab: "companion" | "gallery" | "wardrobe";
+  readonly searchQuery: string;
+  readonly catalogPage: number;
+  readonly dragOffset: { readonly x: number; readonly y: number };
+}
+
+export function validateWebviewUiState(value: unknown): WebviewUiState {
+  const record = typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const position = typeof record.dragOffset === "object" && record.dragOffset !== null && !Array.isArray(record.dragOffset)
+    ? record.dragOffset as Record<string, unknown>
+    : {};
+  const activeTab = record.activeTab === "gallery" || record.activeTab === "wardrobe"
+    ? record.activeTab
+    : "companion";
+  return {
+    activeTab,
+    searchQuery: typeof record.searchQuery === "string" ? record.searchQuery : "",
+    catalogPage: typeof record.catalogPage === "number" && Number.isSafeInteger(record.catalogPage) && record.catalogPage >= 0
+      ? record.catalogPage
+      : 0,
+    dragOffset: {
+      x: typeof position.x === "number" && Number.isFinite(position.x) ? position.x : 0,
+      y: typeof position.y === "number" && Number.isFinite(position.y) ? position.y : 0,
+    },
+  };
+}
 
 export class WebviewBackend implements CompanionBackend {
   private readonly api = acquireVsCodeApi();
@@ -30,6 +64,12 @@ export class WebviewBackend implements CompanionBackend {
 
   constructor() {
     window.addEventListener("message", this.receive);
+  }
+  readUiState(): WebviewUiState {
+    return validateWebviewUiState(this.api.getState());
+  }
+  writeUiState(state: WebviewUiState): void {
+    this.api.setState(validateWebviewUiState(state));
   }
   private call<M extends keyof Requests>(
     method: M,

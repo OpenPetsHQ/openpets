@@ -8,12 +8,14 @@ export interface ValidatedPetPackage {
   readonly layout: PetSpriteLayout;
   /** All declared outfits have been validated in this exact package. */
   readonly availableOutfitIds: readonly string[];
+  readonly outfitProblems?: readonly string[];
 }
 
 export interface ValidationWorkerRequest {
   readonly root: string;
   readonly expectedId: string;
   readonly decoderDirectory: string;
+  readonly installed?: boolean;
 }
 
 export type ValidationWorkerResponse =
@@ -27,12 +29,14 @@ export async function validatePetPackage(
   root: string,
   expectedId: string,
   signal?: AbortSignal,
+  installed = false,
 ): Promise<ValidatedPetPackage> {
   if (signal?.aborted) throw new Error("Pet package validation was cancelled.");
   const request: ValidationWorkerRequest = {
     root,
     expectedId,
     decoderDirectory: join(__dirname, "decoder"),
+    installed,
   };
   const worker = new Worker(join(__dirname, "validation-worker.cjs"), {
     workerData: request,
@@ -42,7 +46,10 @@ export async function validatePetPackage(
 
   return new Promise<ValidatedPetPackage>((resolve, reject) => {
     let settled = false;
-    const timeout = setTimeout(() => finish(new Error("Pet package validation timed out.")), validationTimeoutMs);
+    const timeout = setTimeout(
+      () => finish(new Error("Pet package validation timed out.")),
+      validationTimeoutMs,
+    );
 
     function finish(error?: Error, value?: ValidatedPetPackage): void {
       if (settled) return;
@@ -50,22 +57,37 @@ export async function validatePetPackage(
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
       worker.removeListener("message", onMessage);
-      void worker.terminate().then(() => {
-        worker.removeListener("error", onError);
-        worker.removeListener("exit", onExit);
-        if (error) reject(error);
-        else if (value) resolve(value);
-        else reject(new Error("Pet package validation returned no result."));
-      }, (terminationError: unknown) => {
-        worker.removeListener("error", onError);
-        worker.removeListener("exit", onExit);
-        reject(terminationError instanceof Error ? terminationError : new Error("Pet validation worker termination failed."));
-      });
+      void worker.terminate().then(
+        () => {
+          worker.removeListener("error", onError);
+          worker.removeListener("exit", onExit);
+          if (error) reject(error);
+          else if (value) resolve(value);
+          else reject(new Error("Pet package validation returned no result."));
+        },
+        (terminationError: unknown) => {
+          worker.removeListener("error", onError);
+          worker.removeListener("exit", onExit);
+          reject(
+            terminationError instanceof Error
+              ? terminationError
+              : new Error("Pet validation worker termination failed."),
+          );
+        },
+      );
     }
 
-    function onAbort(): void { finish(new Error("Pet package validation was cancelled.")); }
-    function onError(error: Error): void { finish(error); }
-    function onExit(code: number): void { finish(new Error(`Pet validation worker exited before responding (${code}).`)); }
+    function onAbort(): void {
+      finish(new Error("Pet package validation was cancelled."));
+    }
+    function onError(error: Error): void {
+      finish(error);
+    }
+    function onExit(code: number): void {
+      finish(
+        new Error(`Pet validation worker exited before responding (${code}).`),
+      );
+    }
     function onMessage(response: ValidationWorkerResponse): void {
       if (response.ok) finish(undefined, response.value);
       else finish(new Error(response.message));

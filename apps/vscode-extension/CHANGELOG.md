@@ -2,4 +2,4 @@
 
 ## 0.1.0 (unreleased)
 
-- Internal extension-host and companion surface foundation.
+- Standalone companion surfaces, catalog v3 browsing, pet and wardrobe installation, and offline customization state.
