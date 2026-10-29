@@ -130,6 +130,44 @@ test("drag direction and authored release feedback, including paused feedback an
   assert.equal(sceneFrame(scene).pets[0].animation, "idle");
 });
 
+test("drag facing resists jitter and follows accumulated reversals without moving lag", () => {
+  let scene = createScene(pets, bounds, random);
+  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
+  const move = (x: number, y = 80) => {
+    scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x, y } }, random);
+    return sceneFrame(scene).pets[0];
+  };
+  assert.equal(move(150).facing, "right");
+  for (const x of [149, 150, 148, 150, 149]) {
+    const pet = move(x);
+    assert.equal(pet.facing, "right");
+    assert.equal(pet.animation, "walk");
+    assert.equal(pet.position.x, x);
+  }
+  for (let x = 149.5; x > 144; x -= 0.5) assert.equal(move(x).facing, "right");
+  assert.equal(move(144).facing, "left");
+  for (let x = 144.5; x < 150; x += 0.5) assert.equal(move(x).facing, "left");
+  assert.equal(move(150).facing, "right");
+  assert.equal(sceneFrame(scene).pets[1].facing, "right");
+});
+
+test("vertical and clamped drag noise retain facing and each gesture resets its anchor", () => {
+  let scene = createScene([pets[0]], bounds, random);
+  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
+  for (const position of [{ x: 500, y: 80 }, { x: 499, y: 20 }, { x: 501, y: 100 }]) {
+    scene = sceneCommand(scene, { type: "dragMove", id: "a", position }, random);
+    assert.equal(sceneFrame(scene).pets[0].facing, "right");
+    assert.equal(sceneFrame(scene).pets[0].position.x, 352);
+  }
+  scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: 348, y: 20 } }, random);
+  scene = sceneCommand(scene, { type: "dragCancel", id: "a" }, random);
+  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
+  scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: 346, y: 0 } }, random);
+  assert.equal(sceneFrame(scene).pets[0].facing, "right");
+  scene = sceneCommand(scene, { type: "dragEnd", id: "a" }, random);
+  assert.equal(sceneFrame(scene).pets[0].animation, "reaction");
+});
+
 test("ball chooses one chaser, pauses, catches and times out", () => {
   let scene = createScene(pets, bounds, random);
   scene = sceneCommand(scene, { type: "throwBall", start: { x: 350, y: 10 }, velocity: { x: 0, y: 0 } }, random);

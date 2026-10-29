@@ -16,6 +16,8 @@ interface Pet {
   wait: number;
   walkRemaining: number;
   dragging: boolean;
+  dragExtreme: number | null;
+  dragOrigin: number | null;
 }
 interface Ball { center: Point; velocity: Point; radius: number; age: number; chaser: string | null }
 export interface SceneModel { readonly pets: readonly Pet[]; readonly bounds: Dimensions; readonly ball: Ball | null }
@@ -34,6 +36,7 @@ const reactionDefinition: SpriteStateDefinition = defaultPetSprite.states[reacti
 const reactionDuration = reactionDefinition.durationMs * (typeof reactionDefinition.iterations === "number" ? reactionDefinition.iterations : 1);
 const BALL_RADIUS = 8;
 const BALL_LIFETIME = 12000;
+const DRAG_FACING_DEADZONE = 6;
 const finite = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0;
 const dimensions = (value: Dimensions): Dimensions => ({ width: finite(value.width), height: finite(value.height) });
 const sample = (random: () => number) => Math.min(1, Math.max(0, finite(random())));
@@ -63,7 +66,7 @@ export function reconcileScene(model: SceneModel, inputs: readonly ScenePetInput
       : old?.position ?? { x: 0, y: 0 };
     pets.push(old ? { ...old, spriteSize: size, position, placed: old.placed || measurable } : {
       id: input.id, spriteSize: size, position, placed: measurable, facing: "right",
-      animation: "idle", elapsed: 0, wait: pause(random), walkRemaining: 0, dragging: false,
+      animation: "idle", elapsed: 0, wait: pause(random), walkRemaining: 0, dragging: false, dragExtreme: null, dragOrigin: null,
     });
   }
   let ball = model.ball;
@@ -75,7 +78,16 @@ export function reconcileScene(model: SceneModel, inputs: readonly ScenePetInput
 }
 
 function feedback(pet: Pet, random: () => number): Pet {
-  return { ...pet, dragging: false, animation: "reaction", elapsed: 0, wait: pause(random), walkRemaining: 0 };
+  return {
+    ...pet,
+    dragging: false,
+    dragExtreme: null,
+    dragOrigin: null,
+    animation: "reaction",
+    elapsed: 0,
+    wait: pause(random),
+    walkRemaining: 0,
+  };
 }
 
 export function sceneCommand(model: SceneModel, command: SceneCommand, random: () => number): SceneModel {
@@ -94,14 +106,58 @@ export function sceneCommand(model: SceneModel, command: SceneCommand, random: (
   const pets = [...model.pets];
   let pet = pets[index];
   if (command.type === "click") pet = feedback(pet, random);
-  if (command.type === "dragStart") pet = { ...pet, dragging: true, animation: "idle", elapsed: 0, walkRemaining: 0 };
+  if (command.type === "dragStart") {
+    pet = {
+      ...pet,
+      dragging: true,
+      dragExtreme: pet.position.x,
+      dragOrigin: pet.position.x,
+      animation: "idle",
+      elapsed: 0,
+      walkRemaining: 0,
+    };
+  }
   if (command.type === "dragMove" && pet.dragging) {
     const position = clampSpritePosition({ x: Number.isFinite(command.position.x) ? command.position.x : pet.position.x, y: Number.isFinite(command.position.y) ? command.position.y : pet.position.y }, model.bounds, pet.spriteSize);
-    const dx = position.x - pet.position.x;
-    pet = { ...pet, position, facing: Math.abs(dx) >= 1 ? (dx < 0 ? "left" : "right") : pet.facing, animation: Math.abs(dx) >= 1 ? "walk" : "idle", elapsed: Math.abs(dx) >= 1 && pet.animation === "walk" ? pet.elapsed : 0 };
+    let facing = pet.facing;
+    let extreme = pet.dragExtreme ?? pet.position.x;
+    if (facing === "right") {
+      extreme = Math.max(extreme, position.x);
+      if (extreme - position.x >= DRAG_FACING_DEADZONE) {
+        facing = "left";
+        extreme = position.x;
+      }
+    } else {
+      extreme = Math.min(extreme, position.x);
+      if (position.x - extreme >= DRAG_FACING_DEADZONE) {
+        facing = "right";
+        extreme = position.x;
+      }
+    }
+    const horizontalDistance = Math.abs(position.x - (pet.dragOrigin ?? position.x));
+    const animation = pet.animation === "walk" || horizontalDistance >= DRAG_FACING_DEADZONE
+      ? "walk"
+      : "idle";
+    pet = {
+      ...pet,
+      position,
+      facing,
+      dragExtreme: extreme,
+      animation,
+    };
   }
   if (command.type === "dragEnd" && pet.dragging) pet = feedback(pet, random);
-  if (command.type === "dragCancel" && pet.dragging) pet = { ...pet, dragging: false, animation: "idle", elapsed: 0, wait: pause(random) };
+  if (command.type === "dragCancel" && pet.dragging) {
+    pet = {
+      ...pet,
+      dragging: false,
+      dragExtreme: null,
+      dragOrigin: null,
+      animation: "idle",
+      elapsed: 0,
+      wait: pause(random),
+    };
+  }
   pets[index] = pet;
   const ball = model.ball?.chaser === pet.id && pet.dragging ? { ...model.ball, chaser: null } : model.ball;
   return { ...model, pets, ball };

@@ -72,7 +72,9 @@ The standalone installer entry is not used as a VS Code host.
 Desktop movement and interaction largely control Electron windows, screen
 geometry, and IPC. They cannot simply be mounted inside a VS Code webview.
 The scene renderer implements click, webview-local direction-aware dragging,
-autonomous roaming and ball play. These are VS Code-specific, not desktop
+autonomous roaming and ball play. Dragging keeps its walking pose after meaningful
+horizontal movement and changes facing only after a meaningful reversal, avoiding jitter.
+These are VS Code-specific, not desktop
 movement. The authored atlases do not provide lifted, sleep, climb or
 hang rows; do not promise those animations. Source inspection of vscode-pets
 shows the value of independent named pets, visible movement and simple ball play,
