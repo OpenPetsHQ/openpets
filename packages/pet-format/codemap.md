@@ -12,7 +12,7 @@ The root aggregates the browser-safe `reactions`, `sprite-layout`, and `animatio
 
 ## Flow
 
-Desktop and other hosts share pet contracts and catalog V3 validation/transport. Host-specific lifecycle, installation, persistence and rendering remain outside this package.
+Desktop and other hosts share pet contracts and catalog V3 validation/transport. Activity metadata validates outfit references and the Node validator checks and copies every declared representation under one aggregate budget. Host-specific lifecycle, installation, persistence and rendering remain outside this package.
 
 ## Integration Points
 

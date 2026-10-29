@@ -1,13 +1,18 @@
 import { codexV1SpriteLayout } from "./sprite-layout.js";
+import { defaultOutfitId, isSafeOutfitId, maxPetOutfits } from "./wardrobe.js";
 
 /** Package-owned one-shot animations, separate from reaction atlases and outfits. */
-export interface PetActivity {
-  readonly id: string;
-  readonly displayName: string;
-  readonly outfitId: "default";
+export interface PetActivityAnimation {
+  readonly outfitId: string;
   readonly spritesheetPath: string;
   readonly frameCount: number;
   readonly fps: number;
+}
+
+export interface PetActivity extends PetActivityAnimation {
+  readonly id: string;
+  readonly displayName: string;
+  readonly outfitVariants?: readonly PetActivityAnimation[];
 }
 
 export const maxPetActivities = 16;
@@ -22,12 +27,21 @@ export const maxPetActivityDurationMs = 12_000;
 export const maxPetActivitySpritesheetBytes = 2 * 1024 * 1024;
 export const maxPetActivityTotalBytes = 16 * 1024 * 1024;
 
-export function getPetActivityDurationMs(activity: PetActivity): number {
+export function getPetActivityDurationMs(activity: PetActivityAnimation): number {
   return activity.frameCount * 1_000 / activity.fps;
 }
 
+/** List the primary representation followed by its outfit variants. */
+export function enumeratePetActivityAnimations(activity: PetActivity): readonly PetActivityAnimation[] {
+  return [activity, ...(activity.outfitVariants ?? [])];
+}
+
+export function resolvePetActivityAnimation(activity: PetActivity, outfitId: string): PetActivityAnimation | null {
+  return enumeratePetActivityAnimations(activity).find((animation) => animation.outfitId === outfitId) ?? null;
+}
+
 /** Validate untrusted pet.json data without image, filesystem, or platform dependencies. */
-export function validatePetActivities(value: unknown): readonly PetActivity[] {
+export function validatePetActivities(value: unknown, availableOutfitIds: readonly string[] = []): readonly PetActivity[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > maxPetActivities) {
     throw new Error(`Pet activities must be an array of at most ${maxPetActivities} entries.`);
@@ -49,34 +63,55 @@ export function validatePetActivities(value: unknown): readonly PetActivity[] {
       || activity.displayName.trim().length > 40) {
       throw new Error("Pet activity displayName must contain 1 to 40 characters.");
     }
-    if (activity.outfitId !== "default") throw new Error("Pet activities must use the default outfit.");
-    if (activity.spritesheetPath !== `activities/${activity.id}.webp`) {
-      throw new Error("Pet activity spritesheetPath must match its activity id.");
+    const outfitIds = new Set<string>();
+    const validateAnimation = (value: unknown, primary: boolean): PetActivityAnimation => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error("Pet activity animation must be an object.");
+      }
+      const animation = value as Record<string, unknown>;
+      if (!isSafeOutfitId(animation.outfitId) || (animation.outfitId !== defaultOutfitId && !availableOutfitIds.includes(animation.outfitId))) {
+        throw new Error("Pet activity references an unknown outfit.");
+      }
+      if (outfitIds.has(animation.outfitId)) throw new Error("Pet activity outfits must be unique.");
+      outfitIds.add(animation.outfitId);
+      const expectedPath = primary ? `activities/${activity.id}.webp` : `activities/${activity.id}.${animation.outfitId}.webp`;
+      if (animation.spritesheetPath !== expectedPath) {
+        throw new Error("Pet activity spritesheetPath must match its activity and outfit ids.");
+      }
+      if (typeof animation.frameCount !== "number"
+        || !Number.isInteger(animation.frameCount)
+        || animation.frameCount < minPetActivityFrameCount
+        || animation.frameCount > maxPetActivityFrameCount) {
+        throw new Error("Pet activity frameCount must be an integer from 4 to 32.");
+      }
+      if (typeof animation.fps !== "number"
+        || !Number.isInteger(animation.fps)
+        || animation.fps < minPetActivityFps
+        || animation.fps > maxPetActivityFps) {
+        throw new Error("Pet activity fps must be an integer from 1 to 12.");
+      }
+      const validated: PetActivityAnimation = {
+        outfitId: animation.outfitId,
+        spritesheetPath: expectedPath,
+        frameCount: animation.frameCount,
+        fps: animation.fps,
+      };
+      const durationMs = getPetActivityDurationMs(validated);
+      if (durationMs < minPetActivityDurationMs || durationMs > maxPetActivityDurationMs) {
+        throw new Error("Pet activity duration must be from 1000 to 12000 milliseconds.");
+      }
+      return validated;
+    };
+    const primary = validateAnimation(activity, true);
+    if (activity.outfitVariants !== undefined && (!Array.isArray(activity.outfitVariants) || activity.outfitVariants.length > maxPetOutfits)) {
+      throw new Error(`Pet activity outfitVariants must be an array of at most ${maxPetOutfits} entries.`);
     }
-    if (typeof activity.frameCount !== "number"
-      || !Number.isInteger(activity.frameCount)
-      || activity.frameCount < minPetActivityFrameCount
-      || activity.frameCount > maxPetActivityFrameCount) {
-      throw new Error("Pet activity frameCount must be an integer from 4 to 32.");
-    }
-    if (typeof activity.fps !== "number"
-      || !Number.isInteger(activity.fps)
-      || activity.fps < minPetActivityFps
-      || activity.fps > maxPetActivityFps) {
-      throw new Error("Pet activity fps must be an integer from 1 to 12.");
-    }
-    const validated: PetActivity = {
+    const outfitVariants = (activity.outfitVariants as unknown[] | undefined)?.map((variant) => validateAnimation(variant, false));
+    return {
       id: activity.id,
       displayName: activity.displayName.trim(),
-      outfitId: "default",
-      spritesheetPath: activity.spritesheetPath,
-      frameCount: activity.frameCount,
-      fps: activity.fps,
+      ...primary,
+      ...(outfitVariants?.length ? { outfitVariants } : {}),
     };
-    const durationMs = getPetActivityDurationMs(validated);
-    if (durationMs < minPetActivityDurationMs || durationMs > maxPetActivityDurationMs) {
-      throw new Error("Pet activity duration must be from 1000 to 12000 milliseconds.");
-    }
-    return validated;
   });
 }

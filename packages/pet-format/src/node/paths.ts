@@ -11,7 +11,7 @@ export interface SafeZipEntryPath {
 }
 
 const outfitAtlasFileName = /^[a-z0-9][a-z0-9_-]{0,31}\.(?:webp|svg)$/;
-const activityAtlasFileName = /^[a-z0-9][a-z0-9_-]{0,31}\.webp$/;
+const activityAtlasFileName = /^[a-z0-9][a-z0-9_-]{0,31}(?:\.[a-z0-9][a-z0-9_-]{0,31})?\.webp$/;
 
 export class ZipEntryPathTracker {
   readonly #normalizedPaths = new Set<string>();

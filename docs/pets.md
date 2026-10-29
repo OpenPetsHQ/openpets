@@ -76,20 +76,29 @@ schedule from Control Center and the pet context menu. Pets without a wardrobe
 are unchanged. The contract, resolution order, packaging, two-ZIP catalog
 distribution, and compatibility rules live in [Wardrobe](/wardrobe).
 
-## Activity packages
+## Idle Activities
+
+Control Center calls these animations **Idle Activities**. On a pet's detail
+page, they can be played once or enabled to play automatically while idle. They
+currently require the default outfit.
 
 A full pet package may optionally declare `pet.json.activities`: at most 16
-one-shot animations separate from its reaction atlas and wardrobe. Each entry
+logical one-shot animations separate from its reaction atlas. Each entry
 has a unique lowercase `id` matching `^[a-z0-9][a-z0-9_-]{0,31}$`, a trimmed
-`displayName` of 1–40 characters, `outfitId: "default"`, and the exact
-`spritesheetPath: "activities/{id}.webp"`. `frameCount` is an integer from 4
+`displayName` of 1–40 characters, a primary `outfitId` of `default` or a declared
+wardrobe outfit, and the exact `spritesheetPath: "activities/{id}.webp"`.
+Optional `outfitVariants` provide additional representations, each with a distinct
+declared outfit (or `default`) and exact path `activities/{id}.{outfitId}.webp`.
+The primary is not a fallback; an activity may exist only for a specific outfit.
+Each logical activity has at most 17 representations. Empty variants are omitted.
+For every representation, `frameCount` is an integer from 4
 through 32 and `fps` is an integer from 1 through 12. Their derived duration
 (`frameCount × 1000 / fps`) must be between 1000 and 12000 milliseconds,
 inclusive. Omitted activities are equivalent to an empty list.
 
 Each activity is a static, fully decodable WebP horizontal strip of exactly
 `192 × frameCount` pixels wide and 208 pixels high, not an animated WebP. Each
-file is limited to 2 MiB and all activity files together to 16 MiB. The
+file is limited to 2 MiB and all activity representations together to 16 MiB. The
 `activities/` directory must contain exactly the declared files: missing,
 extra, nested, mismatched, symlinked, or unsafe paths reject installation.
 `@open-pets/pet-format/activities` owns the pure metadata and duration contract;
@@ -164,7 +173,7 @@ precise Linux hit-mask shapes.
   to eight extra, different pets and cannot target a broken, built-in, or current
   default pet. The default companion is separate: adding a pin does not select a
   new default, and the same pet ID cannot be pinned twice. Pinned pets can play their
-  installed native Pet Activities under the usual idle, outfit, and opt-in rules.
+  installed native Idle Activities under the usual idle, outfit, and opt-in rules.
   The implicit pet-pool
   assignment skips pinned pets to avoid opening a second window for the same pet. See
   [Pinned pets in the desktop app](/desktop#pinned-pets) for settings and pool behavior.

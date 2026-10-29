@@ -33,7 +33,7 @@ export function validateCodexPetMetadata(value: unknown, folderName: string): Co
   if (typeof value.description !== "string" || value.description.trim().length === 0 || value.description.length > 500) throw new Error("Codex pet description is invalid.");
   const gazeAnchor = value.gazeAnchor === undefined ? undefined : validateCodexPetGazeAnchor(value.gazeAnchor);
   const wardrobe = value.wardrobe === undefined ? undefined : validatePetWardrobe(value.wardrobe);
-  const activities = validatePetActivities(value.activities);
+  const activities = validatePetActivities(value.activities, wardrobe?.outfits.map((outfit) => outfit.id));
   return {
     id: value.id,
     displayName: value.displayName.trim(),

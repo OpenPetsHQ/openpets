@@ -5,7 +5,7 @@ import type { CodexPetMetadata } from "../metadata.js";
 import type { PetOutfit } from "../wardrobe.js";
 import {
   maxPetActivitySpritesheetBytes, maxPetActivityTotalBytes, maxPetActivityFrameCount,
-  petActivityFrameHeight, petActivityFrameWidth, type PetActivity,
+  petActivityFrameHeight, petActivityFrameWidth, enumeratePetActivityAnimations, type PetActivity, type PetActivityAnimation,
 } from "../activities.js";
 import { readBoundedRegularFile } from "./files.js";
 
@@ -148,10 +148,12 @@ export async function validatePetAtlases(
   if (copyTo && activities.length > 0) await mkdir(join(copyTo, activitiesDirectoryName), { mode: 0o700 });
   let activityTotalBytes = 0;
   for (const activity of activities) {
-    const bytes = await readPetActivitySpritesheet(directory, activity, decoder);
-    activityTotalBytes += bytes.byteLength;
-    if (activityTotalBytes > maxPetActivityTotalBytes) throw new Error("Pet activity spritesheets exceed the total size limit.");
-    if (copyTo) await writeFile(join(copyTo, activity.spritesheetPath), bytes, { mode: 0o600, flag: "wx" });
+    for (const animation of enumeratePetActivityAnimations(activity)) {
+      const bytes = await readPetActivitySpritesheet(directory, animation, decoder);
+      activityTotalBytes += bytes.byteLength;
+      if (activityTotalBytes > maxPetActivityTotalBytes) throw new Error("Pet activity spritesheets exceed the total size limit.");
+      if (copyTo) await writeFile(join(copyTo, animation.spritesheetPath), bytes, { mode: 0o600, flag: "wx" });
+    }
   }
 }
 
@@ -161,7 +163,7 @@ async function assertPetActivityFiles(directory: string, activities: readonly Pe
   const activityDirectory = join(directory, activitiesDirectoryName);
   const stats = await lstat(activityDirectory);
   if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Pet activities must be a directory.");
-  const expected = new Set(activities.map((activity) => `${activity.id}.webp`));
+  const expected = new Set(activities.flatMap((activity) => enumeratePetActivityAnimations(activity).map((animation) => animation.spritesheetPath.slice(activitiesDirectoryName.length + 1))));
   const actual = await readdir(activityDirectory);
   if (activities.length === 0 || actual.length !== expected.size || actual.some((name) => !expected.has(name))) {
     throw new Error("Pet activities directory must contain exactly the activity spritesheets listed in pet.json.");
@@ -169,7 +171,7 @@ async function assertPetActivityFiles(directory: string, activities: readonly Pe
 }
 
 /** Read only one declared activity; optional corruption never validates or breaks the base atlas. */
-export async function readPetActivitySpritesheet(directory: string, activity: PetActivity, decoder: ImageDecoder): Promise<Buffer> {
+export async function readPetActivitySpritesheet(directory: string, activity: PetActivityAnimation, decoder: ImageDecoder): Promise<Buffer> {
   const activityDirectory = join(directory, activitiesDirectoryName);
   const stats = await lstat(activityDirectory);
   if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Pet activities must be a directory.");
@@ -179,7 +181,7 @@ export async function readPetActivitySpritesheet(directory: string, activity: Pe
 }
 
 /** Fully decode bounded static WebP strips before they enter an install candidate or renderer. */
-export async function validatePetActivitySpritesheet(bytes: Buffer, activity: PetActivity, decoder: ImageDecoder): Promise<void> {
+export async function validatePetActivitySpritesheet(bytes: Buffer, activity: PetActivityAnimation, decoder: ImageDecoder): Promise<void> {
   if (bytes.byteLength === 0 || bytes.byteLength > maxPetActivitySpritesheetBytes) {
     throw new Error("Pet activity spritesheet size is invalid.");
   }
