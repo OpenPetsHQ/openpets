@@ -151,6 +151,66 @@ test("drag facing resists jitter and follows accumulated reversals without movin
   assert.equal(sceneFrame(scene).pets[1].facing, "right");
 });
 
+test("held drag plays authored directional frames through jitter and reversal", () => {
+  let scene = createScene([pets[0]], bounds, random);
+  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
+  const move = (x: number) => {
+    scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x, y: 80 } }, random);
+  };
+  move(150);
+  for (const layout of [codexV1SpriteLayout, codexV2SpriteLayout]) {
+    const state = "running-right";
+    const definition = defaultPetSprite.states[state];
+    const position = getPetSpritePosition(layout, definition);
+    const columns = new Set<number>();
+    for (let i = 0; i < Math.ceil(definition.durationMs / 50); i++) {
+      scene = stepScene(scene, 50, still, random);
+      move(i % 2 ? 149 : 150);
+      const pet = sceneFrame(scene).pets[0];
+      assert.equal(pet.animation, "walk");
+      assert.equal(pet.facing, "right");
+      const frame = getSpriteStateFrame(layout, state, pet.animationElapsedMs);
+      assert.equal(frame.row, position.row);
+      columns.add(frame.column);
+    }
+    assert.ok(columns.size > 1);
+    const elapsed = sceneFrame(scene).pets[0].animationElapsedMs;
+    move(144);
+    const reversed = sceneFrame(scene).pets[0];
+    assert.equal(reversed.facing, "left");
+    assert.equal(reversed.animationElapsedMs, elapsed);
+    assert.equal(
+      getSpriteStateFrame(layout, "running-left", elapsed).row,
+      getPetSpritePosition(layout, defaultPetSprite.states["running-left"]).row,
+    );
+    move(150);
+  }
+});
+
+test("vertical dragging animates while paused without advancing other pets or ball", () => {
+  let scene = createScene(pets, bounds, random);
+  scene = sceneCommand(scene, { type: "throwBall", start: { x: 300, y: 20 }, velocity: { x: 50, y: 0 } }, random);
+  const origin = sceneFrame(scene).pets[0].position;
+  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
+  scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: origin.x, y: 40 } }, random);
+  const before = sceneFrame(scene);
+  const definition = defaultPetSprite.states["running-right"];
+  const columns = new Set<number>();
+  for (let i = 0; i < Math.ceil(definition.durationMs / 50); i++) {
+    scene = stepScene(scene, 50, { motion: "playful", paused: true }, random);
+    const frame = sceneFrame(scene);
+    assert.equal(frame.pets[0].animation, "walk");
+    assert.deepEqual(frame.pets[0].position, { x: origin.x, y: 40 });
+    assert.deepEqual(frame.pets[1], before.pets[1]);
+    assert.deepEqual(frame.ball, before.ball);
+    columns.add(getSpriteStateFrame(codexV2SpriteLayout, "running-right", frame.pets[0].animationElapsedMs).column);
+  }
+  assert.ok(columns.size > 1);
+  scene = sceneCommand(scene, { type: "dragCancel", id: "a" }, random);
+  assert.equal(sceneFrame(scene).pets[0].animation, "idle");
+  assert.equal(sceneFrame(scene).pets[0].animationElapsedMs, 0);
+});
+
 test("vertical and clamped drag noise retain facing and each gesture resets its anchor", () => {
   let scene = createScene([pets[0]], bounds, random);
   scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);

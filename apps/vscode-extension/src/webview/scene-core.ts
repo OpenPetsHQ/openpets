@@ -17,7 +17,6 @@ interface Pet {
   walkRemaining: number;
   dragging: boolean;
   dragExtreme: number | null;
-  dragOrigin: number | null;
 }
 interface Ball { center: Point; velocity: Point; radius: number; age: number; chaser: string | null }
 export interface SceneModel { readonly pets: readonly Pet[]; readonly bounds: Dimensions; readonly ball: Ball | null }
@@ -66,7 +65,7 @@ export function reconcileScene(model: SceneModel, inputs: readonly ScenePetInput
       : old?.position ?? { x: 0, y: 0 };
     pets.push(old ? { ...old, spriteSize: size, position, placed: old.placed || measurable } : {
       id: input.id, spriteSize: size, position, placed: measurable, facing: "right",
-      animation: "idle", elapsed: 0, wait: pause(random), walkRemaining: 0, dragging: false, dragExtreme: null, dragOrigin: null,
+      animation: "idle", elapsed: 0, wait: pause(random), walkRemaining: 0, dragging: false, dragExtreme: null,
     });
   }
   let ball = model.ball;
@@ -82,7 +81,6 @@ function feedback(pet: Pet, random: () => number): Pet {
     ...pet,
     dragging: false,
     dragExtreme: null,
-    dragOrigin: null,
     animation: "reaction",
     elapsed: 0,
     wait: pause(random),
@@ -111,8 +109,7 @@ export function sceneCommand(model: SceneModel, command: SceneCommand, random: (
       ...pet,
       dragging: true,
       dragExtreme: pet.position.x,
-      dragOrigin: pet.position.x,
-      animation: "idle",
+      animation: "walk",
       elapsed: 0,
       walkRemaining: 0,
     };
@@ -134,16 +131,11 @@ export function sceneCommand(model: SceneModel, command: SceneCommand, random: (
         extreme = position.x;
       }
     }
-    const horizontalDistance = Math.abs(position.x - (pet.dragOrigin ?? position.x));
-    const animation = pet.animation === "walk" || horizontalDistance >= DRAG_FACING_DEADZONE
-      ? "walk"
-      : "idle";
     pet = {
       ...pet,
       position,
       facing,
       dragExtreme: extreme,
-      animation,
     };
   }
   if (command.type === "dragEnd" && pet.dragging) pet = feedback(pet, random);
@@ -152,7 +144,6 @@ export function sceneCommand(model: SceneModel, command: SceneCommand, random: (
       ...pet,
       dragging: false,
       dragExtreme: null,
-      dragOrigin: null,
       animation: "idle",
       elapsed: 0,
       wait: pause(random),
@@ -192,7 +183,10 @@ export function stepScene(model: SceneModel, dtMs: number, settings: Pick<SceneS
   }
   const pets = model.pets.map((original) => {
     let pet = { ...original };
-    if (pet.dragging) return pet;
+    if (pet.dragging) {
+      pet.elapsed += dt;
+      return pet;
+    }
     if (pet.animation === "reaction") {
       pet.elapsed += dt;
       if (pet.elapsed >= reactionDuration) { pet.animation = "idle"; pet.elapsed = 0; }
