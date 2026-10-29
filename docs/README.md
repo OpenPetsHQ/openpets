@@ -32,6 +32,8 @@ Docs here are the *narrative* layer on top of those maps.
 
 ## Product direction
 
+- **[vscode.md](vscode.md)** - standalone OpenPets for VS Code: agreed
+  pets-and-outfits first release, shared foundations, and deferred plugin support.
 - **[openpets_v4.md](openpets_v4.md)** - v4 delivery direction: a conversational
   Pet Assistant that uses enabled companion-plugin capabilities through voice
   and chat.
