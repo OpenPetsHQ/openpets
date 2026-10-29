@@ -1,17 +1,13 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { build } from "esbuild";
+import { dirname, join } from "node:path";
 import { crc32 } from "node:zlib";
-import type { CatalogPetV3 } from "@open-pets/pet-format/catalog-validation";
 import { getPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
-import { Preferences, writePreferenceRecord } from "../src/host/preferences.js";
-import { PetStore } from "../src/host/pet-store.js";
-import { CompanionService } from "../src/host/companion-service.js";
-import { CatalogService } from "../src/host/catalog-service.js";
-import { SceneStore } from "../src/host/scene-store.js";
+import { PetStore, type AssetReferenceAccess } from "../src/host/pet-store.js";
+import type { Receipt } from "../src/host/asset-reference.js";
+import { convertLegacyCatalogReceipt } from "../src/host/asset-reference.js";
 
 function zip(entries: Record<string, string>): Buffer {
   const data: Buffer[] = [];
@@ -51,172 +47,134 @@ function zip(entries: Record<string, string>): Buffer {
   return Buffer.concat([...data, index, end]);
 }
 
-test("failed replacement preserves the installed reference and previous generation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-store-"));
-  let rejectWrite = false;
-  const preferences = new Preferences(root, async (path, value) => {
-    if (rejectWrite) throw new Error("state write failed");
-    await writePreferenceRecord(path, value);
-  });
-  const pet: CatalogPetV3 = {
-    id: "cat",
-    displayName: "Cat",
-    description: "Cat",
-    thumbnail: "https://openpets.dev/pets/cat.webp",
-    spritesheet: "https://openpets.dev/pets/cat.webp",
-    zip: "https://zip.openpets.dev/pets/cat.zip",
-    category: "western",
-    original: true,
-  };
-  const validate: ConstructorParameters<typeof PetStore>[2] = async (
-    path,
-    id,
-  ) => {
-    const metadata = JSON.parse(await readFile(join(path, "pet.json"), "utf8"));
-    if (metadata.id !== id) throw new Error("wrong pet");
-    return { metadata, layout: getPetSpriteLayout({}), availableOutfitIds: [] };
-  };
-  const cleanupErrors: string[] = [];
-  const store = new PetStore(
-    root,
-    preferences,
-    validate,
-    (message) => cleanupErrors.push(message),
-    async () => {
-      throw new Error("cleanup failed");
+test("catalog and local commits retain old generations and reload without the source ZIP", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pet-store-"));
+  const manifest = { id: "cat", displayName: "Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const };
+  const references = new Map<string, Receipt>();
+  let failure: "conflict" | "unknown" | undefined;
+  const access: AssetReferenceAccess = {
+    readAssetReference: async (id) => references.get(id) ?? null,
+    compareAndSwapAssetReference: async (id, expected, receipt) => {
+      if (failure === "unknown") throw Object.assign(new Error("unknown"), { outcome: "unknown" });
+      if (failure === "conflict" || (references.get(id)?.generation ?? null) !== expected) throw Object.assign(new Error("conflict"), { kind: "conflict" });
+      references.set(id, receipt);
+      return receipt;
     },
-  );
-  const originalFetch = globalThis.fetch;
-  let archive = zip({
-    "pet.json": JSON.stringify({
-      id: "cat",
-      displayName: "Cat",
-      description: "Cat",
-      spritesheetPath: "spritesheet.webp",
-    }),
-    "spritesheet.webp": "old",
-  });
-  globalThis.fetch = async (input) => {
-    const response = new Response(new Uint8Array(archive), { status: 200 });
-    Object.defineProperty(response, "url", { value: String(input) });
-    return response;
   };
+  const log: string[] = [];
+  const store = new PetStore(root, access, async () => ({ metadata: manifest, layout: getPetSpriteLayout({}), availableOutfitIds: [] }), (message) => log.push(message), async () => { throw new Error("cleanup failed"); });
+  const signal = new AbortController().signal;
+  const path = join(root, "source.zip");
+  const makeZip = (base: string) => zip({ "pet.json": JSON.stringify(manifest), "spritesheet.webp": base });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => { const response = new Response(new Uint8Array(makeZip("old"))); Object.defineProperty(response, "url", { value: String(input) }); return response; };
   try {
-    await preferences.initialize();
     await store.initialize();
-    const previous = await store.install(
-      pet,
-      false,
-      new AbortController().signal,
-    );
-    const reference = preferences.installed("cat");
-    archive = zip({
-      "pet.json": JSON.stringify({
-        id: "cat",
-        displayName: "Cat",
-        description: "Cat",
-        spritesheetPath: "spritesheet.webp",
-      }),
-      "spritesheet.webp": "new",
-    });
-    rejectWrite = true;
-    await assert.rejects(
-      store.install(pet, false, new AbortController().signal),
-      /state write failed/,
-    );
-    assert.equal(cleanupErrors.length, 2);
-    assert.deepEqual(preferences.installed("cat"), reference);
-    assert.equal(
-      await readFile(join(previous.root, "spritesheet.webp"), "utf8"),
-      "old",
-    );
-    assert.equal(
-      (await store.load("cat", new AbortController().signal)).root,
-      previous.root,
-    );
-    await store.dispose();
+    const pet = { id: "cat", displayName: "Cat", description: "Cat", thumbnail: "https://openpets.dev/a", spritesheet: "https://openpets.dev/b", zip: "https://zip.openpets.dev/pets/a.zip", category: "western" as const };
+    const first = await store.commitPrepared(await store.prepareCatalog(pet, false, signal), null, signal);
+    await writeFile(path, makeZip("new"));
+    const replacement = await store.prepareLocal(path, undefined, signal);
+    failure = "conflict";
+    await assert.rejects(store.commitPrepared(replacement, first.receipt.generation, signal));
+    assert.equal((await store.load("cat", signal)).receipt.generation, first.receipt.generation);
+    assert.ok(log.length > 0);
+    failure = undefined;
+    const second = await store.commitPrepared(await store.prepareLocal(path, undefined, signal), first.receipt.generation, signal);
+    await rm(path);
+    assert.equal((await store.load("cat", signal)).receipt.source.kind, "local");
+    assert.equal(await readFile(join(first.root, "spritesheet.webp"), "utf8"), "old");
+    assert.equal(await readFile(join(second.root, "spritesheet.webp"), "utf8"), "new");
+    await writeFile(path, makeZip("uncertain"));
+    const unknown = await store.prepareLocal(path, undefined, signal);
+    failure = "unknown";
+    await assert.rejects(store.commitPrepared(unknown, second.receipt.generation, signal));
+    assert.equal(await readFile(join(root, "pets", "cat", unknown.receipt.generation, "package", "spritesheet.webp"), "utf8"), "uncertain");
+    assert.equal((await store.load("cat", signal)).receipt.generation, second.receipt.generation);
   } finally {
     globalThis.fetch = originalFetch;
+    await store.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("bundled wardrobe installation preserves scene choices and repairs an offline corrupt outfit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openpets-wardrobe-repair-"));
-  const workerPath = join(root, "worker.cjs");
-  const preferences = new Preferences(root);
-  const metadata = {
-    id: "hoodie-cat", displayName: "Hoodie Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const,
-    wardrobe: { outfits: [{ id: "hat", displayName: "Hat", spritesheetPath: "outfits/hat.webp" as const }], schedule: [] },
-  };
-  const pet: CatalogPetV3 = {
-    id: metadata.id, displayName: metadata.displayName, description: metadata.description,
-    thumbnail: "https://openpets.dev/pets/cat.webp", spritesheet: "https://openpets.dev/pets/cat.webp",
-    zip: "https://zip.openpets.dev/pets/cat.zip", wardrobeZip: "https://zip.openpets.dev/pets/cat-wardrobe.zip",
-    category: "western", original: true,
-  };
-  let catalogRequests = 0;
-  const catalog = new CatalogService(new AbortController().signal, {
-    getIndex: async () => { catalogRequests++; return { version: 3, generatedAt: "2026-01-01", total: 1, pageSize: 1, search: "", filters: { categories: [] }, pages: [""] }; },
-    getSearch: async () => [{ id: pet.id, displayName: pet.displayName, searchText: "cat", category: "western", catalogPage: 0, original: true }],
-    getPage: async () => [pet],
-  });
-  const validate: ConstructorParameters<typeof PetStore>[2] = async (path) => {
-    const valid = await readFile(join(path, "outfits/hat.webp"), "utf8").then((value) => value === "good", () => false);
-    return { metadata, layout: getPetSpriteLayout({}), availableOutfitIds: valid ? ["hat"] : [], ...(valid ? {} : { outfitProblems: ["hat: invalid"] }) };
-  };
-  const store = new PetStore(root, preferences, validate);
-  let service: CompanionService | undefined;
-  const originalFetch = globalThis.fetch;
-  let base = "base";
-  let requested = "";
-  const online: typeof fetch = async (input) => {
-    requested = String(input);
-    const response = new Response(new Uint8Array(zip({ "pet.json": JSON.stringify(metadata), "spritesheet.webp": base, "outfits/hat.webp": "good" })));
-    Object.defineProperty(response, "url", { value: requested });
-    return response;
-  };
-  const makeService = () => new CompanionService(preferences, "/builtin.webp", root, () => {}, catalog, store, new SceneStore({ databasePath: join(root, "scene.sqlite"), workerPath }));
+test("a committed reference survives staging cleanup failure", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "pet-store-cleanup-"));
+  const metadata = { id: "cat", displayName: "Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const };
+  const path = join(root, "pet.zip");
+  await writeFile(path, zip({ "pet.json": JSON.stringify(metadata), "spritesheet.webp": "base" }));
+  let reference: Receipt | null = null;
+  let session = "";
+  const logs: string[] = [];
+  const store = new PetStore(root, {
+    readAssetReference: async () => reference,
+    compareAndSwapAssetReference: async (_id, _expected, receipt) => {
+      reference = receipt;
+      await chmod(session, 0);
+      return receipt;
+    },
+  }, async () => ({ metadata, layout: getPetSpriteLayout({}), availableOutfitIds: [] }), (message) => logs.push(message));
   try {
-    await build({ entryPoints: [resolve("src/host/scene-worker.ts")], outfile: workerPath, bundle: true, platform: "node", format: "cjs", target: "node22" });
-    globalThis.fetch = online;
-    service = makeService();
-    await service.initialize();
-    const first = (await service.getSnapshot()).selectedInstanceId!;
-    const second = (await service.addInstance("builtin", "Second")).selectedInstanceId!;
-    assert.equal((await service.refreshWardrobe("builtin")).installedPets[0].wardrobeStatus, "install");
-    const before = await service.getSnapshot();
-    const installed = await service.installWardrobe("builtin");
-    assert.equal(requested, pet.wardrobeZip);
-    assert.deepEqual(installed.instances.map(({ id, outfitId }) => ({ id, outfitId })), before.instances.map(({ id, outfitId }) => ({ id, outfitId })));
-    assert.equal(installed.selectedInstanceId, before.selectedInstanceId);
-    const dressed = await service.setInstanceOutfit(first, "hat");
-    assert.equal(dressed.instances.find((item) => item.id === first)?.outfitId, "hat");
-    assert.equal(dressed.instances.find((item) => item.id === second)?.outfitId, "default");
-    const previous = await store.load("hoodie-cat", new AbortController().signal);
-    await writeFile(join(previous.root, "outfits/hat.webp"), "bad");
-    await service.dispose();
-    globalThis.fetch = async () => { throw new Error("offline"); };
-    const requestsBeforeRestart = catalogRequests;
-    service = makeService();
-    await service.initialize();
-    assert.equal(catalogRequests, requestsBeforeRestart);
-    const fallback = (await service.getSnapshot()).instances.find((item) => item.id === first)!;
-    assert.equal(fallback.outfitId, "hat");
-    assert.equal(fallback.appearance.fallback, true);
-    assert.equal(fallback.appearance.outfitName, "Default");
-    base = "new generation";
-    globalThis.fetch = online;
-    const repairedSnapshot = await service.installWardrobe("builtin");
-    const repaired = await store.load("hoodie-cat", new AbortController().signal);
-    assert.notEqual(repaired.root, previous.root);
-    assert.equal(await readFile(join(previous.root, "outfits/hat.webp"), "utf8"), "bad");
-    assert.equal(await readFile(join(repaired.root, "outfits/hat.webp"), "utf8"), "good");
-    assert.equal(repairedSnapshot.instances.find((item) => item.id === first)?.appearance.fallback, false);
-    assert.equal(repairedSnapshot.instances.find((item) => item.id === first)?.outfitId, "hat");
+    await store.initialize();
+    const prepared = await store.prepareLocal(path, undefined, new AbortController().signal);
+    session = dirname(prepared.candidate);
+    const installed = await store.commitPrepared(prepared, null, new AbortController().signal);
+    assert.deepEqual(reference, installed.receipt);
+    assert.equal(await readFile(join(installed.root, "spritesheet.webp"), "utf8"), "base");
+    assert.ok(logs.some((message) => message.includes("staging cleanup failed")));
   } finally {
-    await service?.dispose();
-    globalThis.fetch = originalFetch;
+    if (session) await chmod(session, 0o700);
+    await store.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy immutable catalog receipt loads through its converted reference without rewriting it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pet-store-legacy-"));
+  const legacy = { version: 1, id: "cat", sha256: "a".repeat(64), generation: "12345678-1234-4123-8123-123456789abc", url: "https://zip.openpets.dev/pets/cat.zip" };
+  const receipt = convertLegacyCatalogReceipt(legacy);
+  const metadata = { id: "cat", displayName: "Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const };
+  const generation = join(root, "pets", "cat", legacy.generation);
+  await mkdir(join(generation, "package"), { recursive: true });
+  const serialized = JSON.stringify(legacy);
+  await writeFile(join(generation, "install.json"), serialized);
+  await writeFile(join(generation, "package", "spritesheet.webp"), "original");
+  const store = new PetStore(root, {
+    readAssetReference: async () => receipt,
+    compareAndSwapAssetReference: async () => { throw new Error("unexpected write"); },
+  }, async (_path, id, _signal, installed) => {
+    assert.equal(id, "cat");
+    assert.equal(installed, true);
+    return { metadata, layout: getPetSpriteLayout({}), availableOutfitIds: [] };
+  });
+  try {
+    await store.initialize();
+    const loaded = await store.load("cat", new AbortController().signal);
+    assert.deepEqual(loaded.receipt, receipt);
+    assert.deepEqual(loaded.receipt.source, { kind: "catalog", url: legacy.url });
+    assert.equal(await readFile(join(generation, "install.json"), "utf8"), serialized);
+    assert.equal(await readFile(join(loaded.root, "spritesheet.webp"), "utf8"), "original");
+  } finally {
+    await store.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("known CAS rejection removes the unreferenced promoted generation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pet-store-conflict-"));
+  const metadata = { id: "cat", displayName: "Cat", description: "Cat", spritesheetPath: "spritesheet.webp" as const };
+  const path = join(root, "pet.zip");
+  await writeFile(path, zip({ "pet.json": JSON.stringify(metadata), "spritesheet.webp": "base" }));
+  const store = new PetStore(root, {
+    readAssetReference: async () => null,
+    compareAndSwapAssetReference: async () => { throw Object.assign(new Error("conflict"), { kind: "conflict" }); },
+  }, async () => ({ metadata, layout: getPetSpriteLayout({}), availableOutfitIds: [] }));
+  try {
+    await store.initialize();
+    const candidate = await store.prepareLocal(path, undefined, new AbortController().signal);
+    await assert.rejects(store.commitPrepared(candidate, null, new AbortController().signal));
+    await assert.rejects(stat(join(root, "pets", "cat", candidate.receipt.generation)), { code: "ENOENT" });
+  } finally {
+    await store.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });

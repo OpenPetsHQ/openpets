@@ -4,6 +4,10 @@ import { SpritePreview } from "./SpritePreview.js";
 interface WardrobeProps {
   snapshot: CompanionSnapshot;
   pending: boolean;
+  importing: boolean;
+  onGallery(): void;
+  onCreateOutfit(petId: string): void;
+  onImportPet(petId: string): void;
   wardrobeInstallingId: string | null;
   onSelectInstance(id: string): void;
   onRefreshWardrobe(id: string): void;
@@ -14,6 +18,10 @@ interface WardrobeProps {
 export function Wardrobe({
   snapshot,
   pending,
+  importing,
+  onGallery,
+  onCreateOutfit,
+  onImportPet,
   wardrobeInstallingId,
   onSelectInstance,
   onRefreshWardrobe,
@@ -26,6 +34,8 @@ export function Wardrobe({
   const pet = snapshot.installedPets.find(
     (item) => item.id === selected?.petId,
   );
+  const canCheckCatalog = pet?.source !== "local" && pet?.wardrobeSource !== "local" && pet?.wardrobeStatus !== "local";
+  const needsManualStudioImport = pet?.source === "local" || pet?.wardrobeSource === "local" || pet?.hasLocalWardrobeOverride === true;
   return (
     <section className="collection-page" aria-label="Companion outfits">
       <div className="page-heading">
@@ -33,7 +43,11 @@ export function Wardrobe({
         <p className="muted">Choose a look for each companion.</p>
       </div>
       {snapshot.instances.length === 0 ? (
-        <p className="muted">Add a companion to choose its outfit.</p>
+        <div className="wardrobe-help">
+          <h3>Outfits start with a companion</h3>
+          <p className="muted">Add an installed pet to your scene, or find a new one in the gallery.</p>
+          <button className="button secondary" onClick={onGallery}>Browse gallery</button>
+        </div>
       ) : (
         <>
           <div className="instance-list" aria-label="Select a companion">
@@ -55,7 +69,7 @@ export function Wardrobe({
                 <div>
                   <h3>{selected.name}</h3>
                   <p className="muted small-text">
-                    {pet?.displayName ?? "Pet unavailable"}
+                    {pet?.displayName ?? "Pet unavailable"}{pet?.source === "local" ? " · Imported pet" : ""}
                   </p>
                 </div>
               </div>
@@ -95,7 +109,10 @@ export function Wardrobe({
                     })}
                   </div>
                   <div className="wardrobe-download">
-                    {pet.wardrobeStatus === "unknown" && (
+                    {pet.wardrobeSource === "bundled" && <p className="muted small-text">Bundled outfits</p>}
+                    {pet.wardrobeSource === "local" && <p className="muted small-text">Imported outfits</p>}
+                    {pet.source === "local" && <p className="muted small-text">Imported pet</p>}
+                    {canCheckCatalog && pet.wardrobeStatus === "unknown" && (
                       <>
                         <p className="muted small-text">
                           Check for available outfits.
@@ -109,17 +126,17 @@ export function Wardrobe({
                         </button>
                       </>
                     )}
-                    {pet.wardrobeStatus === "none" && (
+                    {canCheckCatalog && pet.wardrobeStatus === "none" && (
                       <p className="muted small-text">
                         No additional outfits available.
                       </p>
                     )}
-                    {pet.wardrobeStatus === "current" && (
+                    {canCheckCatalog && pet.wardrobeStatus === "current" && (
                       <p className="muted small-text">
                         All available outfits are installed.
                       </p>
                     )}
-                    {(pet.wardrobeStatus === "install" ||
+                    {canCheckCatalog && (pet.wardrobeStatus === "install" ||
                       pet.wardrobeStatus === "update") && (
                       <>
                         <p className="muted small-text">
@@ -140,6 +157,18 @@ export function Wardrobe({
                         </button>
                       </>
                     )}
+                  </div>
+                  {pet.outfits.length <= 1 && (
+                    <p className="muted small-text wardrobe-empty">No outfits installed yet. Create one in Studio or import a pet ZIP with outfits.</p>
+                  )}
+                  <div className="creation-actions wardrobe-create">
+                    <h3>Make a look</h3>
+                    <p className="muted small-text">Studio exports the whole pet ZIP, including outfits. Importing it updates this pet for all companions using it; it won’t add or remove companions.</p>
+                    {needsManualStudioImport && <p className="muted small-text">In Studio, use your original ZIP or open an existing project.</p>}
+                    <div className="creation-buttons">
+                      <button className="button secondary" onClick={() => onCreateOutfit(selected.petId)}>Create outfit in Studio</button>
+                      <button className="button secondary" disabled={pending} onClick={() => onImportPet(selected.petId)}>{importing ? "Choose a ZIP…" : "Import pet ZIP"}</button>
+                    </div>
                   </div>
                 </>
               )}

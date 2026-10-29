@@ -43,36 +43,13 @@ test("zero bounds preserve positions and defer new placements until measured", (
   }
 });
 
-test("off-floor chaser descends continuously before catching", () => {
-  let scene = createScene([pets[0]], bounds, random);
-  scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
-  scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: 100, y: 0 } }, random);
-  scene = sceneCommand(scene, { type: "dragCancel", id: "a" }, random);
-  scene = sceneCommand(scene, { type: "throwBall", start: { x: 124, y: 192 }, velocity: { x: 0, y: 0 } }, random);
-  scene = stepScene(scene, 50, still, random);
-  assert.notEqual(sceneFrame(scene).ball, null);
-  assert.ok(sceneFrame(scene).pets[0].position.y > 0 && sceneFrame(scene).pets[0].position.y <= 5.5);
-  for (let i = 0; i < 100 && sceneFrame(scene).ball; i++) {
-    const previousY = sceneFrame(scene).pets[0].position.y;
-    scene = stepScene(scene, 50, still, random);
-    assert.ok(sceneFrame(scene).pets[0].position.y - previousY <= 5.5);
-  }
-  assert.equal(sceneFrame(scene).ball, null);
-  assert.equal(sceneFrame(scene).pets[0].animation, "reaction");
-});
-
-test("ambient walking descends continuously after interrupted chase or high release", () => {
+test("ambient walking descends continuously after drag cancellation or release", () => {
   const calm = { motion: "calm", paused: false } as const;
   for (const interrupted of [false, true]) {
     let scene = createScene([pets[0]], bounds, random);
     scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
     scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: 100, y: 0 } }, random);
     scene = sceneCommand(scene, { type: interrupted ? "dragCancel" : "dragEnd", id: "a" }, random);
-    if (interrupted) {
-      scene = sceneCommand(scene, { type: "throwBall", start: { x: 300, y: 192 }, velocity: { x: 0, y: 0 } }, random);
-      scene = stepScene(scene, 50, calm, random);
-      scene = sceneCommand(scene, { type: "cancelBall" }, random);
-    }
     const initialY = sceneFrame(scene).pets[0].position.y;
     assert.equal(sceneFrame(advance(scene, 10000, still)).pets[0].position.y, initialY);
     assert.equal(sceneFrame(advance(scene, 10000, { motion: "calm", paused: true })).pets[0].position.y, initialY);
@@ -95,22 +72,6 @@ test("seeded ambient movement respects still, calm and pause", () => {
   assert.notEqual(sceneFrame(first).pets[0].position.x, sceneFrame(initial).pets[0].position.x);
   const paused = advance(initial, 6000, { motion: "playful", paused: true });
   assert.deepEqual(sceneFrame(paused), sceneFrame(initial));
-});
-
-test("ties select stable first pet and an uncatchable ball expires", () => {
-  let scene = createScene(pets, bounds, random);
-  for (const id of ["a", "b"]) {
-    scene = sceneCommand(scene, { type: "dragStart", id }, random);
-    scene = sceneCommand(scene, { type: "dragMove", id, position: { x: 100, y: 148 } }, random);
-    scene = sceneCommand(scene, { type: "dragCancel", id }, random);
-  }
-  scene = sceneCommand(scene, { type: "throwBall", start: { x: 300, y: 20 }, velocity: { x: 0, y: 0 } }, random);
-  scene = stepScene(scene, 50, still, random);
-  assert.ok(sceneFrame(scene).pets[0].position.x > sceneFrame(scene).pets[1].position.x);
-  let empty = createScene([], bounds, random);
-  empty = sceneCommand(empty, { type: "throwBall", start: { x: 50, y: 50 }, velocity: { x: 0, y: 0 } }, random);
-  assert.notEqual(sceneFrame(advance(empty, 1000)).ball, null);
-  assert.equal(sceneFrame(advance(empty, 12000)).ball, null);
 });
 
 test("drag direction and authored release feedback, including paused feedback and cancellation", () => {
@@ -187,9 +148,8 @@ test("held drag plays authored directional frames through jitter and reversal", 
   }
 });
 
-test("vertical dragging animates while paused without advancing other pets or ball", () => {
+test("vertical dragging animates while paused without advancing other pets", () => {
   let scene = createScene(pets, bounds, random);
-  scene = sceneCommand(scene, { type: "throwBall", start: { x: 300, y: 20 }, velocity: { x: 50, y: 0 } }, random);
   const origin = sceneFrame(scene).pets[0].position;
   scene = sceneCommand(scene, { type: "dragStart", id: "a" }, random);
   scene = sceneCommand(scene, { type: "dragMove", id: "a", position: { x: origin.x, y: 40 } }, random);
@@ -202,7 +162,6 @@ test("vertical dragging animates while paused without advancing other pets or ba
     assert.equal(frame.pets[0].animation, "walk");
     assert.deepEqual(frame.pets[0].position, { x: origin.x, y: 40 });
     assert.deepEqual(frame.pets[1], before.pets[1]);
-    assert.deepEqual(frame.ball, before.ball);
     columns.add(getSpriteStateFrame(codexV2SpriteLayout, "running-right", frame.pets[0].animationElapsedMs).column);
   }
   assert.ok(columns.size > 1);
@@ -226,29 +185,6 @@ test("vertical and clamped drag noise retain facing and each gesture resets its 
   assert.equal(sceneFrame(scene).pets[0].facing, "right");
   scene = sceneCommand(scene, { type: "dragEnd", id: "a" }, random);
   assert.equal(sceneFrame(scene).pets[0].animation, "reaction");
-});
-
-test("ball chooses one chaser, pauses, catches and times out", () => {
-  let scene = createScene(pets, bounds, random);
-  scene = sceneCommand(scene, { type: "throwBall", start: { x: 350, y: 10 }, velocity: { x: 0, y: 0 } }, random);
-  const before = sceneFrame(scene);
-  scene = stepScene(scene, 50, { motion: "still", paused: true }, random);
-  assert.deepEqual(sceneFrame(scene), before);
-  scene = advance(scene, 500);
-  const after = sceneFrame(scene);
-  assert.equal(after.pets.filter((pet, i) => pet.position.x !== before.pets[i].position.x).length, 1);
-  scene = sceneCommand(scene, { type: "throwBall", start: { x: 0, y: 0 }, velocity: { x: 100000, y: -100000 } }, random);
-  for (let i = 0; i < 240 && sceneFrame(scene).ball; i++) {
-    scene = stepScene(scene, 50, still, random);
-    const ball = sceneFrame(scene).ball;
-    if (ball) assert.ok(ball.center.x >= ball.radius && ball.center.x <= bounds.width - ball.radius && ball.center.y >= ball.radius && ball.center.y <= bounds.height - ball.radius);
-  }
-  assert.equal(sceneFrame(scene).ball, null);
-  const one = createScene([pets[0]], bounds, random);
-  const x = sceneFrame(one).pets[0].position.x + 24;
-  const caught = stepScene(sceneCommand(one, { type: "throwBall", start: { x, y: 192 }, velocity: { x: 0, y: 0 } }, random), 50, still, random);
-  assert.equal(sceneFrame(caught).ball, null);
-  assert.equal(sceneFrame(caught).pets[0].animation, "reaction");
 });
 
 test("canonical frame mapping uses each layout and authored timing", () => {

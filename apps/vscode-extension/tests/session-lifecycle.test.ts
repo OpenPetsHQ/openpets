@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { build } from "esbuild";
 import type * as vscode from "vscode";
 import { CompanionService } from "../src/host/companion-service.js";
-import { Preferences } from "../src/host/preferences.js";
 import { SurfaceCoordinator } from "../src/host/surface-coordinator.js";
 import { applySceneCommand, createDefaultScene } from "../src/host/scene-state.js";
 
@@ -128,16 +127,22 @@ test("disposed sidebar request cannot close a replacement editor panel", async (
         return scene;
       },
       dispose: async () => {},
+      assetReferencesInitialized: async () => false,
+      initializeAssetReferences: async () => ({ references: [], problems: [] }),
+      listAssetReferences: async () => ({ references: [], problems: [] }),
+      readAssetReference: async () => null,
+      compareAndSwapAssetReference: async () => { throw new Error("Unexpected asset mutation."); },
     };
-    service = new CompanionService(
-      new Preferences(storage),
-      "/cat.webp",
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      sceneStore,
-    );
+    service = new CompanionService({
+      atlasPath: "/cat.webp",
+      storagePath: storage,
+      stateStore: sceneStore,
+      interactions: {
+        pickZip: async () => undefined,
+        confirmReplacement: async () => false,
+        openStudio: async () => {},
+      },
+    });
     await service.initialize();
     const session = new host.WebviewSession(
       webview,

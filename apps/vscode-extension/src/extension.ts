@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { SceneStore } from "./host/scene-store.js";
+import { CompanionStore } from "./host/companion-store.js";
 import { CompanionService } from "./host/companion-service.js";
-import { Preferences } from "./host/preferences.js";
+import { createPackageInteractions } from "./host/package-interactions.js";
 import { SurfaceCoordinator } from "./host/surface-coordinator.js";
 import { WebviewSession } from "./host/webview-session.js";
 import { ViewProvider } from "./host/view-provider.js";
@@ -51,26 +51,22 @@ export async function activate(
     log.appendLine(`[activation] ${message}`);
     throw new Error(message);
   }
-  service = new CompanionService(
-    new Preferences(storagePath, undefined, (message) =>
-      log.appendLine(message),
-    ),
-    vscode.Uri.joinPath(
+  service = new CompanionService({
+    atlasPath: vscode.Uri.joinPath(
       context.extensionUri,
       "dist",
       "media",
       "default-pet-spritesheet.webp",
     ).fsPath,
     storagePath,
-    (message) => log.appendLine(message),
-    undefined,
-    undefined,
-    new SceneStore({
+    log: (message) => log.appendLine(message),
+    interactions: createPackageInteractions(),
+    stateStore: new CompanionStore({
       databasePath: join(storagePath, "scene.sqlite"),
       workerPath: join(context.extensionPath, "dist", "scene-worker.cjs"),
       log: (message) => log.appendLine(message),
     }),
-  );
+  });
   try {
     await service.initialize();
   } catch (error) {

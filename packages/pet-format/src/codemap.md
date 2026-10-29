@@ -6,6 +6,7 @@
 - **reactions.ts**: Canonical reaction names and type.
 - **sprite-layout.ts**: V1/V2 atlas geometry, layout selection, and frame position calculation.
 - **animation.ts**: Reaction mappings, animation state definitions, waiting durations, and playback selection.
+- **builtin-hoodie-cat.ts**: Canonical bundled Hoodie Cat wardrobe, schedule and asset-relative outfit paths shared by desktop and VS Code.
 - **catalog-validation.ts**: Catalog schema validation, sprite marker normalization, and V3-to-V2 adaptation.
 - **catalog-v3.ts**: Bounded HTTP, retryable/coalesced V3 client, and curated page hydration.
 - **metadata.ts**, **wardrobe.ts**, **activities.ts**: Shared package metadata and pure outfit, schedule and logical activity contracts; enumerate and resolve exact-outfit activity representations.

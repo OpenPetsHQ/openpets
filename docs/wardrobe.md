@@ -349,8 +349,8 @@ wardrobe, `outfits/`).
 
 The built-in pet ships the same wardrobe from 4.1: the atlases are bundled in
 `apps/desktop/assets/default-pet-outfits/{id}.webp` and the outfits and
-schedule are declared in `apps/desktop/src/built-in-pet.ts`
-(`builtInPetWardrobe`). It gets the Outfit menu and Wardrobe panel like any
+schedule are declared in `packages/pet-format/src/builtin-hoodie-cat.ts`
+(`builtInPetWardrobe`), shared with the VS Code extension. It gets the Outfit menu and Wardrobe panel like any
 installed pet, and its preferences are keyed by the id `builtin`. Keep the two
 copies in step when an outfit is redrawn.
 

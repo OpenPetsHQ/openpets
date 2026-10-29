@@ -257,6 +257,38 @@ h3 {
   font-size: 12px;
   margin-top: 3px;
 }
+.creation-actions {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.creation-actions p {
+  max-width: 580px;
+}
+.creation-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wardrobe-create {
+  margin: 18px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.wardrobe-help {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: 420px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.wardrobe-empty {
+  margin-top: 14px;
+}
 .search-row {
   display: flex;
   align-items: center;
@@ -363,6 +395,7 @@ input::placeholder {
   margin-top: auto;
   padding-top: 11px;
   font-size: 11px;
+  flex-wrap: wrap;
 }
 .pagination {
   display: flex;

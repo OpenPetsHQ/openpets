@@ -5,6 +5,7 @@ import type {
   Response,
   Results,
   SurfaceKind,
+  PackageOperationResponse,
 } from "../protocol.js";
 import type {
   AssetLocation,
@@ -14,12 +15,14 @@ import type {
 import { parseRequest } from "./request-validation.js";
 import { SurfaceCoordinator } from "./surface-coordinator.js";
 import { webviewHtml } from "./webview-html.js";
-import { SceneMutationOutcomeUnknownError } from "./scene-store.js";
+import { PackageOperationRegistry } from "./package-operation-registry.js";
 
 export class WebviewSession implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
   private playbackActive = false;
+  private readonly packageOperations = new PackageOperationRegistry();
+  private readyPending = 0;
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -86,6 +89,8 @@ export class WebviewSession implements vscode.Disposable {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    const drain = this.packageOperations.dispose();
+    this.service.trackDetachedPackageOperations(drain);
     for (const disposable of this.disposables) disposable.dispose();
     this.coordinator.detach(this.id);
   }
@@ -154,6 +159,12 @@ export class WebviewSession implements vscode.Disposable {
       return;
     }
     try {
+      if (request.method === "installPet" || request.method === "installWardrobe" || request.method === "importPetPackage") {
+        if (this.readyPending) throw new Error("Companion is not ready.");
+        const result = await this.packageOperations.run(request.id, (signal) => this.runPackage(request, signal));
+        this.post({ type: "response", id: request.id, ...result });
+        return;
+      }
       if (request.method === "showSidebar") {
         const closeEditor = this.commands.captureCloseEditor();
         await this.commands.revealSidebar();
@@ -186,20 +197,48 @@ export class WebviewSession implements vscode.Disposable {
         ok: false,
         error: {
           message,
-          ...(error instanceof SceneMutationOutcomeUnknownError
+          ...(typeof error === "object" && error !== null && "outcome" in error && error.outcome === "unknown"
             ? { outcome: "unknown" as const }
             : {}),
         },
       });
     }
   }
+  private async runPackage(request: Extract<Request, { method: "installPet" | "installWardrobe" | "importPetPackage" }>, signal: AbortSignal): Promise<PackageOperationResponse> {
+    let succeeded = false;
+    try {
+      if (request.method === "importPetPackage") {
+        const result = await this.service.importPetPackage(request.params.targetPetId, signal);
+        if (result.status === "cancelled") return { ok: true, result };
+        succeeded = true;
+        return { ok: true, result: { status: "installed", petId: result.petId, snapshot: this.projectSnapshot(result.snapshot) } };
+      }
+      const snapshot = request.method === "installPet"
+        ? await this.service.installPet(request.params.petId, signal)
+        : await this.service.installWardrobe(request.params.petId, signal);
+      succeeded = true;
+      return { ok: true, result: this.projectSnapshot(snapshot) };
+    } catch (error) {
+      const unknown = succeeded || (typeof error === "object" && error !== null && "outcome" in error && error.outcome === "unknown");
+      return { ok: false, error: { message: unknown ? "Package operation outcome is unknown. Refresh before retrying." : error instanceof Error ? error.message : "Request failed.", ...(unknown ? { outcome: "unknown" as const } : {}) } };
+    }
+  }
   private async dispatch(request: Request): Promise<Results[keyof Results]> {
     switch (request.method) {
-      case "ready":
-        return {
-          snapshot: this.projectSnapshot(await this.service.getSnapshot()),
-          surface: this.coordinator.get(this.id),
-        };
+      case "ready": {
+        this.readyPending++;
+        try {
+          await this.packageOperations.activateDocument(request.id);
+          await this.service.waitForPackageOperations();
+          return { snapshot: this.projectSnapshot(await this.service.getSnapshot()), surface: this.coordinator.get(this.id) };
+        } finally {
+          this.readyPending--;
+        }
+      }
+      case "packageOperationStatus":
+        return this.packageOperations.status(request.params.operationId);
+      case "recoverPackageOperation":
+        return this.packageOperations.recover(request.params.operationId);
       case "listCatalog": {
         const listing = await this.service.listCatalog(
           request.params.query,
@@ -218,13 +257,12 @@ export class WebviewSession implements vscode.Disposable {
         };
       }
       case "installPet":
-        return this.projectSnapshot(
-          await this.service.installPet(request.params.petId),
-        );
       case "installWardrobe":
-        return this.projectSnapshot(
-          await this.service.installWardrobe(request.params.petId),
-        );
+      case "importPetPackage":
+        throw new Error("Package operations must be handled by the session registry.");
+      case "openStudio":
+        await this.service.openStudio(request.params.intent, request.params.petId);
+        return null;
       case "addInstance":
         return this.projectSnapshot(
           await this.service.addInstance(

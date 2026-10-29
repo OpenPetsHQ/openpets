@@ -41,6 +41,9 @@ export function App({ backend }: { backend: WebviewBackend }) {
     string | null
   >(null);
   const [pending, setPending] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [studioError, setStudioError] = useState("");
+  const studioRetryRef = useRef<(() => void) | undefined>(undefined);
   const pendingRef = useRef(false);
   const aliveRef = useRef(true);
   const retryRef = useRef<(() => void) | undefined>(undefined);
@@ -149,6 +152,7 @@ export function App({ backend }: { backend: WebviewBackend }) {
         setPending(false);
         setInstallingId(null);
         setWardrobeInstallingId(null);
+        setImporting(false);
       });
   };
 
@@ -210,6 +214,26 @@ export function App({ backend }: { backend: WebviewBackend }) {
         if (aliveRef.current) setPending(false);
       });
   };
+  const importPet = (targetPetId?: string) => {
+    if (pendingRef.current || unknownOutcomeRef.current) return;
+    setImporting(true);
+    run(async () => {
+      const result = await backend.importPetPackage(
+        targetPetId ? { targetPetId } : {},
+      );
+      return result.status === "installed" ? result.snapshot : undefined;
+    });
+    retryRef.current = () => importPet(targetPetId);
+  };
+  const openStudio = (petId?: string) => {
+    const retry = () => openStudio(petId);
+    studioRetryRef.current = retry;
+    setStudioError("");
+    void backend.openStudio(petId ? { intent: "outfit", petId } : { intent: "pet" })
+      .catch((reason: unknown) => {
+        if (aliveRef.current) setStudioError(reason instanceof Error ? reason.message : String(reason));
+      });
+  };
 
   return (
     <div className="openpets-app">
@@ -268,6 +292,15 @@ export function App({ backend }: { backend: WebviewBackend }) {
             >
               Dismiss
             </button>
+          </div>
+        </div>
+      )}
+      {studioError && (
+        <div className="inline-error app-error" role="alert">
+          <p>Could not open Studio: {studioError}</p>
+          <div className="error-actions">
+            <button className="button secondary" onClick={() => studioRetryRef.current?.()}>Retry</button>
+            <button className="text-button" onClick={() => setStudioError("")}>Dismiss</button>
           </div>
         </div>
       )}
@@ -341,6 +374,12 @@ export function App({ backend }: { backend: WebviewBackend }) {
             catalogError={catalogError}
             installingId={installingId}
             pending={pending || unknownOutcome}
+            importing={importing}
+            localPetIds={snapshot.installedPets
+              .filter((pet) => pet.source === "local")
+              .map((pet) => pet.id)}
+            onCreatePet={() => openStudio()}
+            onImportPet={() => importPet()}
             onSearch={(query) => {
               setSearchQuery(query);
               setCatalogPage(0);
@@ -363,6 +402,10 @@ export function App({ backend }: { backend: WebviewBackend }) {
           <Wardrobe
             snapshot={snapshot}
             pending={pending || unknownOutcome}
+            importing={importing}
+            onGallery={() => setActiveTab("gallery")}
+            onCreateOutfit={openStudio}
+            onImportPet={importPet}
             wardrobeInstallingId={wardrobeInstallingId}
             onSelectInstance={(id) => run(() => backend.selectInstance(id))}
             onRefreshWardrobe={(id) => run(() => backend.refreshWardrobe(id))}

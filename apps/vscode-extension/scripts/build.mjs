@@ -3,6 +3,7 @@ import { access, cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
+import { builtInPetWardrobe, builtInPetOutfitFileName, builtInPetOutfitsDirectory } from "@open-pets/pet-format/builtin-hoodie-cat";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -36,6 +37,12 @@ await cp(
   resolve(root, "../desktop/assets/default-pet-spritesheet.webp"),
   resolve(root, "dist/media/default-pet-spritesheet.webp"),
 );
+await mkdir(resolve(root, "dist/media", builtInPetOutfitsDirectory), { recursive: true });
+await Promise.all(builtInPetWardrobe.outfits.map(async (outfit) => {
+  const fileName = builtInPetOutfitFileName(outfit.id);
+  if (!fileName) throw new Error(`Missing bundled outfit path for ${outfit.id}.`);
+  await cp(resolve(root, "../desktop/assets", fileName), resolve(root, "dist/media", fileName));
+}));
 await Promise.all([
   build({
     entryPoints: [resolve(root, "src/host/validation-worker.ts")],

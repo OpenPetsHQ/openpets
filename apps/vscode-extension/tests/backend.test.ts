@@ -5,12 +5,12 @@ import {
   WebviewBackend,
 } from "../src/webview/backend.js";
 
-test("document IDs isolate delayed responses and installs outlive control deadlines", async (t) => {
+test("package watchdog waits for native UI and retrieves terminal responses without replay", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const messages: Array<{ id: string; method: string }> = [];
+  const messages: Array<{ id: string; method: string; params: unknown }> = [];
   const listeners = new Set<(event: { data: unknown }) => void>();
-  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const previousApi = Object.getOwnPropertyDescriptor(
+  const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const oldApi = Object.getOwnPropertyDescriptor(
     globalThis,
     "acquireVsCodeApi",
   );
@@ -18,11 +18,11 @@ test("document IDs isolate delayed responses and installs outlive control deadli
     configurable: true,
     value: {
       addEventListener: (
-        _type: string,
+        _: string,
         listener: (event: { data: unknown }) => void,
       ) => listeners.add(listener),
       removeEventListener: (
-        _type: string,
+        _: string,
         listener: (event: { data: unknown }) => void,
       ) => listeners.delete(listener),
     },
@@ -30,112 +30,124 @@ test("document IDs isolate delayed responses and installs outlive control deadli
   Object.defineProperty(globalThis, "acquireVsCodeApi", {
     configurable: true,
     value: () => ({
-      postMessage: (message: { id: string; method: string }) =>
+      postMessage: (message: { id: string; method: string; params: unknown }) =>
         messages.push(message),
     }),
   });
-  const deliver = (id: string, result: unknown) => {
+  const reply = (id: string, result: unknown) => {
     for (const listener of listeners)
       listener({ data: { type: "response", id, ok: true, result } });
   };
+  const unknown = (error: unknown) =>
+    error instanceof CompanionRequestError && error.outcome === "unknown";
   try {
-    const old = new WebviewBackend();
-    const oldRequest = old.listCatalog("old", 0);
-    old.dispose();
-    await assert.rejects(oldRequest, /disposed/);
-    const current = new WebviewBackend();
+    const backend = new WebviewBackend();
     let settled = false;
-    const currentRequest = current.listCatalog("new", 0).then((value) => {
+    const picker = backend.importPetPackage({}).finally(() => {
       settled = true;
-      return value;
     });
-    assert.notEqual(messages[0].id, messages[1].id);
-    deliver(messages[0].id, { query: "old" });
-    await Promise.resolve();
-    assert.equal(settled, false);
-    deliver(messages[1].id, { query: "new" });
-    assert.equal((await currentRequest).query, "new");
-
-    const install = current.installPet("cat");
-    t.mock.timers.tick(16_000);
-    deliver(messages[2].id, { revision: 7 });
-    assert.equal((await install).revision, 7);
-    const timeout = current.installWardrobe("cat");
-    t.mock.timers.tick(180_000);
-    await assert.rejects(
-      timeout,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === "unknown",
-    );
-    const refresh = current.refreshWardrobe("cat");
-    t.mock.timers.tick(16_000);
-    deliver(messages[4].id, { revision: 8 });
-    assert.equal((await refresh).revision, 8);
-    const settings = current.setSceneSettings({ motion: "calm" });
-    t.mock.timers.tick(15_000);
-    await assert.rejects(
-      settings,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === "unknown",
-    );
-    const rename = current.renameInstance("i", "Cat");
-    for (const listener of listeners)
-      listener({
-        data: {
-          type: "response",
-          id: messages[6].id,
-          ok: false,
-          error: { message: "Unknown", outcome: "unknown" },
-        },
-      });
-    await assert.rejects(
-      rename,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === "unknown",
-    );
-    const malformedMutation = current.addInstance("cat", "Cat");
-    const mutationId = messages[messages.length - 1].id;
-    const malformedRead = current.listCatalog("cat", 0);
-    const readId = messages[messages.length - 1].id;
-    const count = messages.length;
-    for (const listener of listeners) {
-      listener({ data: { type: "response", id: mutationId, ok: true } });
-      listener({ data: { type: "response", id: readId, ok: false } });
+    const pickerId = messages.at(-1)!.id;
+    for (let i = 0; i < 14; i++) {
+      t.mock.timers.tick(15_000);
+      const probe = messages.at(-1)!;
+      assert.equal(probe.method, "packageOperationStatus");
+      assert.deepEqual(probe.params, { operationId: pickerId });
+      reply(probe.id, { status: "pending" });
+      await Promise.resolve();
     }
-    await assert.rejects(
-      malformedMutation,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === "unknown",
+    assert.equal(settled, false);
+    t.mock.timers.tick(15_000);
+    reply(messages.at(-1)!.id, {
+      status: "terminal",
+      response: { ok: true, result: { status: "cancelled" } },
+    });
+    assert.deepEqual(await picker, { status: "cancelled" });
+    assert.equal(
+      messages.filter((message) => message.method === "importPetPackage")
+        .length,
+      1,
     );
-    await assert.rejects(
-      malformedRead,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === undefined,
+
+    const install = backend.installPet("cat");
+    t.mock.timers.tick(15_000);
+    reply(messages.at(-1)!.id, {
+      status: "terminal",
+      response: {
+        ok: true,
+        result: {
+          revision: 7,
+          settings: {},
+          selectedInstanceId: null,
+          instances: [],
+          installedPets: [],
+        },
+      },
+    });
+    assert.equal((await install).revision, 7);
+    assert.equal(
+      messages.filter((message) => message.method === "installPet").length,
+      1,
     );
-    assert.equal(messages.length, count);
-    const disposedMutation = current.installPet("cat");
-    const disposedRead = current.listCatalog("cat", 0);
-    const beforeDispose = messages.length;
-    current.dispose();
-    await assert.rejects(
-      disposedMutation,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === "unknown",
-    );
-    await assert.rejects(
-      disposedRead,
-      (error: unknown) =>
-        error instanceof CompanionRequestError && error.outcome === undefined,
-    );
+
+    const lost = backend.installWardrobe("cat");
+    const lostId = messages.at(-1)!.id;
+    t.mock.timers.tick(15_000);
+    t.mock.timers.tick(15_000);
+    await assert.rejects(lost, unknown);
+    reply(lostId, { revision: 8 });
+    const refresh = backend.ready();
+    assert.equal(messages.at(-1)!.method, "recoverPackageOperation");
+    assert.deepEqual(messages.at(-1)!.params, { operationId: lostId });
+    reply(messages.at(-1)!.id, { status: "unavailable" });
+    await Promise.resolve();
+    assert.equal(messages.at(-1)!.method, "ready");
+    reply(messages.at(-1)!.id, {
+      snapshot: { revision: 8 },
+      surface: { sequence: 1 },
+    });
+    await refresh;
+    const plainReady = backend.ready();
+    assert.equal(messages.at(-1)!.method, "ready");
+    reply(messages.at(-1)!.id, {
+      snapshot: { revision: 8 },
+      surface: { sequence: 1 },
+    });
+    await plainReady;
+
+    const malformed = backend.importPetPackage({});
+    reply(messages.at(-1)!.id, { status: "installed", petId: "cat" });
+    await assert.rejects(malformed, unknown);
+    const failedRefresh = backend.ready();
+    reply(messages.at(-1)!.id, { status: "pending" });
+    await assert.rejects(failedRefresh, /Invalid package recovery/);
+    const secondRefresh = backend.ready();
+    assert.equal(messages.at(-1)!.method, "recoverPackageOperation");
+    reply(messages.at(-1)!.id, { status: "unavailable" });
+    await Promise.resolve();
+    t.mock.timers.tick(15_000);
+    await assert.rejects(secondRefresh, /timed out/);
+    const thirdRefresh = backend.ready();
+    assert.equal(messages.at(-1)!.method, "recoverPackageOperation");
+    reply(messages.at(-1)!.id, { status: "unavailable" });
+    await Promise.resolve();
+    reply(messages.at(-1)!.id, {
+      snapshot: { revision: 9 },
+      surface: { sequence: 2 },
+    });
+    await thirdRefresh;
+
+    const pending = backend.importPetPackage({});
+    t.mock.timers.tick(15_000);
+    const count = messages.length;
+    backend.dispose();
+    await assert.rejects(pending, unknown);
     t.mock.timers.tick(180_000);
-    assert.equal(messages.length, beforeDispose);
-    assert.throws(() => current.onSnapshot(() => {}), /disposed/);
+    await Promise.resolve();
+    assert.equal(messages.length, count);
   } finally {
-    if (previousWindow)
-      Object.defineProperty(globalThis, "window", previousWindow);
+    if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
     else Reflect.deleteProperty(globalThis, "window");
-    if (previousApi)
-      Object.defineProperty(globalThis, "acquireVsCodeApi", previousApi);
+    if (oldApi) Object.defineProperty(globalThis, "acquireVsCodeApi", oldApi);
     else Reflect.deleteProperty(globalThis, "acquireVsCodeApi");
   }
 });

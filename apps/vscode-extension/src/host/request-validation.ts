@@ -19,6 +19,9 @@ function id(value: unknown): value is string {
     value.trim() === value
   );
 }
+function petId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
+}
 function name(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -104,6 +107,25 @@ export function parseRequest(value: unknown): Request | undefined {
         method: "listCatalog",
         params: { query: params.query, page: params.page },
       };
+    case "packageOperationStatus":
+    case "recoverPackageOperation":
+      if (
+        !params ||
+        !keys(params, ["operationId"]) ||
+        typeof params.operationId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]*$/i.test(
+          params.operationId,
+        ) ||
+        params.operationId.length > 128 ||
+        !Number.isSafeInteger(Number(params.operationId.slice(37)))
+      )
+        return;
+      return {
+        type: "request",
+        id: requestId,
+        method: envelope.method,
+        params: { operationId: params.operationId },
+      };
     case "installPet":
     case "installWardrobe":
     case "refreshWardrobe":
@@ -114,6 +136,39 @@ export function parseRequest(value: unknown): Request | undefined {
         method: envelope.method,
         params: { petId: params.petId },
       };
+    case "importPetPackage":
+      if (!params || !keys(params, ["targetPetId"])) return;
+      if (!("targetPetId" in params))
+        return {
+          type: "request",
+          id: requestId,
+          method: "importPetPackage",
+          params: {},
+        };
+      if (!petId(params.targetPetId)) return;
+      return {
+        type: "request",
+        id: requestId,
+        method: "importPetPackage",
+        params: { targetPetId: params.targetPetId },
+      };
+    case "openStudio":
+      if (!params || !keys(params, ["intent", "petId"])) return;
+      if (params.intent === "pet" && !("petId" in params))
+        return {
+          type: "request",
+          id: requestId,
+          method: "openStudio",
+          params: { intent: "pet" },
+        };
+      if (params.intent === "outfit" && petId(params.petId))
+        return {
+          type: "request",
+          id: requestId,
+          method: "openStudio",
+          params: { intent: "outfit", petId: params.petId },
+        };
+      return;
     case "addInstance":
       if (
         !params ||

@@ -81,7 +81,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a 
 6. Pet windows render reaction-driven animations, localized speech, host-rendered bubbles/alerts/HUDs, and status reactions using desktop state plus reaction mapping metadata.
 7. Pet assets are resolved from built-in assets, locally developed Codex pets, or remotely downloaded catalog ZIPs.
 8. Workspace packages share TypeScript/ESM build conventions and are wired together through pnpm `workspace:*` dependencies.
-9. The standalone VS Code UI host provides a bundled pet, catalog gallery and installation, manual outfits, and editor/sidebar webviews without the desktop IPC service. Scene instances, roaming, ball play and settings are implemented; rendered editor and installed-product acceptance remain pending.
+9. The standalone VS Code UI host provides a bundled pet and outfits, catalog and local ZIP installation, manual outfits, and editor/sidebar webviews without the desktop IPC service. Scene instances, roaming and settings are implemented; the locally packaged extension is for evaluation, not Marketplace release.
 
 ## Working Notes
 

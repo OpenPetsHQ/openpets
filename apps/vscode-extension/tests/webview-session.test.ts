@@ -21,7 +21,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
     const output = await build({
       stdin: {
         contents:
-          'export { WebviewSession } from "./src/host/webview-session.ts"; export { SceneMutationOutcomeUnknownError } from "./src/host/scene-store.ts";',
+          'export { WebviewSession } from "./src/host/webview-session.ts"; export { SceneMutationOutcomeUnknownError } from "./src/host/companion-store.ts";',
         resolveDir: process.cwd(),
         loader: "ts",
       },
@@ -53,7 +53,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
     );
     const host = module.exports as {
       WebviewSession: typeof import("../src/host/webview-session.js").WebviewSession;
-      SceneMutationOutcomeUnknownError: typeof import("../src/host/scene-store.js").SceneMutationOutcomeUnknownError;
+      SceneMutationOutcomeUnknownError: typeof import("../src/host/companion-store.js").SceneMutationOutcomeUnknownError;
     };
     const layout = getPetSpriteLayout({});
     const sprite = {
@@ -89,22 +89,45 @@ test("sessions project nested fallback assets per webview and return unknown mut
         },
       ],
     };
+    const studioRequests: Array<[string, string | undefined]> = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let pendingSignal: AbortSignal | undefined;
+    let pendingCalls = 0;
+    let releaseCommit!: () => void;
+    const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve; });
+    let releaseLive!: () => void;
+    let liveGate = new Promise<void>((resolve) => { releaseLive = resolve; });
+    const detached = new Set<Promise<void>>();
     const service = {
       getSnapshot: async () => snapshot,
+      waitForPackageOperations: async () => { await Promise.all([...detached]); },
+      trackDetachedPackageOperations: (drain: Promise<void>) => { detached.add(drain); void drain.finally(() => detached.delete(drain)); },
       onSnapshot: () => () => {},
+      importPetPackage: async (target?: string, signal?: AbortSignal) => {
+        if (target === "pending") { pendingCalls++; pendingSignal = signal; await gate; return { status: "installed" as const, petId: target, snapshot }; }
+        if (target === "commit") { await commitGate; return { status: "installed" as const, petId: target, snapshot }; }
+        if (target === "picker" || target === "confirmation") { await liveGate; return { status: "cancelled" as const }; }
+        if (target === "unknown") throw new host.SceneMutationOutcomeUnknownError();
+        if (target === undefined) return { status: "cancelled" as const };
+        return { status: "installed" as const, petId: target, snapshot };
+      },
+      openStudio: async (intent: string, petId?: string) => { studioRequests.push([intent, petId]); },
       addInstance: async () => {
         throw new host.SceneMutationOutcomeUnknownError();
       },
     };
     const messages: unknown[] = [];
+    let failProjection = false;
     let receive: (value: unknown) => void = () => {};
     const webview = {
       options: {},
       html: "",
       cspSource: "local",
-      asWebviewUri: (uri: { path: string }) => ({
-        toString: () => `view-one:${uri.path}`,
-      }),
+      asWebviewUri: (uri: { path: string }) => {
+        if (failProjection) throw new Error("projection failed");
+        return { toString: () => `view-one:${uri.path}` };
+      },
       onDidReceiveMessage: (listener: (value: unknown) => void) => {
         receive = listener;
         return { dispose: () => {} };
@@ -139,7 +162,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
         dispose: () => {},
       },
     );
-    receive({ type: "request", id: "ready", method: "ready" });
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:1", method: "ready" });
     await new Promise<void>((done) => setImmediate(done));
     const ready = messages.find(
       (
@@ -151,7 +174,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
         !!value &&
         typeof value === "object" &&
         "id" in value &&
-        value.id === "ready",
+        value.id === "12345678-1234-4123-8123-123456789abc:1",
     );
     assert.equal(
       ready?.result.snapshot.instances[0].appearance.sprite.uri,
@@ -161,6 +184,53 @@ test("sessions project nested fallback assets per webview and return unknown mut
       ready?.result.snapshot.installedPets[0].outfits[0].sprite.uri,
       "view-one:/pet.webp",
     );
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:2", method: "importPetPackage", params: {} });
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:3", method: "importPetPackage", params: { targetPetId: "cat" } });
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:4", method: "importPetPackage", params: { targetPetId: "unknown" } });
+    receive({ type: "request", id: "studio-pet", method: "openStudio", params: { intent: "pet" } });
+    receive({ type: "request", id: "studio-outfit", method: "openStudio", params: { intent: "outfit", petId: "cat" } });
+    receive({ type: "request", id: "invalid", method: "importPetPackage", params: { targetPetId: "cat", path: "/untrusted" } });
+    receive({ type: "request", id: "invalid-array", method: "openStudio", params: [] });
+    await new Promise<void>((done) => setImmediate(done));
+    const response = (id: string): Record<string, unknown> => {
+      const item = messages.find((value) => value && typeof value === "object" && "id" in value && value.id === id);
+      assert.ok(item && typeof item === "object");
+      return item as Record<string, unknown>;
+    };
+    assert.deepEqual(response("12345678-1234-4123-8123-123456789abc:2").result, { status: "cancelled" });
+    const imported = response("12345678-1234-4123-8123-123456789abc:3").result as { status: string; petId: string; snapshot: import("../src/protocol.js").CompanionSnapshot };
+    assert.equal(imported.status, "installed");
+    assert.equal(imported.petId, "cat");
+    assert.equal(imported.snapshot.instances[0].appearance.sprite.uri, "view-one:/pet.webp");
+    assert.equal(imported.snapshot.installedPets[0].outfits[0].sprite.uri, "view-one:/pet.webp");
+    assert.deepEqual(response("12345678-1234-4123-8123-123456789abc:4").error, { message: "Package operation outcome is unknown. Refresh before retrying.", outcome: "unknown" });
+    assert.equal(response("invalid").ok, false);
+    assert.equal(response("invalid-array").ok, false);
+    assert.equal(response("studio-pet").result, null);
+    assert.equal(response("studio-outfit").result, null);
+    assert.deepEqual(studioRequests, [["pet", undefined], ["outfit", "cat"]]);
+    const pendingId = "12345678-1234-4123-8123-123456789abc:5";
+    receive({ type: "request", id: pendingId, method: "importPetPackage", params: { targetPetId: "pending" } });
+    await new Promise<void>((done) => setImmediate(done));
+    receive({ type: "request", id: "status", method: "packageOperationStatus", params: { operationId: pendingId } });
+    receive({ type: "request", id: "recover", method: "recoverPackageOperation", params: { operationId: pendingId } });
+    await new Promise<void>((done) => setImmediate(done));
+    assert.deepEqual(response("status").result, { status: "pending" });
+    assert.equal(pendingSignal?.aborted, true);
+    assert.equal(messages.some((value) => !!value && typeof value === "object" && "id" in value && value.id === "recover"), false);
+    release();
+    await new Promise<void>((done) => setImmediate(done));
+    const recovered = response("recover").result as { status: string; response: { result: { snapshot: import("../src/protocol.js").CompanionSnapshot } } };
+    assert.equal(recovered.status, "terminal");
+    assert.equal(recovered.response.result.snapshot.instances[0].appearance.sprite.uri, "view-one:/pet.webp");
+    receive({ type: "request", id: pendingId, method: "importPetPackage", params: { targetPetId: "pending" } });
+    await new Promise<void>((done) => setImmediate(done));
+    assert.equal(pendingCalls, 1);
+    failProjection = true;
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:6", method: "importPetPackage", params: { targetPetId: "cat" } });
+    await new Promise<void>((done) => setImmediate(done));
+    assert.deepEqual(response("12345678-1234-4123-8123-123456789abc:6").error, { message: "Package operation outcome is unknown. Refresh before retrying.", outcome: "unknown" });
+    failProjection = false;
     let receiveSecond: (value: unknown) => void = () => {};
     const secondMessages: unknown[] = [];
     const secondView = {
@@ -204,7 +274,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
         dispose: () => {},
       },
     );
-    receiveSecond({ type: "request", id: "second-ready", method: "ready" });
+    receiveSecond({ type: "request", id: "abcdef12-1234-4123-8123-123456789abc:1", method: "ready" });
     await new Promise<void>((done) => setImmediate(done));
     const secondReady = secondMessages.find(
       (
@@ -216,7 +286,7 @@ test("sessions project nested fallback assets per webview and return unknown mut
         !!value &&
         typeof value === "object" &&
         "id" in value &&
-        value.id === "second-ready",
+        value.id === "abcdef12-1234-4123-8123-123456789abc:1",
     );
     assert.equal(
       secondReady?.result.snapshot.instances[0].appearance.sprite.uri,
@@ -226,17 +296,41 @@ test("sessions project nested fallback assets per webview and return unknown mut
       secondReady?.result.snapshot.installedPets[0].outfits[0].sprite.uri,
       "view-two:/pet.webp",
     );
+    receiveSecond({ type: "request", id: "abcdef12-1234-4123-8123-123456789abc:2", method: "importPetPackage", params: { targetPetId: "cat" } });
+    await new Promise<void>((done) => setImmediate(done));
+    const secondImport = secondMessages.find((value) => value && typeof value === "object" && "id" in value && value.id === "abcdef12-1234-4123-8123-123456789abc:2") as { result: { snapshot: import("../src/protocol.js").CompanionSnapshot } };
+    assert.equal(secondImport.result.snapshot.instances[0].appearance.sprite.uri, "view-two:/pet.webp");
+    assert.equal(secondImport.result.snapshot.installedPets[0].outfits[0].sprite.uri, "view-two:/pet.webp");
+    for (const [index, target] of ["picker", "confirmation"].entries()) {
+      liveGate = new Promise<void>((resolve) => { releaseLive = resolve; });
+      receive({ type: "request", id: `12345678-1234-4123-8123-123456789abc:${8 + index}`, method: "importPetPackage", params: { targetPetId: target } });
+      await new Promise<void>((done) => setImmediate(done));
+      const readyId = `abcdef12-1234-4123-8123-123456789abc:${10 + index}`;
+      receiveSecond({ type: "request", id: readyId, method: "ready" });
+      await new Promise<void>((done) => setImmediate(done));
+      assert.ok(secondMessages.some((value) => !!value && typeof value === "object" && "id" in value && value.id === readyId && "ok" in value && value.ok === true));
+      releaseLive();
+      await new Promise<void>((done) => setImmediate(done));
+    }
     assert.equal(
       messages.some(
         (value) =>
           !!value &&
           typeof value === "object" &&
           "id" in value &&
-          value.id === "second-ready",
+          value.id === "abcdef12-1234-4123-8123-123456789abc:1",
       ),
       false,
     );
+    receiveSecond({ type: "request", id: "abcdef12-1234-4123-8123-123456789abc:3", method: "importPetPackage", params: { targetPetId: "commit" } });
+    await new Promise<void>((done) => setImmediate(done));
     second.dispose();
+    receive({ type: "request", id: "12345678-1234-4123-8123-123456789abc:7", method: "ready" });
+    await new Promise<void>((done) => setImmediate(done));
+    assert.equal(messages.some((value) => !!value && typeof value === "object" && "id" in value && value.id === "12345678-1234-4123-8123-123456789abc:7"), false);
+    releaseCommit();
+    await new Promise<void>((done) => setImmediate(done));
+    assert.equal(response("12345678-1234-4123-8123-123456789abc:7").ok, true);
     receive({
       type: "request",
       id: "add",

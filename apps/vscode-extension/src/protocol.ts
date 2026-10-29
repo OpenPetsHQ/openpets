@@ -26,9 +26,12 @@ export interface InstalledPetView<Location = string> {
   id: string;
   displayName: string;
   description: string;
-  source: "builtin" | "catalog";
+  source: "builtin" | "catalog" | "local";
+  wardrobeSource?: "bundled" | "local";
+  hasLocalWardrobeOverride?: boolean;
   outfits: readonly OutfitView<Location>[];
-  wardrobeStatus: "unknown" | "none" | "install" | "update" | "current";
+  wardrobeStatus:
+    "unknown" | "none" | "install" | "update" | "current" | "local";
   problem?: string;
 }
 
@@ -95,6 +98,10 @@ export interface Requests {
   listCatalog: { query: string; page: number };
   installPet: { petId: string };
   installWardrobe: { petId: string };
+  importPetPackage: { targetPetId?: string };
+  packageOperationStatus: { operationId: string };
+  recoverPackageOperation: { operationId: string };
+  openStudio: { intent: "pet" | "outfit"; petId?: string };
   addInstance: { petId: string; name: string };
   renameInstance: { instanceId: string; name: string };
   removeInstance: { instanceId: string };
@@ -111,6 +118,10 @@ export interface Results {
   listCatalog: CatalogListing;
   installPet: CompanionSnapshot;
   installWardrobe: CompanionSnapshot;
+  importPetPackage: ImportPetPackageResult;
+  packageOperationStatus: PackageOperationStatus;
+  recoverPackageOperation: PackageOperationRecovery;
+  openStudio: null;
   addInstance: CompanionSnapshot;
   renameInstance: CompanionSnapshot;
   removeInstance: CompanionSnapshot;
@@ -121,6 +132,28 @@ export interface Results {
   openEditor: null;
   showSidebar: null;
 }
+
+export type ImportPetPackageResult<Location = string> =
+  | { status: "cancelled" }
+  | {
+      status: "installed";
+      petId: string;
+      snapshot: CompanionSnapshot<Location>;
+    };
+
+export type PackageOperationResponse<Location = string> =
+  | {
+      ok: true;
+      result: CompanionSnapshot<Location> | ImportPetPackageResult<Location>;
+    }
+  | { ok: false; error: { message: string; outcome?: "unknown" } };
+
+export type PackageOperationRecovery =
+  | { status: "terminal"; response: PackageOperationResponse }
+  | { status: "unavailable" };
+
+export type PackageOperationStatus =
+  { status: "pending" } | PackageOperationRecovery;
 
 export type Request = {
   [Method in keyof Requests]: {
@@ -154,6 +187,10 @@ export interface CompanionBackend {
   listCatalog(query: string, page: number): Promise<CatalogListing>;
   installPet(petId: string): Promise<CompanionSnapshot>;
   installWardrobe(petId: string): Promise<CompanionSnapshot>;
+  importPetPackage(
+    params: Requests["importPetPackage"],
+  ): Promise<ImportPetPackageResult>;
+  openStudio(params: Requests["openStudio"]): Promise<null>;
   addInstance(petId: string, name: string): Promise<CompanionSnapshot>;
   renameInstance(instanceId: string, name: string): Promise<CompanionSnapshot>;
   removeInstance(instanceId: string): Promise<CompanionSnapshot>;

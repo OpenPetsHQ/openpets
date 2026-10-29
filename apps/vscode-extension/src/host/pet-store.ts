@@ -1,24 +1,17 @@
-import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { extractPetZip } from "@open-pets/pet-format/node/archive";
 import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import type { CatalogPetV3 } from "@open-pets/pet-format/catalog-validation";
-import { downloadPetZip } from "./download.js";
-import {
-  validatePetPackage,
-  type ValidatedPetPackage,
-} from "./package-validation.js";
-import { Preferences } from "./preferences.js";
+import { convertLegacyCatalogReceipt, parseReceipt, type Receipt } from "./asset-reference.js";
+import { PetPackagePreparation, type PreparedPetPackage } from "./pet-package-preparation.js";
+import { validatePetPackage, type ValidatedPetPackage } from "./package-validation.js";
 import { ensureDirectory } from "./storage-directory.js";
 
-interface Receipt {
-  version: 1;
-  id: string;
-  sha256: string;
-  generation: string;
-  url: string;
+export interface AssetReferenceAccess {
+  readAssetReference(assetId: string): Promise<Receipt | null>;
+  compareAndSwapAssetReference(assetId: string, expectedGeneration: string | null, receipt: Receipt): Promise<Receipt>;
 }
+
 export interface InstalledPet {
   id: string;
   root: string;
@@ -26,173 +19,98 @@ export interface InstalledPet {
   package: ValidatedPetPackage;
 }
 
-function parseReceipt(value: unknown, id: string): Receipt {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Installed pet receipt is invalid.");
-  const record = value as Record<string, unknown>;
-  if (
-    record.version !== 1 ||
-    record.id !== id ||
-    typeof record.sha256 !== "string" ||
-    !/^[a-f0-9]{64}$/.test(record.sha256) ||
-    typeof record.generation !== "string" ||
-    !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
-      record.generation,
-    ) ||
-    typeof record.url !== "string"
-  )
-    throw new Error("Installed pet receipt is invalid.");
-  const url = new URL(record.url);
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "zip.openpets.dev" ||
-    url.port ||
-    url.username ||
-    url.password ||
-    !url.pathname.startsWith("/pets/")
-  )
-    throw new Error("Installed pet receipt URL is invalid.");
-  return {
-    version: 1,
-    id,
-    sha256: record.sha256,
-    generation: record.generation,
-    url: record.url,
-  };
-}
-
 export class PetStore {
-  private readonly session = randomUUID();
+  private readonly preparation: PetPackagePreparation;
+  private readonly prepared = new Set<PreparedPetPackage>();
+
   constructor(
     private readonly storage: string,
-    private readonly preferences: Preferences,
+    private readonly references: AssetReferenceAccess,
     private readonly validate = validatePetPackage,
     private readonly log: (message: string) => void = () => {},
-    private readonly cleanup: (path: string) => Promise<void> = (path) =>
-      rm(path, { recursive: true, force: true }),
-  ) {}
+    private readonly cleanup: (path: string) => Promise<void> = (path) => rm(path, { recursive: true, force: true }),
+  ) {
+    this.preparation = new PetPackagePreparation(storage, validate, log);
+  }
+
   async initialize(): Promise<void> {
     await ensureDirectory(this.storage);
     await ensureDirectory(join(this.storage, "pets"));
     await ensureDirectory(join(this.storage, "staging"));
   }
+
   async dispose(): Promise<void> {
-    const staging = await lstat(join(this.storage, "staging"));
-    if (staging.isSymbolicLink() || !staging.isDirectory()) {
-      throw new Error("Pet staging directory is unsafe.");
-    }
-    await rm(join(this.storage, "staging", this.session), {
-      recursive: true,
-      force: true,
-    });
+    this.prepared.clear();
+    await this.preparation.dispose();
   }
-  async load(id: string, signal: AbortSignal): Promise<InstalledPet> {
-    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id) || id === "builtin")
-      throw new Error("Invalid installed pet ID.");
-    const receipt = parseReceipt(this.preferences.installed(id), id);
-    return this.loadGeneration(receipt, signal, true);
+
+  async prepareCatalog(pet: CatalogPetV3, wardrobe: boolean, signal: AbortSignal): Promise<PreparedPetPackage> {
+    const prepared = await this.preparation.prepareCatalog(pet, wardrobe, signal);
+    this.prepared.add(prepared);
+    return prepared;
   }
-  private async loadGeneration(
-    receipt: Receipt,
-    signal: AbortSignal,
-    installed: boolean,
-  ): Promise<InstalledPet> {
-    const petDir = join(this.storage, "pets", receipt.id);
-    const generation = join(petDir, receipt.generation);
-    for (const path of [
-      this.storage,
-      join(this.storage, "pets"),
-      petDir,
-      generation,
-      join(generation, "package"),
-    ]) {
-      const stats = await lstat(path);
-      if (stats.isSymbolicLink() || !stats.isDirectory())
-        throw new Error("Installed pet directory is unsafe.");
-    }
-    const stored = parseReceipt(
-      JSON.parse(
-        (
-          await readBoundedRegularFile(
-            join(generation, "install.json"),
-            8192,
-            "install receipt",
-          )
-        ).toString("utf8"),
-      ),
-      receipt.id,
-    );
-    if (
-      stored.sha256 !== receipt.sha256 ||
-      stored.generation !== receipt.generation ||
-      stored.url !== receipt.url
-    )
-      throw new Error("Installed pet receipt does not match its reference.");
-    signal.throwIfAborted();
-    return {
-      id: receipt.id,
-      root: join(generation, "package"),
-      receipt,
-      package: await this.validate(
-        join(generation, "package"),
-        receipt.id,
-        signal,
-        installed,
-      ),
-    };
+
+  async prepareLocal(path: string, targetPetId: string | undefined, signal: AbortSignal): Promise<PreparedPetPackage> {
+    const prepared = await this.preparation.prepareLocal(path, targetPetId, signal);
+    this.prepared.add(prepared);
+    return prepared;
   }
-  async install(
-    pet: CatalogPetV3,
-    wardrobe: boolean,
-    signal: AbortSignal,
-  ): Promise<InstalledPet> {
-    if (wardrobe && !pet.wardrobeZip)
-      throw new Error("This pet has no downloadable wardrobe.");
-    const url = wardrobe ? pet.wardrobeZip! : (pet.wardrobeZip ?? pet.zip);
-    const bytes = await downloadPetZip(url, signal);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const receipt: Receipt = {
-      version: 1,
-      id: pet.id,
-      sha256,
-      generation: randomUUID(),
-      url,
-    };
-    await ensureDirectory(this.storage);
-    await ensureDirectory(join(this.storage, "staging"));
-    await ensureDirectory(join(this.storage, "pets"));
-    const staging = join(this.storage, "staging", this.session);
-    await ensureDirectory(staging);
-    const candidate = await mkdtemp(join(staging, "operation-"));
+
+  async discardPrepared(prepared: PreparedPetPackage): Promise<void> {
+    if (!this.prepared.delete(prepared)) throw new Error("Pet package candidate is not owned by this store.");
+    await this.preparation.discard(prepared);
+  }
+
+  async commitPrepared(prepared: PreparedPetPackage, expectedGeneration: string | null, signal: AbortSignal): Promise<InstalledPet> {
+    if (!this.prepared.delete(prepared)) throw new Error("Pet package candidate is not owned by this store.");
+    let target: string | undefined;
+    let promoted = false;
+    let committed = false;
+    let uncertain = false;
     try {
-      const root = join(candidate, "package");
-      await mkdir(root, { mode: 0o700 });
-      await extractPetZip(bytes, root, { signal });
-      const validated = await this.validate(root, pet.id, signal);
-      if (wardrobe && !validated.availableOutfitIds.length)
-        throw new Error("The downloaded package does not contain a wardrobe.");
-      await writeFile(
-        join(candidate, "install.json"),
-        JSON.stringify(receipt),
-        { mode: 0o600, flag: "wx" },
-      );
+      const receipt = parseReceipt(prepared.receipt);
+      await writeFile(join(prepared.candidate, "install.json"), JSON.stringify(receipt), { mode: 0o600, flag: "wx" });
+      const petDirectory = join(this.storage, "pets", receipt.id);
+      await ensureDirectory(petDirectory);
       signal.throwIfAborted();
-      const petDir = join(this.storage, "pets", pet.id);
-      await ensureDirectory(petDir);
-      const target = join(petDir, receipt.generation);
-      await rename(candidate, target);
-      signal.throwIfAborted();
-      await this.preferences.setInstalled(pet.id, receipt);
-      return {
-        id: pet.id,
-        root: join(target, "package"),
-        receipt,
-        package: validated,
-      };
+      target = join(petDirectory, receipt.generation);
+      await rename(prepared.candidate, target);
+      promoted = true;
+      try {
+        await this.references.compareAndSwapAssetReference(receipt.id, expectedGeneration, receipt);
+      } catch (error) {
+        const knownFailure = typeof error === "object" && error !== null && "kind" in error
+          && (error.kind === "conflict" || error.kind === "invalid" || error.kind === "busy");
+        uncertain = !knownFailure;
+        throw error;
+      }
+      committed = true;
+      return { id: receipt.id, root: join(target, "package"), receipt, package: prepared.package };
     } finally {
-      await this.cleanup(candidate).catch((error: unknown) =>
-        this.log(`[storage] staging cleanup failed: ${String(error)}`),
-      );
+      if (target && promoted && !committed && !uncertain) {
+        await this.cleanup(target).catch((error: unknown) => this.log(`[storage] generation cleanup failed: ${String(error)}`));
+      }
+      await this.preparation.discard(prepared);
     }
+  }
+
+  async load(id: string, signal: AbortSignal): Promise<InstalledPet> {
+    const reference = await this.references.readAssetReference(id);
+    if (!reference) throw new Error("Installed pet reference is unavailable.");
+    const receipt = parseReceipt(reference);
+    if (receipt.id !== id) throw new Error("Installed pet reference ID does not match.");
+    const petDirectory = join(this.storage, "pets", receipt.id);
+    const generation = join(petDirectory, receipt.generation);
+    for (const path of [this.storage, join(this.storage, "pets"), petDirectory, generation, join(generation, "package")]) {
+      const stats = await lstat(path);
+      if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Installed pet directory is unsafe.");
+    }
+    const stored: unknown = JSON.parse((await readBoundedRegularFile(join(generation, "install.json"), 8192, "install receipt")).toString("utf8"));
+    const normalized = typeof stored === "object" && stored !== null && "version" in stored && stored.version === 1
+      ? convertLegacyCatalogReceipt(stored)
+      : parseReceipt(stored);
+    if (JSON.stringify(normalized) !== JSON.stringify(receipt)) throw new Error("Installed pet receipt does not match its reference.");
+    signal.throwIfAborted();
+    return { id, root: join(generation, "package"), receipt, package: await this.validate(join(generation, "package"), receipt.packageId, signal, true) };
   }
 }

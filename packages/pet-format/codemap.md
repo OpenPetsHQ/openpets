@@ -4,7 +4,7 @@ Shared pet-format contracts and validation boundaries for independent hosts.
 
 ## Responsibility
 
-Defines reaction names, sprite layouts, animations, metadata, wardrobe and activities, catalog v3, and Node package validation boundaries.
+Defines reaction names, sprite layouts, animations, metadata, wardrobe and activities, the bundled Hoodie Cat wardrobe, catalog v3, and Node package validation boundaries.
 
 ## Design
 

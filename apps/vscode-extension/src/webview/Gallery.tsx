@@ -12,6 +12,10 @@ interface GalleryProps {
   catalogError: string;
   installingId: string | null;
   pending: boolean;
+  importing: boolean;
+  localPetIds: readonly string[];
+  onCreatePet(): void;
+  onImportPet(): void;
   onSearch(query: string): void;
   onPageChange(page: number): void;
   onAddPet(id: string): void;
@@ -48,6 +52,10 @@ export function Gallery({
   catalogError,
   installingId,
   pending,
+  importing,
+  localPetIds,
+  onCreatePet,
+  onImportPet,
   onSearch,
   onPageChange,
   onAddPet,
@@ -62,6 +70,15 @@ export function Gallery({
           <h2>Find your companion</h2>
           <p className="muted">Install a pet, then choose when to use it.</p>
         </div>
+      </div>
+      <div className="creation-actions">
+        <div className="creation-buttons">
+          <button className="button secondary" onClick={onCreatePet}>Create pet in Studio</button>
+          <button className="button secondary" disabled={pending} onClick={onImportPet}>
+            {importing ? "Choose a ZIP…" : "Import pet ZIP"}
+          </button>
+        </div>
+        <p className="muted small-text">Studio exports a whole pet ZIP, including its outfits. Importing installs the pet without adding it to the scene.</p>
       </div>
       {atCapacity && (
         <p className="muted small-text" role="status">
@@ -129,7 +146,9 @@ export function Gallery({
                 <p className="pet-description">{pet.description}</p>
                 <div className="card-action">
                   <span className="muted">
-                    {pet.installed
+                    {localPetIds.includes(pet.id)
+                      ? "Imported pet installed"
+                      : pet.installed
                       ? "Installed"
                       : pet.hasWardrobe
                         ? "Outfits available"
@@ -149,7 +168,7 @@ export function Gallery({
                       : pet.installed
                         ? "Add to scene"
                         : pet.canInstall
-                          ? "Install"
+                          ? localPetIds.includes(pet.id) ? "Install catalog version" : "Install"
                           : "Unavailable"}
                   </button>
                 </div>

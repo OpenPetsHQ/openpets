@@ -3,7 +3,6 @@
   flex: 1;
   min-height: min-content;
   flex-direction: column;
-  gap: 8px;
 }
 .companion-stage {
   position: relative;
@@ -23,10 +22,6 @@
   );
   background-size: 20px 20px;
 }
-.stage-aiming {
-  cursor: crosshair;
-  touch-action: none;
-}
 .stage-canvas {
   position: absolute;
   top: 0;
@@ -38,28 +33,6 @@
 }
 .stage-canvas:active {
   cursor: grabbing;
-}
-.stage-ball {
-  z-index: 8;
-  display: none;
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: 50%;
-  background: var(--vscode-button-background);
-  border: 2px solid var(--vscode-button-foreground);
-  box-sizing: border-box;
-  pointer-events: none;
-}
-.stage-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.stage-hint {
-  color: var(--muted);
-  font-size: 11px;
 }
 .stage-message {
   z-index: 9;

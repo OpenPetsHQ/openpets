@@ -41,10 +41,10 @@ There are four runtime worlds. Keep them distinct in your head.
    ZIPs from here. Only the *data* side of `web/` (catalogs, ZIP hosting, pet
    metadata) is in scope for these docs; the marketing site/frontend is not.
 4. **The VS Code extension foundation** (`apps/vscode-extension/`) - a standalone
-   UI-host preview with local preferences and editor/sidebar webviews. It does
-   not require the desktop app or its IPC server. The current shell renders the
-   bundled pet; catalog browsing, installation and wardrobe installation are
-   not yet implemented and it is not a released full product.
+   UI-host preview with editor/sidebar webviews and independent SQLite-backed
+   state. It provides catalog installation, whole-package ZIP import and manual
+   outfits without the desktop app or its IPC server. It is locally packaged
+   for evaluation, not released on the Marketplace. See [OpenPets for VS Code](/vscode).
 
 ```
 coding agent  ──(hook/MCP/plugin event)──▶  @open-pets/client

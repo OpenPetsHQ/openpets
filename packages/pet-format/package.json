@@ -36,6 +36,10 @@
       "types": "./dist/wardrobe.d.ts",
       "default": "./dist/wardrobe.js"
     },
+    "./builtin-hoodie-cat": {
+      "types": "./dist/builtin-hoodie-cat.d.ts",
+      "default": "./dist/builtin-hoodie-cat.js"
+    },
     "./activities": {
       "types": "./dist/activities.d.ts",
       "default": "./dist/activities.js"

@@ -1,8 +1,16 @@
 import { getPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import {
+  builtInPetWardrobe,
+  builtInPetOutfitFileName,
+} from "@open-pets/pet-format/builtin-hoodie-cat";
+import { readLegacyInstalledReferences } from "./asset-reference-migration.js";
+import { PackageInstallation } from "./package-installation.js";
+import type { PackageInteractions } from "./package-interactions.js";
+import type { Receipt } from "./asset-reference.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import type { SceneStore } from "./scene-store.js";
+import type { CompanionStore } from "./companion-store.js";
 import type { StoredScene, SceneStoreCommand } from "./scene-state.js";
 import type {
   CatalogListing,
@@ -12,13 +20,24 @@ import type {
   OutfitView,
 } from "../protocol.js";
 import { CatalogService, compatibilityProblem } from "./catalog-service.js";
-import { Preferences } from "./preferences.js";
 import { PetStore, type InstalledPet } from "./pet-store.js";
 
 export type AssetLocation =
   { kind: "local"; path: string } | { kind: "remote"; url: string };
 export type HostSnapshot = CompanionSnapshot<AssetLocation>;
 export type HostListing = CatalogListing<AssetLocation>;
+export type HostImportResult =
+  | { status: "cancelled" }
+  | { status: "installed"; petId: string; snapshot: HostSnapshot };
+class AssetChangedDuringRefresh extends Error {}
+export class PackageOutcomeUnknownError extends Error {
+  readonly outcome = "unknown" as const;
+  constructor(cause: unknown) {
+    super("The package may have been installed. Refresh before retrying.", {
+      cause,
+    });
+  }
+}
 
 export class CompanionService {
   private revision = 0;
@@ -26,62 +45,168 @@ export class CompanionService {
   private readonly listeners = new Set<(snapshot: HostSnapshot) => void>();
   private readonly shutdown = new AbortController();
   private readonly inFlight = new Set<Promise<unknown>>();
+  private readonly detachedPackageOperations = new Set<Promise<void>>();
   private readonly installed = new Map<string, InstalledPet>();
   private readonly problems = new Map<string, string>();
   private readonly catalog: CatalogService;
-  private readonly store?: PetStore;
+  private readonly store: PetStore;
+  private readonly installation: PackageInstallation;
+  private readonly references = new Map<string, Receipt>();
+  private readonly atlasPath: string;
+  private readonly storagePath: string;
+  private readonly log: (message: string) => void;
+  private readonly interactions: PackageInteractions;
+  private readonly sceneStore: Pick<
+    CompanionStore,
+    | "initialize"
+    | "read"
+    | "mutate"
+    | "dispose"
+    | "initializeAssetReferences"
+    | "assetReferencesInitialized"
+    | "listAssetReferences"
+    | "readAssetReference"
+    | "compareAndSwapAssetReference"
+  >;
   private disposing?: Promise<void>;
   private closed = false;
-  private pendingInstalls = 0;
   private scene?: StoredScene;
   private watcher?: FSWatcher;
   private refreshTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(
-    private readonly preferences: Preferences,
-    private readonly atlasPath: string,
-    private readonly storagePath?: string,
-    private readonly log: (message: string) => void = () => {},
-    catalog?: CatalogService,
-    store?: PetStore,
-    private readonly sceneStore?: Pick<
-      SceneStore,
-      "initialize" | "read" | "mutate" | "dispose"
-    >,
-  ) {
-    this.catalog = catalog ?? new CatalogService(this.shutdown.signal);
+  constructor(options: {
+    atlasPath: string;
+    storagePath: string;
+    stateStore: Pick<
+      CompanionStore,
+      | "initialize"
+      | "read"
+      | "mutate"
+      | "dispose"
+      | "initializeAssetReferences"
+      | "assetReferencesInitialized"
+      | "listAssetReferences"
+      | "readAssetReference"
+      | "compareAndSwapAssetReference"
+    >;
+    petStore?: PetStore;
+    catalog?: CatalogService;
+    interactions: PackageInteractions;
+    log?: (message: string) => void;
+  }) {
+    this.atlasPath = options.atlasPath;
+    this.storagePath = options.storagePath;
+    this.log = options.log ?? (() => {});
+    this.interactions = options.interactions;
+    this.sceneStore = options.stateStore;
+    this.catalog = options.catalog ?? new CatalogService(this.shutdown.signal);
     this.store =
-      store ??
-      (this.storagePath
-        ? new PetStore(this.storagePath, preferences, undefined, log)
-        : undefined);
+      options.petStore ??
+      new PetStore(this.storagePath, this.sceneStore, undefined, this.log);
+    this.installation = new PackageInstallation({
+      petStore: this.store,
+      stateStore: this.sceneStore,
+      catalog: this.catalog,
+      interactions: this.interactions,
+      signal: this.shutdown.signal,
+      log: this.log,
+    });
   }
 
   async initialize(): Promise<void> {
-    if (!this.sceneStore) throw new Error("Scene storage is unavailable.");
-    await this.preferences.initialize();
-    const store = this.store;
-    if (store) await store.initialize();
-    for (const id of store ? this.preferences.installedIds() : []) {
-      try {
-        if (!store) throw new Error("Pet storage is unavailable.");
-        const pet = await store.load(id, this.shutdown.signal);
-        this.installed.set(id, pet);
-        if (pet.package.outfitProblems?.length)
-          this.problems.set(
-            id,
-            `Some outfits are unavailable: ${pet.package.outfitProblems.join(", ")}`,
-          );
-      } catch (error) {
-        this.shutdown.signal.throwIfAborted();
-        const message =
-          error instanceof Error ? error.message : "invalid installation";
-        this.problems.set(id, message);
-        this.log(`[storage] ${id}: ${message}`);
-      }
-    }
     this.scene = await this.sceneStore.initialize();
+    if (!(await this.sceneStore.assetReferencesInitialized())) {
+      const legacy = await readLegacyInstalledReferences(
+        this.storagePath,
+        this.log,
+      );
+      await this.sceneStore.initializeAssetReferences(
+        legacy.references,
+        legacy.problems,
+      );
+    }
+    await this.store.initialize();
+    await this.refreshReferences();
     this.startSceneWatcher();
+  }
+
+  private async refreshReferences(): Promise<boolean> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const listing = await this.sceneStore.listAssetReferences();
+      const references = new Map(
+        listing.references.map((item) => [item.id, item]),
+      );
+      const installed = new Map<string, InstalledPet>();
+      const problems = new Map(
+        listing.problems.map((item) => [item.id, item.message]),
+      );
+      let raced = false;
+      for (const receipt of listing.references) {
+        const previous = this.installed.get(receipt.id);
+        if (
+          previous &&
+          !this.problems.has(receipt.id) &&
+          JSON.stringify(previous.receipt) === JSON.stringify(receipt)
+        ) {
+          installed.set(receipt.id, previous);
+          continue;
+        }
+        try {
+          const pet = await this.store.load(receipt.id, this.shutdown.signal);
+          if (JSON.stringify(pet.receipt) !== JSON.stringify(receipt)) {
+            raced = true;
+            break;
+          }
+          installed.set(receipt.id, pet);
+          if (pet.package.outfitProblems?.length)
+            problems.set(
+              receipt.id,
+              `Some outfits are unavailable: ${pet.package.outfitProblems.join(", ")}`,
+            );
+          if (
+            receipt.id === "builtin" &&
+            (!pet.package.metadata.wardrobe ||
+              !pet.package.availableOutfitIds.length ||
+              pet.package.metadata.wardrobe.outfits.some(
+                (outfit) => !pet.package.availableOutfitIds.includes(outfit.id),
+              ))
+          ) {
+            problems.set(
+              receipt.id,
+              "Custom wardrobe is incomplete; bundled outfits are in use.",
+            );
+          }
+        } catch (error) {
+          this.shutdown.signal.throwIfAborted();
+          const latest = await this.sceneStore.readAssetReference(receipt.id);
+          if (JSON.stringify(latest) !== JSON.stringify(receipt)) {
+            raced = true;
+            break;
+          }
+          const message =
+            error instanceof Error ? error.message : "invalid installation";
+          problems.set(receipt.id, message);
+          this.log(`[storage] ${receipt.id}: ${message}`);
+        }
+      }
+      const latest = await this.sceneStore.listAssetReferences();
+      if (raced || JSON.stringify(latest) !== JSON.stringify(listing)) continue;
+      const changed =
+        JSON.stringify([...this.references]) !==
+          JSON.stringify([...references]) ||
+        JSON.stringify([...this.problems]) !== JSON.stringify([...problems]) ||
+        JSON.stringify([...this.installed]) !== JSON.stringify([...installed]);
+      this.references.clear();
+      this.installed.clear();
+      this.problems.clear();
+      for (const [id, value] of references) this.references.set(id, value);
+      for (const [id, value] of installed) this.installed.set(id, value);
+      for (const [id, value] of problems) this.problems.set(id, value);
+      return changed;
+    }
+    throw new AssetChangedDuringRefresh(
+      "Asset references changed during refresh; retry.",
+    );
   }
 
   async getSnapshot(): Promise<HostSnapshot> {
@@ -95,8 +220,9 @@ export class CompanionService {
   }
 
   private async refreshScene(): Promise<HostSnapshot> {
-    const scene = await this.requireSceneStore().read();
-    if (JSON.stringify(scene) !== JSON.stringify(this.scene)) {
+    const scene = await this.requireCompanionStore().read();
+    const assetsChanged = await this.refreshReferences();
+    if (assetsChanged || JSON.stringify(scene) !== JSON.stringify(this.scene)) {
       this.scene = scene;
       if (!this.closed) return this.publish();
     }
@@ -107,15 +233,27 @@ export class CompanionService {
     if (!this.storagePath || this.closed) return;
     try {
       const watcher = watch(this.storagePath, (_event, filename) => {
-        if (this.closed || (filename !== null && filename.toString() !== "scene.sqlite" && filename.toString() !== "scene.sqlite-journal")) return;
+        if (
+          this.closed ||
+          (filename !== null &&
+            filename.toString() !== "scene.sqlite" &&
+            filename.toString() !== "scene.sqlite-journal")
+        )
+          return;
         if (this.refreshTimer) clearTimeout(this.refreshTimer);
         this.refreshTimer = setTimeout(() => {
           this.refreshTimer = undefined;
           if (this.closed) return;
           const refresh = this.queue.then(() => this.refreshScene());
-          this.queue = refresh.then(() => undefined, (error: unknown) => {
-            if (!this.closed) this.log(`[scene] Watch refresh failed: ${error instanceof Error ? error.message : String(error)}`);
-          });
+          this.queue = refresh.then(
+            () => undefined,
+            (error: unknown) => {
+              if (!this.closed)
+                this.log(
+                  `[scene] Watch refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            },
+          );
         }, 50);
       });
       this.watcher = watcher;
@@ -127,7 +265,9 @@ export class CompanionService {
         this.refreshTimer = undefined;
       });
     } catch (error) {
-      this.log(`[scene] Watcher unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(
+        `[scene] Watcher unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -137,33 +277,61 @@ export class CompanionService {
       uri: { kind: "local" as const, path: this.atlasPath },
       layout: getPetSpriteLayout({ spriteVersionNumber: 2 }),
     };
-    const builtinPackage = this.installed.get("hoodie-cat");
+    const builtinPackage = this.problems.has("builtin")
+      ? undefined
+      : this.installed.get("builtin");
+    const bundledOutfits: OutfitView<AssetLocation>[] =
+      builtInPetWardrobe.outfits.map((outfit) => {
+        const filename = builtInPetOutfitFileName(outfit.id);
+        if (!filename) throw new Error("Bundled outfit metadata is invalid.");
+        return {
+          id: outfit.id,
+          displayName: outfit.displayName,
+          sprite: {
+            uri: {
+              kind: "local" as const,
+              path: join(dirname(this.atlasPath), filename),
+            },
+            layout: builtinSprite.layout,
+          },
+        };
+      });
     const builtinOutfits: OutfitView<AssetLocation>[] = [
       { id: "default", displayName: "Default", sprite: builtinSprite },
+      ...(builtinPackage
+        ? this.outfits(builtinPackage).slice(1)
+        : bundledOutfits),
     ];
-    if (builtinPackage)
-      builtinOutfits.push(...this.outfits(builtinPackage).slice(1));
     const builtin: InstalledPetView<AssetLocation> = {
       id: "builtin",
       displayName: "Hoodie Cat",
       description: "The bundled OpenPets companion.",
       source: "builtin",
+      wardrobeSource: builtinPackage ? "local" : "bundled",
+      ...(this.references.has("builtin") || this.problems.has("builtin")
+        ? { hasLocalWardrobeOverride: true }
+        : {}),
       outfits: builtinOutfits,
-      wardrobeStatus: this.wardrobeStatus("hoodie-cat", builtinPackage),
+      wardrobeStatus: builtinPackage ? "local" : "current",
+      ...(this.problems.has("builtin")
+        ? { problem: this.problems.get("builtin") }
+        : {}),
     };
     const installedPets: InstalledPetView<AssetLocation>[] = [
       builtin,
-      ...[...this.installed.values()].map((pet) => ({
-        id: pet.id,
-        displayName: pet.package.metadata.displayName,
-        description: pet.package.metadata.description,
-        source: "catalog" as const,
-        outfits: this.outfits(pet),
-        wardrobeStatus: this.wardrobeStatus(pet.id, pet),
-        ...(this.problems.has(pet.id)
-          ? { problem: this.problems.get(pet.id) }
-          : {}),
-      })),
+      ...[...this.installed.values()]
+        .filter((pet) => pet.id !== "builtin")
+        .map((pet) => ({
+          id: pet.id,
+          displayName: pet.package.metadata.displayName,
+          description: pet.package.metadata.description,
+          source: pet.receipt.source.kind,
+          outfits: this.outfits(pet),
+          wardrobeStatus: this.wardrobeStatus(pet.id, pet),
+          ...(this.problems.has(pet.id)
+            ? { problem: this.problems.get(pet.id) }
+            : {}),
+        })),
     ];
     const instances = this.scene.instances.map((instance) => {
       const pet = installedPets.find((item) => item.id === instance.petId);
@@ -188,18 +356,33 @@ export class CompanionService {
         ...(problem ? { problem } : {}),
       };
     });
+    const unavailable = [...this.problems].filter(
+      ([id]) => id !== "builtin" && !this.installed.has(id),
+    );
+    const notice = unavailable.length
+      ? unavailable.map(([id, message]) => `${id}: ${message}`).join("; ")
+      : undefined;
     return {
       revision: this.revision,
       settings: this.scene.settings,
       selectedInstanceId: this.scene.selectedInstanceId,
       instances,
       installedPets,
+      ...(notice ? { notice } : {}),
     };
   }
 
   async listCatalog(query: string, page: number): Promise<HostListing> {
     this.assertOpen();
-    const work = this.catalog.list(query, page, new Set(this.installed.keys()));
+    const work = this.catalog.list(
+      query,
+      page,
+      new Set(
+        [...this.installed.values()]
+          .filter((pet) => pet.receipt.source.kind === "catalog")
+          .map((pet) => pet.id),
+      ),
+    );
     this.inFlight.add(work);
     try {
       const result = await work;
@@ -210,11 +393,14 @@ export class CompanionService {
       this.inFlight.delete(work);
     }
   }
-  async installPet(petId: string): Promise<HostSnapshot> {
-    return this.install(petId, false);
+  async installPet(petId: string, signal?: AbortSignal): Promise<HostSnapshot> {
+    return this.install(petId, false, signal);
   }
-  async installWardrobe(petId: string): Promise<HostSnapshot> {
-    return this.install(petId, true);
+  async installWardrobe(
+    petId: string,
+    signal?: AbortSignal,
+  ): Promise<HostSnapshot> {
+    return this.install(petId, true, signal);
   }
   async addInstance(petId: string, name: string): Promise<HostSnapshot> {
     return this.sceneMutation(
@@ -266,6 +452,11 @@ export class CompanionService {
     this.assertControlsAvailable();
     if (petId !== "builtin" && !this.installed.has(petId))
       throw new Error("This pet is not installed or is unavailable.");
+    if (
+      petId !== "builtin" &&
+      this.installed.get(petId)?.receipt.source.kind === "local"
+    )
+      return this.commit(async () => {});
     const work = this.catalog.find(
       petId === "builtin" ? "hoodie-cat" : petId,
       this.shutdown.signal,
@@ -286,14 +477,13 @@ export class CompanionService {
     this.assertControlsAvailable();
     return this.commit(async () => {
       if (check) await check();
-      this.scene = await this.requireSceneStore().mutate(command);
+      this.scene = await this.requireCompanionStore().mutate(command);
     });
   }
-  private requireSceneStore(): Pick<
-    SceneStore,
+  private requireCompanionStore(): Pick<
+    CompanionStore,
     "initialize" | "read" | "mutate" | "dispose"
   > {
-    if (!this.sceneStore) throw new Error("Scene storage is unavailable.");
     return this.sceneStore;
   }
   onSnapshot(listener: (snapshot: HostSnapshot) => void): () => void {
@@ -313,7 +503,9 @@ export class CompanionService {
       async () => {
         this.listeners.clear();
         try {
-          await this.store?.dispose();
+          await this.installation.dispose();
+          await this.waitForPackageOperations();
+          await this.store.dispose();
         } finally {
           await this.sceneStore?.dispose();
         }
@@ -321,42 +513,87 @@ export class CompanionService {
     );
     return this.disposing;
   }
-  private async install(id: string, wardrobe: boolean): Promise<HostSnapshot> {
+  async importPetPackage(
+    targetPetId?: string,
+    signal?: AbortSignal,
+  ): Promise<HostImportResult> {
     this.assertOpen();
-    this.pendingInstalls++;
-    const controller = new AbortController();
-    const abort = () => controller.abort(this.shutdown.signal.reason);
-    this.shutdown.signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(
-      () => controller.abort(new Error("Pet installation timed out.")),
-      150_000,
+    if (
+      targetPetId &&
+      targetPetId !== "builtin" &&
+      !this.installed.has(targetPetId)
+    )
+      throw new Error("This pet is not installed or is unavailable.");
+    const installed = await this.installation.importPackage(
+      targetPetId,
+      signal,
     );
+    if (!installed) return { status: "cancelled" };
+    const snapshot = await this.publishPackageCommit();
+    return { status: "installed", petId: installed.id, snapshot };
+  }
+  async openStudio(intent: "pet" | "outfit", petId?: string): Promise<void> {
+    this.assertOpen();
+    if (intent === "pet") {
+      if (petId !== undefined)
+        throw new Error("Pet creation does not accept a pet ID.");
+      await this.interactions.openStudio("pet");
+      return;
+    }
+    const pet = this.buildSnapshot().installedPets.find(
+      (item) => item.id === petId,
+    );
+    if (!pet) throw new Error("This pet is not installed or is unavailable.");
+    await this.interactions.openStudio("outfit", pet);
+  }
+  trackDetachedPackageOperations(drain: Promise<void>): void {
+    const observed = drain.catch((error: unknown) => {
+      this.log(`[install] detached operation drain failed: ${String(error)}`);
+    }).finally(() => {
+      this.detachedPackageOperations.delete(observed);
+    });
+    this.detachedPackageOperations.add(observed);
+  }
+  async waitForPackageOperations(): Promise<void> {
+    while (this.detachedPackageOperations.size > 0) {
+      await Promise.all([...this.detachedPackageOperations]);
+    }
+  }
+  private async install(
+    id: string,
+    wardrobe: boolean,
+    signal?: AbortSignal,
+  ): Promise<HostSnapshot> {
+    this.assertOpen();
+    if (id === "builtin")
+      throw new Error(
+        "Bundled outfits are already available; import a custom wardrobe instead.",
+      );
+    if (wardrobe && !this.installed.has(id))
+      throw new Error("Install this pet before its wardrobe.");
+    if (wardrobe && this.installed.get(id)?.receipt.source.kind === "local")
+      throw new Error(
+        "Local outfits cannot be replaced by a catalog wardrobe.",
+      );
+    const installed = await this.installation.installCatalog(
+      id,
+      wardrobe,
+      signal,
+    );
+    if (!installed) return this.getSnapshot();
+    return this.publishPackageCommit();
+  }
+  private async publishPackageCommit(): Promise<HostSnapshot> {
     try {
       return await this.commit(async () => {
-        controller.signal.throwIfAborted();
-        const catalogId = id === "builtin" ? "hoodie-cat" : id;
-        if (id === "builtin" && !wardrobe)
-          throw new Error("The bundled companion is already installed.");
-        if (wardrobe && id !== "builtin" && !this.installed.has(id))
-          throw new Error("Install this pet before its wardrobe.");
-        if (!this.store) throw new Error("Pet storage is unavailable.");
-        const pet = await this.catalog.find(catalogId, controller.signal);
-        controller.signal.throwIfAborted();
-        const problem = compatibilityProblem(pet);
-        if (problem) throw new Error(problem);
-        const installed = await this.store.install(
-          pet,
-          wardrobe,
-          controller.signal,
-        );
-        this.installed.set(catalogId, installed);
-        this.problems.delete(catalogId);
-        this.log(`[install] ${catalogId} installed`);
+        await this.refreshReferences();
+        this.assertOpen();
       });
-    } finally {
-      this.pendingInstalls--;
-      clearTimeout(timer);
-      this.shutdown.signal.removeEventListener("abort", abort);
+    } catch (error) {
+      this.log(
+        `[install] committed package could not be refreshed: ${String(error)}`,
+      );
+      throw new PackageOutcomeUnknownError(error);
     }
   }
   private outfits(pet: InstalledPet): OutfitView<AssetLocation>[] {
@@ -383,12 +620,16 @@ export class CompanionService {
   private wardrobeStatus(
     id: string,
     installed?: InstalledPet,
-  ): "unknown" | "none" | "install" | "update" | "current" {
+  ): "unknown" | "none" | "install" | "update" | "current" | "local" {
+    if (installed?.receipt.source.kind === "local") return "local";
     const known = this.catalog.knownPet(id);
     if (!known) return "unknown";
     if (!known.wardrobeZip || compatibilityProblem(known)) return "none";
     if (!installed?.package.metadata.wardrobe) return "install";
-    return installed.receipt.url === known.wardrobeZip ? "current" : "update";
+    return installed.receipt.source.kind === "catalog" &&
+      installed.receipt.source.url === known.wardrobeZip
+      ? "current"
+      : "update";
   }
   private async publish(): Promise<HostSnapshot> {
     if (this.closed) return this.buildSnapshot();
@@ -414,7 +655,7 @@ export class CompanionService {
   }
   private assertControlsAvailable(): void {
     this.assertOpen();
-    if (this.pendingInstalls)
+    if (this.installation.busy)
       throw new Error(
         "A pet installation is in progress. Try again when it finishes.",
       );
