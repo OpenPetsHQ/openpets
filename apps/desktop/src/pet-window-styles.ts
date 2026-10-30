@@ -2,7 +2,7 @@ import { app } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { getAppStateSnapshot, type HudScaleValue, type PetScaleValue } from "./app-state.js";
+import { getAppStateSnapshot, type BubbleTheme, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexV2GazeSpritePosition, getCodexPetSpritePosition, type CodexPetSpriteLayout } from "./codex-pets-core.js";
 import { compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
 import { defaultPetWindowSize } from "./display.js";
@@ -17,6 +17,45 @@ import {
 } from "./default-pet-chat-geometry.js";
 import { defaultPetSprite } from "./reaction-animation-mapping.js";
 import { mirrorDirectionalSpriteState, motionToSpriteState, type PetMotionState, type SpriteStateDefinition, type UniversalSpriteState } from "./reaction-animation-mapping.js";
+
+// Dark colors for transient speech bubbles. The pinned plugin HUD keeps its own look.
+const darkBubbleCss = `
+    .bubble:not(.is-pinned) {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(46, 38, 78, 0.95));
+      color: #e2e8f0;
+      border-color: rgba(148, 163, 184, 0.28);
+      box-shadow: 0 12px 24px rgba(2, 6, 23, 0.42), 0 2px 5px rgba(2, 6, 23, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .bubble:not(.is-pinned)::after {
+      border-right-color: rgba(148, 163, 184, 0.22);
+      border-bottom-color: rgba(148, 163, 184, 0.22);
+      box-shadow: 3px 3px 7px rgba(2, 6, 23, 0.25);
+    }
+    .bubble:not(.is-pinned) .bubble-body { color: #e2e8f0; }
+    .bubble:not(.is-pinned) .bubble-divider { background: rgba(148, 163, 184, 0.2); }
+    .bubble:not(.is-pinned) .bubble-markdown code { background: rgba(148, 163, 184, 0.18); }
+    .bubble:not(.is-pinned) .bubble-action:not(.is-primary):not(.is-danger) { background: rgba(148, 163, 184, 0.16); color: #e2e8f0; }
+    .bubble:not(.is-pinned) .bubble-action:not(.is-primary):not(.is-danger):hover { background: rgba(148, 163, 184, 0.26); }
+    .bubble:not(.is-pinned) .bubble-input-control { background: rgba(15, 23, 42, 0.6); color: #e2e8f0; border-color: rgba(148, 163, 184, 0.35); }
+    .bubble.is-plugin:not(.is-pinned).accent-blue { background: linear-gradient(135deg, rgba(30, 58, 138, 0.96), rgba(30, 41, 59, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-purple { background: linear-gradient(135deg, rgba(76, 29, 149, 0.96), rgba(46, 38, 78, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-green { background: linear-gradient(135deg, rgba(20, 83, 45, 0.96), rgba(30, 41, 59, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-amber { background: linear-gradient(135deg, rgba(120, 53, 15, 0.96), rgba(41, 37, 36, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-red { background: linear-gradient(135deg, rgba(127, 29, 29, 0.96), rgba(41, 37, 36, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-pink { background: linear-gradient(135deg, rgba(131, 24, 67, 0.96), rgba(46, 38, 78, 0.95)); }
+    .bubble.is-plugin:not(.is-pinned).accent-slate { background: linear-gradient(135deg, rgba(51, 65, 85, 0.96), rgba(30, 41, 59, 0.95)); }
+`;
+
+/** Bubble color overrides for the theme preference; light keeps the base styles. */
+function createBubbleThemeCss(theme: BubbleTheme): string {
+  if (theme === "dark") {
+    return darkBubbleCss;
+  }
+  if (theme === "system") {
+    return `@media (prefers-color-scheme: dark) {${darkBubbleCss}}`;
+  }
+  return "";
+}
 
 export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudScale: HudScaleValue, petDragRegion: "drag" | "no-drag"): string {
   const opacity = paused ? "0.62" : "1";
@@ -201,6 +240,7 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
     .bubble-action.is-danger:hover { background: #dc2626; }
     .bubble-input { display: flex; gap: 5px; margin-top: 6px; align-items: center; }
     .bubble-input-control { box-sizing: border-box; flex: 1 1 auto; min-width: 0; border: 1px solid rgba(30, 58, 138, 0.25); border-radius: 8px; padding: 4px 7px; font: 700 10px/12px Inter, ui-sans-serif, system-ui, sans-serif; background: rgba(255, 255, 255, 0.9); color: #172033; pointer-events: auto; -webkit-app-region: no-drag; }
+    ${createBubbleThemeCss(buttonPreferences.bubbleTheme)}
     .bubble.is-pinned {
       position: absolute;
       left: 50%;

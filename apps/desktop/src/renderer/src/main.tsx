@@ -73,7 +73,7 @@ type VoiceAssistantShortcutSnapshot = {
   readonly status: VoiceAssistantShortcutStatus;
   readonly reason?: string;
 };
-type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; bubbleScale: number; bubbleDurationScale: number; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; pinnedPets?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; petBounciness: number; petFloorFriction: number; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; bubbleScaleOptions: PetScaleOption[]; bubbleDurationScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; pinnedPetsLimit: number; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
+type SettingsState = { preferences: { openDefaultPetOnLaunch: boolean; appearanceTheme: AppearanceTheme; locale?: "system" | string; petScale: number; hudScale: number; bubbleScale: number; bubbleDurationScale: number; bubbleTheme: "light" | "dark" | "system"; waitingAnimationDurationMs: number; idleCursorGazeEnabled: boolean; reactionAnimationOverrides?: ReactionAnimationOverrides; petPoolEnabled: boolean; petPoolOrder?: readonly string[]; pinnedPets?: readonly string[]; petConfinementEnabled: boolean; petCrossDisplayEnabled: boolean; petGravityEnabled: boolean; petBounciness: number; petFloorFriction: number; personality: PetAssistantPersonality; voiceAssistantShortcut?: string; chatShortcut?: string; petToggleShortcut?: string; showChatButton: boolean; showTalkButton: boolean; petButtonsPosition: "left" | "right"; petButtonsSize: "small" | "medium" | "large" }; petScaleOptions: PetScaleOption[]; hudScaleOptions: PetScaleOption[]; bubbleScaleOptions: PetScaleOption[]; bubbleDurationScaleOptions: PetScaleOption[]; petPoolCandidates: ReadonlyArray<PetPoolCandidate>; pinnedPetsLimit: number; voiceAssistantShortcutStatus?: VoiceAssistantShortcutSnapshot; chatShortcutStatus?: VoiceAssistantShortcutSnapshot; petToggleShortcutStatus?: VoiceAssistantShortcutSnapshot };
 type PreferencePatch = Omit<Partial<SettingsState["preferences"]>, "personality"> & { personality?: Partial<PetAssistantPersonality> };
 type LaunchAtLoginState = { supported: boolean; enabled: boolean };
 type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: string; edge: "left" | "right" | "up" | "down"; neighbor: string };
@@ -205,6 +205,7 @@ type ControlCenterApi = WhatsNewApi & {
   getReactionAnimationSettings(): Promise<ReactionAnimationSettings>;
   getLaunchAtLogin(): Promise<LaunchAtLoginState>;
   setLaunchAtLogin(enabled: boolean): Promise<LaunchAtLoginState>;
+  showTestSpeechBubble(): Promise<{ shown: boolean; reason?: string }>;
   getUpdateStatus(): Promise<UpdateStatus>;
   checkForUpdates(): Promise<UpdateStatus>;
   openUpdateReleasePage(): Promise<void>;
@@ -1603,6 +1604,45 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.bubbleTheme.title")}</strong>
+                    <small>{t("settings.general.bubbleTheme.description")}</small>
+                  </div>
+                  <select
+                    className="settings-select"
+                    data-testid="setting-bubble-theme"
+                    value={settings?.preferences.bubbleTheme ?? ""}
+                    disabled={!settings || !!busy}
+                    onChange={(event) => patchPreferences({ bubbleTheme: event.target.value as SettingsState["preferences"]["bubbleTheme"] }, t("settings.toast.bubbleThemeSaved"))}
+                  >
+                    <option value="light">{t("settings.general.bubbleTheme.light")}</option>
+                    <option value="dark">{t("settings.general.bubbleTheme.dark")}</option>
+                    <option value="system">{t("settings.general.bubbleTheme.system")}</option>
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
+                    <strong>{t("settings.general.bubbleTest.title")}</strong>
+                    <small>{t("settings.general.bubbleTest.description")}</small>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    disabled={!settings || !!busy}
+                    onClick={() => void run(t("settings.busy.showing"), async () => {
+                      const result = await api.showTestSpeechBubble();
+                      if (result.reason === "plugin-bubble") {
+                        throw new Error(t("settings.general.bubbleTest.otherBubble"));
+                      }
+                      if (!result.shown) {
+                        throw new Error(t("settings.general.bubbleTest.notShown"));
+                      }
+                    })}
+                  >
+                    {t("settings.general.bubbleTest.button")}
+                  </Button>
                 </div>
                 <ToggleRow
                   title={t("settings.general.idleCursorGaze.title")}

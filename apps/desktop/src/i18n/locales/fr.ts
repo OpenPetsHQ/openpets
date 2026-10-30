@@ -370,6 +370,17 @@ export const fr: Partial<Messages> = {
   "settings.general.bubbleDuration.normal": "Normale",
   "settings.general.bubbleDuration.long": "Longue",
   "settings.general.bubbleDuration.veryLong": "Très longue",
+  "settings.general.bubbleTheme.title": "Thème des bulles",
+  "settings.general.bubbleTheme.description": "Choisissez des bulles claires ou sombres, ou suivez le mode sombre de votre bureau.",
+  "settings.general.bubbleTheme.light": "Clair",
+  "settings.general.bubbleTheme.dark": "Sombre",
+  "settings.general.bubbleTheme.system": "Paramètre système",
+  "settings.general.bubbleTest.title": "Aperçu des bulles",
+  "settings.general.bubbleTest.description": "Faites dire un message d’exemple à votre mascotte avec la taille, la durée et le thème actuels.",
+  "settings.general.bubbleTest.button": "Afficher un message test",
+  "settings.general.bubbleTest.message": "Salut ! Voici à quoi ressemblent mes bulles. Change la taille, la durée ou le thème et réessaie.",
+  "settings.general.bubbleTest.notShown": "Votre mascotte n’a pas pu afficher le message. Elle est peut-être en pause, masquée ou en visite sur un autre ordinateur.",
+  "settings.general.bubbleTest.otherBubble": "Votre mascotte affiche déjà une autre bulle. Réessayez quand elle se ferme.",
   "settings.general.idleCursorGaze.title": "Suivi du curseur au repos",
   "settings.general.idleCursorGaze.description": "Permettre aux mascottes V2 de regarder votre curseur lorsqu’elles sont au repos.",
   "settings.appearance.title": "Apparence",
@@ -388,6 +399,7 @@ export const fr: Partial<Messages> = {
   "settings.toast.hudScaleSaved": "Taille du HUD enregistrée.",
   "settings.toast.bubbleScaleSaved": "Taille des bulles enregistrée.",
   "settings.toast.bubbleDurationSaved": "Durée des bulles enregistrée.",
+  "settings.toast.bubbleThemeSaved": "Thème des bulles enregistré.",
   "settings.toast.idleCursorGazeSaved": "Paramètre de suivi du curseur enregistré.",
 
   // --- Companion assistant (Chat & Voice) settings ---
@@ -460,6 +472,7 @@ export const fr: Partial<Messages> = {
   "settings.busy.resetting": "Réinitialisation",
   "settings.busy.opening": "Ouverture",
   "settings.busy.checking": "Vérification",
+  "settings.busy.showing": "Affichage",
 
   // --- Settings: Pet Assistant personality (renderer) ---
   "settings.personality.eyebrow": "Conversation",

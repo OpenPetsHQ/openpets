@@ -56,6 +56,16 @@ export function normalizeBubbleDurationScale(value: unknown): BubbleDurationScal
   return bubbleDurationScaleOptions.find((option) => option.value === value)?.value ?? defaultBubbleDurationScale;
 }
 
+// Color scheme for transient speech bubbles. "system" follows the desktop's
+// dark mode setting.
+export const bubbleThemeOptions = ["light", "dark", "system"] as const;
+export type BubbleTheme = typeof bubbleThemeOptions[number];
+export const defaultBubbleTheme: BubbleTheme = "light";
+
+export function normalizeBubbleTheme(value: unknown): BubbleTheme {
+  return bubbleThemeOptions.find((option) => option === value) ?? defaultBubbleTheme;
+}
+
 export function getHudScaleForPetScale(petScale: PetScaleValue): HudScaleValue {
   switch (petScale) {
     case 0.35:
