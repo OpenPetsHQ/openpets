@@ -544,6 +544,8 @@ A **Show Test Message** button below these settings makes the default pet say a
 sample message through `applyExternalPetSay`, so size, duration and theme can be
 previewed. It does nothing while the pet is paused, visiting another LAN host, or
 showing a plugin bubble in the transient slot, and the Control Center says so.
+If the default pet is hidden, the button shows it again, like any other external
+`say`; the open-on-launch preference is not changed.
 In dark mode, plugin bubbles with an accent color get dark accent backgrounds.
 
 ### Remote control service
