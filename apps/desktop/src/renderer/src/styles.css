@@ -1053,6 +1053,143 @@ body.theme-dark .plugin-config-backdrop {
     @apply flex flex-col gap-1.5 rounded-2xl border border-blue-100/60 bg-blue-50/30 p-4;
   }
 
+  /* Remote Announcements / Halloween Campaign */
+  .announcement-dialog {
+    @apply relative z-10 flex max-h-[calc(100vh-3rem)] w-[min(560px,calc(100vw-2.5rem))] flex-col gap-5 rounded-[32px] border border-amber-500/30 bg-gradient-to-b from-slate-950 via-purple-950/90 to-slate-950 p-7 text-slate-100 shadow-[0_24px_80px_rgba(0,0,0,0.6)] backdrop-blur-2xl transition-all duration-300;
+  }
+  .announcement-dialog-theme-halloween {
+    @apply border-amber-500/40 bg-gradient-to-b from-slate-950 via-purple-950/95 to-slate-950 shadow-[0_24px_80px_rgba(245,158,11,0.15)];
+  }
+  .announcement-dialog-theme-celebration {
+    @apply border-rose-500/40 bg-gradient-to-b from-slate-950 via-indigo-950/95 to-slate-950 shadow-[0_24px_80px_rgba(244,63,94,0.15)];
+  }
+  .announcement-dialog-theme-update {
+    @apply border-blue-500/40 bg-gradient-to-b from-slate-950 via-slate-900/95 to-slate-950 shadow-[0_24px_80px_rgba(59,130,246,0.15)];
+  }
+  .announcement-head {
+    @apply flex items-center justify-between border-b border-amber-500/20 pb-4;
+  }
+  .announcement-eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold tracking-wider text-amber-300 uppercase shadow-sm;
+  }
+  .announcement-eyebrow-dot {
+    @apply h-2 w-2 rounded-full bg-amber-400 animate-pulse;
+  }
+  .announcement-dialog-theme-celebration .announcement-eyebrow {
+    @apply border-rose-500/30 bg-rose-500/10 text-rose-300;
+  }
+  .announcement-dialog-theme-celebration .announcement-eyebrow-dot {
+    @apply bg-rose-400;
+  }
+  .announcement-dialog-theme-update .announcement-eyebrow {
+    @apply border-blue-500/30 bg-blue-500/10 text-blue-300;
+  }
+  .announcement-dialog-theme-update .announcement-eyebrow-dot {
+    @apply bg-blue-400;
+  }
+  .announcement-close {
+    @apply flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 text-slate-400 transition-colors hover:border-amber-500/40 hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/30;
+  }
+  .announcement-body-content {
+    @apply flex flex-col gap-4 overflow-y-auto pr-1;
+  }
+  .announcement-stage {
+    @apply relative flex h-48 w-full items-center justify-center overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-tr from-purple-900/60 via-slate-900/90 to-amber-950/50 shadow-inner;
+  }
+  .announcement-dialog-theme-celebration .announcement-stage {
+    @apply border-rose-500/25 from-rose-950/60 via-slate-900/90 to-indigo-950/50;
+  }
+  .announcement-dialog-theme-update .announcement-stage {
+    @apply border-blue-500/25 from-blue-950/60 via-slate-900/90 to-slate-950/50;
+  }
+  .announcement-stage-media-wrap {
+    @apply h-full w-full overflow-hidden flex items-center justify-center;
+  }
+  .announcement-art {
+    @apply h-full w-full object-cover opacity-95 transition-transform duration-700 hover:scale-105;
+  }
+  .announcement-orb {
+    @apply absolute rounded-full blur-2xl opacity-40 pointer-events-none;
+  }
+  .announcement-orb-amber {
+    @apply -top-12 -left-12 h-36 w-36 bg-amber-500;
+  }
+  .announcement-dialog-theme-celebration .announcement-orb-amber {
+    @apply bg-rose-500;
+  }
+  .announcement-dialog-theme-update .announcement-orb-amber {
+    @apply bg-blue-500;
+  }
+  .announcement-orb-purple {
+    @apply -bottom-12 -right-12 h-40 w-40 bg-purple-600;
+  }
+  .announcement-dialog-theme-celebration .announcement-orb-purple {
+    @apply bg-indigo-600;
+  }
+  .announcement-dialog-theme-update .announcement-orb-purple {
+    @apply bg-cyan-600;
+  }
+  .announcement-sparkle {
+    @apply absolute h-1.5 w-1.5 rounded-full bg-amber-300 animate-ping;
+  }
+  .announcement-dialog-theme-celebration .announcement-sparkle {
+    @apply bg-rose-300;
+  }
+  .announcement-dialog-theme-update .announcement-sparkle {
+    @apply bg-blue-300;
+  }
+  .announcement-sparkle-1 {
+    @apply top-8 left-12 opacity-80;
+  }
+  .announcement-sparkle-2 {
+    @apply bottom-10 right-16 opacity-60;
+  }
+  .announcement-pet-stage {
+    @apply scale-125 transform transition-transform duration-500 hover:scale-125;
+  }
+  .announcement-dialog h2.announcement-title {
+    @apply text-2xl font-bold tracking-tight text-slate-50;
+  }
+  .announcement-desc {
+    @apply text-sm leading-relaxed text-slate-300 font-medium;
+  }
+  .announcement-footer {
+    @apply flex items-center justify-end gap-3 border-t border-amber-500/20 pt-4;
+  }
+  .announcement-dialog-theme-celebration .announcement-footer {
+    @apply border-rose-500/20;
+  }
+  .announcement-dialog-theme-update .announcement-footer {
+    @apply border-blue-500/20;
+  }
+
+  /* Persistent reopen banner */
+  .announcement-reopen-banner-wrap {
+    @apply fixed bottom-4 right-4 z-50 max-w-[min(440px,calc(100vw-2rem))] select-none transition-all duration-300 ease-out transform translate-y-0 opacity-100;
+    animation: announcementFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes announcementFadeIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .announcement-reopen-banner {
+    @apply flex items-center justify-between gap-4 rounded-2xl border border-amber-500/45 bg-gradient-to-r from-slate-950/95 via-purple-950/95 to-slate-950/95 p-3.5 shadow-2xl backdrop-blur-xl text-slate-100;
+  }
+  .announcement-reopen-content {
+    @apply flex flex-col gap-0.5 min-w-0;
+  }
+  .announcement-reopen-badge {
+    @apply text-[10px] font-bold tracking-wider text-amber-300 uppercase;
+  }
+  .announcement-reopen-title {
+    @apply text-xs font-semibold text-slate-200 truncate;
+  }
+  .announcement-reopen-actions {
+    @apply flex items-center gap-2 shrink-0;
+  }
+  .announcement-reopen-btn {
+    @apply rounded-xl border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-200 transition-all hover:bg-amber-500 hover:text-slate-950 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30;
+  }
   body.theme-dark .team-marketing-card {
     @apply border-blue-500/30 bg-gradient-to-br from-slate-900 via-blue-950/40 to-slate-900 text-slate-100;
   }

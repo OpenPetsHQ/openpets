@@ -51,6 +51,38 @@ remote-control listener, local IPC server, and pet windows.
 Key files: `main.ts` (entry/bootstrap), `lifecycle.ts` (app events + cleanup),
 `state.ts` (shell pause flag).
 
+## Remote announcements
+
+Remote campaigns are separate from the app-version changelog. The Control Center
+requests `https://openpets.dev/announcements/v1.json` through the main process;
+publishing a new campaign does not require another desktop release once the
+installed app supports this feed. Older apps cannot acquire this capability
+without an initial update.
+
+The host validates bounded JSON content, selects an active campaign compatible
+with the running app version, and owns link opening and local dismissal state.
+Campaign IDs, not desktop versions, identify dismissals: editing copy under the
+same ID must not make a dismissed campaign pop up again. The latest eligible
+campaign remains available through a compact Control Center banner. Release
+notes take precedence over an automatic campaign reveal, so the dialogs do not
+stack. Campaigns do not create or focus a window over the user's work.
+
+Presentation is bundled native UI, not remotely supplied HTML or JavaScript.
+The feed supplies copy, a supported theme, optional artwork, and a website CTA.
+Network failures must not block desktop startup. Scheduling, version limits,
+and campaign priority are evaluated by the host, including for cached content.
+
+Ownership: `announcements-contract.ts` defines the feed and snapshot types;
+`announcements-core.ts` owns validation and selection;
+`announcements-service.ts` owns retrieval, cache, and dedicated dismissal state;
+`control-center-announcements-ipc.ts` exposes the narrow Control Center bridge.
+The renderer's `announcements/` folder owns the reveal and reopen banner.
+Publishing instructions and the initial empty public feed live in the separate
+web repository at `web/docs/announcements.md` and
+`web/public/announcements/v1.json`. Set
+`OPENPETS_ANNOUNCEMENTS_PREVIEW=1` in development to preview a campaign without
+publishing it publicly.
+
 ## Deep links (`openpets://`)
 
 The app registers the `openpets` protocol. `lifecycle.ts` receives links from

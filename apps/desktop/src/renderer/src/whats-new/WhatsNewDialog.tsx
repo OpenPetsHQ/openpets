@@ -64,7 +64,7 @@ function logWhatsNew(event: string, fields: Record<string, unknown>): void {
   console.info(`[ControlCenterWhatsNew] ${JSON.stringify({ event, ...fields })}`);
 }
 
-export function WhatsNewHost({ api }: { api: WhatsNewApi }) {
+export function WhatsNewHost({ api, onSettled }: { api: WhatsNewApi; onSettled?: () => void }) {
   const [pending, setPending] = useState<PendingWhatsNew | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -74,7 +74,11 @@ export function WhatsNewHost({ api }: { api: WhatsNewApi }) {
 
     api.getWhatsNew()
       .then((result) => {
-        if (cancelled || !result || result.entries.length === 0) return;
+        if (cancelled) return;
+        if (!result || result.entries.length === 0) {
+          onSettled?.();
+          return;
+        }
         timer = setTimeout(() => {
           logWhatsNew("shown", { versions: result.entries.map((entry) => entry.version) });
           setPending(result);
@@ -82,18 +86,21 @@ export function WhatsNewHost({ api }: { api: WhatsNewApi }) {
         }, showDelayMs);
       })
       .catch((error: unknown) => {
+        if (cancelled) return;
         console.error(`[ControlCenterWhatsNew] load failed: ${String(error)}`);
+        onSettled?.();
       });
 
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [api]);
+  }, [api, onSettled]);
 
   function dismiss(reason: string): void {
     setIsOpen(false);
     logWhatsNew("dismissed", { reason });
+    onSettled?.();
     api.markWhatsNewSeen().catch((error: unknown) => {
       console.error(`[ControlCenterWhatsNew] mark seen failed: ${String(error)}`);
     });

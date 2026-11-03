@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider, useI18n, type I18nSnapshot } from "./i18n";
 import "./styles.css";
@@ -52,6 +52,7 @@ import { WardrobePanel } from "./pets/WardrobePanel.js";
 import { ActivitiesPanel } from "./pets/ActivitiesPanel.js";
 import type { PetActivitiesSnapshot } from "../../pet-activities-types.js";
 import { WhatsNewHost, type WhatsNewApi } from "./whats-new/WhatsNewDialog.js";
+import { AnnouncementsHost, type AnnouncementsApi } from "./announcements/AnnouncementsHost.js";
 import { hasCatalogPetExtrasUpdate, type PetWardrobeSnapshot, type PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
@@ -181,7 +182,7 @@ function limitUtf8Bytes(value: string, maxBytes: number): string {
   return result;
 }
 
-type ControlCenterApi = WhatsNewApi & {
+type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   getPetsState(): Promise<StateSnapshot>;
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
   getTeamsSnapshot(): Promise<TeamsSnapshot>;
@@ -3837,6 +3838,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       setCatalogSearchState,
     );
   }
+  const [whatsNewSettled, setWhatsNewSettled] = useState(false);
+  const handleWhatsNewSettled = useCallback(() => setWhatsNewSettled(true), []);
   const catalogSearch = catalogSearchState.pets;
   const [catalogPage, setCatalogPage] = useState(0);
   const [codex, setCodex] = useState<CodexState>({ pets: [] });
@@ -4590,7 +4593,8 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           ) : null}
         </div>
       )}
-      <WhatsNewHost api={api} />
+      <WhatsNewHost api={api} onSettled={handleWhatsNewSettled} />
+      <AnnouncementsHost api={api} whatsNewSettled={whatsNewSettled} />
       <RemoteTokenHandoffModal
         handoff={remoteTokenHandoff}
         onDismiss={() => setRemoteTokenHandoff(null)}

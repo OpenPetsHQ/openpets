@@ -47,6 +47,8 @@ import { installControlCenterAgentSetupIpcHandlers } from "./control-center-agen
 import { openExternalUrl } from "./external-url-opener.js";
 import { installControlCenterRemoteIpcHandlers } from "./control-center-remote-ipc.js";
 import { installControlCenterWhatsNewIpcHandlers } from "./control-center-whats-new-ipc.js";
+import { installControlCenterAnnouncementsIpcHandlers } from "./control-center-announcements-ipc.js";
+import { AnnouncementsService } from "./announcements-service.js";
 import { isWhatsNewPreviewEnabled, whatsNewEntries } from "./whats-new.js";
 import { getPetAssistantConversationController } from "./pet-assistant-host.js";
 import { clearConversationHistory, deleteConversationHistoryMessage, getConversationHistory } from "./pet-assistant-history-ipc.js";
@@ -72,6 +74,7 @@ let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingDockTimer: NodeJS.Timeout | null = null;
 let lastDockHideAt = 0;
 let controlCenterProviderIpc: ControlCenterProviderIpcLifecycle | null = null;
+let announcementsService: AnnouncementsService | null = null;
 const dockHideShowCooldownMs = 1100;
 
 function hasOpenInternalUiWindows(): boolean {
@@ -474,6 +477,21 @@ export function installInternalUiHandlers(): void {
     isPreviewEnabled: () => isWhatsNewPreviewEnabled(process.env),
     openExternal: (url) => openExternalUrl(url),
     logger: { debug: (message, fields) => debug("ui", message, fields) },
+  });
+
+  installControlCenterAnnouncementsIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    getService: () => {
+      announcementsService ??= new AnnouncementsService({
+        userData: app.getPath("userData"),
+        version: getCurrentAppVersion(),
+        preview: !app.isPackaged && process.env.OPENPETS_ANNOUNCEMENTS_PREVIEW === "1",
+        openExternal: openExternalUrl,
+        log: (message, fields) => debug("ui", message, fields),
+      });
+      return announcementsService;
+    },
   });
 
   controlCenterProviderIpc = installControlCenterProviderIpcHandlers({
