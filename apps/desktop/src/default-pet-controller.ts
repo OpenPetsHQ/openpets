@@ -526,6 +526,7 @@ async function moveDefaultPetBy(rawX: number, rawY: number, rawDurationMs: unkno
       setWindowPosition(window, Math.round(current.x + (target.x - current.x) * t), Math.round(current.y + (target.y - current.y) * t), false);
       await delay(durationMs / steps);
     }
+    if (!isDefaultPetMoveCurrent(defaultPetMoveState, generation)) return { moved: false, reason: "cancelled" };
     setWindowPosition(window, target.x, target.y, false);
     handlePositionChanged(target);
     debug("pet.default", "move finished", { windowId: window.id, target });
