@@ -167,6 +167,7 @@ export const sdkCallHandlers: Record<PluginSdkRoute, SdkCallHandler> = {
   "pet.wander": (sdk, args) => sdk.pets.forPet(args[0]).wander(args[1]),
   "pet.moveToHome": (sdk, args) => sdk.pets.forPet(args[0]).moveToHome(),
   "pet.moveTo": (sdk, args) => sdk.pets.forPet(args[0]).moveTo(args[1], args[2]),
+  "pet.setAutomaticMovement": (sdk, args) => sdk.pets.forPet(args[0]).setAutomaticMovement(args[1]),
   "pet.followCursor": (sdk, args) => sdk.pets.forPet(args[0]).followCursor(args[1]),
   "pet.physics": (sdk, args) => sdk.pets.forPet(args[0]).physics(args[1]),
   "pet.onTick": (sdk, args, runCallback) => sdk.pets.forPet(args[0]).onTick(callbackOf(runCallback, args[1])),

@@ -7,6 +7,9 @@
 export const SCHEDULE_ID = "walkabout-tick";
 export const STATUS_ACTIVE = "walkabout";
 export const CONFIG_KEY = "config";
+export const PINNED_PET_COMMAND_ID = "walkabout.pinned-pet-toggle";
+const disabledPinnedPetsStorageKey = "disabled-pinned-pets";
+const dragResumeDelayMs = 1000;
 
 /** Duration multipliers per speed setting (ms per move). */
 export const SPEED_DURATION = {
@@ -85,13 +88,19 @@ export function nextPatrolTarget(position, goingRight) {
 
 // ── Mode runners ───────────────────────────────────────────────────────────────
 
+function getPetHandle(ctx, petId) {
+  return petId === "default" ? ctx.pet : ctx.pets.get(petId);
+}
+
 /**
  * Starts wander mode. Returns a stop function.
  * @param {import("@open-pets/plugin-sdk").OpenPetsContext} ctx
  * @param {ReturnType<typeof cleanConfig>} cfg
+ * @param {string} petId
  * @returns {() => void}
  */
-export function startWander(ctx, cfg) {
+export function startWander(ctx, cfg, petId = "default") {
+  const pet = getPetHandle(ctx, petId);
   let active = true;
   let busy = false;
 
@@ -99,7 +108,7 @@ export function startWander(ctx, cfg) {
     if (!active || busy) return;
     busy = true;
     try {
-      await ctx.pet.wander({
+      await pet.wander({
         distance: WANDER_DISTANCE,
         durationMs: SPEED_DURATION[cfg.speed],
       });
@@ -111,8 +120,8 @@ export function startWander(ctx, cfg) {
   }
 
   // Initial step after a short delay so the plugin feels alive immediately.
-  const initialTimer = setTimeout(() => step(), 400);
-  const intervalId = setInterval(() => step(), cfg.intervalMs);
+  const initialTimer = setTimeout(() => { void step(); }, 400);
+  const intervalId = setInterval(() => { void step(); }, cfg.intervalMs);
 
   return function stop() {
     active = false;
@@ -125,21 +134,23 @@ export function startWander(ctx, cfg) {
  * Starts follow-cursor mode. Returns a stop function.
  * @param {import("@open-pets/plugin-sdk").OpenPetsContext} ctx
  * @param {ReturnType<typeof cleanConfig>} cfg
+ * @param {string} petId
  * @returns {() => void}
  */
-export function startFollowCursor(ctx, cfg) {
+export function startFollowCursor(ctx, cfg, petId = "default") {
+  const pet = getPetHandle(ctx, petId);
   // Lag 0 = instant (brisk), 0.85 = slow trail, 0.7 = normal.
   const lagBySpeed = { slow: 0.88, normal: 0.72, brisk: 0.45 };
   const lag = lagBySpeed[cfg.speed];
 
   let stopped = false;
-  ctx.pet.followCursor({ enabled: true, lag }).catch((err) => {
+  pet.followCursor({ enabled: true, lag }).catch((err) => {
     if (!stopped) ctx.log.warn("followCursor failed", err?.message);
   });
 
   return function stop() {
     stopped = true;
-    ctx.pet.followCursor({ enabled: false }).catch(() => {});
+    pet.followCursor({ enabled: false }).catch(() => {});
   };
 }
 
@@ -147,9 +158,11 @@ export function startFollowCursor(ctx, cfg) {
  * Starts patrol mode. Returns a stop function.
  * @param {import("@open-pets/plugin-sdk").OpenPetsContext} ctx
  * @param {ReturnType<typeof cleanConfig>} cfg
+ * @param {string} petId
  * @returns {() => void}
  */
-export function startPatrol(ctx, cfg) {
+export function startPatrol(ctx, cfg, petId = "default") {
+  const pet = getPetHandle(ctx, petId);
   let active = true;
   let busy = false;
   let goingRight = true;
@@ -158,10 +171,10 @@ export function startPatrol(ctx, cfg) {
     if (!active || busy) return;
     busy = true;
     try {
-      const state = await ctx.pet.getState();
+      const state = await pet.getState();
       const { target, nextDirection } = nextPatrolTarget(state.position, goingRight);
       goingRight = nextDirection;
-      await ctx.pet.moveTo(target, { durationMs: SPEED_DURATION[cfg.speed], easing: "ease-in-out" });
+      await pet.moveTo(target, { durationMs: SPEED_DURATION[cfg.speed], easing: "ease-in-out" });
     } catch (err) {
       ctx.log.warn("patrol step failed", err?.message);
     } finally {
@@ -169,8 +182,8 @@ export function startPatrol(ctx, cfg) {
     }
   }
 
-  const initialTimer = setTimeout(() => step(), 300);
-  const intervalId = setInterval(() => step(), cfg.intervalMs);
+  const initialTimer = setTimeout(() => { void step(); }, 300);
+  const intervalId = setInterval(() => { void step(); }, cfg.intervalMs);
 
   return function stop() {
     active = false;
@@ -185,18 +198,84 @@ export function startPatrol(ctx, cfg) {
  * Starts the appropriate mode and returns its stop function.
  * @param {import("@open-pets/plugin-sdk").OpenPetsContext} ctx
  * @param {ReturnType<typeof cleanConfig>} cfg
+ * @param {string} petId
  * @returns {() => void}
  */
-function startModeRunner(ctx, cfg) {
+function startModeRunner(ctx, cfg, petId = "default") {
   switch (cfg.mode) {
-    case "follow-cursor": return startFollowCursor(ctx, cfg);
-    case "patrol":        return startPatrol(ctx, cfg);
-    default:              return startWander(ctx, cfg);
+    case "follow-cursor": return startFollowCursor(ctx, cfg, petId);
+    case "patrol":        return startPatrol(ctx, cfg, petId);
+    default:              return startWander(ctx, cfg, petId);
   }
 }
 
-export function startMode(ctx, cfg) {
-  return startModeRunner(ctx, cfg);
+export function startMode(ctx, cfg, petId = "default") {
+  return startModeRunner(ctx, cfg, petId);
+}
+
+function createPetRunner(ctx, petId, cfg, onResume) {
+  const pet = getPetHandle(ctx, petId);
+  let active = true;
+  let activityResumeTimer = null;
+  let dragResumeTimer = null;
+  let activityResumeGeneration = 0;
+  let modeStopped = false;
+  const pauseReasons = new Set();
+  let stopMode = startMode(ctx, cfg, petId);
+
+  function stopModeIfRunning() {
+    if (modeStopped) return;
+    stopMode();
+    modeStopped = true;
+  }
+
+  function resumeIfUnpaused() {
+    if (!active || pauseReasons.size > 0 || !modeStopped) return;
+    stopMode = startMode(ctx, cfg, petId);
+    modeStopped = false;
+    onResume();
+  }
+
+  return {
+    pause() {
+      if (!active) return;
+      pauseReasons.add("activity");
+      stopModeIfRunning();
+      const generation = ++activityResumeGeneration;
+      clearTimeout(activityResumeTimer);
+      activityResumeTimer = setTimeout(() => {
+        if (!active || generation !== activityResumeGeneration) return;
+        activityResumeTimer = null;
+        pauseReasons.delete("activity");
+        resumeIfUnpaused();
+      }, cfg.intervalMs * 2);
+    },
+    pauseForDrag() {
+      if (!active) return;
+      clearTimeout(dragResumeTimer);
+      dragResumeTimer = null;
+      pauseReasons.add("drag");
+      stopModeIfRunning();
+    },
+    resumeAfterDrag() {
+      if (!active || !pauseReasons.delete("drag")) return;
+      dragResumeTimer = setTimeout(() => {
+        dragResumeTimer = null;
+        resumeIfUnpaused();
+      }, dragResumeDelayMs);
+    },
+    stop() {
+      if (!active) return;
+      active = false;
+      activityResumeGeneration += 1;
+      clearTimeout(activityResumeTimer);
+      activityResumeTimer = null;
+      clearTimeout(dragResumeTimer);
+      dragResumeTimer = null;
+      pauseReasons.clear();
+      stopModeIfRunning();
+    },
+  };
 }
 
 // ── Plugin entry ───────────────────────────────────────────────────────────────
@@ -206,80 +285,225 @@ export function startMode(ctx, cfg) {
  * @param {import("@open-pets/plugin-sdk").OpenPetsPluginEntry} OpenPetsPlugin
  */
 export function register(OpenPetsPlugin) {
-  let cleanup = () => {};
+  let cleanup = async () => {};
 
   OpenPetsPlugin.register({
     async start(ctx) {
-      cleanup();
+      await cleanup();
       let active = true;
-      let cfg = cleanConfig(await ctx.config.get());
-      let stopCurrentMode = startMode(ctx, cfg);
+      let cfg = cleanConfig({});
+      const disabledPinnedPets = new Set();
+      const draggingPets = new Set();
+      const runners = new Map();
+      const movementOwners = new Map();
+      const ownershipOperations = new Map();
+      let currentPets = [];
+      let commandRefresh = Promise.resolve();
+      let unsubPets = () => {};
+      let unsubConfig = () => {};
+      let unsubActivity = () => {};
+      let unsubDragStart = () => {};
+      let unsubDragEnd = () => {};
+
+      cleanup = async function stopWalkabout() {
+        if (!active) return;
+        active = false;
+        for (const runner of runners.values()) runner.stop();
+        runners.clear();
+        draggingPets.clear();
+        const releaseOwners = [...movementOwners.entries()].map(([petId, pet]) => {
+          movementOwners.delete(petId);
+          return setMovementOwnership(petId, pet, false).catch(() => undefined);
+        });
+        unsubPets();
+        unsubConfig();
+        unsubActivity();
+        unsubDragStart();
+        unsubDragEnd();
+        await Promise.all(releaseOwners);
+        await commandRefresh.catch(() => undefined);
+        await ctx.commands.unregister(PINNED_PET_COMMAND_ID).catch(() => {});
+        await ctx.status.clear().catch(() => {});
+      };
+
+      function setMovementOwnership(petId, pet, owned) {
+        const previous = ownershipOperations.get(petId) ?? Promise.resolve();
+        const operation = previous.catch(() => undefined).then(() => pet.setAutomaticMovement(owned));
+        ownershipOperations.set(petId, operation);
+        return operation;
+      }
+
+      cfg = cleanConfig(await ctx.config.get());
+      if (!active) return;
+
+      try {
+        const storedDisabled = await ctx.storage.get(disabledPinnedPetsStorageKey);
+        if (Array.isArray(storedDisabled)) {
+          for (const petId of storedDisabled) {
+            if (typeof petId === "string" && /^pinned:[A-Za-z0-9._:-]{1,120}$/.test(petId)) {
+              disabledPinnedPets.add(petId);
+            }
+          }
+        }
+      } catch (err) {
+        ctx.log.warn("could not load per-pet movement preferences", err?.message);
+      }
+      if (!active) return;
+
+      function reconcileRunners() {
+        const controllable = currentPets.filter((pet) => pet.kind === "default" || pet.kind === "pinned");
+        const desiredIds = new Set(controllable.map((pet) => pet.id));
+        for (const petId of movementOwners.keys()) {
+          if (desiredIds.has(petId)) continue;
+          movementOwners.delete(petId);
+        }
+        for (const petId of draggingPets) {
+          if (!desiredIds.has(petId)) draggingPets.delete(petId);
+        }
+        // Drag ownership lasts while Walkabout controls the pet, even when its
+        // individual wander timer is paused, so repositioning never becomes a fling.
+        for (const pet of controllable) {
+          if (movementOwners.has(pet.id)) continue;
+          const petHandle = getPetHandle(ctx, pet.id);
+          movementOwners.set(pet.id, petHandle);
+          void setMovementOwnership(pet.id, petHandle, true).catch((err) => {
+            if (movementOwners.get(pet.id) === petHandle) movementOwners.delete(pet.id);
+            ctx.log.warn("could not register automatic movement", err?.message);
+          });
+        }
+        for (const [petId, runner] of runners) {
+          if (!desiredIds.has(petId) || (petId !== "default" && disabledPinnedPets.has(petId))) {
+            runner.stop();
+            runners.delete(petId);
+          }
+        }
+        for (const pet of controllable) {
+          if (pet.kind === "pinned" && disabledPinnedPets.has(pet.id)) continue;
+          if (runners.has(pet.id)) continue;
+          let runner;
+          runner = createPetRunner(ctx, pet.id, cfg, () => {
+            if (!active || runners.get(pet.id) !== runner || pet.id !== "default") return;
+            ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" }).catch(() => {});
+          });
+          runners.set(pet.id, runner);
+          if (draggingPets.has(pet.id)) runner.pauseForDrag();
+        }
+      }
+
+      function refreshPinnedPetCommand() {
+        commandRefresh = commandRefresh.catch(() => undefined).then(async () => {
+          if (!active) return;
+          const pinnedPets = currentPets.filter((pet) => pet.kind === "pinned");
+          if (pinnedPets.length === 0) {
+            await ctx.commands.unregister(PINNED_PET_COMMAND_ID);
+            return;
+          }
+
+          const enabledPet = pinnedPets.find((pet) => !disabledPinnedPets.has(pet.id));
+          const options = pinnedPets.map((pet) => {
+            const name = pet.name.length > 60 ? `${pet.name.slice(0, 57)}…` : pet.name;
+            const label = ctx.t(disabledPinnedPets.has(pet.id) ? "command.pet.paused" : "command.pet.moving", { name });
+            return { label, value: pet.id };
+          });
+          await ctx.commands.register({
+            id: PINNED_PET_COMMAND_ID,
+            title: ctx.t("command.toggle.title"),
+            description: ctx.t("command.toggle.description"),
+            form: {
+              fields: [{
+                id: "petId",
+                type: "select",
+                label: ctx.t("command.toggle.field"),
+                default: enabledPet?.id ?? pinnedPets[0].id,
+                options,
+              }],
+              submitLabel: ctx.t("command.toggle.submit"),
+            },
+          }, async (values = {}) => {
+            if (!active) return;
+            const selectedId = typeof values.petId === "string" ? values.petId : "";
+            const selectedPet = currentPets.find((pet) => pet.id === selectedId && pet.kind === "pinned");
+            if (!selectedPet) return;
+            if (disabledPinnedPets.has(selectedId)) disabledPinnedPets.delete(selectedId);
+            else disabledPinnedPets.add(selectedId);
+            reconcileRunners();
+            try {
+              await ctx.storage.set(disabledPinnedPetsStorageKey, [...disabledPinnedPets]);
+            } catch (err) {
+              ctx.log.warn("could not save per-pet movement preferences", err?.message);
+            }
+            await refreshPinnedPetCommand();
+          });
+        }).catch((err) => {
+          ctx.log.warn("pinned pet movement command update failed", err?.message);
+        });
+        return commandRefresh;
+      }
 
       // Set a visible status so the user can see the plugin is active.
       await ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" });
+      if (!active) return;
 
-      // Transient-pulse busy gate — resumes automatically via timer.
-      // Production never emits kind:"idle"/active:false, so the old enter/exit
-      // model would pause forever. Instead: each activity pulse restarts a
-      // self-cancelling timer; when it fires the pet walks again.
-      /** @type {ReturnType<typeof setTimeout>|null} */
-      let resumeTimer = null;
-      let resumeGeneration = 0;
+      let petListRevision = 0;
+      unsubPets = ctx.pets.onChange((pets) => {
+        if (!active) return;
+        petListRevision += 1;
+        currentPets = pets;
+        reconcileRunners();
+        void refreshPinnedPetCommand();
+      });
+      const initialRevision = petListRevision;
+      const initialPets = await ctx.pets.list();
+      if (!active) return;
+      if (petListRevision === initialRevision) {
+        currentPets = initialPets;
+        reconcileRunners();
+      }
+      await refreshPinnedPetCommand();
+      if (!active) return;
 
       // React to config changes — tear down old mode, spin up new one.
-      // Also cancels any pending resume so a stale timer cannot restart a
-      // mode that belongs to the old config.
-      const unsubConfig = ctx.config.onChange(async (newRaw) => {
+      unsubConfig = ctx.config.onChange(async (newRaw) => {
         if (!active) return;
-        const newCfg = cleanConfig(newRaw);
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
-        stopCurrentMode();
-        cfg = newCfg;
-        stopCurrentMode = startMode(ctx, cfg);
+        cfg = cleanConfig(newRaw);
+        for (const runner of runners.values()) runner.stop();
+        runners.clear();
+        reconcileRunners();
         await ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" });
       });
 
-      // Pause on agent:activity — transient pulse model scoped to default pet.
-      // - Ignores events from other session pets (cross-session leak fix).
-      // - Only reacts to active:true pulses; no active:false branch needed.
-      // NOTE: walkabout drives only ctx.pet (the default pet). Multi-pet driving
-      // via ctx.pets.list() is deferred — pool/lease pets are not motion-addressable.
-      const unsubActivity = ctx.events.on("agent:activity", async (event) => {
+      // Preserve the original busy-pause behavior for the default pet. Pinned pets
+      // are user-owned and continue their independent movement while an agent works.
+      unsubActivity = ctx.events.on("agent:activity", async (event) => {
         if (!cfg.pauseWhenBusy) return;
         if ((event?.surface ?? "default") !== "default") return; // ignore other surfaces
         if (event?.petId && event.petId !== "default") return;   // ignore other sessions' pets
         if (event?.active !== true) return;                    // only react to activity pulses
-
-        const generation = ++resumeGeneration;
-        stopCurrentMode();
-        clearTimeout(resumeTimer);
+        const defaultRunner = runners.get("default");
+        if (!defaultRunner) return;
+        defaultRunner.pause();
         await ctx.status.set({ text: ctx.t("status.paused"), tone: "warning" });
-        if (!active || generation !== resumeGeneration) return;
-
-        resumeTimer = setTimeout(() => {
-          if (!active || generation !== resumeGeneration) return;
-          resumeTimer = null;
-          stopCurrentMode();
-          stopCurrentMode = startMode(ctx, cfg);
-          ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" }).catch(() => {});
-        }, cfg.intervalMs * 2);
       });
 
-      cleanup = function stopWalkabout() {
-        active = false;
-        resumeGeneration += 1;
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
-        stopCurrentMode();
-        unsubConfig();
-        unsubActivity();
-        ctx.status.clear().catch(() => {});
-      };
+      // A manual reposition owns the window until dragEnd. Pausing just this
+      // pet's runner prevents a new move during the drag or immediately after it.
+      unsubDragStart = ctx.events.on("pet:dragStart", (event) => {
+        if (typeof event?.petId !== "string") return;
+        const draggedPet = currentPets.find((pet) => pet.id === event.petId && (pet.kind === "default" || pet.kind === "pinned"));
+        if (!draggedPet) return;
+        draggingPets.add(event.petId);
+        runners.get(event.petId)?.pauseForDrag();
+      });
+      unsubDragEnd = ctx.events.on("pet:dragEnd", (event) => {
+        if (typeof event?.petId !== "string") return;
+        draggingPets.delete(event.petId);
+        runners.get(event.petId)?.resumeAfterDrag();
+      });
+
     },
-    stop() {
-      cleanup();
-      cleanup = () => {};
+    async stop() {
+      await cleanup();
+      cleanup = async () => {};
     },
   });
 }

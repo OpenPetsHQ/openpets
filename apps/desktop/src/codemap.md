@@ -223,7 +223,7 @@ main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, E
 │       ├── plugin-sdk-config.ts/plugin-sdk-storage.ts/plugin-sdk-state.ts → config, persistent plugin data, and subscriptions
 │       ├── plugin-sdk-ui.ts/plugin-panels.ts/plugin-toast.ts → bubbles, alerts, commands, panels, and toasts
 │       ├── plugin-oauth.ts/plugin-secrets.ts/plugin-ai-gateway.ts → host-mediated auth, encrypted secrets, and AI gateway
-│       └── plugin-pet-api.ts/plugin-pet-registry.ts/default-pet-controller → default/spawned pet actions
+│       └── plugin-pet-api.ts/plugin-pet-registry.ts/default-pet-controller → default, pinned, and plugin-spawned pet handles/actions
 ├── plugin-service.ts orchestrates UI actions, permission confirmation, config validation, install/update/uninstall/load-local, and runtime reloads
 └── lifecycle.ts → stopPluginService() on quit
 

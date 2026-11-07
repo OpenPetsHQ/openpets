@@ -47,6 +47,12 @@ const petWindowX11MapLifecycles = new WeakMap<BrowserWindow, PetWindowX11MapLife
 const trackedPetWindows = new Set<BrowserWindow>();
 const loggedWaylandTopmost = new WeakSet<BrowserWindow>();
 let petWindowAlwaysOnTopTimer: NodeJS.Timeout | null = null;
+let petWindowOverlaySuppressed = false;
+
+export function setPetWindowOverlaySuppressed(suppressed: boolean): void {
+  petWindowOverlaySuppressed = suppressed;
+  reassertAllPetWindows();
+}
 
 function reassertAllPetWindows(): void {
   for (const candidate of [...trackedPetWindows]) {
@@ -421,6 +427,13 @@ function createBasePetWindowWithMode(title: string, position: Point, focusOption
 
 function applyPetAlwaysOnTop(window: BrowserWindow): void {
   if (window.isDestroyed()) return;
+
+  if (petWindowOverlaySuppressed) {
+    if (petWindowLayerShellBackends.get(window) !== true && window.isAlwaysOnTop()) {
+      window.setAlwaysOnTop(false);
+    }
+    return;
+  }
 
   // Layer-shell pets (Wayland) rely on the native helper for Z-order; Electron's
   // setAlwaysOnTop is a no-op there. Degrade gracefully and record this instead of

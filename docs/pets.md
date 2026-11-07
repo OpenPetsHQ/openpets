@@ -277,10 +277,12 @@ so positions advance in lock-step with one `getAllDisplaysCached()` read per
 tick.
 
 `pet-roaming-controller.ts` is the host-side orchestrator: it registers every
-live pet (default and agent) with the engine and applies the active roaming
-configuration (gravity + bounce). When a pet is despawned the controller
-unregisters it before the window is destroyed, so the shared ticker never
-touches a closed window.
+live pet (default, agent, and pinned) with the engine and applies the active
+roaming configuration (gravity + bounce). A pinned pet is also exposed to
+plugins through its stable `pinned:<petId>` handle. Unpinning or destroying the
+window unregisters both views before the shared ticker can touch a closed
+window. The motion state and interpolation remain independent per handle while
+all pets share the same ticker and display-boundary rules.
 
 Releasing a drag with motion throws the pet like a ball. The pure physics lives
 in `pet-throw-core.ts` (release velocity from the last ~100 ms of pointer
@@ -298,7 +300,8 @@ and how much sideways speed each landing sheds; bounciness also feeds the engine
 gravity bounce.
 
 Plugin-driven movement (`plugin-sdk-routes.ts` → `plugin-pet-registry.ts`) feeds
-target vectors and physics overrides through the engine's public API
+target vectors and physics overrides for default, pinned, and plugin-spawned
+pets through the engine's public API
 (`motionMoveTo`, `motionSetPhysics`, `motionSetFollowCursor`). The engine is the
 **sole continuous position writer**; all per-pet step loops were eliminated to
 prevent jitter from competing writers. Sub-pixel fractional accumulators

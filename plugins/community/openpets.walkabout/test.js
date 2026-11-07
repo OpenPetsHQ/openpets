@@ -9,6 +9,7 @@ import {
   normalizeSpeed,
   normalizeInterval,
   nextPatrolTarget,
+  PINNED_PET_COMMAND_ID,
   startMode,
   startWander,
   startFollowCursor,
@@ -96,7 +97,7 @@ assert.ok(SPEED_DURATION.slow > SPEED_DURATION.normal, "slow is slower than norm
 assert.ok(SPEED_DURATION.normal > SPEED_DURATION.brisk, "normal is slower than brisk");
 
 // ── Harness-based tests ────────────────────────────────────────────────────────
-const PERMISSIONS = ["pet:move", "events", "pets:read", "status"];
+const PERMISSIONS = ["pet:move", "events", "pets:read", "status", "commands", "storage"];
 const LOCALES = {
   en: JSON.parse(
     await (await import("node:fs/promises")).readFile(
@@ -185,6 +186,10 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
   // Pet should now be paused.
   const pausedStatuses = h.calls.status.slice(statusCountAfterStart).map((s) => s.text);
   assert.ok(pausedStatuses.some((l) => l.includes("paused")), "status shows paused after activity pulse");
+  const movementOwnerDuringPause = h.calls.petActions
+    .filter((action) => action.petId === "default" && action.method === "setAutomaticMovement")
+    .at(-1)?.args?.enabled;
+  assert.equal(movementOwnerDuringPause, true, "temporary busy pause keeps drag-as-reposition behavior active");
 
   // Wait for the self-resuming timer (intervalMs * 2 = 2000ms) + headroom.
   await new Promise((resolve) => setTimeout(resolve, 2200));
@@ -253,6 +258,117 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
   // Count "paused" statuses emitted — only the first pulse should set paused.
   const pausedCount = h.calls.status.slice(statusCountAfterStart).filter((s) => s.text.includes("paused")).length;
   assert.ok(pausedCount >= 1, "at least one paused status emitted");
+
+  h.expectNoErrors();
+  await h.stop();
+}
+
+// ── Independent pinned movement, per-pet pause, pin lifecycle, restart cleanup ──
+{
+  let definition;
+  register({ register: (value) => { definition = value; } });
+  assert.ok(definition, "plugin registration exposes its lifecycle definition");
+
+  const defaultPet = { id: "default", name: "Default pet", kind: "default", visible: true };
+  const pinnedPets = [
+    { id: "pinned:alpaca", name: "Alpaca", kind: "pinned", visible: true },
+    { id: "pinned:fox", name: "Fox", kind: "pinned", visible: true },
+    { id: "pinned:robot", name: "Robot", kind: "pinned", visible: true },
+  ];
+  const h = createTestHarness(definition, {
+    permissions: PERMISSIONS,
+    locales: LOCALES,
+    config: { mode: "wander", speed: "brisk", interval: "1", pauseWhenBusy: true },
+    initialPets: [defaultPet, ...pinnedPets],
+  });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const countFor = (petId) => h.calls.petActions.filter((action) => action.petId === petId && action.method !== "setAutomaticMovement").length;
+  const automaticMovementFor = (petId) => h.calls.petActions
+    .filter((action) => action.petId === petId && action.method === "setAutomaticMovement")
+    .at(-1)?.args?.enabled;
+
+  await h.start();
+  assert.ok(h.calls.commands.has(PINNED_PET_COMMAND_ID), "pinned pets expose the individual movement command");
+  for (const pet of [defaultPet, ...pinnedPets]) {
+    assert.equal(automaticMovementFor(pet.id), true, `${pet.name} registers continuous automatic movement ownership`);
+  }
+  await wait(550);
+  for (const pet of [defaultPet, ...pinnedPets]) {
+    assert.ok(countFor(pet.id) >= 1, `${pet.name} moves independently`);
+  }
+
+  await h.runCommand(PINNED_PET_COMMAND_ID, { petId: "pinned:fox" });
+  const foxCountAfterPause = countFor("pinned:fox");
+  assert.equal(automaticMovementFor("pinned:fox"), true, "pausing one pet keeps Walkabout drag ownership active");
+  assert.equal(automaticMovementFor("pinned:alpaca"), true, "other pets keep their movement ownership");
+  h.expectStored("disabled-pinned-pets", (value) => Array.isArray(value) && value.includes("pinned:fox"));
+  await wait(1_150);
+  assert.equal(countFor("pinned:fox"), foxCountAfterPause, "pausing one pinned pet does not leave its timer running");
+  for (const petId of ["default", "pinned:alpaca", "pinned:robot"]) {
+    assert.ok(countFor(petId) > 1, `${petId} keeps moving while another pin is paused`);
+  }
+
+  const defaultCountBeforeRestart = countFor("default");
+  await h.start();
+  await wait(700);
+  assert.equal(countFor("default") - defaultCountBeforeRestart, 1, "restart leaves one active timer per pet");
+  assert.equal(countFor("pinned:fox"), foxCountAfterPause, "the paused preference survives plugin restart");
+
+  const alpacaCountBeforeUnpin = countFor("pinned:alpaca");
+  h.setPets([defaultPet, pinnedPets[1], pinnedPets[2]]);
+  await wait(25);
+  await wait(1_100);
+  assert.equal(countFor("pinned:alpaca"), alpacaCountBeforeUnpin, "unpinning removes that pet's runner");
+  assert.ok(countFor("pinned:robot") > 2, "remaining pins continue moving after another is unpinned");
+
+  const newPin = { id: "pinned:otter", name: "Otter", kind: "pinned", visible: true };
+  h.setPets([defaultPet, pinnedPets[1], pinnedPets[2], newPin]);
+  await wait(550);
+  assert.ok(countFor(newPin.id) >= 1, "a newly pinned pet gets its own movement runner");
+
+  await h.stop();
+  const remainingPetIds = ["default", pinnedPets[1].id, pinnedPets[2].id, newPin.id];
+  for (const petId of remainingPetIds) {
+    assert.equal(automaticMovementFor(petId), false, `${petId} releases movement ownership after shutdown`);
+  }
+  const countsAfterStop = new Map(remainingPetIds.map((petId) => [petId, countFor(petId)]));
+  await wait(1_100);
+  for (const [petId, count] of countsAfterStop) {
+    assert.equal(countFor(petId), count, `${petId} stays stopped after plugin shutdown`);
+  }
+  h.expectNoErrors();
+}
+
+// ── Dragging yields only that pet's movement runner until release ──────────────
+{
+  const defaultPet = { id: "default", name: "Default pet", kind: "default", visible: true };
+  const draggedPet = { id: "pinned:fox", name: "Fox", kind: "pinned", visible: true };
+  const movingPet = { id: "pinned:otter", name: "Otter", kind: "pinned", visible: true };
+  const h = createTestHarness(register, {
+    permissions: PERMISSIONS,
+    locales: LOCALES,
+    config: { mode: "wander", speed: "brisk", interval: "1", pauseWhenBusy: false },
+    initialPets: [defaultPet, draggedPet, movingPet],
+  });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const countFor = (petId) => h.calls.petActions.filter((action) => action.petId === petId && action.method === "wander").length;
+
+  await h.start();
+  await wait(550);
+  const draggedCountBefore = countFor(draggedPet.id);
+  const movingCountBefore = countFor(movingPet.id);
+  assert.ok(draggedCountBefore > 0, "the dragged pet was moving before the user grabbed it");
+
+  await h.emit("pet:dragStart", { petId: draggedPet.id });
+  await wait(1_100);
+  assert.equal(countFor(draggedPet.id), draggedCountBefore, "Walkabout does not issue another move for the pet while it is being dragged");
+  assert.ok(countFor(movingPet.id) > movingCountBefore, "another pet keeps wandering while this pet is dragged");
+
+  await h.emit("pet:dragEnd", { petId: draggedPet.id });
+  await wait(550);
+  assert.equal(countFor(draggedPet.id), draggedCountBefore, "the dragged pet has a quiet moment after release");
+  await wait(1_050);
+  assert.ok(countFor(draggedPet.id) > draggedCountBefore, "the dragged pet resumes moving after the release cooldown");
 
   h.expectNoErrors();
   await h.stop();

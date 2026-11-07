@@ -62,6 +62,7 @@ function createTestCapabilities(): PluginHostCapabilities {
       wander: async () => undefined,
       moveToHome: async () => undefined,
       moveTo: async () => undefined,
+      setAutomaticMovement: async () => undefined,
       followCursor: async () => undefined,
       physics: async () => undefined,
       getState: async () => ({

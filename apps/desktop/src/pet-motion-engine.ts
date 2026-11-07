@@ -16,7 +16,7 @@ interface ScreenImpl {
   getCursorScreenPoint(): { x: number; y: number };
   getDisplayNearestPoint(point: { x: number; y: number }): { workArea: { x: number; y: number; width: number; height: number } };
 }
-type IsPetWindowDraggingFn = (win: BrowserWindow) => boolean;
+type WindowStatePredicate = (win: BrowserWindow) => boolean;
 
 // createRequire restores a working `require` in this ESM module so the lazy
 // electron / pet-window loads below succeed at runtime (the production bundle
@@ -27,26 +27,27 @@ const require = createRequire(import.meta.url);
 // unit tests can call _setScreenForTesting() without requiring Electron.
 let _screen: ScreenImpl | null = null;
 // Lazily loaded — same rationale as _screen above.
-let _isPetWindowDragging: IsPetWindowDraggingFn | null = null;
+let _isPetWindowDragging: WindowStatePredicate | null = null;
 // Lazily loaded — pet-throw.ts imports electron at module load.
-let _isPetWindowThrown: IsPetWindowDraggingFn | null = null;
+let _isPetWindowThrown: WindowStatePredicate | null = null;
 
-function getIsPetWindowDragging(): IsPetWindowDraggingFn {
-  if (!_isPetWindowDragging) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { isPetWindowDragging } = require("./pet-window.js") as { isPetWindowDragging: IsPetWindowDraggingFn };
-    _isPetWindowDragging = isPetWindowDragging;
-  }
-  return _isPetWindowDragging;
+function getIsPetWindowDragging(): WindowStatePredicate {
+  if (_isPetWindowDragging) return _isPetWindowDragging;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { isPetWindowDragging } = require("./pet-window.js") as { isPetWindowDragging: WindowStatePredicate };
+  _isPetWindowDragging = isPetWindowDragging;
+  return isPetWindowDragging;
 }
 
 function isPetWindowThrownLazy(win: BrowserWindow): boolean {
-  if (!_isPetWindowThrown) {
+  let isPetWindowThrown = _isPetWindowThrown;
+  if (!isPetWindowThrown) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { isPetWindowThrown } = require("./pet-throw.js") as { isPetWindowThrown: IsPetWindowDraggingFn };
+    const loaded = require("./pet-throw.js") as { isPetWindowThrown: WindowStatePredicate };
+    isPetWindowThrown = loaded.isPetWindowThrown;
     _isPetWindowThrown = isPetWindowThrown;
   }
-  return _isPetWindowThrown(win);
+  return isPetWindowThrown(win);
 }
 
 function getScreen(): ScreenImpl {
@@ -64,10 +65,15 @@ export function _setScreenForTesting(impl: ScreenImpl | null): void {
 }
 
 /** ONLY call from unit tests. Pass null to restore the real implementation. */
-export function _setIsPetWindowDraggingForTesting(fn: IsPetWindowDraggingFn | null): void {
+export function _setIsPetWindowDraggingForTesting(fn: WindowStatePredicate | null): void {
   _isPetWindowDragging = fn;
   // Tests have no electron; a pet is never thrown unless a test says otherwise.
   _isPetWindowThrown = fn ? () => false : null;
+}
+
+/** ONLY call from unit tests. Pass null to restore the real throw-state check. */
+export function _setIsPetWindowThrownForTesting(fn: WindowStatePredicate | null): void {
+  _isPetWindowThrown = fn;
 }
 
 /** ONLY call from unit tests. Returns whether the shared ticker is currently running. */
@@ -101,6 +107,8 @@ type MotionState = {
   physics: { gravity: boolean; bounce: number; vy: number } | null;
   loop: NodeJS.Timeout | null;
   moveGeneration: number;
+  activeMoveGeneration: number | null;
+  automaticMovementOwners: Set<string>;
   /** Active move-to interpolation target. Null when idle. */
   moveTarget: { x: number; y: number; startX: number; startY: number; elapsed: number; durationMs: number; easing: string } | null;
   /** Sub-pixel fractional accumulator to prevent rounding-induced stall. */
@@ -138,7 +146,7 @@ function tickAll(): void {
 function stateFor(petHandleId: string, accessor: WindowAccessor): MotionState {
   let entry = motionStates.get(petHandleId);
   if (!entry) {
-    entry = { accessor, state: { follow: null, physics: null, loop: null, moveGeneration: 0, moveTarget: null, fracX: 0, fracY: 0 } };
+    entry = { accessor, state: { follow: null, physics: null, loop: null, moveGeneration: 0, activeMoveGeneration: null, automaticMovementOwners: new Set(), moveTarget: null, fracX: 0, fracY: 0 } };
     motionStates.set(petHandleId, entry);
   }
   entry.accessor = accessor;
@@ -173,11 +181,41 @@ export function unregisterPet(petHandleId: string): void {
   }
 }
 
+/** Cancel position movement owned by the motion engine when the user starts dragging this window. */
+export function motionCancelMoveForDrag(window: BrowserWindow): boolean {
+  let interruptedMove = false;
+  for (const entry of motionStates.values()) {
+    if (entry.accessor() !== window) continue;
+    interruptedMove ||= entry.state.activeMoveGeneration === entry.state.moveGeneration
+      || entry.state.moveTarget !== null
+      || entry.state.automaticMovementOwners.size > 0;
+    entry.state.moveGeneration += 1;
+    entry.state.activeMoveGeneration = null;
+    entry.state.moveTarget = null;
+    entry.state.fracX = 0;
+    entry.state.fracY = 0;
+  }
+  return interruptedMove;
+}
+
+/** Track persistent plugin-owned movement across the idle gaps between move requests. */
+export function motionSetAutomaticMovement(petHandleId: string, accessor: WindowAccessor, ownerId: string, active: boolean): void {
+  const state = stateFor(petHandleId, accessor);
+  if (active) state.automaticMovementOwners.add(ownerId);
+  else state.automaticMovementOwners.delete(ownerId);
+}
+
+/** Clear a plugin's automatic movement ownership during teardown, even if its stop handler failed. */
+export function motionClearAutomaticMovementForOwner(ownerId: string): void {
+  for (const { state } of motionStates.values()) state.automaticMovementOwners.delete(ownerId);
+}
+
 export async function motionMoveTo(petHandleId: string, accessor: WindowAccessor, target: Point, opts: { durationMs?: number; easing?: string } = {}): Promise<void> {
   const state = stateFor(petHandleId, accessor);
   const window = accessor();
   if (!window || window.isDestroyed()) return;
   const generation = ++state.moveGeneration;
+  state.activeMoveGeneration = generation;
   const durationMs = Math.min(Math.max(opts.durationMs ?? 700, 100), 10_000);
   const easing = opts.easing ?? "ease-in-out";
 
@@ -191,7 +229,11 @@ export async function motionMoveTo(petHandleId: string, accessor: WindowAccessor
     // Return a promise that resolves when the generation changes (move completes or is superseded).
     return new Promise<void>((resolve) => {
       const check = () => {
-        if (state.moveGeneration !== generation || state.moveTarget === null) { resolve(); return; }
+        if (state.moveGeneration !== generation || state.moveTarget === null) {
+          if (state.activeMoveGeneration === generation) state.activeMoveGeneration = null;
+          resolve();
+          return;
+        }
         setTimeout(check, loopIntervalMs * 2).unref?.();
       };
       check();
@@ -202,21 +244,25 @@ export async function motionMoveTo(petHandleId: string, accessor: WindowAccessor
   const [startX, startY] = window.getPosition();
   const clamped = clampPosition(petHandleId, target, getWindowSize(window));
   const steps = Math.max(4, Math.round(durationMs / 33));
-  for (let step = 1; step <= steps; step += 1) {
-    const live = accessor();
-    if (!live || live.isDestroyed() || state.moveGeneration !== generation || getIsPetWindowDragging()(live)) return;
-    const t = easeProgress(step / steps, easing);
-    const nextX = Math.round(startX + (clamped.x - startX) * t);
-    const nextY = Math.round(startY + (clamped.y - startY) * t);
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;  // abort move if NaN (e.g. startX was NaN from mid-destroy getPosition)
-    // setBounds with the known-correct fixed size (not a live-queried size,
-    // which would itself be corrupted -- see the second call site below)
-    // instead of bare setPosition: repeated setPosition() at animation-frame
-    // rate causes unbounded window growth on Linux/XWayland at fractional
-    // display scale. This is a defensive workaround for what looks like a
-    // genuine Electron/Chromium bug, not something wrong on our end.
-    live.setBounds({ x: nextX, y: nextY, width: defaultPetWindowSize.width, height: defaultPetWindowSize.height }, false);
-    await delay(durationMs / steps);
+  try {
+    for (let step = 1; step <= steps; step += 1) {
+      const live = accessor();
+      if (!live || live.isDestroyed() || state.moveGeneration !== generation || getIsPetWindowDragging()(live) || isPetWindowThrownLazy(live)) return;
+      const t = easeProgress(step / steps, easing);
+      const nextX = Math.round(startX + (clamped.x - startX) * t);
+      const nextY = Math.round(startY + (clamped.y - startY) * t);
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;  // abort move if NaN (e.g. startX was NaN from mid-destroy getPosition)
+      // setBounds with the known-correct fixed size (not a live-queried size,
+      // which would itself be corrupted -- see the second call site below)
+      // instead of bare setPosition: repeated setPosition() at animation-frame
+      // rate causes unbounded window growth on Linux/XWayland at fractional
+      // display scale. This is a defensive workaround for what looks like a
+      // genuine Electron/Chromium bug, not something wrong on our end.
+      live.setBounds({ x: nextX, y: nextY, width: defaultPetWindowSize.width, height: defaultPetWindowSize.height }, false);
+      await delay(durationMs / steps);
+    }
+  } finally {
+    if (state.activeMoveGeneration === generation) state.activeMoveGeneration = null;
   }
 }
 
@@ -238,6 +284,7 @@ export function motionStop(petHandleId: string): void {
   entry.state.follow = null;
   entry.state.physics = null;
   entry.state.moveGeneration += 1;
+  entry.state.activeMoveGeneration = null;
   entry.state.moveTarget = null;
   entry.state.fracX = 0;
   entry.state.fracY = 0;

@@ -17,7 +17,7 @@ import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-set
 import {
   setPluginPetStatusReaction, clearPluginPetsForPlugin, closeAllPluginPets, closePluginPet, getPluginPetArbiter, getPluginPetState, hidePluginPet, listPluginPets,
   movePluginPetBy, movePluginPetTo, movePluginPetToHome, onPluginPetTick, onPluginPetsChange, reactPluginPet,
-  setPluginPetAnimation, setPluginPetFollowCursor, setPluginPetPhysics, setPluginPetScale, showPluginPet, spawnPluginPet, wanderPluginPet,
+  setPluginPetAnimation, setPluginPetAutomaticMovement, setPluginPetFollowCursor, setPluginPetPhysics, setPluginPetScale, showPluginPet, spawnPluginPet, wanderPluginPet,
 } from "./plugin-pet-registry.js";
 import { motionStop } from "./pet-motion-engine.js";
 import { PluginSecretsStore } from "./plugin-secrets.js";
@@ -189,6 +189,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       wander: (petHandleId, opts) => wanderPluginPet(petHandleId, opts),
       moveToHome: (petHandleId) => movePluginPetToHome(petHandleId),
       moveTo: (petHandleId, point, opts) => movePluginPetTo(petHandleId, point, opts),
+      setAutomaticMovement: async (petHandleId, pluginId, active) => setPluginPetAutomaticMovement(petHandleId, pluginId, active),
       followCursor: async (petHandleId, _pluginId, opts) => setPluginPetFollowCursor(petHandleId, opts),
       physics: async (petHandleId, _pluginId, opts) => setPluginPetPhysics(petHandleId, opts),
       getState: async (petHandleId) => getPluginPetState(petHandleId),

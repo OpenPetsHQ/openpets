@@ -43,6 +43,7 @@ export type PluginRuntimeState = {
   pickedFiles: Set<string>;
   userCommandDepth: number;
   lastError?: string;
+  petActionWindows: Map<string, WindowCounter>;
   petWindow: WindowCounter;
   logWindow: WindowCounter;
   httpWindow: WindowCounter;

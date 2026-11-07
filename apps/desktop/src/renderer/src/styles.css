@@ -379,8 +379,9 @@ body.theme-dark .plugin-config-backdrop {
   .pager { @apply mt-3 flex items-center justify-between gap-2.5 rounded-xl border border-blue-200/40 bg-blue-50/20 p-1.5 text-xs font-bold text-slatecopy; }
   .pets-grid { @apply grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto p-1.5 pr-2.5 pb-3; overscroll-behavior: contain; scrollbar-color: rgba(96, 165, 250, 0.42) transparent; }
   .pet-card { @apply relative flex flex-row items-start gap-3.5 rounded-2xl border border-slate-200 bg-white/80 p-3 text-left shadow-sm transition-[transform,border-color,background-color,box-shadow] hover:-translate-y-0.5 hover:border-brand hover:bg-white min-h-[138px] w-full; }
+  .pet-card:has(.pet-card-actions .btn:nth-child(3)) { min-height: 170px; }
   .pet-card.selected { @apply border-brand bg-blue-50/90 ring-4 ring-blue-200/50 shadow-md; }
-  .pet-card-actions { @apply relative z-10 mt-2 grid grid-cols-3 gap-1.5; }
+  .pet-card-actions { @apply relative z-10 mt-2 grid w-full grid-cols-2 gap-1.5; }
   .pet-card-actions .btn { @apply min-h-[30px] min-w-0 px-2 py-1 text-[10px] tracking-wide; }
   .studio-cta { @apply relative col-span-full flex min-h-[240px] items-center gap-6 overflow-hidden rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-sky-50 px-7 py-6 shadow-sm; }
   .studio-cta-copy { @apply relative z-10 flex min-w-0 flex-1 flex-col items-start gap-2.5; }

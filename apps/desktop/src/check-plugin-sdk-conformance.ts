@@ -155,6 +155,8 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   await pet.wander({ distance: 1 });
   await pet.moveToHome();
   await pet.moveTo({ x: 10, y: 20 });
+  await pet.setAutomaticMovement(true);
+  await pet.setAutomaticMovement(false);
   await pet.followCursor({ enabled: true });
   await pet.physics({ gravity: true });
   await pet.getState();

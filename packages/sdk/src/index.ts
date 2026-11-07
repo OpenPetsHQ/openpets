@@ -940,7 +940,7 @@ export interface OpenPetsPetState {
 export interface OpenPetsPetInfo {
   id: string;
   name: string;
-  kind: "default" | "agent" | "plugin";
+  kind: "default" | "agent" | "plugin" | "pinned";
   visible: boolean;
 }
 
@@ -970,6 +970,12 @@ export interface OpenPetsPetHandle {
   moveToHome(): Promise<void>;
   /** Animated absolute move. Requires `pet:move`. */
   moveTo(point: OpenPetsPoint, opts?: { durationMs?: number; easing?: string }): Promise<void>;
+  /**
+   * Mark ongoing automated movement owned by this plugin, including idle gaps
+   * between steps. While active, dragging repositions the pet without launching
+   * throw physics. The host clears this when the plugin stops. Requires `pet:move`.
+   */
+  setAutomaticMovement(enabled: boolean): Promise<void>;
   /** Continuous cursor following with lag. Requires `pet:move`. */
   followCursor(opts?: { enabled: boolean; lag?: number }): Promise<void>;
   /** Lightweight physics (gravity/bounce). Requires `pet:move`. */

@@ -25,7 +25,7 @@ import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
 import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
-import { refreshPetGazePreference } from "./pet-window.js";
+import { refreshPetGazePreference, setPetWindowOverlaySuppressed } from "./pet-window.js";
 import { getLanStatusSnapshot, isDefaultPetAwayForLan } from "./lan-controller.js";
 import { validatePreferencePatch } from "./preference-patch.js";
 import { refreshPinnedPetContent, syncPinnedPets } from "./pinned-pet-controller.js";
@@ -736,11 +736,13 @@ export function openControlCenterWindow(route: ControlCenterRoute = "dashboard")
 
 export function openControlCenterWindowTarget(target: ControlCenterRouteTarget): void {
   const safeTarget = normalizeControlCenterRouteTarget(target);
+  setPetWindowOverlaySuppressed(true);
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     syncDockVisibilityForInternalUi();
     if (controlCenterWindow.isMinimized()) controlCenterWindow.restore();
     controlCenterWindow.show();
     controlCenterWindow.focus();
+    controlCenterWindow.moveTop();
     routeControlCenterWindow(controlCenterWindow, safeTarget);
     return;
   }
@@ -796,9 +798,20 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   window.on("closed", () => {
     void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center window was closed.");
     controlCenterWindow = null;
+    setPetWindowOverlaySuppressed(false);
     syncDockVisibilityForInternalUi();
   });
-  window.once("ready-to-show", () => { window.show(); window.focus(); });
+  window.on("focus", () => {
+    setPetWindowOverlaySuppressed(true);
+    window.moveTop();
+  });
+  window.on("blur", () => setPetWindowOverlaySuppressed(false));
+  window.once("ready-to-show", () => {
+    setPetWindowOverlaySuppressed(true);
+    window.show();
+    window.focus();
+    window.moveTop();
+  });
   pendingControlCenterRouteTarget = safeTarget;
   window.webContents.on("did-finish-load", () => {
     // Chromium remembers per-host zoom, which can override the initial

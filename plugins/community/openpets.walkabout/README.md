@@ -1,6 +1,8 @@
 # openpets.walkabout
 
-An OpenPets plugin that makes your pet roam the screen.
+An OpenPets plugin that makes the default pet and user-pinned desktop pets roam
+the screen independently. Each pet has its own movement runner, and unpinning a
+pet removes it from Walkabout immediately.
 
 ## Modes
 
@@ -20,6 +22,11 @@ An OpenPets plugin that makes your pet roam the screen.
 | Pause when agent is busy | on / off | on |
 
 > **Gravity** is now a global OpenPets Settings preference and applies to all pets — it is no longer a per-plugin toggle.
+
+When one or more pets are pinned, Walkabout adds **Toggle pinned pet movement**
+to its plugin commands. Choose a pet to pause or resume its movement. That
+preference is saved per pet and survives plugin restarts. The default pet keeps
+the existing Walkabout behavior and is not changed by this command.
 
 ## Dev setup
 

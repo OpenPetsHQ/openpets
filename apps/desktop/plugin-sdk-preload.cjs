@@ -168,6 +168,7 @@ function makePetHandle(petId) {
     wander: (options) => call("pet.wander", [petId, options]),
     moveToHome: () => call("pet.moveToHome", [petId]),
     moveTo: (point, opts) => call("pet.moveTo", [petId, point, opts]),
+    setAutomaticMovement: (enabled) => call("pet.setAutomaticMovement", [petId, enabled]),
     followCursor: (opts) => call("pet.followCursor", [petId, opts]),
     physics: (opts) => call("pet.physics", [petId, opts]),
     onTick: (fn) => subscription("pet.onTick", "pet.offTick", [petId], fn),

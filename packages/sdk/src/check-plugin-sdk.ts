@@ -10,6 +10,7 @@ import type {
   OpenPetsBubble,
   OpenPetsBubbleHandle,
   OpenPetsContext,
+  OpenPetsPetInfo,
   OpenPetsPickedFile,
   OpenPetsPluginDefinition,
   OpenPetsSessionEvent,
@@ -44,6 +45,8 @@ const plugin: OpenPetsPluginDefinition = {
     await ctx.pet.react("waving");
     await ctx.pet.react("waving", { showMessage: false });
     await ctx.pet.setStatusReaction("thinking");
+    await ctx.pet.setAutomaticMovement(true);
+    await ctx.pet.setAutomaticMovement(false);
     const alert = await ctx.ui.alert({ text: "Heads up", markdown: "**Check complete**", icon: "bell", tone: "info", sound: "alert" });
     alert.onAction(() => undefined);
     await alert.acknowledge();
@@ -166,6 +169,25 @@ i18n.harness.system.set({ locale: "ja" });
 assert.equal(i18n.ctx.locale, "ja", "ctx.locale follows system.set({ locale })");
 assert.equal(i18n.ctx.t("greeting", { name: "Pet" }), "やあ Pet", "active locale catalog wins");
 assert.equal(i18n.ctx.t("absent"), "absent", "unknown key echoes even with catalogs");
+
+const pinnedPetInfo: OpenPetsPetInfo = { id: "pinned:fox", name: "Fox", kind: "pinned", visible: true };
+const petsMock = createMockContext({
+  permissions: ["pets:read"],
+  initialPets: [
+    { id: "default", name: "Default pet", kind: "default", visible: true },
+    pinnedPetInfo,
+  ],
+});
+assert.deepEqual(await petsMock.ctx.pets.list(), [
+  { id: "default", name: "Default pet", kind: "default", visible: true },
+  pinnedPetInfo,
+], "the public SDK contract includes pinned pet handles");
+const petSnapshots: OpenPetsPetInfo[][] = [];
+petsMock.ctx.pets.onChange((pets) => petSnapshots.push(pets));
+petsMock.harness.setPets([{ id: "default", name: "Default pet", kind: "default", visible: true }]);
+assert.equal(petSnapshots.length, 1, "pet listing changes notify subscribers");
+assert.deepEqual(petSnapshots[0], [{ id: "default", name: "Default pet", kind: "default", visible: true }]);
+await petsMock.cleanup();
 
 const assistantHarness = createTestHarness({
   async start(ctx) {

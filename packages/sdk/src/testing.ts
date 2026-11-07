@@ -101,12 +101,19 @@ export interface RecordedNetCall {
   stream: boolean;
 }
 
+export interface RecordedPetAction {
+  petId: string;
+  method: "moveBy" | "wander" | "moveToHome" | "moveTo" | "setAutomaticMovement" | "followCursor" | "physics";
+  args?: unknown;
+}
+
 export interface MockCalls {
   speak: string[];
   react: string[];
   reactions: Array<{ reaction: string; options?: { showMessage?: boolean } }>;
   statusReactions: Array<string | null>;
   status: OpenPetsStatus[];
+  petActions: RecordedPetAction[];
   storage: Map<string, unknown>;
   schedules: Map<string, RecordedSchedule>;
   commands: Map<string, { meta: OpenPetsCommand; handler: OpenPetsCommandHandler }>;
@@ -145,6 +152,8 @@ export interface MockContextOptions {
   permissions?: readonly OpenPetsPermission[];
   /** Effective plugin config returned by `ctx.config.get()`. */
   config?: Record<string, unknown>;
+  /** Initial pet handles returned by `ctx.pets.list()`. */
+  initialPets?: readonly OpenPetsPetInfo[];
   /**
    * Initial virtual clock value (ms since epoch). Defaults to the real
    * current time so plugin code using `Date.now()` stays consistent with the
@@ -306,6 +315,7 @@ export interface MockHarnessCore {
   runCapability(id: string, input: Record<string, unknown>): Promise<Record<string, unknown>>;
   runCommand(commandId: string, values?: Record<string, unknown>): Promise<void>;
   setConfig(config: Record<string, unknown>): Promise<void>;
+  setPets(pets: readonly OpenPetsPetInfo[]): void;
   net: { mock(urlPrefix: string, response: { status?: number; json?: unknown; text?: string; chunks?: string[] }): void };
   ai: { mock(responder: (req: { system?: string; messages: Array<{ role: string; content: string }> }) => string): void };
   files: { provide(files: Array<{ name: string; text?: string; bytes?: Uint8Array }>): void };
@@ -342,7 +352,7 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
   const approved = options.permissions === undefined ? null : new Set(options.permissions);
   let config = { ...(options.config ?? {}) };
   const calls: MockCalls = {
-    speak: [], react: [], reactions: [], statusReactions: [], status: [], storage: new Map(), schedules: new Map(), commands: new Map(), menuItems: [],
+    speak: [], react: [], reactions: [], statusReactions: [], status: [], petActions: [], storage: new Map(), schedules: new Map(), commands: new Map(), menuItems: [],
     bubbles: [], alerts: [], deliveries: [], dismissedBubbles: [], toasts: [], notifications: [], sounds: [], importedUserSounds: [], forgottenUserSounds: [], busPublishes: [], netCalls: [],
     aiCalls: [], voiceSpeaks: [], openedExternal: [], clipboardWrites: [], spawnedPets: [], panelMessages: [], assistantCapabilities: new Map(),
     savedFiles: [], secrets: new Map(), errors: [],
@@ -479,29 +489,48 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     return record.handle;
   };
 
-  const petInfos: OpenPetsPetInfo[] = [{ id: "default", name: "Default pet", kind: "default", visible: true }];
-  const petState: OpenPetsPetState = { position: { x: 100, y: 100 }, bounds: { x: 100, y: 100, width: 220, height: 240 }, currentAnimation: "idle", visible: true, dragging: false };
+  const petInfos: OpenPetsPetInfo[] = (options.initialPets ?? [{ id: "default", name: "Default pet", kind: "default", visible: true }]).map((pet) => ({ ...pet }));
+  const petInfoListeners = new Set<(pets: OpenPetsPetInfo[]) => void>();
+  const notifyPetsChanged = (): void => {
+    const snapshot = petInfos.map((pet) => ({ ...pet }));
+    for (const listener of petInfoListeners) {
+      try { listener(snapshot); } catch (error) { calls.errors.push(error instanceof Error ? error.message : String(error)); }
+    }
+  };
+  const petStates = new Map<string, OpenPetsPetState>();
+  const petStateFor = (petId: string): OpenPetsPetState => {
+    let state = petStates.get(petId);
+    if (!state) {
+      state = { position: { x: 100, y: 100 }, bounds: { x: 100, y: 100, width: 220, height: 240 }, currentAnimation: "idle", visible: true, dragging: false };
+      petStates.set(petId, state);
+    }
+    return state;
+  };
   const tickHandlers = new Set<(dtMs: number) => void>();
 
-  const makePetHandle = (petId: string): OpenPetsPetHandle => ({
-    id: petId,
-    speak: async (spec) => makeBubble(petId, spec),
-    react: async (reaction: OpenPetsReaction, options) => { requirePermission("pet:reaction"); assertReaction(reaction); const record = { reaction: String(reaction), ...(options === undefined ? {} : { options: { ...options } }) }; calls.react.push(record.reaction); calls.reactions.push(record); },
-    setAnimation: async (state) => { if (typeof state === "string") { requirePermission("pet:reaction"); calls.react.push(String(state)); } else { requirePermission("pet:animate"); petState.currentAnimation = `sprite:${state.sprite.name}`; } },
-    setScale: async () => { requirePermission("pet:animate"); },
-    setStatusReaction: async (reaction) => { requirePermission("pet:reaction"); if (reaction !== null) assertReaction(reaction); calls.statusReactions.push(reaction === null ? null : String(reaction)); },
-    moveBy: async () => { requirePermission("pet:move"); },
-    wander: async () => { requirePermission("pet:move"); },
-    moveToHome: async () => { requirePermission("pet:move"); },
-    moveTo: async (point) => { requirePermission("pet:move"); petState.position = { ...point }; },
-    followCursor: async () => { requirePermission("pet:move"); },
-    physics: async () => { requirePermission("pet:move"); },
-    onTick: (handler) => { requirePermission("events"); tickHandlers.add(handler); return () => tickHandlers.delete(handler); },
-    getState: async () => { requirePermission("pets:read"); return { ...petState, position: { ...petState.position }, bounds: { ...petState.bounds } }; },
-    show: async () => { requirePermission("pets:manage"); },
-    hide: async () => { requirePermission("pets:manage"); },
-    close: async () => { requirePermission("pets:manage"); },
-  });
+  const makePetHandle = (petId: string): OpenPetsPetHandle => {
+    const petState = petStateFor(petId);
+    return {
+      id: petId,
+      speak: async (spec) => makeBubble(petId, spec),
+      react: async (reaction: OpenPetsReaction, options) => { requirePermission("pet:reaction"); assertReaction(reaction); const record = { reaction: String(reaction), ...(options === undefined ? {} : { options: { ...options } }) }; calls.react.push(record.reaction); calls.reactions.push(record); },
+      setAnimation: async (state) => { if (typeof state === "string") { requirePermission("pet:reaction"); calls.react.push(String(state)); } else { requirePermission("pet:animate"); petState.currentAnimation = `sprite:${state.sprite.name}`; } },
+      setScale: async () => { requirePermission("pet:animate"); },
+      setStatusReaction: async (reaction) => { requirePermission("pet:reaction"); if (reaction !== null) assertReaction(reaction); calls.statusReactions.push(reaction === null ? null : String(reaction)); },
+      moveBy: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "moveBy", args: { ...options } }); },
+      wander: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "wander", args: options === undefined ? undefined : { ...options } }); },
+      moveToHome: async () => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "moveToHome" }); },
+      moveTo: async (point, options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "moveTo", args: { point: { ...point }, options: options ? { ...options } : undefined } }); petState.position = { ...point }; },
+      setAutomaticMovement: async (enabled) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "setAutomaticMovement", args: { enabled } }); },
+      followCursor: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "followCursor", args: { ...options } }); },
+      physics: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "physics", args: options ? { ...options } : undefined }); },
+      onTick: (handler) => { requirePermission("events"); tickHandlers.add(handler); return () => tickHandlers.delete(handler); },
+      getState: async () => { requirePermission("pets:read"); return { ...petState, position: { ...petState.position }, bounds: { ...petState.bounds } }; },
+      show: async () => { requirePermission("pets:manage"); },
+      hide: async () => { requirePermission("pets:manage"); },
+      close: async () => { requirePermission("pets:manage"); },
+    };
+  };
 
   const matchNetMock = (url: string) => netMocks.find((mock) => url.startsWith(mock.urlPrefix));
 
@@ -511,8 +540,8 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       default: makePetHandle("default"),
       list: async () => { requirePermission("pets:read"); return petInfos.map((info) => ({ ...info })); },
       get: (petId) => makePetHandle(petId),
-      spawn: async (spec) => { requirePermission("pets:manage"); const id = newId("pet"); calls.spawnedPets.push(spec.petId); petInfos.push({ id, name: spec.name ?? spec.petId, kind: "plugin", visible: true }); return makePetHandle(id); },
-      onChange: () => () => undefined,
+      spawn: async (spec) => { requirePermission("pets:manage"); const id = newId("pet"); calls.spawnedPets.push(spec.petId); petInfos.push({ id, name: spec.name ?? spec.petId, kind: "plugin", visible: true }); notifyPetsChanged(); return makePetHandle(id); },
+      onChange: (handler) => { requirePermission("pets:read"); petInfoListeners.add(handler); return () => petInfoListeners.delete(handler); },
     },
     ui: {
       bubble: async (spec) => makeBubble("default", spec),
@@ -758,6 +787,7 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     },
     runCommand: async (commandId, values) => { const command = calls.commands.get(commandId); if (!command) throw new Error(`Unknown command: ${commandId}`); await command.handler(values); },
     setConfig: async (next) => { config = { ...next }; for (const listener of configListeners) await Promise.resolve(listener({ ...config })); },
+    setPets: (pets) => { petInfos.splice(0, petInfos.length, ...pets.map((pet) => ({ ...pet }))); notifyPetsChanged(); },
     net: { mock: (urlPrefix, response) => { netMocks.unshift({ urlPrefix, response }); } },
     ai: { mock: (responder) => { aiResponder = responder; } },
     files: { provide: (files) => { pickableFiles = files; } },
@@ -775,6 +805,7 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     calls.schedules.clear();
     calls.commands.clear();
     calls.assistantCapabilities.clear();
+    petInfoListeners.clear();
     for (const entry of bubbleCallbacks.values()) {
       try { await entry.record.handle.dismiss(); } catch {}
     }
