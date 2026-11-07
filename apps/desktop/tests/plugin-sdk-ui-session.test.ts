@@ -58,6 +58,7 @@ function createTestCapabilities(): PluginHostCapabilities {
       setAnimation: async () => undefined,
       setScale: async () => undefined,
       setStatusReaction: async () => undefined,
+      cancelMove: async () => undefined,
       moveBy: async () => undefined,
       wander: async () => undefined,
       moveToHome: async () => undefined,

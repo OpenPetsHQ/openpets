@@ -156,14 +156,10 @@ function wrapEventPayload(event, payload) {
   };
 }
 
-function makePetHandle(petId) {
+function makePetMovementHandle(petId) {
   return {
     id: String(petId),
-    speak: (spec) => call("pet.speak", [petId, spec]).then(makeBubbleHandle),
-    react: (reaction, options) => call("pet.react", [petId, reaction, options]),
-    setAnimation: (state) => call("pet.setAnimation", [petId, state]),
-    setScale: (scale) => call("pet.setScale", [petId, scale]),
-    setStatusReaction: (reaction) => call("pet.setStatusReaction", [petId, reaction]),
+    cancelMove: () => call("pet.cancelMove", [petId]),
     moveBy: (options) => call("pet.moveBy", [petId, options]),
     wander: (options) => call("pet.wander", [petId, options]),
     moveToHome: () => call("pet.moveToHome", [petId]),
@@ -173,6 +169,17 @@ function makePetHandle(petId) {
     physics: (opts) => call("pet.physics", [petId, opts]),
     onTick: (fn) => subscription("pet.onTick", "pet.offTick", [petId], fn),
     getState: () => call("pet.getState", [petId]),
+  };
+}
+
+function makePetHandle(petId) {
+  return {
+    ...makePetMovementHandle(petId),
+    speak: (spec) => call("pet.speak", [petId, spec]).then(makeBubbleHandle),
+    react: (reaction, options) => call("pet.react", [petId, reaction, options]),
+    setAnimation: (state) => call("pet.setAnimation", [petId, state]),
+    setScale: (scale) => call("pet.setScale", [petId, scale]),
+    setStatusReaction: (reaction) => call("pet.setStatusReaction", [petId, reaction]),
     show: () => call("pet.show", [petId]),
     hide: () => call("pet.hide", [petId]),
     close: () => call("pet.close", [petId]),
@@ -186,7 +193,15 @@ const sdk = {
   pets: {
     default: defaultPet,
     list: () => call("pets.list", []),
-    get: (petId) => makePetHandle(petId),
+    get: (petId) => {
+      if (String(petId).startsWith("pinned:")) throw new Error("Use pets.getPinned() for user-pinned pets.");
+      return makePetHandle(petId);
+    },
+    getPinned: (petId) => {
+      const id = String(petId);
+      if (!id.startsWith("pinned:")) throw new Error("A user-pinned pet id is required.");
+      return makePetMovementHandle(id);
+    },
     spawn: (spec) => call("pets.spawn", [spec]).then((result) => makePetHandle(result && result.petHandleId)),
     onChange: (fn) => subscription("pets.onChange", "pets.offChange", [], fn),
   },

@@ -189,13 +189,24 @@ export function motionCancelMoveForDrag(window: BrowserWindow): boolean {
     interruptedMove ||= entry.state.activeMoveGeneration === entry.state.moveGeneration
       || entry.state.moveTarget !== null
       || entry.state.automaticMovementOwners.size > 0;
-    entry.state.moveGeneration += 1;
-    entry.state.activeMoveGeneration = null;
-    entry.state.moveTarget = null;
-    entry.state.fracX = 0;
-    entry.state.fracY = 0;
+    clearPetMove(entry.state);
   }
   return interruptedMove;
+}
+
+/** Cancel this pet's active move while leaving cursor following and physics intact. */
+export function motionCancelMove(petHandleId: string): void {
+  const entry = motionStates.get(petHandleId);
+  if (!entry) return;
+  clearPetMove(entry.state);
+}
+
+function clearPetMove(state: MotionState): void {
+  state.moveGeneration += 1;
+  state.activeMoveGeneration = null;
+  state.moveTarget = null;
+  state.fracX = 0;
+  state.fracY = 0;
 }
 
 /** Track persistent plugin-owned movement across the idle gaps between move requests. */
@@ -283,11 +294,7 @@ export function motionStop(petHandleId: string): void {
   if (!entry) return;
   entry.state.follow = null;
   entry.state.physics = null;
-  entry.state.moveGeneration += 1;
-  entry.state.activeMoveGeneration = null;
-  entry.state.moveTarget = null;
-  entry.state.fracX = 0;
-  entry.state.fracY = 0;
+  clearPetMove(entry.state);
   if (entry.state.loop) { clearInterval(entry.state.loop); entry.state.loop = null; }
 }
 

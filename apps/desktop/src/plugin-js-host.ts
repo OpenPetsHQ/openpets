@@ -163,6 +163,7 @@ export const sdkCallHandlers: Record<PluginSdkRoute, SdkCallHandler> = {
   "pet.setAnimation": (sdk, args) => sdk.pets.forPet(args[0]).setAnimation(args[1]),
   "pet.setScale": (sdk, args) => sdk.pets.forPet(args[0]).setScale(args[1]),
   "pet.setStatusReaction": (sdk, args) => sdk.pets.forPet(args[0]).setStatusReaction(args[1]),
+  "pet.cancelMove": (sdk, args) => sdk.pets.forPet(args[0]).cancelMove(),
   "pet.moveBy": (sdk, args) => sdk.pets.forPet(args[0]).moveBy(args[1]),
   "pet.wander": (sdk, args) => sdk.pets.forPet(args[0]).wander(args[1]),
   "pet.moveToHome": (sdk, args) => sdk.pets.forPet(args[0]).moveToHome(),

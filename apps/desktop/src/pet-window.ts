@@ -25,6 +25,7 @@ import { installPetWindowInteraction } from "./pet-window-interaction.js";
 import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
 import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from "./pet-window-show-coordinator.js";
 import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityScale, startPetActivitySpeech, updatePetActivityRender } from "./pet-activities.js";
+import { rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
 
 export type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 export { createPetBodyMarkup, pluginBubblesCacheKey } from "./pet-window-render.js";
@@ -568,9 +569,17 @@ export function setPetSpriteOverride(window: BrowserWindow, override: { readonly
 /** Scale override for a single pet window (plugin setScale). */
 export function setPetWindowScale(window: BrowserWindow, scale: number): void {
   if (window.isDestroyed()) return;
-  setPetActivityScale(window, scale);
-  setPetGazeScale(window, scale);
-  window.webContents.send("openpets:pet-scale-override", scale);
+  rememberPetWindowScaleOverride(window, scale);
+  applyPetWindowScaleOverride(window);
+}
+
+function applyPetWindowScaleOverride(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+  restorePetWindowScaleOverride(window, (scale) => {
+    setPetActivityScale(window, scale);
+    setPetGazeScale(window, scale);
+    window.webContents.send("openpets:pet-scale-override", scale);
+  });
 }
 
 /** Play a sound through the pet window's WebAudio pipeline. */
@@ -834,6 +843,7 @@ async function loadPetHtmlFile(window: BrowserWindow, html: string, name: string
     try {
       await window.loadFile(filePath);
       debug("pet.window", "load file complete", { windowId: window.id, name: safeName, sequence, url: window.webContents.getURL() });
+      if (windowLoadSequences.get(window) === sequence) applyPetWindowScaleOverride(window);
     } catch (error) {
       if (!window.isDestroyed()) {
         if (process.platform === "linux") window.setIgnoreMouseEvents(false);

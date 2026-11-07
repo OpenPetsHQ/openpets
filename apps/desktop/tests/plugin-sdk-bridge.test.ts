@@ -157,7 +157,7 @@ await scenario("pet.react validates silent reaction options", async ({ api }) =>
 await scenario("pet action quotas are independent for each live handle", async ({ bridge, store, capabilities }) => {
   const record = store.getRecord("plug")!;
   const permissions: PluginJavascriptPermission[] = [
-    "commands", "events", "storage", "pet:reaction", "auth", "pet:move", "pets:read",
+    "commands", "events", "storage", "pet:reaction", "pet:speak", "auth", "pet:move", "pets:read",
   ];
   const movementRecord = { ...record, approvedPermissions: permissions };
   store.upsertRecord(movementRecord);
@@ -167,20 +167,26 @@ await scenario("pet action quotas are independent for each live handle", async (
     { id: "pinned:owl", name: "Owl", kind: "pinned", visible: true },
   ];
   const movementOwners: Array<[string, string, boolean]> = [];
+  const canceledMoves: string[] = [];
   capabilities.pets.setAutomaticMovement = async (petHandleId, pluginId, active) => {
     movementOwners.push([petHandleId, pluginId, active]);
   };
+  capabilities.pets.cancelMove = async (petHandleId) => { canceledMoves.push(petHandleId); };
   const movementApi = bridge.createApi(movementRecord, manifest({ permissions }));
 
   assert.deepEqual(await movementApi.pets.list(), capabilities.pets.list(), "the bridge exposes pinned pets through the existing list API");
   await movementApi.pet.setAutomaticMovement(true);
   await movementApi.pets.forPet("pinned:fox").setAutomaticMovement(false);
+  await movementApi.pets.forPet("pinned:fox").cancelMove();
+  assert.deepEqual(canceledMoves, ["pinned:fox"], "a pinned handle cancels only its own interpolation");
   assert.deepEqual(movementOwners, [["default", "plug", true], ["pinned:fox", "plug", false]], "automatic movement ownership is scoped to a plugin and pet handle");
   await assert.rejects(() => movementApi.pet.setAutomaticMovement("yes" as never), /Automatic movement state must be a boolean\./);
   for (let index = 0; index < pluginSdkQuotas.petActionsPerMinute; index += 1) {
     await movementApi.pet.moveBy({ x: 1, y: 0 });
     await movementApi.pets.forPet("pinned:fox").wander({ distance: 1 });
   }
+
+  await movementApi.pet.speak("The pet action totals do not consume the UI action quota.");
 
   await assert.rejects(
     () => movementApi.pet.moveBy({ x: 1, y: 0 }),
@@ -826,6 +832,7 @@ function createTestCapabilities(): TestCapabilities {
       setAnimation: async () => undefined,
       setScale: async () => undefined,
       setStatusReaction: async () => undefined,
+      cancelMove: async () => undefined,
       moveBy: async () => undefined,
       wander: async () => undefined,
       moveToHome: async () => undefined,

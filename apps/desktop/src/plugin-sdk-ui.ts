@@ -31,7 +31,8 @@ export function createPluginUiApi(options: {
 
   const showBubble = async (petHandleId: string, spec: unknown): Promise<{ bubbleId: string }> => {
     requirePermission("pet:speak");
-    state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    state.petWindow.tick(Number.MAX_SAFE_INTEGER, "pet action");
+    state.petUiWindow.tick(quotas.petActionsPerMinute, "pet action");
     const bubble = validateBubbleSpec(spec);
     check(state.bubbles.size < quotas.activeBubbles, "Plugin active bubble quota exceeded.");
     const bubbleId = opaqueId("bubble");
@@ -186,7 +187,8 @@ export function createPluginUiApi(options: {
 
   const openSession = async (spec: unknown): Promise<{ sessionId: string }> => {
     requirePermission("ui:session");
-    state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    state.petWindow.tick(Number.MAX_SAFE_INTEGER, "pet action");
+    state.petUiWindow.tick(quotas.petActionsPerMinute, "pet action");
     const validated = validateSessionDescriptor(spec);
     const withCues = validated.kind === "breathing" ? resolvePatternCues(validated) : validated;
     const player = resolvePlayerMedia(withCues);

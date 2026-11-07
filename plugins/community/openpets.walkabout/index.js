@@ -89,7 +89,9 @@ export function nextPatrolTarget(position, goingRight) {
 // ── Mode runners ───────────────────────────────────────────────────────────────
 
 function getPetHandle(ctx, petId) {
-  return petId === "default" ? ctx.pet : ctx.pets.get(petId);
+  if (petId === "default") return ctx.pet;
+  if (petId.startsWith("pinned:")) return ctx.pets.getPinned(petId);
+  return ctx.pets.get(petId);
 }
 
 /**
@@ -224,9 +226,10 @@ function createPetRunner(ctx, petId, cfg, onResume) {
   let stopMode = startMode(ctx, cfg, petId);
 
   function stopModeIfRunning() {
-    if (modeStopped) return;
+    if (modeStopped) return Promise.resolve();
     stopMode();
     modeStopped = true;
+    return pet.cancelMove().catch(() => {});
   }
 
   function resumeIfUnpaused() {
@@ -238,9 +241,9 @@ function createPetRunner(ctx, petId, cfg, onResume) {
 
   return {
     pause() {
-      if (!active) return;
+      if (!active) return Promise.resolve();
       pauseReasons.add("activity");
-      stopModeIfRunning();
+      const canceledMove = stopModeIfRunning();
       const generation = ++activityResumeGeneration;
       clearTimeout(activityResumeTimer);
       activityResumeTimer = setTimeout(() => {
@@ -249,13 +252,14 @@ function createPetRunner(ctx, petId, cfg, onResume) {
         pauseReasons.delete("activity");
         resumeIfUnpaused();
       }, cfg.intervalMs * 2);
+      return canceledMove;
     },
     pauseForDrag() {
-      if (!active) return;
+      if (!active) return Promise.resolve();
       clearTimeout(dragResumeTimer);
       dragResumeTimer = null;
       pauseReasons.add("drag");
-      stopModeIfRunning();
+      return stopModeIfRunning();
     },
     resumeAfterDrag() {
       if (!active || !pauseReasons.delete("drag")) return;
@@ -265,7 +269,7 @@ function createPetRunner(ctx, petId, cfg, onResume) {
       }, dragResumeDelayMs);
     },
     stop() {
-      if (!active) return;
+      if (!active) return Promise.resolve();
       active = false;
       activityResumeGeneration += 1;
       clearTimeout(activityResumeTimer);
@@ -273,7 +277,7 @@ function createPetRunner(ctx, petId, cfg, onResume) {
       clearTimeout(dragResumeTimer);
       dragResumeTimer = null;
       pauseReasons.clear();
-      stopModeIfRunning();
+      return stopModeIfRunning();
     },
   };
 }
@@ -308,7 +312,7 @@ export function register(OpenPetsPlugin) {
       cleanup = async function stopWalkabout() {
         if (!active) return;
         active = false;
-        for (const runner of runners.values()) runner.stop();
+        const cancelMoves = [...runners.values()].map((runner) => runner.stop());
         runners.clear();
         draggingPets.clear();
         const releaseOwners = [...movementOwners.entries()].map(([petId, pet]) => {
@@ -320,7 +324,7 @@ export function register(OpenPetsPlugin) {
         unsubActivity();
         unsubDragStart();
         unsubDragEnd();
-        await Promise.all(releaseOwners);
+        await Promise.all([...releaseOwners, ...cancelMoves]);
         await commandRefresh.catch(() => undefined);
         await ctx.commands.unregister(PINNED_PET_COMMAND_ID).catch(() => {});
         await ctx.status.clear().catch(() => {});
@@ -373,7 +377,7 @@ export function register(OpenPetsPlugin) {
         }
         for (const [petId, runner] of runners) {
           if (!desiredIds.has(petId) || (petId !== "default" && disabledPinnedPets.has(petId))) {
-            runner.stop();
+            void runner.stop();
             runners.delete(petId);
           }
         }
@@ -386,7 +390,7 @@ export function register(OpenPetsPlugin) {
             ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" }).catch(() => {});
           });
           runners.set(pet.id, runner);
-          if (draggingPets.has(pet.id)) runner.pauseForDrag();
+          if (draggingPets.has(pet.id)) void runner.pauseForDrag();
         }
       }
 
@@ -466,7 +470,7 @@ export function register(OpenPetsPlugin) {
       unsubConfig = ctx.config.onChange(async (newRaw) => {
         if (!active) return;
         cfg = cleanConfig(newRaw);
-        for (const runner of runners.values()) runner.stop();
+        await Promise.all([...runners.values()].map((runner) => runner.stop()));
         runners.clear();
         reconcileRunners();
         await ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" });
@@ -481,7 +485,7 @@ export function register(OpenPetsPlugin) {
         if (event?.active !== true) return;                    // only react to activity pulses
         const defaultRunner = runners.get("default");
         if (!defaultRunner) return;
-        defaultRunner.pause();
+        await defaultRunner.pause();
         await ctx.status.set({ text: ctx.t("status.paused"), tone: "warning" });
       });
 
@@ -492,7 +496,7 @@ export function register(OpenPetsPlugin) {
         const draggedPet = currentPets.find((pet) => pet.id === event.petId && (pet.kind === "default" || pet.kind === "pinned"));
         if (!draggedPet) return;
         draggingPets.add(event.petId);
-        runners.get(event.petId)?.pauseForDrag();
+        void runners.get(event.petId)?.pauseForDrag();
       });
       unsubDragEnd = ctx.events.on("pet:dragEnd", (event) => {
         if (typeof event?.petId !== "string") return;

@@ -25,6 +25,7 @@ import {
   _setIsPetWindowDraggingForTesting,
   _setIsPetWindowThrownForTesting,
   _resetMotionStatesForTesting,
+  motionCancelMove,
   motionSetPhysics,
   motionMoveTo,
   motionCancelMoveForDrag,
@@ -352,6 +353,39 @@ setCrossDisplayRoamingEnabled(false);
   assert.equal(motionCancelMoveForDrag(idleWindow as any), true, "(7) a paused pin remains protected from fling physics");
   unregisterPet("unpinned-pet");
   assert.equal(motionCancelMoveForDrag(idleWindow as any), false, "(7) unpinning removes its movement ownership state");
+}
+
+// ---------------------------------------------------------------------------
+// (8) Canceling a move stops interpolation but leaves gravity running
+// ---------------------------------------------------------------------------
+{
+  _resetMotionStatesForTesting();
+  _setIsPetWindowDraggingForTesting(() => false);
+
+  const petId = "cancel-move-preserves-physics";
+  let currentPos = { x: 100, y: 100 };
+  const mockWindow = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    getPosition: (): [number, number] => [currentPos.x, currentPos.y],
+    setPosition: (x: number, y: number) => { currentPos = { x, y }; },
+    setBounds: (bounds: { x: number; y: number }) => { currentPos = { x: bounds.x, y: bounds.y }; },
+  } as any;
+  const accessor = () => mockWindow;
+
+  motionSetPhysics(petId, accessor, { gravity: true, bounce: 0 });
+  const movePromise = motionMoveTo(petId, accessor, { x: 400, y: 100 }, { durationMs: 1_000 });
+  await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  motionCancelMove(petId);
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  await movePromise;
+
+  const xAfterCancel = currentPos.x;
+  await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  assert.equal(currentPos.x, xAfterCancel, "(8) cancelMove stops the horizontal target interpolation");
+  assert.ok(currentPos.y > 100, "(8) cancelMove leaves gravity active");
+
+  motionStop(petId);
 }
 
 // ---------------------------------------------------------------------------

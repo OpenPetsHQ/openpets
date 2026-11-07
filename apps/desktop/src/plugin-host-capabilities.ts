@@ -15,7 +15,7 @@ import { PluginOauthBroker } from "./plugin-oauth.js";
 import { openPluginPanel } from "./plugin-panels.js";
 import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
 import {
-  setPluginPetStatusReaction, clearPluginPetsForPlugin, closeAllPluginPets, closePluginPet, getPluginPetArbiter, getPluginPetState, hidePluginPet, listPluginPets,
+  cancelPluginPetMove, setPluginPetStatusReaction, clearPluginPetsForPlugin, closeAllPluginPets, closePluginPet, getPluginPetArbiter, getPluginPetState, hidePluginPet, listPluginPets,
   movePluginPetBy, movePluginPetTo, movePluginPetToHome, onPluginPetTick, onPluginPetsChange, reactPluginPet,
   setPluginPetAnimation, setPluginPetAutomaticMovement, setPluginPetFollowCursor, setPluginPetPhysics, setPluginPetScale, showPluginPet, spawnPluginPet, wanderPluginPet,
 } from "./plugin-pet-registry.js";
@@ -185,6 +185,7 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       setAnimation: async (petHandleId, spec) => setPluginPetAnimation(petHandleId, spec),
       setScale: async (petHandleId, scale) => setPluginPetScale(petHandleId, scale),
       setStatusReaction: async (petHandleId, reaction) => setPluginPetStatusReaction(petHandleId, reaction),
+      cancelMove: (petHandleId) => cancelPluginPetMove(petHandleId),
       moveBy: (petHandleId, opts) => movePluginPetBy(petHandleId, opts),
       wander: (petHandleId, opts) => wanderPluginPet(petHandleId, opts),
       moveToHome: (petHandleId) => movePluginPetToHome(petHandleId),

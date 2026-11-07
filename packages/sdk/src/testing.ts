@@ -36,6 +36,7 @@ import type {
   OpenPetsMenuItem,
   OpenPetsPermission,
   OpenPetsPetHandle,
+  OpenPetsPinnedPetHandle,
   OpenPetsPetInfo,
   OpenPetsPetState,
   OpenPetsPluginApi,
@@ -103,7 +104,7 @@ export interface RecordedNetCall {
 
 export interface RecordedPetAction {
   petId: string;
-  method: "moveBy" | "wander" | "moveToHome" | "moveTo" | "setAutomaticMovement" | "followCursor" | "physics";
+  method: "cancelMove" | "moveBy" | "wander" | "moveToHome" | "moveTo" | "setAutomaticMovement" | "followCursor" | "physics";
   args?: unknown;
 }
 
@@ -517,6 +518,7 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
       setAnimation: async (state) => { if (typeof state === "string") { requirePermission("pet:reaction"); calls.react.push(String(state)); } else { requirePermission("pet:animate"); petState.currentAnimation = `sprite:${state.sprite.name}`; } },
       setScale: async () => { requirePermission("pet:animate"); },
       setStatusReaction: async (reaction) => { requirePermission("pet:reaction"); if (reaction !== null) assertReaction(reaction); calls.statusReactions.push(reaction === null ? null : String(reaction)); },
+      cancelMove: async () => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "cancelMove" }); },
       moveBy: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "moveBy", args: { ...options } }); },
       wander: async (options) => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "wander", args: options === undefined ? undefined : { ...options } }); },
       moveToHome: async () => { requirePermission("pet:move"); calls.petActions.push({ petId, method: "moveToHome" }); },
@@ -532,6 +534,23 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     };
   };
 
+  const makePinnedPetHandle = (petId: string): OpenPetsPinnedPetHandle => {
+    const pet = makePetHandle(petId);
+    return {
+      id: pet.id,
+      cancelMove: pet.cancelMove,
+      moveBy: pet.moveBy,
+      wander: pet.wander,
+      moveToHome: pet.moveToHome,
+      moveTo: pet.moveTo,
+      setAutomaticMovement: pet.setAutomaticMovement,
+      followCursor: pet.followCursor,
+      physics: pet.physics,
+      onTick: pet.onTick,
+      getState: pet.getState,
+    };
+  };
+
   const matchNetMock = (url: string) => netMocks.find((mock) => url.startsWith(mock.urlPrefix));
 
   const ctx: OpenPetsContext = {
@@ -539,7 +558,14 @@ export function createMockContext(optionsOrConfig: MockContextOptions | Record<s
     pets: {
       default: makePetHandle("default"),
       list: async () => { requirePermission("pets:read"); return petInfos.map((info) => ({ ...info })); },
-      get: (petId) => makePetHandle(petId),
+      get: (petId) => {
+        if (petId.startsWith("pinned:")) throw new Error("Use pets.getPinned() for user-pinned pets.");
+        return makePetHandle(petId);
+      },
+      getPinned: (petId) => {
+        if (!petId.startsWith("pinned:")) throw new Error("A user-pinned pet id is required.");
+        return makePinnedPetHandle(petId);
+      },
       spawn: async (spec) => { requirePermission("pets:manage"); const id = newId("pet"); calls.spawnedPets.push(spec.petId); petInfos.push({ id, name: spec.name ?? spec.petId, kind: "plugin", visible: true }); notifyPetsChanged(); return makePetHandle(id); },
       onChange: (handler) => { requirePermission("pets:read"); petInfoListeners.add(handler); return () => petInfoListeners.delete(handler); },
     },

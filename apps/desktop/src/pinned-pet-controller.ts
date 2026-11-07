@@ -26,6 +26,7 @@ import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { getEligiblePoolPetIds } from "./pet-pool.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { registerPinnedPluginPet, unregisterPinnedPluginPet } from "./plugin-pet-registry.js";
+import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { maxPinnedPets, planPinnedPets } from "./pinned-pets.js";
 import { setWindowPosition } from "./window-position.js";
 
@@ -194,6 +195,7 @@ function spawnPinnedPet(petId: string): void {
     display: null,
     badge: null,
     onCloseRequested: () => unpinPinnedPet(petId),
+    onPetEvent: (name, payload) => publishPluginPetEvent(pinnedMotionHandle(petId), name, payload),
     onWindowReplaced: (replacement) => trackPinnedPetWindow(petId, replacement),
   });
 

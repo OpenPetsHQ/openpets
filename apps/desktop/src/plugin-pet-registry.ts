@@ -6,7 +6,7 @@ import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWin
 import { builtInPet } from "./built-in-pet.js";
 import { debug, error as logError, info } from "./logger.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
-import { motionClearAutomaticMovementForOwner, motionMoveTo, motionSetAutomaticMovement, motionSetFollowCursor, motionSetPhysics, motionStop, unregisterPet, type WindowAccessor } from "./pet-motion-engine.js";
+import { motionCancelMove, motionClearAutomaticMovementForOwner, motionMoveTo, motionSetAutomaticMovement, motionSetFollowCursor, motionSetPhysics, motionStop, unregisterPet, type WindowAccessor } from "./pet-motion-engine.js";
 import { createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
 import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
@@ -363,6 +363,11 @@ export function setPluginPetFollowCursor(petHandleId: string, opts: { enabled: b
 export function setPluginPetAutomaticMovement(petHandleId: string, pluginId: string, active: boolean): void {
   requireWindow(petHandleId);
   motionSetAutomaticMovement(petHandleId, windowAccessor(petHandleId), pluginId, active);
+}
+
+/** Stop the current interpolation without changing this pet's gravity or cursor-follow state. */
+export function cancelPluginPetMove(petHandleId: string): void {
+  motionCancelMove(petHandleId);
 }
 
 export function setPluginPetPhysics(petHandleId: string, opts: { gravity?: boolean; bounce?: number }): void {

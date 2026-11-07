@@ -962,6 +962,8 @@ export interface OpenPetsPetHandle {
   setScale(scale: number): Promise<void>;
   /** Show a status reaction (or clear with null). Requires `pet:reaction`. */
   setStatusReaction(reaction: OpenPetsReaction | null): Promise<void>;
+  /** Cancel this pet's current position interpolation. Continuous physics is preserved. Requires `pet:move`. */
+  cancelMove(): Promise<void>;
   /** Requires `pet:move`. Movement is bounded to the work area. */
   moveBy(options: OpenPetsMoveByOptions): Promise<void>;
   /** Requires `pet:move`. */
@@ -996,12 +998,35 @@ export interface OpenPetsPetHandle {
   close(): Promise<void>;
 }
 
+/**
+ * Movement-only handle for a user-pinned pet. Pinned windows stay under user
+ * control, so plugins cannot speak for, animate, resize, show, hide, or close
+ * them through this handle.
+ */
+export type OpenPetsPinnedPetHandle = Pick<
+  OpenPetsPetHandle,
+  | "id"
+  | "cancelMove"
+  | "moveBy"
+  | "wander"
+  | "moveToHome"
+  | "moveTo"
+  | "setAutomaticMovement"
+  | "followCursor"
+  | "physics"
+  | "onTick"
+  | "getState"
+>;
+
 /** Multi-pet registry: list, target, spawn. */
 export interface OpenPetsPetsApi {
   readonly default: OpenPetsPetHandle;
   /** Requires `pets:read`. */
   list(): Promise<OpenPetsPetInfo[]>;
+  /** Get a handle to the default or a plugin-owned pet. Use `getPinned` for user-pinned pets. */
   get(petId: string): OpenPetsPetHandle;
+  /** Get a movement-only handle for a pet whose listed kind is `pinned`. */
+  getPinned(petId: string): OpenPetsPinnedPetHandle;
   /** Spawn an ephemeral pet window. Requires `pets:manage`. */
   spawn(spec: {
     petId: string;

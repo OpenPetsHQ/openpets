@@ -60,6 +60,7 @@ function createCapabilities(requests: Array<{ timeoutMs?: number; pluginId?: str
     pets: {
       list: () => [], spawn: async () => "pet", close: async () => undefined, show: async () => undefined, hide: async () => undefined,
       react: async () => undefined, setAnimation: async () => undefined, setScale: async () => undefined, setStatusReaction: async () => undefined,
+      cancelMove: async () => undefined,
       moveBy: async () => undefined, wander: async () => undefined, moveToHome: async () => undefined, moveTo: async () => undefined,
       setAutomaticMovement: async () => undefined,
       followCursor: async () => undefined, physics: async () => undefined, getState: async () => ({ position: { x: 0, y: 0 }, bounds: { x: 0, y: 0, width: 0, height: 0 }, currentAnimation: "idle", visible: true, dragging: false }),

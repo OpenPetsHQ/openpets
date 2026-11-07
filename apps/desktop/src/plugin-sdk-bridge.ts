@@ -165,6 +165,7 @@ export interface PluginHostCapabilities {
     setAnimation(petHandleId: string, spec: PluginAnimationSpec): Promise<void>;
     setScale(petHandleId: string, scale: number): Promise<void>;
     setStatusReaction(petHandleId: string, reaction: OpenPetsReaction | null): Promise<void>;
+    cancelMove(petHandleId: string): void | Promise<void>;
     moveBy(petHandleId: string, opts: { x: number; y: number; durationMs?: number }): Promise<void>;
     wander(petHandleId: string, opts: { distance?: number; durationMs?: number }): Promise<void>;
     moveToHome(petHandleId: string): Promise<void>;
@@ -273,6 +274,7 @@ export function createDefaultPluginHostCapabilities(petApi: PluginPetApi): Plugi
       setAnimation: async (_petId, spec) => { if (spec.kind === "reaction") await petApi.react(spec.reaction); },
       setScale: async () => undefined,
       setStatusReaction: async () => undefined,
+      cancelMove: async () => undefined,
       moveBy: async (_petId, opts) => { await petApi.moveBy(opts); },
       wander: async (_petId, opts) => { await petApi.wander(opts); },
       moveToHome: async () => { await petApi.moveToHome(); },
@@ -696,6 +698,7 @@ export class PluginSdkBridge {
       },
       setScale: async (scale: unknown) => { requirePermission("pet:animate"); const value = Number(scale); check(Number.isFinite(value) && value >= 0.5 && value <= 2, "Pet scale must be between 0.5 and 2."); await caps.pets.setScale(validatePetHandleId(petHandleId), value); },
       setStatusReaction: async (reaction: unknown) => { requirePermission("pet:reaction"); tickPetActionQuota(state, caps, petHandleId); await caps.pets.setStatusReaction(validatePetHandleId(petHandleId), reaction === null || reaction === "idle" ? null : validateReaction(reaction)); },
+      cancelMove: async () => { requirePermission("pet:move"); await caps.pets.cancelMove(validatePetHandleId(petHandleId)); },
       moveBy: async (options: unknown) => { requirePermission("pet:move"); tickPetActionQuota(state, caps, petHandleId); const opts = validateMoveBy(options); if (petHandleId === "default") await this.#petApi.moveBy(opts); else await caps.pets.moveBy(validatePetHandleId(petHandleId), opts); },
       wander: async (options: unknown) => { requirePermission("pet:move"); tickPetActionQuota(state, caps, petHandleId); const opts = validateWander(options); if (petHandleId === "default") await this.#petApi.wander(opts); else await caps.pets.wander(validatePetHandleId(petHandleId), opts); },
       moveToHome: async () => { requirePermission("pet:move"); tickPetActionQuota(state, caps, petHandleId); if (petHandleId === "default") await this.#petApi.moveToHome(); else await caps.pets.moveToHome(validatePetHandleId(petHandleId)); },
@@ -1104,7 +1107,7 @@ export class PluginSdkBridge {
     state.pickedFiles.clear();
     state.userCommandDepth = 0;
     state.lastError = undefined;
-    state.petWindow.reset(); state.petActionWindows.clear(); state.logWindow.reset(); state.httpWindow.reset(); state.busWindow.reset(); state.audioWindow.reset(); state.notifyWindow.reset(); state.toastWindow.reset(); state.deliveryWindow.reset(); state.aiWindow.reset(); state.voiceWindow.reset();
+    state.petWindow.reset(); state.petUiWindow.reset(); state.petFallbackActionWindow.reset(); state.petActionWindows.clear(); state.logWindow.reset(); state.httpWindow.reset(); state.busWindow.reset(); state.audioWindow.reset(); state.notifyWindow.reset(); state.toastWindow.reset(); state.deliveryWindow.reset(); state.aiWindow.reset(); state.voiceWindow.reset();
     return drain;
   }
 
@@ -1115,7 +1118,7 @@ export class PluginSdkBridge {
         commands: new Map(), assistantCapabilities: new Map(), menuItems: [], menuHandlers: new Set(), schedules: new Map(), configListeners: new Set(),
         storageSubscriptions: new Map(), busSubscriptions: new Map(), eventSubscriptions: new Map(), tickSubscriptions: new Map(),
         bubbles: new Map(), deliveries: new Map(), panels: new Map(), sessions: new Map(), spawnedPets: new Set(), pickedFiles: new Set(), userCommandDepth: 0,
-        petActionWindows: new Map(), petWindow: new WindowCounter(), logWindow: new WindowCounter(), httpWindow: new WindowCounter(), busWindow: new WindowCounter(),
+        petActionWindows: new Map(), petWindow: new WindowCounter(), petUiWindow: new WindowCounter(), petFallbackActionWindow: new WindowCounter(), logWindow: new WindowCounter(), httpWindow: new WindowCounter(), busWindow: new WindowCounter(),
         audioWindow: new WindowCounter(), notifyWindow: new WindowCounter(), toastWindow: new WindowCounter(), deliveryWindow: new WindowCounter(), aiWindow: new WindowCounter(), voiceWindow: new WindowCounter(),
       };
       this.#states.set(id, state);
@@ -1133,7 +1136,8 @@ function tickPetActionQuota(state: PluginRuntimeState, capabilities: PluginHostC
   }
 
   if (!livePetIds.has(petHandleId)) {
-    state.petWindow.tick(quotas.petActionsPerMinute, "pet action");
+    state.petWindow.tick(Number.MAX_SAFE_INTEGER, "pet action");
+    state.petFallbackActionWindow.tick(quotas.petActionsPerMinute, "pet action");
     return;
   }
 
@@ -1142,10 +1146,10 @@ function tickPetActionQuota(state: PluginRuntimeState, capabilities: PluginHostC
     counter = new WindowCounter();
     state.petActionWindows.set(petHandleId, counter);
   }
-  counter.tick(quotas.petActionsPerMinute, "pet action");
+  state.petWindow.tick(Number.MAX_SAFE_INTEGER, "pet action");
   // Keep the inspector's aggregate count without applying one global cap across
   // independent windows. Each live pet retains the existing 60-actions/minute cap.
-  state.petWindow.tick(Number.MAX_SAFE_INTEGER, "pet action");
+  counter.tick(quotas.petActionsPerMinute, "pet action");
 }
 
 function allowedNetworkHosts(record: PluginStateRecord, manifest: OpenPetsJavascriptPluginManifest): Set<string> {

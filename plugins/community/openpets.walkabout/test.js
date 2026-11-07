@@ -186,6 +186,7 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
   // Pet should now be paused.
   const pausedStatuses = h.calls.status.slice(statusCountAfterStart).map((s) => s.text);
   assert.ok(pausedStatuses.some((l) => l.includes("paused")), "status shows paused after activity pulse");
+  assert.ok(h.calls.petActions.some((action) => action.petId === "default" && action.method === "cancelMove"), "activity pause cancels any active interpolation");
   const movementOwnerDuringPause = h.calls.petActions
     .filter((action) => action.petId === "default" && action.method === "setAutomaticMovement")
     .at(-1)?.args?.enabled;
@@ -282,7 +283,7 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
     initialPets: [defaultPet, ...pinnedPets],
   });
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const countFor = (petId) => h.calls.petActions.filter((action) => action.petId === petId && action.method !== "setAutomaticMovement").length;
+  const countFor = (petId) => h.calls.petActions.filter((action) => action.petId === petId && action.method !== "setAutomaticMovement" && action.method !== "cancelMove").length;
   const automaticMovementFor = (petId) => h.calls.petActions
     .filter((action) => action.petId === petId && action.method === "setAutomaticMovement")
     .at(-1)?.args?.enabled;
@@ -360,6 +361,7 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
   assert.ok(draggedCountBefore > 0, "the dragged pet was moving before the user grabbed it");
 
   await h.emit("pet:dragStart", { petId: draggedPet.id });
+  assert.ok(h.calls.petActions.some((action) => action.petId === draggedPet.id && action.method === "cancelMove"), "dragging cancels the dragged pet's active interpolation");
   await wait(1_100);
   assert.equal(countFor(draggedPet.id), draggedCountBefore, "Walkabout does not issue another move for the pet while it is being dragged");
   assert.ok(countFor(movingPet.id) > movingCountBefore, "another pet keeps wandering while this pet is dragged");

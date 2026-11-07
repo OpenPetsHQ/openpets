@@ -151,6 +151,7 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   await pet.setAnimation("idle");
   await pet.setScale(1);
   await pet.setStatusReaction("working");
+  await pet.cancelMove();
   await pet.moveBy({ x: 1, y: 2 });
   await pet.wander({ distance: 1 });
   await pet.moveToHome();
@@ -163,11 +164,21 @@ async function exercisePublicSdk(sdk: PreloadSdk, asyncCalls: TransportRecord[],
   await pet.show();
   await pet.hide();
   await pet.close();
+  let fullHandleRejectedPinnedPet = false;
+  try { sdk.pets.get("pinned:fox"); } catch { fullHandleRejectedPinnedPet = true; }
+  assertEqual(fullHandleRejectedPinnedPet, true, "full pet handles must reject pinned IDs");
 
   const tickDisposer = pet.onTick(() => undefined);
   tickDisposer();
   await sdk.pets.list();
   const spawnedPet = await sdk.pets.spawn({ petId: "spawned" });
+  const pinnedPet = sdk.pets.getPinned("pinned:fox");
+  await pinnedPet.cancelMove();
+  await pinnedPet.moveBy({ x: 1, y: 0 });
+  if (false) {
+    // @ts-expect-error Pinned handles intentionally omit non-movement actions.
+    await pinnedPet.setScale(1);
+  }
   await spawnedPet.getState();
   await spawnedPet.close();
   const petsChangeDisposer = sdk.pets.onChange(() => undefined);

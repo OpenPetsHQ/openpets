@@ -73,6 +73,11 @@ uses its own motion state and remains bounded by the same per-pet monitor and
 confinement rules. Pet actions are capped at 60 per minute for each live pet
 handle, so one plugin can drive several pets at the normal interval without
 sharing one combined action budget.
+Use `ctx.pets.getPinned(id)` for pinned pets. It exposes movement and state
+only; `ctx.pets.get(id)` rejects pinned IDs so unsupported speech, animation,
+visibility, and close actions are not presented on a pinned handle. Movement
+handles also provide `cancelMove()` to stop an in-flight interpolation while
+preserving continuous physics.
 Plugins that run ongoing movement across gaps between individual moves can use
 `pet.setAutomaticMovement(true)` while that behavior is active, then clear it
 when paused or stopped. During that ownership, dragging repositions the pet
