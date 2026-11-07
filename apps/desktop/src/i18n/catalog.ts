@@ -10,11 +10,12 @@ import { zhHant } from "./locales/zh-Hant.js";
 import { ptBR } from "./locales/pt-BR.js";
 import { es419 } from "./locales/es-419.js";
 import { fr } from "./locales/fr.js";
+import { ru } from "./locales/ru.js";
 
 export type MessageKey = keyof typeof en;
 export type Messages = Record<MessageKey, string>;
 
-export const SUPPORTED_LOCALES = ["en", "ja", "ko", "zh-Hans", "zh-Hant", "pt-BR", "es-419", "fr"] as const;
+export const SUPPORTED_LOCALES = ["en", "ja", "ko", "zh-Hans", "zh-Hant", "pt-BR", "es-419", "fr", "ru"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 /** `"system"` follows the OS locale; an explicit locale pins it. */
@@ -31,6 +32,7 @@ export const LOCALE_LABELS: Record<Locale, string> = {
   "pt-BR": "Português (Brasil)",
   "es-419": "Español (Latinoamérica)",
   fr: "Français",
+  ru: "Русский",
 };
 
 const catalogs: Record<Locale, Partial<Messages>> = {
@@ -42,6 +44,7 @@ const catalogs: Record<Locale, Partial<Messages>> = {
   "pt-BR": ptBR,
   "es-419": es419,
   fr,
+  ru,
 };
 
 export function isSupportedLocale(value: unknown): value is Locale {
@@ -76,6 +79,7 @@ export function resolveLocale(raw: string | null | undefined): Locale {
   if (tag.startsWith("pt")) return "pt-BR";
   if (tag.startsWith("es")) return "es-419";
   if (tag.startsWith("fr")) return "fr";
+  if (tag.startsWith("ru")) return "ru";
   if (tag.startsWith("zh")) {
     // Traditional script for Taiwan / Hong Kong / Macau or an explicit Hant tag.
     return /hant|tw|hk|mo/.test(tag) ? "zh-Hant" : "zh-Hans";
