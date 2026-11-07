@@ -340,6 +340,54 @@ for (const mode of ["wander", "follow-cursor", "patrol"]) {
   h.expectNoErrors();
 }
 
+// ── Overlapping config updates stop stale runners before replacing them ────────
+{
+  let definition;
+  register({ register: (value) => { definition = value; } });
+  const pinnedPet = { id: "pinned:fox", name: "Fox", kind: "pinned", visible: true };
+  const h = createTestHarness(definition, {
+    permissions: PERMISSIONS,
+    locales: LOCALES,
+    config: { mode: "wander", speed: "slow", interval: "10", pauseWhenBusy: false },
+    initialPets: [{ id: "default", name: "Default pet", kind: "default", visible: true }, pinnedPet],
+  });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const countWanders = () => h.calls.petActions.filter((action) => action.petId === pinnedPet.id && action.method === "wander").length;
+  const originalGetPinned = h.ctx.pets.getPinned.bind(h.ctx.pets);
+  let releaseFirstCancel;
+  let signalFirstCancel;
+  const firstCancelStarted = new Promise((resolve) => { signalFirstCancel = resolve; });
+  const firstCancelGate = new Promise((resolve) => { releaseFirstCancel = resolve; });
+  let firstCancel = true;
+  h.ctx.pets.getPinned = (petId) => {
+    const pet = originalGetPinned(petId);
+    const cancel = pet.cancelMove.bind(pet);
+    pet.cancelMove = async () => {
+      if (firstCancel) {
+        firstCancel = false;
+        signalFirstCancel();
+        await firstCancelGate;
+      }
+      await cancel();
+    };
+    return pet;
+  };
+
+  await h.start();
+  const beforeConfigChanges = countWanders();
+  const firstConfig = h.setConfig({ mode: "patrol", speed: "normal", interval: "10", pauseWhenBusy: false });
+  await firstCancelStarted;
+  const secondConfig = h.setConfig({ mode: "wander", speed: "brisk", interval: "10", pauseWhenBusy: false });
+  await wait(20);
+  releaseFirstCancel();
+  await Promise.all([firstConfig, secondConfig]);
+  await wait(650);
+
+  assert.equal(countWanders() - beforeConfigChanges, 1, "overlapping config changes leave one active wander runner");
+  h.expectNoErrors();
+  await h.stop();
+}
+
 // ── Dragging yields only that pet's movement runner until release ──────────────
 {
   const defaultPet = { id: "default", name: "Default pet", kind: "default", visible: true };

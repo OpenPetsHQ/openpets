@@ -177,8 +177,9 @@ await scenario("pet action quotas are independent for each live handle", async (
   assert.deepEqual(await movementApi.pets.list(), capabilities.pets.list(), "the bridge exposes pinned pets through the existing list API");
   await movementApi.pet.setAutomaticMovement(true);
   await movementApi.pets.forPet("pinned:fox").setAutomaticMovement(false);
+  await movementApi.pet.cancelMove();
   await movementApi.pets.forPet("pinned:fox").cancelMove();
-  assert.deepEqual(canceledMoves, ["pinned:fox"], "a pinned handle cancels only its own interpolation");
+  assert.deepEqual(canceledMoves, ["default", "pinned:fox"], "cancellation is routed to the targeted default or pinned pet");
   assert.deepEqual(movementOwners, [["default", "plug", true], ["pinned:fox", "plug", false]], "automatic movement ownership is scoped to a plugin and pet handle");
   await assert.rejects(() => movementApi.pet.setAutomaticMovement("yes" as never), /Automatic movement state must be a boolean\./);
   for (let index = 0; index < pluginSdkQuotas.petActionsPerMinute; index += 1) {

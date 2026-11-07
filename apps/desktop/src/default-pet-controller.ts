@@ -4,6 +4,7 @@ import { getAppStateSnapshot, getDefaultPetPositionState, recordDefaultPetPositi
 import { shouldShowDefaultPetForExternalEvent } from "./app-state-core.js";
 import { defaultPetWindowSize, getAllDisplayKeys, getDefaultPetInitialPosition, getDisplayKey, getDisplayKeyForPosition, type Point } from "./display.js";
 import { motionMoveTo } from "./pet-motion-engine.js";
+import { beginDefaultPetMove, cancelDefaultPetMove, finishDefaultPetMove, isDefaultPetMoveCurrent, type DefaultPetMoveCancellationState } from "./default-pet-move-cancellation.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { bindDefaultPetChatWindow, collapseDefaultPetChat, openDefaultPetCheckIn, unbindDefaultPetChatWindow } from "./default-pet-chat.js";
 import { debug, info, warn } from "./logger.js";
@@ -27,7 +28,7 @@ let voiceTerminalReactionTimeout: NodeJS.Timeout | null = null;
 const maxPluginMoveDistance = 160;
 const minPluginMoveDurationMs = 250;
 const maxPluginMoveDurationMs = 1_500;
-let movementInProgress = false;
+const defaultPetMoveState: DefaultPetMoveCancellationState = { generation: 0, activeGeneration: null };
 const busyStatusBadgeMs = 120_000;
 
 const transientPresentation: PetTransientPresentation = createPetTransientPresentation({
@@ -365,6 +366,11 @@ export function applyExternalPetMoveToHome(): Promise<{ readonly moved: boolean;
   return moveDefaultPetBy(home.x - current.x, home.y - current.y, maxPluginMoveDurationMs, Number.POSITIVE_INFINITY);
 }
 
+/** Interrupt a legacy default-pet moveBy/moveToHome interpolation. */
+export function cancelExternalPetMove(): void {
+  cancelDefaultPetMove(defaultPetMoveState);
+}
+
 export function destroyDefaultPet(): void {
   clearDefaultPetDisplayTimers();
   voiceActivityReaction = null;
@@ -508,10 +514,11 @@ async function moveDefaultPetBy(rawX: number, rawY: number, rawDurationMs: unkno
   const target = getSafeDefaultPetPosition({ x: current.x + rawX * scale, y: current.y + rawY * scale });
   const durationMs = clampNumber(Number(rawDurationMs ?? 700), minPluginMoveDurationMs, maxPluginMoveDurationMs);
   const steps = Math.max(8, Math.min(16, Math.round(durationMs / 100)));
-  movementInProgress = true;
+  const generation = beginDefaultPetMove(defaultPetMoveState);
   debug("pet.default", "move start", { windowId: window.id, from: current, target, durationMs, steps });
   try {
     for (let step = 1; step <= steps; step += 1) {
+      if (!isDefaultPetMoveCurrent(defaultPetMoveState, generation)) return { moved: false, reason: "cancelled" };
       if (window.isDestroyed()) return { moved: false, reason: "destroyed" };
       const blocked = getMovementBlockedReason(window, true);
       if (blocked) return { moved: false, reason: blocked };
@@ -524,12 +531,12 @@ async function moveDefaultPetBy(rawX: number, rawY: number, rawDurationMs: unkno
     debug("pet.default", "move finished", { windowId: window.id, target });
     return { moved: true };
   } finally {
-    movementInProgress = false;
+    finishDefaultPetMove(defaultPetMoveState, generation);
   }
 }
 
 function getMovementBlockedReason(window: BrowserWindow, allowMoving = false): string | undefined {
-  if (movementInProgress && !allowMoving) return "already-moving";
+  if (defaultPetMoveState.activeGeneration !== null && !allowMoving) return "already-moving";
   if (!window.isVisible()) return "hidden";
   if (paused) return "paused";
   if (isPetWindowDragging(window)) return "dragging";

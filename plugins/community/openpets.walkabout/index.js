@@ -303,6 +303,8 @@ export function register(OpenPetsPlugin) {
       const ownershipOperations = new Map();
       let currentPets = [];
       let commandRefresh = Promise.resolve();
+      let configChanges = Promise.resolve();
+      let configRevision = 0;
       let unsubPets = () => {};
       let unsubConfig = () => {};
       let unsubActivity = () => {};
@@ -325,6 +327,7 @@ export function register(OpenPetsPlugin) {
         unsubDragStart();
         unsubDragEnd();
         await Promise.all([...releaseOwners, ...cancelMoves]);
+        await configChanges.catch(() => undefined);
         await commandRefresh.catch(() => undefined);
         await ctx.commands.unregister(PINNED_PET_COMMAND_ID).catch(() => {});
         await ctx.status.clear().catch(() => {});
@@ -467,13 +470,19 @@ export function register(OpenPetsPlugin) {
       if (!active) return;
 
       // React to config changes — tear down old mode, spin up new one.
-      unsubConfig = ctx.config.onChange(async (newRaw) => {
-        if (!active) return;
+      unsubConfig = ctx.config.onChange((newRaw) => {
+        const revision = ++configRevision;
         cfg = cleanConfig(newRaw);
-        await Promise.all([...runners.values()].map((runner) => runner.stop()));
-        runners.clear();
-        reconcileRunners();
-        await ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" });
+        configChanges = configChanges.catch(() => undefined).then(async () => {
+          if (!active || revision !== configRevision) return;
+          const previousRunners = [...runners.values()];
+          runners.clear();
+          await Promise.all(previousRunners.map((runner) => runner.stop()));
+          if (!active || revision !== configRevision) return;
+          reconcileRunners();
+          await ctx.status.set({ text: ctx.t("status.active", { mode: cfg.mode }), tone: "info" });
+        });
+        return configChanges;
       });
 
       // Preserve the original busy-pause behavior for the default pet. Pinned pets

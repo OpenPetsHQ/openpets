@@ -1,7 +1,7 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
-import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetStatusReaction, cancelExternalPetMove, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
 import { debug, error as logError, info } from "./logger.js";
@@ -367,6 +367,7 @@ export function setPluginPetAutomaticMovement(petHandleId: string, pluginId: str
 
 /** Stop the current interpolation without changing this pet's gravity or cursor-follow state. */
 export function cancelPluginPetMove(petHandleId: string): void {
+  if (petHandleId === "default") cancelExternalPetMove();
   motionCancelMove(petHandleId);
 }
 
