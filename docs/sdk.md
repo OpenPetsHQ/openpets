@@ -42,7 +42,7 @@ each gated by a permission ([Plugin platform](/plugins)):
 | Namespace | What it does | Rough permission |
 |-----------|--------------|------------------|
 | `ctx.pet` | Drive the default pet: speak, react | `pet:*` |
-| `ctx.pets` | Spawn/target multiple pets, motion | `pets:*` |
+| `ctx.pets` | List, spawn, and target default, pinned, or plugin-spawned pets | `pets:*` |
 | `ctx.ui` | Host-rendered bubbles, alerts, menu items, panels | `ui:*` |
 | `ctx.schedule` | Recurring / one-shot timers | `schedule` |
 | `ctx.storage` | Quota-bound persistent plugin data + subscriptions | `storage` |
@@ -67,6 +67,22 @@ each gated by a permission ([Plugin platform](/plugins)):
 
 The exact signatures live in `packages/sdk/src/index.ts` - that file is the
 contract, so program against it rather than any list copied into a doc.
+`ctx.pets.list()` and `ctx.pets.onChange()` include pinned pets as
+`kind: "pinned"`, with stable IDs in the `pinned:<petId>` form. Each handle
+uses its own motion state and remains bounded by the same per-pet monitor and
+confinement rules. Pet actions are capped at 60 per minute for each live pet
+handle, so one plugin can drive several pets at the normal interval without
+sharing one combined action budget.
+Use `ctx.pets.getPinned(id)` for pinned pets. It exposes movement and state
+only; `ctx.pets.get(id)` rejects pinned IDs so unsupported speech, animation,
+visibility, and close actions are not presented on a pinned handle. Movement
+handles also provide `cancelMove()` to stop an in-flight interpolation while
+preserving continuous physics.
+Plugins that run ongoing movement across gaps between individual moves can use
+`pet.setAutomaticMovement(true)` while that behavior is active, then clear it
+when paused or stopped. During that ownership, dragging repositions the pet
+without starting throw physics; the host also clears ownership when the plugin
+stops.
 `ctx.system.metrics()` always returns aggregate CPU and memory usage; GPU,
 system-volume, battery, and network fields are optional because host support
 varies by OS and hardware. Network throughput is derived from successive

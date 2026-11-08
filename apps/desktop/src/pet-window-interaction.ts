@@ -4,8 +4,9 @@ import type { Point } from "./display.js";
 import { debug } from "./logger.js";
 import { canForwardMouseEvents as platformCanForwardMouseEvents, shouldWatchForwardedMouseEvents } from "./mouse-forwarding.js";
 import { trackPetSpriteBytesWebContents } from "./pet-sprite-bytes.js";
-import { createVelocityTracker } from "./pet-throw-core.js";
+import { createVelocityTracker, resolveDragThrowVelocity } from "./pet-throw-core.js";
 import { cancelPetThrow, startPetThrow, type PetThrowPhysics } from "./pet-throw.js";
+import { motionCancelMoveForDrag } from "./pet-motion-engine.js";
 import { resetPetGazeWindow, setPetGazeDragging, setPetGazeRendererReady, suspendPetGazeForMovement } from "./pet-window-gaze.js";
 import type { PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 import { finishPetActivitySpeech, interruptPetActivity, setPetActivityDragging } from "./pet-activities.js";
@@ -66,6 +67,7 @@ export function installPetWindowInteraction(
     readonly startWindowY: number;
     readonly width: number;
     readonly height: number;
+    readonly interruptedMotion: boolean;
   } | null = null;
   const velocityTracker = createVelocityTracker();
   let rendererReady = false;
@@ -275,6 +277,7 @@ export function installPetWindowInteraction(
   const handleDragStart = (event: IpcMainEvent, point: unknown): void => {
     if (!isFromWindow(event) || !isScreenPoint(point) || window.isDestroyed()) return;
 
+    const interruptedMotion = motionCancelMoveForDrag(window);
     setPetActivityDragging(window, true);
     setPetGazeDragging(window, true);
     suspendPetGazeForMovement(window);
@@ -293,11 +296,12 @@ export function installPetWindowInteraction(
       startWindowY: startBounds.y,
       width: startBounds.width,
       height: startBounds.height,
+      interruptedMotion,
     };
     // Seed the tracker so even a single fast move event after the press yields a release velocity.
     velocityTracker.addSample(Date.now(), startBounds.x, startBounds.y);
     petWindowDragging.set(window, true);
-    debug("pet.window", "drag start", { windowId, point, startBounds });
+    debug("pet.window", "drag start", { windowId, point, startBounds, interruptedMotion });
     clearForwardingWatch();
     setPassthrough(false);
     onPetEvent?.("pet:dragStart", {});
@@ -333,10 +337,12 @@ export function installPetWindowInteraction(
     const wasDragging = releasedDrag !== null;
     dragging = null;
     petWindowDragging.set(window, false);
-    const throwVelocity = velocityTracker.release(Date.now());
+    const throwVelocity = resolveDragThrowVelocity(velocityTracker.release(Date.now()), releasedDrag?.interruptedMotion ?? false);
     velocityTracker.reset();
-    if (releasedDrag && throwVelocity && !window.isDestroyed()) {
+    if (releasedDrag && !releasedDrag.interruptedMotion && throwVelocity && !window.isDestroyed()) {
       startPetThrow(window, { width: releasedDrag.width, height: releasedDrag.height }, throwVelocity, getThrowPhysics());
+    } else if (releasedDrag?.interruptedMotion && throwVelocity) {
+      debug("pet.window", "throw suppressed after drag interrupted active motion", { windowId, throwVelocity });
     }
     debug("pet.window", "drag end", {
       windowId,

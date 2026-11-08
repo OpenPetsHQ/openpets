@@ -25,6 +25,8 @@ import { createAgentPetWindow, loadExplicitPetContent, readWindowPosition, showP
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { getEligiblePoolPetIds } from "./pet-pool.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
+import { registerPinnedPluginPet, unregisterPinnedPluginPet } from "./plugin-pet-registry.js";
+import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { maxPinnedPets, planPinnedPets } from "./pinned-pets.js";
 import { setWindowPosition } from "./window-position.js";
 
@@ -153,9 +155,10 @@ function closePinnedPet(petId: string): void {
   // Persist the newest position before the window goes away: the debounced save is still
   // holding it, and reading the position after destroy() is impossible.
   saver?.flush();
+  unregisterRoamingPet(pinnedMotionHandle(petId));
+  unregisterPinnedPluginPet(pinnedMotionHandle(petId));
   if (window && !window.isDestroyed()) {
     info("pet.pinned", "close", { petId, windowId: window.id });
-    unregisterRoamingPet(pinnedMotionHandle(petId));
     window.setIgnoreMouseEvents(false);
     window.destroy();
   }
@@ -192,6 +195,7 @@ function spawnPinnedPet(petId: string): void {
     display: null,
     badge: null,
     onCloseRequested: () => unpinPinnedPet(petId),
+    onPetEvent: (name, payload) => publishPluginPetEvent(pinnedMotionHandle(petId), name, payload),
     onWindowReplaced: (replacement) => trackPinnedPetWindow(petId, replacement),
   });
 
@@ -199,7 +203,10 @@ function spawnPinnedPet(petId: string): void {
   showPetWindowInactive(window);
   const shownWindow = pinnedPetWindows.get(petId);
   if (shownWindow && !shownWindow.isDestroyed()) {
-    registerRoamingPet(pinnedMotionHandle(petId), () => pinnedPetWindows.get(petId) ?? null);
+    const handleId = pinnedMotionHandle(petId);
+    const windowAccessor = () => pinnedPetWindows.get(petId) ?? null;
+    registerRoamingPet(handleId, windowAccessor);
+    registerPinnedPluginPet({ handleId, petId, name: installed.displayName, windowAccessor });
   }
   info("pet.pinned", "spawn", {
     petId,
@@ -221,7 +228,10 @@ function trackPinnedPetWindow(petId: string, window: BrowserWindow): void {
   window.once("closed", () => {
     if (pinnedPetWindows.get(petId) === window) {
       pinnedPetWindows.delete(petId);
+      positionSavers.get(petId)?.flush();
       positionSavers.delete(petId);
+      unregisterRoamingPet(pinnedMotionHandle(petId));
+      unregisterPinnedPluginPet(pinnedMotionHandle(petId));
     }
   });
 }

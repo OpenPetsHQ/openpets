@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createVelocityTracker, gravityAcceleration, stepThrow, type ThrowBounds, type ThrowOptions, type ThrowState } from "../src/pet-throw-core.js";
+import { createVelocityTracker, gravityAcceleration, resolveDragThrowVelocity, stepThrow, type ThrowBounds, type ThrowOptions, type ThrowState } from "../src/pet-throw-core.js";
 
 const bounds: ThrowBounds = { minX: 0, minY: 0, maxX: 1000, maxY: 600 };
 
@@ -48,6 +48,18 @@ describe("release velocity", () => {
     tracker.addSample(50, 400, 100);
     tracker.reset();
     assert.equal(tracker.release(55), null);
+  });
+});
+
+describe("drag release ownership", () => {
+  it("keeps an interrupted auto-move at the user's drop point instead of launching a throw", () => {
+    const velocity = { x: 1_500, y: 0 };
+    assert.equal(resolveDragThrowVelocity(velocity, true), null);
+  });
+
+  it("preserves an intentional toss when the drag did not interrupt automatic movement", () => {
+    const velocity = { x: 1_500, y: 0 };
+    assert.deepEqual(resolveDragThrowVelocity(velocity, false), velocity);
   });
 });
 

@@ -7,7 +7,7 @@ Source for the published plugin SDK v3 type surface and test harness.
 ## Design/Patterns
 
 - **Public Contract Module**: `index.ts` defines permissions, manifest-adjacent types, `OpenPetsContext`, namespace APIs, descriptor shapes, handles, and the ambient `OpenPetsPlugin` global.
-- **Mock Runtime Module**: `testing.ts` builds a deterministic fake SDK runtime with fake time, permission checks, event injection, storage/config subscriptions, command execution, bubble actions, and recorded host effects.
+- **Mock Runtime Module**: `testing.ts` builds a deterministic fake SDK runtime with fake time, permission checks, event injection, mutable default/pinned/plugin pet listings, storage/config subscriptions, command execution, bubble actions, and recorded host effects.
 - **Contract Check**: `check-plugin-sdk.ts` compiles/runs a representative plugin against the test harness to detect SDK/test-kit drift.
 
 ## Data & Control Flow

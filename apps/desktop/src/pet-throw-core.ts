@@ -11,6 +11,11 @@ export interface ThrowPoint {
   readonly y: number;
 }
 
+/** A drag that interrupted automatic movement is a reposition, not a fling. */
+export function resolveDragThrowVelocity(velocity: ThrowPoint | null, interruptedMotion: boolean): ThrowPoint | null {
+  return interruptedMotion ? null : velocity;
+}
+
 export interface ThrowBounds {
   readonly minX: number;
   readonly minY: number;

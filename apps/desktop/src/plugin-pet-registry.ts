@@ -1,12 +1,12 @@
 import { BrowserWindow } from "electron";
 
 import { getAppStateSnapshot, type PetScaleValue } from "./app-state.js";
-import { applyExternalPetReaction, applyExternalPetStatusReaction, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
+import { applyExternalPetReaction, applyExternalPetStatusReaction, cancelExternalPetMove, getDefaultPetPaused, getDefaultPetWindowForPlugins, defaultPetBubbleArbiter } from "./default-pet-controller.js";
 import { clampToNearestDisplayIfOffscreen, clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosition, isCrossDisplayRoamingEnabled, type Point } from "./display.js";
 import { builtInPet } from "./built-in-pet.js";
-import { debug, info } from "./logger.js";
+import { debug, error as logError, info } from "./logger.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
-import { motionMoveTo, motionSetFollowCursor, motionSetPhysics, motionStop, type WindowAccessor } from "./pet-motion-engine.js";
+import { motionCancelMove, motionClearAutomaticMovementForOwner, motionMoveTo, motionSetAutomaticMovement, motionSetFollowCursor, motionSetPhysics, motionStop, unregisterPet, type WindowAccessor } from "./pet-motion-engine.js";
 import { createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
 import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
@@ -36,7 +36,15 @@ type SpawnedPet = {
   reactionRevert: NodeJS.Timeout | null;
 };
 
+export type PinnedPluginPetRegistration = {
+  readonly handleId: string;
+  readonly petId: string;
+  readonly name: string;
+  readonly windowAccessor: WindowAccessor;
+};
+
 const spawnedPets = new Map<string, SpawnedPet>();
+const pinnedPets = new Map<string, PinnedPluginPetRegistration>();
 const changeListeners = new Set<(pets: PluginPetInfo[]) => void>();
 const tickSubscribers = new Map<string, Set<(dtMs: number) => void>>();
 const tickLoops = new Map<string, { timer: NodeJS.Timeout; lastAt: number }>();
@@ -46,6 +54,12 @@ let defaultAnimation = "idle";
 
 function windowAccessor(petHandleId: string): WindowAccessor {
   if (petHandleId === "default") return getDefaultPetWindowForPlugins;
+  if (pinnedPets.has(petHandleId)) {
+    return () => {
+      const window = pinnedPets.get(petHandleId)?.windowAccessor() ?? null;
+      return window && !window.isDestroyed() ? window : null;
+    };
+  }
   return () => {
     const pet = spawnedPets.get(petHandleId);
     return pet?.window && !pet.window.isDestroyed() ? pet.window : null;
@@ -70,7 +84,26 @@ export function listPluginPets(): PluginPetInfo[] {
   for (const pet of spawnedPets.values()) {
     out.push({ id: pet.handleId, name: pet.name, kind: "plugin", visible: pet.window !== null && !pet.window.isDestroyed() && pet.window.isVisible() });
   }
+  for (const pet of pinnedPets.values()) {
+    const window = pet.windowAccessor();
+    out.push({ id: pet.handleId, name: pet.name, kind: "pinned", visible: window !== null && !window.isDestroyed() && window.isVisible() });
+  }
   return out;
+}
+
+/** Expose a user-pinned window through the existing plugin pet-handle API. */
+export function registerPinnedPluginPet(pet: PinnedPluginPetRegistration): void {
+  const previous = pinnedPets.get(pet.handleId);
+  pinnedPets.set(pet.handleId, pet);
+  if (!previous || previous.petId !== pet.petId || previous.name !== pet.name) notifyChange();
+}
+
+/** Remove an unpinned or externally destroyed pet and its host-driven tick loop. */
+export function unregisterPinnedPluginPet(handleId: string): void {
+  if (!pinnedPets.delete(handleId)) return;
+  unregisterPet(handleId);
+  stopTicker(handleId);
+  notifyChange();
 }
 
 export function onPluginPetsChange(listener: (pets: PluginPetInfo[]) => void): () => void {
@@ -171,7 +204,10 @@ export async function spawnPluginPet(opts: { pluginId: string; petId: string; na
 
 export async function closePluginPet(pluginId: string, petHandleId: string, force = false): Promise<void> {
   const pet = spawnedPets.get(petHandleId);
-  if (!pet) return;
+  if (!pet) {
+    if (pinnedPets.has(petHandleId)) throw new Error("Plugins may only close pets they spawned.");
+    return;
+  }
   if (!force && pet.ownerPluginId !== pluginId) throw new Error("Plugins may only close pets they spawned.");
   spawnedPets.delete(petHandleId);
   motionStop(petHandleId);
@@ -185,6 +221,7 @@ export async function closePluginPet(pluginId: string, petHandleId: string, forc
 
 /** Tear down everything a plugin spawned or animated (plugin stop/reload). */
 export function clearPluginPetsForPlugin(pluginId: string): void {
+  motionClearAutomaticMovementForOwner(pluginId);
   for (const pet of [...spawnedPets.values()]) {
     if (pet.ownerPluginId === pluginId) void closePluginPet(pluginId, pet.handleId, true);
   }
@@ -193,12 +230,14 @@ export function clearPluginPetsForPlugin(pluginId: string): void {
 
 export function showPluginPet(petHandleId: string): void {
   if (petHandleId === "default") { import("./default-pet-controller.js").then(({ showDefaultPet }) => showDefaultPet()).catch(() => undefined); notifyChange(); return; }
+  if (pinnedPets.has(petHandleId)) throw new Error("Plugins may not show or hide user-pinned pets.");
   showPetWindowInactive(requireWindow(petHandleId));
   notifyChange();
 }
 
 export function hidePluginPet(petHandleId: string): void {
   if (petHandleId === "default") { import("./default-pet-controller.js").then(({ hideDefaultPet }) => hideDefaultPet()).catch(() => undefined); notifyChange(); return; }
+  if (pinnedPets.has(petHandleId)) throw new Error("Plugins may not show or hide user-pinned pets.");
   hidePetWindow(requireWindow(petHandleId));
   notifyChange();
 }
@@ -272,9 +311,21 @@ export function setPluginPetStatusReaction(petHandleId: string, reaction: OpenPe
 // this can leave the pet's shape/paint stale and effectively invisible until
 // something else happens to trigger a refresh. Force one after every move so
 // the pet actually stays visible once it stops.
-function refreshAfterMove(petHandleId: string): void {
+async function refreshAfterMove(petHandleId: string): Promise<void> {
   const pet = spawnedPets.get(petHandleId);
-  if (pet) refreshSpawnedPet(pet);
+  if (pet) {
+    refreshSpawnedPet(pet);
+    return;
+  }
+
+  const pinnedPet = pinnedPets.get(petHandleId);
+  if (!pinnedPet || process.platform !== "linux") return;
+  try {
+    const { refreshPinnedPetContent } = await import("./pinned-pet-controller.js");
+    if (pinnedPets.get(petHandleId) === pinnedPet) refreshPinnedPetContent(pinnedPet.petId);
+  } catch (error) {
+    logError("plugin", "pinned pet refresh after movement failed", error instanceof Error ? error : { error });
+  }
 }
 
 export async function movePluginPetBy(petHandleId: string, opts: { x: number; y: number; durationMs?: number }): Promise<void> {
@@ -283,7 +334,7 @@ export async function movePluginPetBy(petHandleId: string, opts: { x: number; y:
   const distance = Math.min(Math.hypot(opts.x, opts.y), 160);
   const scale = distance > 0 ? distance / Math.hypot(opts.x, opts.y) : 0;
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), { x: x + opts.x * scale, y: y + opts.y * scale }, { durationMs: opts.durationMs ?? 700 });
-  refreshAfterMove(petHandleId);
+  await refreshAfterMove(petHandleId);
 }
 
 export async function wanderPluginPet(petHandleId: string, opts: { distance?: number; durationMs?: number }): Promise<void> {
@@ -295,18 +346,29 @@ export async function wanderPluginPet(petHandleId: string, opts: { distance?: nu
 export async function movePluginPetToHome(petHandleId: string): Promise<void> {
   const home = getDefaultPetInitialPosition(defaultPetWindowSize);
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), home, { durationMs: 1_200 });
-  refreshAfterMove(petHandleId);
+  await refreshAfterMove(petHandleId);
 }
 
 export async function movePluginPetTo(petHandleId: string, point: Point, opts: { durationMs?: number; easing?: string } = {}): Promise<void> {
   requireWindow(petHandleId);
   await motionMoveTo(petHandleId, windowAccessor(petHandleId), point, opts);
-  refreshAfterMove(petHandleId);
+  await refreshAfterMove(petHandleId);
 }
 
 export function setPluginPetFollowCursor(petHandleId: string, opts: { enabled: boolean; lag?: number }): void {
   requireWindow(petHandleId);
   motionSetFollowCursor(petHandleId, windowAccessor(petHandleId), opts);
+}
+
+export function setPluginPetAutomaticMovement(petHandleId: string, pluginId: string, active: boolean): void {
+  requireWindow(petHandleId);
+  motionSetAutomaticMovement(petHandleId, windowAccessor(petHandleId), pluginId, active);
+}
+
+/** Stop the current interpolation without changing this pet's gravity or cursor-follow state. */
+export function cancelPluginPetMove(petHandleId: string): void {
+  if (petHandleId === "default") cancelExternalPetMove();
+  motionCancelMove(petHandleId);
 }
 
 export function setPluginPetPhysics(petHandleId: string, opts: { gravity?: boolean; bounce?: number }): void {

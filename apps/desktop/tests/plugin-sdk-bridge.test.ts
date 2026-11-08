@@ -8,7 +8,7 @@ import { Agent } from "undici";
 import { PluginSdkBridge, type PluginDeliveryHostHandle, type PluginHostCapabilities } from "../src/plugin-sdk-bridge.js";
 import { pluginSdkQuotas } from "../src/plugin-sdk-quotas.js";
 import { PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js";
-import type { OpenPetsJavascriptPluginManifest } from "../src/plugin-manifest.js";
+import type { OpenPetsJavascriptPluginManifest, PluginJavascriptPermission } from "../src/plugin-manifest.js";
 import { sanitizePluginDiagnosticsFields } from "../src/plugin-diagnostics.js";
 import { PetAssistantService } from "../src/pet-assistant-service.js";
 import { feedbackForAssistantEvent } from "../src/pet-assistant-feedback.js";
@@ -152,6 +152,54 @@ await scenario("pet.react validates silent reaction options", async ({ api }) =>
   await api.pet.react("waving", { showMessage: false });
   await assert.rejects(() => api.pet.react("waving", { showMessage: "no" }), /Invalid pet reaction showMessage option\./);
   await assert.rejects(() => api.pet.react("waving", { showMessage: false, extra: true }), /Invalid pet reaction option\./);
+});
+
+await scenario("pet action quotas are independent for each live handle", async ({ bridge, store, capabilities }) => {
+  const record = store.getRecord("plug")!;
+  const permissions: PluginJavascriptPermission[] = [
+    "commands", "events", "storage", "pet:reaction", "pet:speak", "auth", "pet:move", "pets:read",
+  ];
+  const movementRecord = { ...record, approvedPermissions: permissions };
+  store.upsertRecord(movementRecord);
+  capabilities.pets.list = () => [
+    { id: "default", name: "Default pet", kind: "default", visible: true },
+    { id: "pinned:fox", name: "Fox", kind: "pinned", visible: true },
+    { id: "pinned:owl", name: "Owl", kind: "pinned", visible: true },
+  ];
+  const movementOwners: Array<[string, string, boolean]> = [];
+  const canceledMoves: string[] = [];
+  capabilities.pets.setAutomaticMovement = async (petHandleId, pluginId, active) => {
+    movementOwners.push([petHandleId, pluginId, active]);
+  };
+  capabilities.pets.cancelMove = async (petHandleId) => { canceledMoves.push(petHandleId); };
+  const movementApi = bridge.createApi(movementRecord, manifest({ permissions }));
+
+  assert.deepEqual(await movementApi.pets.list(), capabilities.pets.list(), "the bridge exposes pinned pets through the existing list API");
+  await movementApi.pet.setAutomaticMovement(true);
+  await movementApi.pets.forPet("pinned:fox").setAutomaticMovement(false);
+  await movementApi.pet.cancelMove();
+  await movementApi.pets.forPet("pinned:fox").cancelMove();
+  assert.deepEqual(canceledMoves, ["default", "pinned:fox"], "cancellation is routed to the targeted default or pinned pet");
+  assert.deepEqual(movementOwners, [["default", "plug", true], ["pinned:fox", "plug", false]], "automatic movement ownership is scoped to a plugin and pet handle");
+  await assert.rejects(() => movementApi.pet.setAutomaticMovement("yes" as never), /Automatic movement state must be a boolean\./);
+  for (let index = 0; index < pluginSdkQuotas.petActionsPerMinute; index += 1) {
+    await movementApi.pet.moveBy({ x: 1, y: 0 });
+    await movementApi.pets.forPet("pinned:fox").wander({ distance: 1 });
+  }
+
+  await movementApi.pet.speak("The pet action totals do not consume the UI action quota.");
+
+  await assert.rejects(
+    () => movementApi.pet.moveBy({ x: 1, y: 0 }),
+    /Plugin pet action quota exceeded\./,
+    "the default handle retains its own action cap",
+  );
+  await assert.rejects(
+    () => movementApi.pets.forPet("pinned:fox").wander({ distance: 1 }),
+    /Plugin pet action quota exceeded\./,
+    "the pinned handle retains the same independent action cap",
+  );
+  await movementApi.pets.forPet("pinned:owl").wander({ distance: 1 });
 });
 
 await scenario("hud bubble spec validation is enforced", async ({ store, bridge }) => {
@@ -785,10 +833,12 @@ function createTestCapabilities(): TestCapabilities {
       setAnimation: async () => undefined,
       setScale: async () => undefined,
       setStatusReaction: async () => undefined,
+      cancelMove: async () => undefined,
       moveBy: async () => undefined,
       wander: async () => undefined,
       moveToHome: async () => undefined,
       moveTo: async () => undefined,
+      setAutomaticMovement: async () => undefined,
       followCursor: async () => undefined,
       physics: async () => undefined,
       getState: async () => ({ position: { x: 0, y: 0 }, bounds: { x: 0, y: 0, width: 0, height: 0 }, currentAnimation: "idle", visible: true, dragging: false }),

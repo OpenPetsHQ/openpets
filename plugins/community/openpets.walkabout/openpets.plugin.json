@@ -13,7 +13,7 @@
   },
   "sdkVersion": "3.0.0",
   "entry": "index.js",
-  "permissions": ["pet:move", "events", "pets:read", "status"],
+  "permissions": ["pet:move", "events", "pets:read", "status", "commands", "storage"],
   "configSchema": {
     "mode": {
       "type": "select",

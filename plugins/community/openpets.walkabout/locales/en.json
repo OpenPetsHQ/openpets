@@ -20,5 +20,11 @@
   "config.pauseWhenBusy.label": "Pause when agent is busy",
   "config.pauseWhenBusy.description": "Stop moving while your coding agent is actively working.",
   "status.active": "Walking ({mode})",
-  "status.paused": "Walkabout paused"
+  "status.paused": "Walkabout paused",
+  "command.toggle.title": "Toggle pinned pet movement",
+  "command.toggle.description": "Choose a pinned pet to pause or resume Walkabout.",
+  "command.toggle.field": "Pinned pet",
+  "command.toggle.submit": "Toggle movement",
+  "command.pet.moving": "Moving — {name}",
+  "command.pet.paused": "Paused — {name}"
 }

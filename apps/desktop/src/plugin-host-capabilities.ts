@@ -15,9 +15,9 @@ import { PluginOauthBroker } from "./plugin-oauth.js";
 import { openPluginPanel } from "./plugin-panels.js";
 import { getPluginPlatformSettings, isInQuietHours } from "./plugin-platform-settings.js";
 import {
-  setPluginPetStatusReaction, clearPluginPetsForPlugin, closeAllPluginPets, closePluginPet, getPluginPetArbiter, getPluginPetState, hidePluginPet, listPluginPets,
+  cancelPluginPetMove, setPluginPetStatusReaction, clearPluginPetsForPlugin, closeAllPluginPets, closePluginPet, getPluginPetArbiter, getPluginPetState, hidePluginPet, listPluginPets,
   movePluginPetBy, movePluginPetTo, movePluginPetToHome, onPluginPetTick, onPluginPetsChange, reactPluginPet,
-  setPluginPetAnimation, setPluginPetFollowCursor, setPluginPetPhysics, setPluginPetScale, showPluginPet, spawnPluginPet, wanderPluginPet,
+  setPluginPetAnimation, setPluginPetAutomaticMovement, setPluginPetFollowCursor, setPluginPetPhysics, setPluginPetScale, showPluginPet, spawnPluginPet, wanderPluginPet,
 } from "./plugin-pet-registry.js";
 import { motionStop } from "./pet-motion-engine.js";
 import { PluginSecretsStore } from "./plugin-secrets.js";
@@ -185,10 +185,12 @@ export function createElectronPluginHostCapabilities(userDataPath: string): Elec
       setAnimation: async (petHandleId, spec) => setPluginPetAnimation(petHandleId, spec),
       setScale: async (petHandleId, scale) => setPluginPetScale(petHandleId, scale),
       setStatusReaction: async (petHandleId, reaction) => setPluginPetStatusReaction(petHandleId, reaction),
+      cancelMove: (petHandleId) => cancelPluginPetMove(petHandleId),
       moveBy: (petHandleId, opts) => movePluginPetBy(petHandleId, opts),
       wander: (petHandleId, opts) => wanderPluginPet(petHandleId, opts),
       moveToHome: (petHandleId) => movePluginPetToHome(petHandleId),
       moveTo: (petHandleId, point, opts) => movePluginPetTo(petHandleId, point, opts),
+      setAutomaticMovement: async (petHandleId, pluginId, active) => setPluginPetAutomaticMovement(petHandleId, pluginId, active),
       followCursor: async (petHandleId, _pluginId, opts) => setPluginPetFollowCursor(petHandleId, opts),
       physics: async (petHandleId, _pluginId, opts) => setPluginPetPhysics(petHandleId, opts),
       getState: async (petHandleId) => getPluginPetState(petHandleId),

@@ -43,7 +43,13 @@ export type PluginRuntimeState = {
   pickedFiles: Set<string>;
   userCommandDepth: number;
   lastError?: string;
+  petActionWindows: Map<string, WindowCounter>;
+  /** Aggregate usage for plugin diagnostics; this counter does not enforce quotas. */
   petWindow: WindowCounter;
+  /** Shared rate limit for UI actions that are not scoped to one pet. */
+  petUiWindow: WindowCounter;
+  /** Rate limit for pet-action requests that target no live pet handle. */
+  petFallbackActionWindow: WindowCounter;
   logWindow: WindowCounter;
   httpWindow: WindowCounter;
   busWindow: WindowCounter;

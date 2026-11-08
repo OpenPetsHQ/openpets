@@ -13,9 +13,11 @@ supportedArchitectures:
     - glibc
 allowBuilds:
   '@google/genai': true
+  '@vscode/vsce-sign': true
   electron-winstaller: false
   esbuild: true
   get-windows: true
+  keytar: true
   koffi: true
   msgpackr-extract: true
   openclaw: false
