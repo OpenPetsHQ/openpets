@@ -183,7 +183,7 @@ export function classifyOpenCodeBusEvent(event: unknown): OpenCodePluginDecision
   const type = getEventType(event);
   if (type === "permission.asked") return getEventPermissions(event).some(shouldIgnoreOpenPetsTool) ? undefined : { reaction: "waiting", speechCategory: "permission" };
   if (type === "session.execution.failed") return { reaction: "error", speechCategory: "error" };
-  if (type === "session.idle") return { reaction: "success" };
+  if (type === "session.execution.succeeded" || type === "session.idle") return { reaction: "success" };
   return undefined;
 }
 
@@ -206,6 +206,7 @@ function shouldSendSpeech(category: HookSpeechCategory, options: OpenCodePluginR
 }
 
 function shouldSendReaction(reaction: OpenPetsReaction, options: OpenCodePluginRuntimeOptions): boolean {
+  if (reaction === "success" || reaction === "error") return true;
   const now = options.now?.() ?? Date.now();
   return shouldSendThrottleKey(`reaction:${reaction}`, reactionCooldownMs, now, options.throttlePath ?? getDefaultOpenCodeThrottlePath());
 }

@@ -30,6 +30,7 @@ assert.deepEqual(classifyOpenCodeBusEvent({ type: "permission.asked", data: { ac
 assert.equal(classifyOpenCodeBusEvent({ type: "permission.asked", data: { action: "openpets_openpets_say", resources: [] } }), undefined);
 assert.equal(classifyOpenCodeBusEvent({ type: "permission.asked", data: { action: "edit", resources: ["openpets_openpets_react"] } }), undefined);
 assert.deepEqual(classifyOpenCodeBusEvent({ type: "session.execution.failed", data: { error: { message: "private error" } } }), { reaction: "error", speechCategory: "error" });
+assert.deepEqual(classifyOpenCodeBusEvent({ type: "session.execution.succeeded", data: { sessionID: "session" } }), { reaction: "success" });
 assert.deepEqual(classifyOpenCodeBusEvent({ type: "session.idle", data: { sessionID: "session" } }), { reaction: "success" });
 assert.ok(getDefaultOpenCodeThrottlePath().includes("opencode-hook-throttle.json"));
 
@@ -38,6 +39,7 @@ assert.throws(() => createOpenPetsOpenCodeRuntime({ pet: "bad/pet" }));
 const dir = mkdtempSync(join(tmpdir(), "openpets-opencode-plugin-"));
 try {
   const calls: Array<{ readonly kind: string; readonly value: string; readonly leaseId?: string; readonly requestedPetId?: string }> = [];
+  let now = 100_000;
   let releaseBlockedReact: (() => void) | undefined;
   const blocked = new Promise<void>((resolve) => { releaseBlockedReact = resolve; });
   const client: OpenPetsClient = {
@@ -66,7 +68,7 @@ try {
   };
 
   const scheduled: Array<() => Promise<void>> = [];
-  const hooks = createOpenPetsOpenCodeRuntime({ pet: "fixer", clientFactory: () => client, schedule: (work) => { scheduled.push(work); }, throttlePath: join(dir, "opencode-hook-throttle.json"), now: () => 100_000, random: () => 0 });
+  const hooks = createOpenPetsOpenCodeRuntime({ pet: "fixer", clientFactory: () => client, schedule: (work) => { scheduled.push(work); }, throttlePath: join(dir, "opencode-hook-throttle.json"), now: () => now, random: () => 0 });
   hooks.prompt();
   assert.equal(scheduled.length, 1);
   const thinkingWork = scheduled.shift();
@@ -103,16 +105,49 @@ try {
   await scheduled.shift()?.();
   assert.deepEqual(calls.at(-1), { kind: "say", value: "Approval needed", leaseId: "lease-fixer" });
 
-  hooks.event({ type: "session.idle", data: { sessionID: "session" } });
+  hooks.event({ type: "session.execution.succeeded", data: { sessionID: "session" } });
   assert.equal(scheduled.length, 1);
   await scheduled.shift()?.();
   assert.deepEqual(calls.at(-1), { kind: "react", value: "success", leaseId: "lease-fixer" });
 
-  hooks.toolAfter({ status: "error", error: { message: "private tool output" } });
+  const successesBeforeRapidCompletion = calls.filter((call) => call.kind === "react" && call.value === "success").length;
+  now += 1_000;
+  hooks.event({ type: "session.execution.succeeded", data: { sessionID: "session" } });
+  assert.equal(scheduled.length, 1, "each successful execution completion should schedule a reaction");
+  await scheduled.shift()?.();
+  assert.equal(
+    calls.filter((call) => call.kind === "react" && call.value === "success").length,
+    successesBeforeRapidCompletion + 1,
+    "consecutive successful completions within ten seconds must both reach the client",
+  );
+
+  hooks.toolAfter(toolAfterError("bash", "private tool output"));
   await scheduled.shift()?.();
   const toolErrorSpeech = calls.at(-1);
   assert.equal(toolErrorSpeech?.kind, "say");
   assert.notEqual(toolErrorSpeech?.value, "private tool output", "tool errors use curated speech rather than raw error text");
+
+  const terminalErrorCount = calls.filter((call) => call.kind === "react" && call.value === "error").length;
+  const errorSpeechesBeforeTerminalFailures = calls.filter((call) => call.kind === "say" && call.value !== "Approval needed").length;
+  hooks.event({ type: "session.execution.started", data: { sessionID: "terminal-failure-session" } });
+  hooks.event({ type: "session.execution.failed", data: { sessionID: "terminal-failure-session" } });
+  assert.equal(scheduled.length, 1);
+  await scheduled.shift()?.();
+  now += 1_000;
+  hooks.event({ type: "session.execution.started", data: { sessionID: "terminal-failure-session" } });
+  hooks.event({ type: "session.execution.failed", data: { sessionID: "terminal-failure-session" } });
+  assert.equal(scheduled.length, 1);
+  await scheduled.shift()?.();
+  assert.equal(
+    calls.filter((call) => call.kind === "react" && call.value === "error").length,
+    terminalErrorCount + 2,
+    "repeated terminal failures within ten seconds must each reach the client",
+  );
+  assert.equal(
+    calls.filter((call) => call.kind === "say" && call.value !== "Approval needed").length,
+    errorSpeechesBeforeTerminalFailures,
+    "error speech cooldown remains active across rapid terminal failures",
+  );
 
   const beforeOwnToolError = scheduled.length;
   hooks.toolAfter({ tool: "openpets_openpets_say", status: "error", error: { message: "pet ipc failed" } });
@@ -184,8 +219,8 @@ assert.equal(isReactionExcluded("success", new Set()), false);
       now: () => 300_000,
     });
 
-    // session.idle → success → should be excluded, nothing scheduled
-    hooks2.event({ type: "session.idle", data: { sessionID: "session" } });
+    // session.execution.succeeded → success → should be excluded, nothing scheduled
+    hooks2.event({ type: "session.execution.succeeded", data: { sessionID: "session" } });
     assert.equal(scheduled2.length, 0, "excluded success reaction must not schedule any work");
 
     // The V2 prompt hook → thinking → should be excluded
@@ -238,13 +273,28 @@ assert.equal(isReactionExcluded("success", new Set()), false);
       throttlePath: join(dir3, "throttle.json"),
       now: () => 400_000,
     });
-    hooks3.event({ type: "session.idle", data: { sessionID: "session" } });
+    hooks3.event({ type: "session.execution.succeeded", data: { sessionID: "session" } });
     assert.equal(scheduled3.length, 1, "empty excludeReactions should not block success");
     await scheduled3.shift()?.();
     assert.equal(emptyExcludeCalls.at(-1), "success");
   } finally {
     rmSync(dir3, { recursive: true, force: true });
   }
+}
+
+// Excluded terminal errors do not schedule IPC work, even though error reactions bypass cooldowns.
+{
+  const scheduledErrors: Array<() => Promise<void>> = [];
+  const excludedErrors = createOpenPetsOpenCodeRuntime({
+    excludeReactions: ["error"],
+    schedule: (work) => { scheduledErrors.push(work); },
+    throttlePath: join(dir, "excluded-errors-throttle.json"),
+    now: () => 450_000,
+  });
+  excludedErrors.toolAfter(toolAfterError("bash", "private tool output"));
+  excludedErrors.event({ type: "session.execution.failed", data: { sessionID: "excluded-error-session" } });
+  assert.equal(scheduledErrors.length, 0, "excluded error reactions must not schedule any work");
+  await excludedErrors.cleanup();
 }
 
 // Invalid reaction strings are ignored without discarding recognized exclusions.
@@ -261,7 +311,7 @@ assert.equal(isReactionExcluded("success", new Set()), false);
 }
 
 // Classification is unaffected by filter (filter is in run(), not classify*)
-assert.deepEqual(classifyOpenCodeBusEvent({ type: "session.idle", data: { sessionID: "session" } }), { reaction: "success" });
+assert.deepEqual(classifyOpenCodeBusEvent({ type: "session.execution.succeeded", data: { sessionID: "session" } }), { reaction: "success" });
 assert.deepEqual(classifyOpenCodeToolReaction("edit", {}), "editing");
 
 // Concurrent dispatches share one in-flight acquisition. A second acquire must not
