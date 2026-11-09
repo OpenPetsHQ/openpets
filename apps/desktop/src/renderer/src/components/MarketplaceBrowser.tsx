@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { formatMarketplaceReleaseDate } from "../../../plugin-marketplace-format.js";
+import { useI18n } from "../i18n.js";
 import type { MarketplacePlugin, MarketplaceDetail, MarketplacePage, MarketplaceQuery } from "../../../plugin-marketplace-types.js";
 
 export type MarketplaceBrowserApi = {
@@ -21,21 +22,6 @@ export type MarketplaceBrowserProps = {
   readonly onOpenExternal: (url: string) => void;
 };
 
-const CATEGORIES = [
-  { id: "", label: "All Categories" },
-  { id: "extension", label: "Extension" },
-  { id: "theme", label: "Theme" },
-  { id: "utility", label: "Utility" },
-  { id: "companion", label: "Companion" },
-] as const;
-
-const SORTS = [
-  { id: "popular", label: "Most Popular" },
-  { id: "newest", label: "Newest" },
-  { id: "rating", label: "Top Rated" },
-  { id: "name", label: "Alphabetical" },
-] as const;
-
 export function MarketplaceBrowser({
   installed,
   api,
@@ -43,6 +29,21 @@ export function MarketplaceBrowser({
   onUpdate,
   onOpenExternal,
 }: MarketplaceBrowserProps): React.ReactElement {
+  const { t, locale } = useI18n();
+  const categories = [
+    { id: "", label: t("marketplace.category.all") },
+    { id: "extension", label: t("marketplace.category.extension") },
+    { id: "theme", label: t("marketplace.category.theme") },
+    { id: "utility", label: t("marketplace.category.utility") },
+    { id: "companion", label: t("marketplace.category.companion") },
+  ];
+  const sorts = [
+    { id: "popular", label: t("marketplace.sort.popular") },
+    { id: "newest", label: t("marketplace.sort.newest") },
+    { id: "rating", label: t("marketplace.sort.rating") },
+    { id: "name", label: t("marketplace.sort.name") },
+  ];
+  const categoryLabel = (id: string) => categories.find((category) => category.id === id)?.label ?? id;
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSort, setSelectedSort] = useState<"popular" | "newest" | "rating" | "name">("popular");
@@ -95,7 +96,7 @@ export function MarketplaceBrowser({
         }
       } catch (err: unknown) {
         if (generation === fetchGenerationRef.current) {
-          setListError(err instanceof Error ? err.message : "Failed to load marketplace plugins.");
+          setListError(err instanceof Error ? err.message : t("marketplace.error.list"));
           setLoadingList(false);
         }
       }
@@ -105,7 +106,7 @@ export function MarketplaceBrowser({
       clearTimeout(timer);
       fetchGenerationRef.current++;
     };
-  }, [query, selectedCategory, selectedSort, offset, refreshCounter, api, limit]);
+  }, [query, selectedCategory, selectedSort, offset, refreshCounter, api, limit, locale]);
 
   // Fetch detail for selected plugin
   useEffect(() => {
@@ -130,7 +131,7 @@ export function MarketplaceBrowser({
       })
       .catch((err: unknown) => {
         if (generation === detailGenerationRef.current) {
-          setDetailError(err instanceof Error ? err.message : "Failed to load plugin details.");
+          setDetailError(err instanceof Error ? err.message : t("marketplace.error.detail"));
           setLoadingDetail(false);
         }
       });
@@ -138,7 +139,7 @@ export function MarketplaceBrowser({
     return () => {
       detailGenerationRef.current++;
     };
-  }, [selectedId, refreshCounter, api]);
+  }, [selectedId, refreshCounter, api, locale]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
@@ -173,7 +174,7 @@ export function MarketplaceBrowser({
         }
       }
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : "Operation failed.");
+      setActionError(err instanceof Error ? err.message : t("marketplace.error.action"));
     } finally {
       setActionInProgress(null);
     }
@@ -188,8 +189,8 @@ export function MarketplaceBrowser({
             ✦
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-stone-100">Plugin Marketplace</h1>
-            <p className="text-xs text-stone-400">Discover and install community companions, wellness timers, and enhancements.</p>
+            <h1 className="text-xl font-bold tracking-tight text-stone-100">{t("marketplace.title")}</h1>
+            <p className="text-xs text-stone-400">{t("marketplace.subtitle")}</p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
@@ -197,7 +198,7 @@ export function MarketplaceBrowser({
             onClick={() => onOpenExternal("https://openpets.dev/plugins/publish")}
             className="flex items-center space-x-1.5 rounded-lg border border-stone-700 bg-stone-800/80 px-3 py-1.5 text-xs font-medium text-stone-300 hover:bg-stone-700 hover:text-white transition-all shadow-sm"
           >
-            <span>Publish Plugin</span>
+            <span>{t("marketplace.publish")}</span>
             <span className="text-stone-500">↗</span>
           </button>
         </div>
@@ -215,28 +216,31 @@ export function MarketplaceBrowser({
                 type="text"
                 value={query}
                 onChange={handleSearchChange}
-                placeholder="Search plugins by name, tag, or description..."
+                placeholder={t("marketplace.search")}
+                aria-label={t("marketplace.search")}
                 className="w-full rounded-lg border border-stone-800 bg-stone-900/80 py-2 pl-9 pr-4 text-xs text-stone-200 placeholder-stone-500 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
+                aria-label={t("marketplace.category.label")}
                 value={selectedCategory}
                 onChange={(e) => handleCategoryChange(e.target.value)}
                 className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-1.5 text-xs text-stone-300 focus:border-violet-500 focus:outline-none"
               >
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.label}
                   </option>
                 ))}
               </select>
               <select
+                aria-label={t("marketplace.sort.label")}
                 value={selectedSort}
                 onChange={(e) => handleSortChange(e.target.value as "popular" | "newest" | "rating" | "name")}
                 className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-1.5 text-xs text-stone-300 focus:border-violet-500 focus:outline-none"
               >
-                {SORTS.map((sort) => (
+                {sorts.map((sort) => (
                   <option key={sort.id} value={sort.id}>
                     {sort.label}
                   </option>
@@ -249,7 +253,7 @@ export function MarketplaceBrowser({
           {actionError && (
             <div className="flex items-center justify-between bg-red-950/50 border-b border-red-800/50 px-6 py-2.5 text-xs text-red-200">
               <span>{actionError}</span>
-              <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-200">✕</button>
+              <button aria-label={t("marketplace.dismissError")} onClick={() => setActionError(null)} className="text-red-400 hover:text-red-200">✕</button>
             </div>
           )}
 
@@ -259,7 +263,7 @@ export function MarketplaceBrowser({
               <div className="flex h-64 items-center justify-center">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-                  <p className="text-xs text-stone-400">Loading marketplace plugins...</p>
+                  <p className="text-xs text-stone-400">{t("marketplace.loadingList")}</p>
                 </div>
               </div>
             ) : listError ? (
@@ -269,13 +273,13 @@ export function MarketplaceBrowser({
                   onClick={() => setRefreshCounter((c) => c + 1)}
                   className="rounded-lg bg-stone-800 px-4 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700"
                 >
-                  Retry
+                  {t("marketplace.retry")}
                 </button>
               </div>
             ) : pageData?.plugins.length === 0 ? (
               <div className="flex h-64 flex-col items-center justify-center space-y-2 text-center">
-                <p className="text-sm text-stone-300 font-medium">No plugins found</p>
-                <p className="text-xs text-stone-500 max-w-sm">Try adjusting your search query or category filters to find what you are looking for.</p>
+                <p className="text-sm text-stone-300 font-medium">{t("marketplace.empty")}</p>
+                <p className="text-xs text-stone-500 max-w-sm">{t("marketplace.emptyHint")}</p>
               </div>
             ) : (
               <>
@@ -292,7 +296,6 @@ export function MarketplaceBrowser({
                     return (
                       <div
                         key={plugin.id}
-                        onClick={() => setSelectedId(plugin.id)}
                         className={`group relative flex flex-col justify-between rounded-2xl border p-4 transition-all duration-200 cursor-pointer ${
                           isSelected
                             ? "border-violet-500/80 bg-violet-950/20 shadow-lg shadow-violet-950/50"
@@ -311,13 +314,20 @@ export function MarketplaceBrowser({
                               </div>
                               <div>
                                 <h3 className="text-sm font-bold text-stone-100 group-hover:text-violet-300 transition-colors line-clamp-1">
-                                  {plugin.name}
+                                  <button
+                                    type="button"
+                                    className="text-left"
+                                    aria-label={t("marketplace.openDetails", { name: plugin.name })}
+                                    onClick={() => setSelectedId(plugin.id)}
+                                  >
+                                    {plugin.name}
+                                  </button>
                                 </h3>
                                 <div className="flex items-center space-x-2 text-[11px] text-stone-400 mt-0.5">
                                   <span>{plugin.publisher.displayName}</span>
                                   {plugin.publisher.publisherType === "official" && (
                                     <span className="rounded bg-violet-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-violet-300 border border-violet-500/30">
-                                      Official
+                                      {t("marketplace.official")}
                                     </span>
                                   )}
                                 </div>
@@ -331,7 +341,7 @@ export function MarketplaceBrowser({
 
                           <div className="mt-3 flex flex-wrap gap-1">
                             <span className="rounded-md bg-stone-800/80 px-2 py-0.5 text-[10px] font-medium text-stone-300 border border-stone-700/50">
-                              {plugin.category}
+                              {categoryLabel(plugin.category)}
                             </span>
                             {plugin.tags.slice(0, 2).map((tag: string) => (
                               <span key={tag} className="rounded-md bg-stone-900 px-2 py-0.5 text-[10px] text-stone-400 border border-stone-800">
@@ -356,14 +366,14 @@ export function MarketplaceBrowser({
                             <span className="text-stone-500">v{plugin.version}</span>
                           </div>
 
-                          <div onClick={(e) => e.stopPropagation()}>
+                          <div>
                             {isBundled ? (
                               <span className="rounded-lg bg-stone-800 px-2.5 py-1 text-[11px] font-medium text-stone-400 border border-stone-700">
-                                App-managed
+                                {t("marketplace.appManaged")}
                               </span>
                             ) : isLocal ? (
                               <span className="rounded-lg bg-stone-800 px-2.5 py-1 text-[11px] font-medium text-amber-400/90 border border-stone-700">
-                                Local Dev
+                                {t("marketplace.localDev")}
                               </span>
                             ) : hasUpdate ? (
                               <button
@@ -371,11 +381,11 @@ export function MarketplaceBrowser({
                                 onClick={() => handleAction(plugin.id, true)}
                                 className="rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-violet-500 disabled:opacity-50 transition-all"
                               >
-                                 {isActionActive ? "Checking..." : "Check updates"}
+                                 {t(isActionActive ? "marketplace.checking" : "marketplace.checkUpdates")}
                               </button>
                             ) : isInstalled ? (
                               <span className="rounded-lg bg-emerald-950/60 px-2.5 py-1 text-[11px] font-medium text-emerald-300 border border-emerald-800/50">
-                                Installed
+                                {t("marketplace.installed")}
                               </span>
                             ) : (
                               <button
@@ -383,7 +393,7 @@ export function MarketplaceBrowser({
                                 onClick={() => handleAction(plugin.id, false)}
                                 className="rounded-lg bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-900 shadow hover:bg-white disabled:opacity-50 transition-all"
                               >
-                                {isActionActive ? "Installing..." : "Install"}
+                                {t(isActionActive ? "marketplace.installing" : "marketplace.install")}
                               </button>
                             )}
                           </div>
@@ -397,7 +407,7 @@ export function MarketplaceBrowser({
                 {pageData && pageData.total > limit && (
                   <div className="mt-8 flex items-center justify-between border-t border-stone-800/80 pt-4 text-xs text-stone-400">
                     <div>
-                      Showing {offset + 1} to {Math.min(offset + limit, pageData.total)} of {pageData.total} plugins
+                      {t("marketplace.pagination", { start: offset + 1, end: Math.min(offset + limit, pageData.total), total: pageData.total })}
                     </div>
                     <div className="flex space-x-2">
                       <button
@@ -405,14 +415,14 @@ export function MarketplaceBrowser({
                         onClick={() => setOffset(Math.max(0, offset - limit))}
                         className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-1 text-stone-300 hover:bg-stone-800 disabled:opacity-40"
                       >
-                        Previous
+                        {t("marketplace.previous")}
                       </button>
                       <button
                         disabled={offset + limit >= pageData.total}
                         onClick={() => setOffset(offset + limit)}
                         className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-1 text-stone-300 hover:bg-stone-800 disabled:opacity-40"
                       >
-                        Next
+                        {t("marketplace.next")}
                       </button>
                     </div>
                   </div>
@@ -429,7 +439,7 @@ export function MarketplaceBrowser({
               <div className="flex h-full items-center justify-center p-8">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-                  <p className="text-xs text-stone-400">Loading plugin metadata...</p>
+                  <p className="text-xs text-stone-400">{t("marketplace.loadingDetail")}</p>
                 </div>
               </div>
             ) : detailError ? (
@@ -439,7 +449,7 @@ export function MarketplaceBrowser({
                   onClick={() => setRefreshCounter((c) => c + 1)}
                   className="rounded-lg bg-stone-800 px-4 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700"
                 >
-                  Retry
+                  {t("marketplace.retry")}
                 </button>
               </div>
             ) : detailData ? (
@@ -457,16 +467,17 @@ export function MarketplaceBrowser({
                     <div>
                       <h2 className="text-lg font-bold text-stone-100">{detailData.name}</h2>
                       <div className="flex items-center space-x-2 text-xs text-stone-400 mt-1">
-                        <span>By {detailData.publisher.displayName}</span>
+                        <span>{t("marketplace.by", { name: detailData.publisher.displayName })}</span>
                         {detailData.publisher.publisherType === "official" && (
                           <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300 border border-violet-500/30">
-                            Official
+                            {t("marketplace.official")}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
                   <button
+                    aria-label={t("marketplace.closeDetails")}
                     onClick={() => setSelectedId(null)}
                     className="rounded-lg bg-stone-900 p-2 text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
                   >
@@ -487,14 +498,14 @@ export function MarketplaceBrowser({
                     if (isBundled) {
                       return (
                         <div className="flex-1 rounded-xl bg-stone-900 border border-stone-800 py-3 text-center text-xs font-medium text-stone-400">
-                          Bundled / App-managed Plugin
+                          {t("marketplace.bundledDetail")}
                         </div>
                       );
                     }
                     if (isLocal) {
                       return (
                         <div className="flex-1 rounded-xl bg-stone-900 border border-stone-800 py-3 text-center text-xs font-medium text-amber-400/90">
-                          Local Dev Plugin (Managed Locally)
+                          {t("marketplace.localDetail")}
                         </div>
                       );
                     }
@@ -505,14 +516,14 @@ export function MarketplaceBrowser({
                           onClick={() => handleAction(detailData.id, true)}
                           className="flex-1 rounded-xl bg-violet-600 py-3 text-xs font-semibold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 disabled:opacity-50 transition-all"
                         >
-                           {isActionActive ? "Checking compatible releases..." : "Check for updates"}
+                           {t(isActionActive ? "marketplace.checkingCompatible" : "marketplace.checkForUpdates")}
                         </button>
                       );
                     }
                     if (isInstalled) {
                       return (
                         <div className="flex-1 rounded-xl bg-emerald-950/40 border border-emerald-800/50 py-3 text-center text-xs font-semibold text-emerald-300">
-                          Installed (v{installedRecord.version})
+                          {t("marketplace.installedVersion", { version: installedRecord.version })}
                         </div>
                       );
                     }
@@ -522,7 +533,7 @@ export function MarketplaceBrowser({
                         onClick={() => handleAction(detailData.id, false)}
                         className="flex-1 rounded-xl bg-stone-100 py-3 text-xs font-semibold text-stone-900 shadow-lg hover:bg-white disabled:opacity-50 transition-all"
                       >
-                         {isActionActive ? "Installing..." : "Install compatible release"}
+                         {t(isActionActive ? "marketplace.installing" : "marketplace.installCompatible")}
                       </button>
                     );
                   })()}
@@ -531,22 +542,22 @@ export function MarketplaceBrowser({
                 {/* Metadata Grid */}
                 <div className="grid grid-cols-2 gap-3 rounded-xl border border-stone-800/80 bg-stone-900/30 p-4 text-xs">
                   <div>
-                    <span className="text-stone-500 block">Category</span>
-                    <span className="font-medium text-stone-200 mt-0.5 block">{detailData.category}</span>
+                    <span className="text-stone-500 block">{t("marketplace.category.label")}</span>
+                    <span className="font-medium text-stone-200 mt-0.5 block">{categoryLabel(detailData.category)}</span>
                   </div>
                   <div>
-                    <span className="text-stone-500 block">Downloads</span>
-                    <span className="font-medium text-stone-200 mt-0.5 block">{detailData.downloadCount.toLocaleString()}</span>
+                    <span className="text-stone-500 block">{t("marketplace.downloads")}</span>
+                    <span className="font-medium text-stone-200 mt-0.5 block">{detailData.downloadCount.toLocaleString(locale)}</span>
                   </div>
                   <div>
-                    <span className="text-stone-500 block">Rating</span>
+                    <span className="text-stone-500 block">{t("marketplace.rating")}</span>
                     <span className="font-medium text-stone-200 mt-0.5 block">
-                      {detailData.ratingAverage != null ? `${detailData.ratingAverage.toFixed(1)} ⭐ (${detailData.ratingCount})` : "No ratings yet"}
+                      {detailData.ratingAverage != null ? `${detailData.ratingAverage.toFixed(1)} ⭐ (${detailData.ratingCount})` : t("marketplace.noRatings")}
                     </span>
                   </div>
                   <div>
-                    <span className="text-stone-500 block">License</span>
-                    <span className="font-medium text-stone-200 mt-0.5 block">{detailData.license || "Standard"}</span>
+                    <span className="text-stone-500 block">{t("marketplace.license")}</span>
+                    <span className="font-medium text-stone-200 mt-0.5 block">{detailData.license || t("marketplace.standard")}</span>
                   </div>
                 </div>
 
@@ -556,7 +567,7 @@ export function MarketplaceBrowser({
                     onClick={() => onOpenExternal(`https://openpets.dev/plugins/${encodeURIComponent(detailData.id)}`)}
                     className="flex items-center space-x-1.5 rounded-lg border border-stone-800 bg-stone-900 px-3 py-1.5 text-xs text-stone-300 hover:bg-stone-800 hover:text-white"
                   >
-                    <span>Source &amp; project links on website</span>
+                    <span>{t("marketplace.projectLinks")}</span>
                     <span className="text-stone-500">↗</span>
                   </button>
                 </div>
@@ -564,16 +575,18 @@ export function MarketplaceBrowser({
                 {/* Screenshots Gallery */}
                 {detailData.screenshots.length > 0 && (
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">Screenshots</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">{t("marketplace.screenshots")}</h3>
                     <div className="flex space-x-3 overflow-x-auto pb-2">
                       {detailData.screenshots.map((shot: string, idx: number) => (
-                        <div
+                        <button
+                          type="button"
                           key={idx}
+                          aria-label={t("marketplace.openScreenshot", { number: idx + 1, name: detailData.name })}
                           onClick={() => setSelectedScreenshot(shot)}
                           className="flex-shrink-0 h-32 w-56 rounded-xl border border-stone-800 overflow-hidden bg-stone-900 cursor-pointer hover:border-violet-500/60 transition-colors shadow-md"
                         >
-                          <img src={shot} alt="Screenshot" className="h-full w-full object-cover" />
-                        </div>
+                          <img src={shot} alt="" className="h-full w-full object-cover" />
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -581,7 +594,7 @@ export function MarketplaceBrowser({
 
                 {/* README Markdown Source */}
                 <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">About</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">{t("marketplace.about")}</h3>
                   <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 text-xs text-stone-300 leading-relaxed whitespace-pre-wrap font-mono">
                     {detailData.readme}
                   </div>
@@ -590,7 +603,7 @@ export function MarketplaceBrowser({
                 {/* Changelog */}
                 {detailData.changelog && (
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">Changelog</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">{t("marketplace.changelog")}</h3>
                     <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 text-xs text-stone-300 leading-relaxed whitespace-pre-wrap font-mono">
                       {detailData.changelog}
                     </div>
@@ -600,16 +613,16 @@ export function MarketplaceBrowser({
                 {/* Releases list */}
                 {detailData.releases.length > 0 && (
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">Approved Releases</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">{t("marketplace.approvedReleases")}</h3>
                     <div className="space-y-2">
                       {detailData.releases.map((rel: MarketplaceDetail["releases"][number]) => (
                         <div key={rel.releaseId} className="flex items-center justify-between rounded-xl border border-stone-800 bg-stone-900/40 p-3 text-xs">
                           <div className="flex items-center space-x-3">
                             <span className="font-bold text-stone-200">v{rel.version}</span>
-                            <span className="text-stone-500 text-[11px]">{formatMarketplaceReleaseDate(rel.createdAt)}</span>
+                            <span className="text-stone-500 text-[11px]">{formatMarketplaceReleaseDate(rel.createdAt, locale)}</span>
                           </div>
                           <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
-                            Approved
+                            {t("marketplace.approved")}
                           </span>
                         </div>
                       ))}
@@ -629,8 +642,9 @@ export function MarketplaceBrowser({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-6"
         >
           <div className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-stone-800 bg-stone-900 shadow-2xl">
-            <img src={selectedScreenshot} alt="Enlarged screenshot" className="max-h-[85vh] max-w-[85vw] object-contain" />
+            <img src={selectedScreenshot} alt={t("marketplace.enlargedScreenshot")} className="max-h-[85vh] max-w-[85vw] object-contain" />
             <button
+              aria-label={t("marketplace.closeScreenshot")}
               onClick={() => setSelectedScreenshot(null)}
               className="absolute top-3 right-3 rounded-lg bg-stone-950/80 p-2 text-stone-300 hover:bg-stone-900 hover:text-white"
             >

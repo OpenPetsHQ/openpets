@@ -15,4 +15,11 @@ for (const [locale, messages] of Object.entries({ en, es419, fr, ja, ko, ptBR, r
   for (const key of ["nav.plugins", "route.plugins.title", "plugins.tab.browse", "plugins.filter.installed", "settings.general.checkForUpdates"] as const) {
     assert.ok(messages[key]?.trim(), `${locale} is missing ${key}`);
   }
+  for (const [key, english] of Object.entries(en)) {
+    if (!key.startsWith("marketplace.")) continue;
+    const translated = messages[key as keyof typeof en];
+    assert.ok(typeof translated === "string" && translated.trim(), `${locale} is missing ${key}`);
+    const placeholders = (text: string) => [...text.matchAll(/\{\w+\}/g)].map((match) => match[0]).sort();
+    assert.deepEqual(placeholders(translated), placeholders(english), `${locale} has mismatched placeholders for ${key}`);
+  }
 }
