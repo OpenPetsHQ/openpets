@@ -82,6 +82,53 @@ captured reference rather than accessing a destroyed window's native getters.
 Closing one renderer releases both its committed and pending snapshots while
 preserving any snapshot still owned by another live renderer.
 
+## Measured reference profile and remaining performance gate
+
+The November 2026 macOS observations used an Apple M4 Mac mini (10 cores,
+16 GiB RAM), macOS 26.6.2 and Electron 42.0.0 with eleven enabled plugins.
+The measured runtime was commit `731066f`; Control Center remained open.
+Each resource scenario had a three-second warmup and eight samples two seconds
+apart. No repeated full-canvas pixel probes or paused debugger measurements ran
+during these resource windows. These are short observations, not sustained
+performance certification.
+
+| Scenario | Median reported renderer CPU | Median renderer RSS |
+| --- | --- | --- |
+| One previously exercised Motion renderer | 1.12% | 611 MiB |
+| Three fresh visible reference-art renderers | 0.99–1.08% each | 251–275 MiB each |
+| The same reference clone after hiding | 0.06%, versus 1.06% visible | Not used as a memory budget |
+
+CPU percentages are Electron's reported process values, not a normalized
+whole-machine capacity claim. With three visible reference windows, median
+whole-app reported CPU was 6.72%; summed process RSS was about 1.94 GiB,
+including plugins, Control Center, GPU and a hidden primary renderer. Summed
+RSS is not unique physical RAM. A warmed Classic comparison reported 0.14%
+renderer CPU, but that renderer had previously played Motion, so its retained
+memory is **not** a cold Classic baseline. The third reference-art window used
+a clearly labelled byte-identical performance clone, not a new outfit.
+
+Non-pausing main-process observers also measured normal public lease request
+start to the matching renderer first-frame `started` acknowledgement:
+
+| Asset state | Three samples | Median |
+| --- | --- | --- |
+| No retained Motion snapshot | 3365, 3253, 3205 ms | 3253 ms |
+| Existing snapshot retained by a pinned reference window | 100, 85, 98 ms | 98 ms |
+
+Both cases created fresh renderer processes with warmed OS file caches. The
+first case includes the path that prepares a new immutable snapshot; the
+measurement does not attribute all elapsed time to validation. This is a
+renderer acknowledgement proxy, **not native first-visible-frame latency**,
+cold-disk timing or input-to-visible drag latency.
+
+These results establish a reproducible comparison profile, not accepted product
+budgets. Memory high-water behavior, sustained CPU/battery cost, native visible
+and input latency, and non-macOS measurements remain open before production
+readiness can be claimed. Any regression threshold should be agreed against this
+same workload rather than treating the package safety ceilings as performance
+budgets. Original and optimized assets retain one genuine authored outfit;
+additional outfits, idle/event variants and activities still require real art.
+
 ## Product and format decisions
 
 Motion and Classic describe artwork formats, not separate pet systems. Both
