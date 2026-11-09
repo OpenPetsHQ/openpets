@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, promises as fs } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-import { getCatalogPlugin, getPluginCatalog, type PluginCatalogOptions } from "./plugin-catalog.js";
+import { getPluginCatalog, type PluginCatalogOptions } from "./plugin-catalog.js";
+import { getMarketplacePlugin, getMarketplacePlugins, type MarketplaceQuery } from "./plugin-marketplace.js";
 import type { PluginCatalogEntryV2 } from "./plugin-catalog-validation.js";
 import { getEffectivePluginConfig, validatePluginConfigReplacement, type PluginConfigValidationError, type PluginConfig } from "./plugin-config.js";
 import { publishLocalPluginSnapshot, readLocalPluginSourceManifest } from "./plugin-local-loader.js";
@@ -11,7 +12,8 @@ import type { PluginJsHost } from "./plugin-js-host.js";
 import { resolveDeclaredAssetPath } from "./plugin-assets.js";
 import { OPENPETS_PLUGIN_MANIFEST_FILENAME, type OpenPetsPluginManifest, type PluginConfigField, type PluginIcon, type PluginPermission } from "./plugin-manifest.js";
 import { ensureLoaded as ensurePluginLocales, resolvePluginText } from "./plugin-i18n.js";
-import { downloadCatalogPluginZip, installCatalogPluginPackage, readCatalogPluginManifestFromZip, resolveSafePluginInstallDir } from "./plugin-package.js";
+import { downloadCatalogPluginZip, stageCatalogPluginPackage, readCatalogPluginManifestFromZip, resolveSafePluginInstallDir } from "./plugin-package.js";
+import { commitPluginInstall, recoverPluginInstallTransactions, settlePluginInstallTransactionsForId } from "./plugin-install-transaction.js";
 import type { PluginPetApi } from "./plugin-pet-api.js";
 import { JsonPluginStorageStore, type PluginCommand, type PluginHostCapabilities, type PluginLogLevel, type PluginStatus } from "./plugin-sdk-bridge.js";
 import type { PluginAssistantCapability, PluginAssistantCapabilityExecutionOutcome, PluginAssistantCapabilityHandle } from "./plugin-sdk-assistant.js";
@@ -83,6 +85,8 @@ export type PluginServiceOptions = {
   readonly capabilities?: PluginHostCapabilities;
   readonly onLocalPluginSourceLoaded?: (sourcePath: string) => void;
   readonly onLocalPluginSourceRemoved?: (sourcePath: string) => void;
+  /** Test seam for persistent recovery cleanup failures. */
+  readonly pluginInstallRecoveryCleanup?: () => Promise<void>;
 };
 
 const bundledEnabledByDefault = new Set<string>([
@@ -113,6 +117,8 @@ export class PluginService {
   readonly #capabilities?: PluginHostCapabilities;
   readonly #onLocalPluginSourceLoaded?: (sourcePath: string) => void;
   readonly #onLocalPluginSourceRemoved?: (sourcePath: string) => void;
+  readonly #pluginInstallRecoveryCleanup?: () => Promise<void>;
+  readonly #catalogMutations = new Map<string, Promise<PluginServiceResult>>();
 
   constructor(options: PluginServiceOptions) {
     if (!options.stateStore && !options.userDataPath) throw new Error("Plugin service requires userDataPath or stateStore.");
@@ -135,6 +141,7 @@ export class PluginService {
     this.#capabilities = options.capabilities;
     this.#onLocalPluginSourceLoaded = options.onLocalPluginSourceLoaded;
     this.#onLocalPluginSourceRemoved = options.onLocalPluginSourceRemoved;
+    this.#pluginInstallRecoveryCleanup = options.pluginInstallRecoveryCleanup;
     this.stateStore = options.stateStore ?? new PluginStateStore({ userDataPath: options.userDataPath ?? "" });
     if (options.runtime) {
       this.runtime = options.runtime;
@@ -148,6 +155,15 @@ export class PluginService {
   async start(): Promise<void> {
     this.#ensureRoots();
     this.stateStore.initialize();
+    if (this.#userDataPath) {
+      await recoverPluginInstallTransactions(this.#userDataPath, this.stateStore, (pluginId, error) => {
+        if (error) {
+          this.#log("warn", "Plugin recovery cleanup deferred.", { pluginId, reason: safeDetailedError(error) });
+        } else {
+          this.#log("warn", "Recovering interrupted plugin installation.", { pluginId });
+        }
+      }, this.#pluginInstallRecoveryCleanup);
+    }
     // Always purge retired ids — even in dev mode (where seeding is off) — so
     // a previously-seeded plugin that was removed from the lineup disappears.
     if (this.#seedBundledPlugins) await this.seedBundledPlugins();
@@ -202,6 +218,10 @@ export class PluginService {
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<PluginServiceResult> {
+    return this.#queueCatalogMutation(id, () => this.#setEnabled(id, enabled));
+  }
+
+  async #setEnabled(id: string, enabled: boolean): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
     if (record.source === "team") {
@@ -215,6 +235,10 @@ export class PluginService {
   }
 
   async saveConfig(id: string, config: unknown): Promise<PluginServiceResult> {
+    return this.#queueCatalogMutation(id, () => this.#saveConfig(id, config));
+  }
+
+  async #saveConfig(id: string, config: unknown): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
     if (record.source === "team") {
@@ -234,6 +258,10 @@ export class PluginService {
   }
 
   async reload(id: string): Promise<PluginServiceResult> {
+    return this.#queueCatalogMutation(id, () => this.#reload(id));
+  }
+
+  async #reload(id: string): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
     if (record.catalogDisabled) return this.#error("Plugin is disabled in the catalog.");
@@ -304,18 +332,70 @@ export class PluginService {
     }
   }
 
+  async getMarketplacePlugins(query: MarketplaceQuery = {}) {
+    try {
+      const page = await getMarketplacePlugins(query, this.#fetchImpl ?? this.#catalogOptions?.fetchImpl ?? fetch);
+      this.#log("debug", "Plugin marketplace page loaded.", { count: page.plugins.length, offset: page.offset, total: page.total });
+      return page;
+    } catch (error) {
+      this.#log("warn", "Plugin marketplace page failed.", { reason: safeDetailedError(error) });
+      throw error;
+    }
+  }
+
+  async getMarketplacePlugin(id: string) {
+    try {
+      const detail = await getMarketplacePlugin(id, this.#fetchImpl ?? this.#catalogOptions?.fetchImpl ?? fetch);
+      this.#log("debug", "Plugin marketplace detail loaded.", { pluginId: id, releaseCount: detail.releases.length });
+      return detail;
+    } catch (error) {
+      this.#log("warn", "Plugin marketplace detail failed.", { pluginId: id, reason: safeDetailedError(error) });
+      throw error;
+    }
+  }
+
+  #queueCatalogMutation(id: string, action: () => Promise<PluginServiceResult>): Promise<PluginServiceResult> {
+    const previous = this.#catalogMutations.get(id);
+    const operation = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(action);
+    this.#catalogMutations.set(id, operation);
+    void operation.then(() => { if (this.#catalogMutations.get(id) === operation) this.#catalogMutations.delete(id); }, () => { if (this.#catalogMutations.get(id) === operation) this.#catalogMutations.delete(id); });
+    return operation;
+  }
+
+  async #settlePluginInstall(id: string): Promise<void> {
+    if (!this.#userDataPath) return;
+    await settlePluginInstallTransactionsForId({
+      userDataPath: this.#userDataPath,
+      id,
+      store: this.stateStore,
+      cleanupAttempt: this.#pluginInstallRecoveryCleanup,
+      onCleanupWarning: (error) => {
+        this.#log("warn", "Plugin recovery cleanup deferred.", { pluginId: id, reason: safeDetailedError(error) });
+      },
+    });
+  }
+
   async installCatalog(id: string): Promise<PluginServiceResult> {
-    return this.#installOrUpdateCatalog(id, false);
+    return this.#queueCatalogMutation(id, () => this.#installOrUpdateCatalog(id, false));
   }
 
   async updateCatalog(id: string): Promise<PluginServiceResult> {
     const record = this.stateStore.getRecord(id);
     if (record?.bundled) return this.#error("Bundled plugins update with OpenPets.");
-    return this.#installOrUpdateCatalog(id, true);
+    return this.#queueCatalogMutation(id, () => this.#installOrUpdateCatalog(id, true));
   }
 
   async uninstall(id: string): Promise<PluginServiceResult> {
+    return this.#queueCatalogMutation(id, () => this.#uninstall(id));
+  }
+
+  async #uninstall(id: string): Promise<PluginServiceResult> {
     if (!this.#userDataPath) return this.#error("Plugin uninstall is unavailable.");
+    try {
+      await this.#settlePluginInstall(id);
+    } catch (error) {
+      return this.#error(safeError(error));
+    }
     const record = this.stateStore.getRecord(id);
     if (!record) return this.#error("Plugin is not installed.");
     if (record.source === "team") {
@@ -349,7 +429,6 @@ export class PluginService {
 
   async loadLocalPath(sourceFolder: string, options: { readonly autoApprove?: boolean } = {}): Promise<PluginServiceResult> {
     if (!this.#userDataPath) return this.#error("Local plugin loading is unavailable.");
-    const confirm = this.#confirmPermissions ?? defaultConfirmPermissions;
     let source: Awaited<ReturnType<typeof readLocalPluginSourceManifest>>;
     let realSourceFolder = sourceFolder;
     try {
@@ -358,6 +437,17 @@ export class PluginService {
     } catch (error) {
       return this.#error(safeError(error));
     }
+    return this.#queueCatalogMutation(source.manifest.id, () => this.#loadLocalSource(source, realSourceFolder, options));
+  }
+
+  async #loadLocalSource(source: Awaited<ReturnType<typeof readLocalPluginSourceManifest>>, realSourceFolder: string, options: { readonly autoApprove?: boolean }): Promise<PluginServiceResult> {
+    if (!this.#userDataPath) return this.#error("Local plugin loading is unavailable.");
+    try {
+      await this.#settlePluginInstall(source.manifest.id);
+    } catch (error) {
+      return this.#error(safeError(error));
+    }
+    const confirm = this.#confirmPermissions ?? defaultConfirmPermissions;
     const existing = this.stateStore.getRecord(source.manifest.id);
     if (existing?.source === "team") {
       return this.#error("A Team plugin with this id is managed by your organization.");
@@ -452,6 +542,11 @@ export class PluginService {
     const started = Date.now();
     this.#log("info", update ? "Plugin catalog update requested." : "Plugin catalog install requested.", { pluginId: id });
     if (!this.#userDataPath) return this.#error("Catalog plugin installation is unavailable.");
+    try {
+      await this.#settlePluginInstall(id);
+    } catch (error) {
+      return this.#error(safeError(error));
+    }
     const existing = this.stateStore.getRecord(id);
     if (existing?.bundled) return this.#error(update ? "Bundled plugins update with OpenPets." : "Plugin is already installed as a bundled plugin.");
     if (!update && existing) return this.#error("Plugin is already installed.");
@@ -459,7 +554,17 @@ export class PluginService {
     if (existing?.source === "local") return this.#error("A local plugin with this id is already loaded.");
     const confirm = this.#confirmPermissions ?? defaultConfirmPermissions;
     try {
-      const entry = await getCatalogPlugin(id, { ...this.#catalogOptions, fetchImpl: this.#fetchImpl ?? this.#catalogOptions?.fetchImpl, refresh: update });
+      const detail = await this.getMarketplacePlugin(id);
+      const entry = [...detail.releases]
+        .filter((release) => {
+          const compatibleApp = isCatalogEntryCompatible(release.minOpenPetsVersion, release.maxOpenPetsVersion, this.#currentAppVersion);
+          const supportedRuntime = release.runtime === "declarative"
+            || (release.runtime === "javascript" && /^(1|3)\./.test(release.sdkVersion ?? ""));
+          return compatibleApp && supportedRuntime;
+        })
+        .sort((a, b) => compareSemver(b.version, a.version))[0];
+      if (!entry) throw new Error("No compatible approved plugin release is available.");
+      if (existing && compareSemver(entry.version, existing.version) <= 0) throw new Error("Installed plugin is already up to date or newer.");
       this.#log("debug", "Plugin catalog entry selected.", { pluginId: id, version: entry.version, runtime: entry.runtime, sdkVersion: getSdkVersion(entry), currentAppVersion: this.#currentAppVersion });
       if (isEntryDisabled(entry)) throw new Error("Plugin is disabled in the catalog.");
       if (isEntryDeprecated(entry)) throw new Error("Plugin is deprecated in the catalog.");
@@ -467,25 +572,63 @@ export class PluginService {
       const zip = await downloadCatalogPluginZip(entry, this.#fetchImpl ?? this.#catalogOptions?.fetchImpl ?? fetch);
       this.#log("debug", "Plugin catalog ZIP downloaded.", { pluginId: id, sizeBytes: zip.byteLength, downloadHost: safeUrlHost(entry.downloadUrl) });
       const preview = await readCatalogPluginManifestFromZip({ catalogEntry: entry, zip, maxManifestBytes: this.#maxManifestBytes });
+      if (preview.manifest.runtime !== entry.runtime || ("sdkVersion" in preview.manifest && preview.manifest.sdkVersion !== entry.sdkVersion)) throw new Error("Plugin manifest runtime or SDK version mismatch.");
       this.#log("debug", "Plugin catalog manifest previewed.", { pluginId: id, manifestVersion: preview.manifest.manifestVersion, runtime: preview.manifest.runtime, sdkVersion: "sdkVersion" in preview.manifest ? preview.manifest.sdkVersion : undefined });
       const networkHosts = "network" in preview.manifest ? preview.manifest.network?.hosts : undefined;
       const approvalsChanged = existing ? !isPermissionSubset(preview.manifest.permissions, existing.approvedPermissions) || !isStringSubset(networkHosts ?? [], existing.approvedNetworkHosts ?? []) : true;
-      if (approvalsChanged && !(await confirm(preview.manifest))) return { ok: true, snapshot: await this.getSnapshot() };
-      const previousInstallBackup = existing ? `${existing.installPath}.rollback-${process.pid}-${Date.now()}` : undefined;
-      if (previousInstallBackup && existing) await fs.cp(existing.installPath, previousInstallBackup, { recursive: true, force: true }).catch(() => undefined);
-      const loaded = await installCatalogPluginPackage({ userDataPath: this.#userDataPath, catalogEntry: entry, zip, maxManifestBytes: this.#maxManifestBytes });
+      if (approvalsChanged && !(await confirm(resolvePermissionDialogManifest(preview.manifest, preview.declaredFiles, detail.name, detail.description)))) return { ok: true, snapshot: await this.getSnapshot() };
+      const approvedPermissions = [...new Set([...(existing?.approvedPermissions ?? []), ...preview.manifest.permissions])];
+      const approvedNetworkHosts = [...new Set([...(existing?.approvedNetworkHosts ?? []), ...(networkHosts ?? [])])];
+      const loaded = await stageCatalogPluginPackage({
+        userDataPath: this.#userDataPath,
+        catalogEntry: entry,
+        zip,
+        maxManifestBytes: this.#maxManifestBytes,
+      });
       const wasEnabled = existing?.enabled === true;
       const enabled = existing ? existing.enabled : true;
       try {
-        this.stateStore.upsertRecord({ id: loaded.manifest.id, version: loaded.manifest.version, source: "catalog", installPath: loaded.installPath, manifestPath: loaded.manifestPath, manifestVersion: loaded.manifest.manifestVersion, runtime: loaded.manifest.runtime, sdkVersion: "sdkVersion" in loaded.manifest ? loaded.manifest.sdkVersion : getSdkVersion(entry), enabled, approvedPermissions: loaded.manifest.permissions, approvedNetworkHosts: networkHosts, config: existing?.config ?? {}, catalogDeprecated: isEntryDeprecated(entry) || undefined, catalogStatusReason: getStatusReason(entry) });
+        await commitPluginInstall({
+          userDataPath: this.#userDataPath,
+          id,
+          stagePath: loaded.stagePath,
+          previous: existing,
+          store: this.stateStore,
+          onCleanupWarning: (error) => {
+            this.#log("warn", "Committed plugin cleanup deferred.", { pluginId: id, reason: safeDetailedError(error) });
+          },
+          activate: async () => {
+            this.stateStore.upsertRecord({
+              id: loaded.manifest.id,
+              version: loaded.manifest.version,
+              source: "catalog",
+              installPath: loaded.installPath,
+              manifestPath: loaded.manifestPath,
+              manifestVersion: loaded.manifest.manifestVersion,
+              runtime: loaded.manifest.runtime,
+              sdkVersion: "sdkVersion" in loaded.manifest ? loaded.manifest.sdkVersion : getSdkVersion(entry),
+              enabled,
+              approvedPermissions,
+              approvedNetworkHosts,
+              config: existing?.config ?? {},
+              catalogDeprecated: isEntryDeprecated(entry) || undefined,
+              catalogStatusReason: getStatusReason(entry),
+            });
+            if (enabled || wasEnabled) {
+              await this.runtime.reloadPlugin(id);
+              if (enabled && !this.runtime.isPluginActive(id, loaded.manifest.version)) {
+                throw new Error("Plugin activation failed.");
+              }
+            }
+          },
+        });
       } catch (error) {
-        if (previousInstallBackup && existing) { await fs.rm(loaded.installPath, { recursive: true, force: true }).catch(() => undefined); await fs.rename(previousInstallBackup, existing.installPath).catch(() => undefined); }
-        else await fs.rm(loaded.installPath, { recursive: true, force: true }).catch(() => undefined);
+        await this.runtime.suspendPlugin(id);
+        if (existing?.enabled && this.stateStore.getRecord(id)?.version === existing.version) {
+          await this.runtime.reloadPlugin(id);
+        }
         throw error;
-      } finally {
-        if (previousInstallBackup) await fs.rm(previousInstallBackup, { recursive: true, force: true }).catch(() => undefined);
       }
-      if (enabled || wasEnabled) await this.runtime.reloadPlugin(loaded.manifest.id);
       this.#log("info", update ? "Plugin catalog update succeeded." : "Plugin catalog install succeeded.", { pluginId: id, version: loaded.manifest.version, durationMs: Date.now() - started });
       return { ok: true, snapshot: await this.getSnapshot() };
     } catch (error) { this.#log("warn", update ? "Plugin catalog update failed." : "Plugin catalog install failed.", { pluginId: id, reason: safeDetailedError(error), uiReason: safeError(error), durationMs: Date.now() - started }); return this.#error(safeError(error)); }

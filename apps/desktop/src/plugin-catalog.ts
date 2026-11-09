@@ -1,7 +1,7 @@
 import { validatePluginCatalog, type PluginCatalog, type PluginCatalogEntry, type PluginCatalogEntryV2 } from "./plugin-catalog-validation.js";
+import { marketplaceOrigin } from "./plugin-marketplace.js";
 
-export const pluginCatalogUrl = "https://openpets.dev/plugins/catalog.v2.json";
-export const pluginCatalogV1Url = "https://openpets.dev/plugins/catalog.v1.json";
+export const pluginCatalogUrl = "https://studio-api.openpets.dev/api/marketplace/catalog.v2.json";
 export const pluginCatalogV2Url = pluginCatalogUrl;
 const maxCatalogBytes = 2 * 1024 * 1024;
 const catalogTimeoutMs = 15_000;
@@ -10,7 +10,7 @@ const cached = new Map<string, PluginCatalog>();
 export type PluginCatalogOptions = { readonly refresh?: boolean; readonly fetchImpl?: typeof fetch; readonly url?: string };
 
 export async function getPluginCatalog(options: PluginCatalogOptions = {}): Promise<PluginCatalog> {
-  const url = options.url ?? pluginCatalogUrl;
+  const url = options.url ?? `${marketplaceOrigin()}/api/marketplace/catalog.v2.json`;
   const cacheKey = url;
   const cachedCatalog = cached.get(cacheKey);
   if (cachedCatalog && !options.refresh) return cachedCatalog;
@@ -18,11 +18,11 @@ export async function getPluginCatalog(options: PluginCatalogOptions = {}): Prom
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), catalogTimeoutMs);
   try {
-    let response = await fetcher(url, { signal: controller.signal, credentials: "omit" });
-    if (!response.ok && url === pluginCatalogUrl) response = await fetcher(pluginCatalogV1Url, { signal: controller.signal, credentials: "omit" });
+    const response = await fetcher(url, { signal: controller.signal, credentials: "omit", redirect: "error" });
     if (!response.ok) throw new Error(`Plugin catalog fetch failed with HTTP ${response.status}.`);
     const text = (await readLimitedResponse(response, maxCatalogBytes)).toString("utf8");
     const catalog = validatePluginCatalog(JSON.parse(text) as unknown);
+    if (catalog.version !== 2) throw new Error("Marketplace catalog must use version 2.");
     cached.set(cacheKey, catalog);
     return catalog;
   } finally { clearTimeout(timeout); }

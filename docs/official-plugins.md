@@ -27,6 +27,12 @@ see [Plugin platform](/plugins). For the author-facing API, see
 The public plugin catalog is `web/public/plugins/catalog.v2.json`. The current
 catalog contains thirteen official plugins and five community plugins.
 
+That repository snapshot is also the reserved-ID/import inventory for the new
+[marketplace](/marketplace). Marketplace publication is API-owned and requires
+review for every release; official/community classification does not follow
+the ID prefix alone (some historical `openpets.*` IDs are community plugins).
+Bundled defaults below remain application-managed and work offline.
+
 | Plugin | Type | What it does |
 | --- | --- | --- |
 | Anxiety Aid Tools | Official | Guided breathing, muscle relaxation, grounding, guided meditation, peaceful visualization, and relaxing sounds, rendered around the pet. Content from Anxiety Aid Tools. |

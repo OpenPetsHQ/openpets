@@ -89,3 +89,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a 
 - Contract validation files named `check-*.ts` are intentionally excluded from detailed codemap coverage except where they define package contract boundaries.
 - Build artifacts, dependencies, tests, documentation, and binary assets are excluded from codemap state.
 - `web/` is intentionally excluded from this codemap run; plugin source coverage is under `plugins/` only.
+- The API-owned plugin marketplace is documented in `docs/marketplace.md`:
+  `web/studio/studio/marketplace/` owns durable releases and artifacts,
+  `web/studio/studio/api/marketplace.py` owns HTTP adapters, and
+  `apps/desktop/src/plugin-marketplace.ts` consumes its public contracts.

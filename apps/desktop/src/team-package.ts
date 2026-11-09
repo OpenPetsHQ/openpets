@@ -7,7 +7,7 @@ import type { Entry, ZipFile } from "yauzl";
 import { validateCodexPetMetadata } from "@open-pets/pet-format/metadata";
 import { validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
 import { assertPetPackageFiles } from "install-pet/spritesheet";
-import { readCatalogPluginManifestFromZip } from "./plugin-package.js";
+import { readPluginManifestFromZip } from "./plugin-package.js";
 import { validatePluginConfigReplacement } from "./plugin-config.js";
 import {
   validatePluginManifest,
@@ -70,10 +70,7 @@ export async function stageTeamArtifact(
       || result.manifest.version !== item.version
       || result.manifest.runtime !== "javascript"
     ) throw new Error("Team plugin manifest does not match the Team Pack.");
-    const checked = await readCatalogPluginManifestFromZip({
-      catalogEntry: {} as never,
-      zip: bytes,
-    });
+    const checked = await readPluginManifestFromZip({ zip: bytes });
     if (!validatePluginConfigReplacement(checked.manifest, item.config ?? {}).ok) {
       throw new Error("Team plugin configuration does not match its manifest.");
     }

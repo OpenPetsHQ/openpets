@@ -17,6 +17,7 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:install-local-pet"
   | "openpets:open-gallery"
   | "openpets:open-studio"
+  | "openpets:open-marketplace-page"
   | "openpets:import-codex-pet"
   | "openpets:remove-pet"
   | "openpets:reset-default-pet-position";
@@ -109,6 +110,18 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly resetDefaultPetToInitialPosition: () => void;
   readonly logger: ControlCenterPetManagementIpcLogger;
 };
+
+export function installMarketplacePageIpcHandler({ registerHandle, authorizeSender, openExternal, logger }: Pick<ControlCenterPetManagementIpcDependencies, "registerHandle" | "authorizeSender" | "openExternal" | "logger">): void {
+  registerHandle("openpets:open-marketplace-page", async (event, pluginId: unknown) => {
+    authorizeSender(event);
+    if (pluginId !== undefined && (typeof pluginId !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(pluginId))) {
+      throw new Error("Invalid plugin id.");
+    }
+    const path = pluginId === undefined ? "publish" : encodeURIComponent(pluginId);
+    logger.debug("marketplace page opened", { pluginId: pluginId ?? null });
+    await openExternal(`https://openpets.dev/plugins/${path}`);
+  });
+}
 
 export function installControlCenterPetManagementIpcHandlers({
   registerHandle,
@@ -295,6 +308,8 @@ export function installControlCenterPetManagementIpcHandlers({
     logger.debug("pet studio opened from pets page");
     await openExternal("https://openpets.dev/studio?utm_source=openpets-desktop&utm_medium=app&utm_campaign=pets-page");
   });
+
+  installMarketplacePageIpcHandler({ registerHandle, authorizeSender, openExternal, logger });
 
   registerHandle("openpets:import-codex-pet", async (event, petId: unknown) => {
     authorizeSender(event);

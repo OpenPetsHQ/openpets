@@ -46,8 +46,16 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm release:desktop` | macOS-local build, automatic SignPath Windows signing, and verified GitHub publication |
 | `pnpm release:npm` | Publish npm packages |
 | `pnpm plugins:*` | Plugin test/validate/package/publish/deploy (see below) |
+| `pnpm marketplace:validator:build` | Rebuild Studio's portable plugin validator from desktop validation source |
+| `pnpm marketplace:validator:check` | Verify the checked-in validator bundle is current |
+| `pnpm marketplace:validator:test` | Exercise package validation and publisher CLI behavior |
+| `pnpm marketplace:publish …` | Prepare, validate, reserve and submit immutable plugin releases through the API |
 
 ### Plugin DX commands
+
+For new publication, use the [marketplace](/marketplace). The `plugins:publish`,
+`plugins:deploy` and `plugins:release` commands below are the repository/R2
+catalog workflow for older app versions, not the marketplace publishing path.
 
 | Command | Purpose |
 |---------|---------|

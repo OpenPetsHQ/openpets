@@ -43,6 +43,7 @@ import {
   type AgentSetupSnapshot,
 } from "./integrations/index.js";
 import { AccessibleDialog } from "./components/ui/AccessibleDialog.js";
+import { MarketplaceBrowser } from "./components/MarketplaceBrowser.js";
 import { Button } from "./components/ui/Button.js";
 import { GlassCard } from "./components/ui/GlassCard.js";
 import { isPluginIconDataUrl } from "./plugin-icon.js";
@@ -97,10 +98,9 @@ type PluginConfig = Record<string, unknown>;
 type PluginCommandFormField = { id: string; type: "text" | "textarea" | "number" | "boolean" | "select" | "multiSelect" | "time" | "date" | "list"; label: string; default?: string | number | boolean | string[]; options?: Array<{ label: string; value: string }>; min?: number; max?: number; maxLength?: number; required?: boolean };
 type PluginCommandForm = { fields: PluginCommandFormField[]; submitLabel?: string };
 type PluginCommand = { id: string; title: string; description?: string; form?: PluginCommandForm };
-type PluginStatus = { text: string; tone?: "info" | "success" | "warning" | "error" };
-type PluginConfigError = { path?: string; code?: string; message?: string };
 type PluginCategory = "Companion" | "Wellness" | "Focus" | "Developer" | "Advanced";
-type SafePluginRecord = { id: string; name?: string; description?: string; version: string; icon?: PluginIconName; iconDataUrl?: string; source: "catalog" | "local"; sourcePath?: string; bundled?: boolean; category?: PluginCategory; enabled: boolean; brokenReason?: string; approvedPermissions: PluginPermission[]; runtime?: "declarative" | "javascript"; sdkVersion?: string; catalogDisabled?: boolean; catalogDeprecated?: boolean; catalogStatusReason?: string; configSchema?: PluginConfigSchema; effectiveConfig?: PluginConfig; configErrors?: PluginConfigError[]; spritePreviews?: Record<string, { url: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number }>; commands?: PluginCommand[]; status?: PluginStatus };
+type PluginStatus = { text: string; tone?: "info" | "success" | "warning" | "error" };
+type PluginConfigError = { path?: string; code?: string; message?: string };type SafePluginRecord = { id: string; name?: string; description?: string; version: string; icon?: PluginIconName; iconDataUrl?: string; source: "catalog" | "local"; sourcePath?: string; bundled?: boolean; category?: PluginCategory; enabled: boolean; brokenReason?: string; approvedPermissions: PluginPermission[]; runtime?: "declarative" | "javascript"; sdkVersion?: string; catalogDisabled?: boolean; catalogDeprecated?: boolean; catalogStatusReason?: string; configSchema?: PluginConfigSchema; effectiveConfig?: PluginConfig; configErrors?: PluginConfigError[]; spritePreviews?: Record<string, { url: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number }>; commands?: PluginCommand[]; status?: PluginStatus };
 type SafeCatalogPluginRecord = { id: string; name: string; version: string; description: string; runtime: "declarative" | "javascript"; icon?: PluginIconName; iconDataUrl?: string; sdkVersion?: string; permissions: PluginPermission[]; installed: boolean; bundled?: boolean; category?: PluginCategory; deprecated?: boolean; statusReason?: string; publisherType?: "official" | "community" };
 type PluginServiceSnapshot = { plugins: SafePluginRecord[] };
 type PluginCatalogSnapshot = { plugins: SafeCatalogPluginRecord[] };
@@ -221,6 +221,8 @@ type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   installPetWardrobe(petId: string): Promise<unknown>;
   getPluginsSnapshot(): Promise<PluginServiceSnapshot>;
   getPluginCatalogSnapshot(refresh?: boolean): Promise<PluginCatalogSnapshot>;
+  getMarketplacePlugins(options?: { q?: string; sort?: string; category?: string; offset?: number; limit?: number }): Promise<import("../../../src/plugin-marketplace-types.js").MarketplacePage>;
+  getMarketplacePlugin(id: string): Promise<import("../../../src/plugin-marketplace-types.js").MarketplaceDetail>;
   setPluginEnabled(id: string, enabled: boolean): Promise<PluginServiceResult>;
   savePluginConfig(id: string, config: PluginConfig): Promise<PluginServiceResult>;
   pickPluginConfigSound(id: string): Promise<PluginConfigSoundPickResult>;
@@ -258,6 +260,7 @@ type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   importCodexPet(petId: string): Promise<unknown>;
   openGallery(): Promise<void>;
   openStudio(): Promise<void>;
+  openMarketplacePage(pluginId?: string): Promise<void>;
   openOrganizationsPage?(): Promise<void>;
   removePet(petId: string): Promise<StateSnapshot>;
   onRouteChange(callback: (target: ControlCenterRouteTarget) => void): () => void;
@@ -3551,6 +3554,7 @@ function PluginsView() {
   const [commandDrafts, setCommandDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const [activeCommandId, setActiveCommandId] = useState("");
   const [showDeveloperMode, setShowDeveloperMode] = useState(false);
+  const [pluginTab, setPluginTab] = useState<"installed" | "marketplace">("installed");
 
   async function load(refreshCatalog = false, clearMessages = true) {
     if (clearMessages) setError("");
@@ -3639,6 +3643,7 @@ function PluginsView() {
     const result = await api.updateCatalogPlugin(plugin.id);
     if (!applyResult(result)) return;
     const updatedPlugin = result.snapshot.plugins.find((nextPlugin) => nextPlugin.id === plugin.id);
+    await load(false, false);
     setMessage(updatedPlugin && updatedPlugin.version !== previousVersion ? t("plugins.toast.pluginUpdated") : t("plugins.toast.noPluginUpdate"));
   }
 
@@ -3646,6 +3651,38 @@ function PluginsView() {
     <div className="plugins-layout">
       {error && <div className="error settings-message">{error}</div>}
       {message && <div className="settings-success settings-message">{message}</div>}
+      <div className="filters">
+        <button className={`filter ${pluginTab === "installed" ? "active" : ""}`} onClick={() => setPluginTab("installed")}>Installed</button>
+        <button className={`filter ${pluginTab === "marketplace" ? "active" : ""}`} onClick={() => setPluginTab("marketplace")}>Marketplace</button>
+      </div>
+      {pluginTab === "marketplace" ? (
+        <MarketplaceBrowser
+          api={api}
+          installed={snapshot?.plugins ?? []}
+          onInstall={async (id) => {
+            await run(t("plugins.busy.installing"), () => installCatalogEntry({ id }));
+          }}
+          onUpdate={async (id) => {
+            const plugin = snapshot?.plugins.find((item) => item.id === id);
+            if (!plugin) throw new Error("Plugin is no longer installed.");
+            await run(t("plugins.busy.updating"), () => updateCatalogEntry(plugin));
+          }}
+          onOpenExternal={(value) => {
+            try {
+              const url = new URL(value);
+              const match = /^\/plugins\/([a-z0-9][a-z0-9._-]{1,62}[a-z0-9])$/.exec(url.pathname);
+              if (url.origin !== "https://openpets.dev" || url.username || url.password || url.search || url.hash || !match) {
+                throw new Error("Only OpenPets marketplace pages can be opened here.");
+              }
+              void api.openMarketplacePage(match[1] === "publish" ? undefined : match[1]).catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : String(err));
+              });
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          }}
+        />
+      ) : <>
       <div className={`plugin-developer-panel ${showDeveloperMode ? "open" : ""}`}>
         <button className="plugin-developer-toggle" type="button" onClick={() => setShowDeveloperMode((open) => !open)} aria-expanded={showDeveloperMode}>
           <span>{t("plugins.developer.eyebrow")}</span>
@@ -3816,6 +3853,7 @@ function PluginsView() {
         </> : <div className="plugin-empty plugin-empty-detail"><PluginGlyph /><strong>{t("plugins.emptyDetail.title")}</strong><small>{t("plugins.emptyDetail.description")}</small></div>}
         </GlassCard>
       </div>}
+      </>}
     </div>
   );
 }

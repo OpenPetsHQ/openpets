@@ -200,6 +200,7 @@ windows.ts → control-center-pet-management-ipc.ts
 ```
 main.ts → initializePluginService(userData, defaultPluginPetApi, appVersion, ElectronPluginJsHost).start()
 ├── plugin-state.ts reads/writes userData/openpets-plugin-state.json
+├── plugin-install-transaction.ts recovers interrupted catalog package/state replacements before plugin discovery or runtime startup
 ├── provider-contract.ts provides the pure canonical adapter and preset catalogs, typed profile union, role support, and credential policy
 ├── plugin-platform-settings.ts gates audio/voice/microphone/quiet hours and persists versioned, validated provider profiles/selections with migration quarantine
 ├── provider-service.ts resolves redacted role operation snapshots, credentials, adapter URLs/headers/codecs, and provider diagnostics
@@ -233,8 +234,14 @@ tray.ts → openControlCenterWindow("plugins") → windows.ts → renderer React
     └── fixed openpets:plugins-* IPC handlers call PluginService methods
 
 Catalog install/update:
-plugin-catalog.ts → plugin-catalog-validation.ts
-└── plugin-package.ts downloads HTTPS ZIP, validates SHA-256, extracts root manifest only, and installs to userData/plugins/{id}
+plugin-marketplace.ts → Studio marketplace browse/details and approved compatible release selection
+├── plugin-marketplace-types.ts owns host-neutral renderer/main data contracts
+├── plugin-catalog.ts → plugin-catalog-validation.ts validates the API catalog v2 projection
+└── plugin-package.ts downloads bounded ZIPs, validates SHA-256 plus manifest ID/version, and stages declared package files
+    └── plugin-install-transaction.ts owns package/state commit, rollback and restart recovery; plugin-service.ts verifies activation before commit
+
+Control Center marketplace links:
+control-center-pet-management-ipc.ts → validated plugin/publisher target → fixed openpets.dev marketplace URL
 
 Local development load:
 plugin-local-loader.ts validates selected folder manifest and snapshots only openpets.plugin.json to userData/plugins-dev/{id}

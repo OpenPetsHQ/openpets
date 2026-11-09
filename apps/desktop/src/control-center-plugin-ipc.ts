@@ -14,6 +14,8 @@ export type ControlCenterPluginIpcChannel =
   | "openpets:plugins-execute-command"
   | "openpets:plugins-load-local"
   | "openpets:plugins-catalog-snapshot"
+  | "openpets:plugins-marketplace-list"
+  | "openpets:plugins-marketplace-detail"
   | "openpets:plugins-install-catalog"
   | "openpets:plugins-update-catalog"
   | "openpets:plugins-uninstall"
@@ -37,6 +39,8 @@ export type ControlCenterPluginService = Pick<
   | "executeCommand"
   | "loadLocal"
   | "getCatalogSnapshot"
+  | "getMarketplacePlugins"
+  | "getMarketplacePlugin"
   | "installCatalog"
   | "updateCatalog"
   | "uninstall"
@@ -125,6 +129,18 @@ export function installControlCenterPluginIpcHandlers({
   registerHandle("openpets:plugins-catalog-snapshot", async (event, refresh: unknown) => {
     authorizeSender(event);
     return getPluginService().getCatalogSnapshot(refresh === true);
+  });
+
+  registerHandle("openpets:plugins-marketplace-list", async (event, query: unknown) => {
+    authorizeSender(event);
+    if (query !== undefined && !isPlainObject(query)) throw new Error("Invalid marketplace query.");
+    return getPluginService().getMarketplacePlugins(query as Parameters<PluginService["getMarketplacePlugins"]>[0]);
+  });
+
+  registerHandle("openpets:plugins-marketplace-detail", async (event, id: unknown) => {
+    authorizeSender(event);
+    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(id)) throw new Error("Invalid marketplace plugin id.");
+    return getPluginService().getMarketplacePlugin(id);
   });
 
   registerHandle("openpets:plugins-install-catalog", async (event, id: unknown): Promise<PluginServiceResult> => {

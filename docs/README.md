@@ -52,6 +52,8 @@ Docs here are the *narrative* layer on top of those maps.
 
 ## Plugins & SDK
 
+- **[marketplace.md](marketplace.md)** - API-owned publishing, shared Studio
+  accounts, immutable reviewed releases, publisher/admin workflows and rollout.
 - **[plugins.md](plugins.md)** - the plugin platform: manifest schema,
   permission model, runtime, sandboxed JS host, catalog vs local install,
   packaging and publishing, troubleshooting.

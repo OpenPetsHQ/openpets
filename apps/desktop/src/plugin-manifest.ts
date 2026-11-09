@@ -1,51 +1,13 @@
 import { allowedReactions } from "./local-ipc-protocol.js";
+import type { KnownPluginRuntime, PluginIcon, PluginPermission, PluginRuntime } from "./plugin-contract-types.js";
+export type { KnownPluginRuntime, PluginIcon, PluginPermission, PluginRuntime } from "./plugin-contract-types.js";
 
 export const OPENPETS_PLUGIN_MANIFEST_FILENAME = "openpets.plugin.json";
 export const openPetsPluginManifestFilename = OPENPETS_PLUGIN_MANIFEST_FILENAME;
 
-export type PluginRuntime = "declarative";
-export type KnownPluginRuntime = PluginRuntime | "javascript";
-export type PluginPermission =
-  | "pet:speak"
-  | "pet:reaction"
-  | "pet:move"
-  | "timer"
-  | "schedule"
-  | "storage"
-  | "status"
-  | "commands"
-  | "network"
-  // SDK v3 permissions (manifestVersion 3 only)
-  | "pet:interact"
-  | "pet:pin"
-  | "pet:animate"
-  | "pet:speak:dynamic"
-  | "pet:drop"
-  | "pets:read"
-  | "pets:manage"
-  | "audio"
-  | "events"
-  | "ui:toast"
-  | "ui:panel"
-  | "ui:delivery"
-  | "ui:session"
-  | "notify"
-  | "bus"
-  | "ai"
-  | "secrets"
-  | "voice:speak"
-  | "voice:listen"
-  | "auth"
-  | "files"
-  | "system:openExternal"
-  | "system:metrics"
-  | "clipboard"
-  | "network:write"
-  | "network:local";
 export type PluginJavascriptPermission = Exclude<PluginPermission, "timer">;
 /** Permissions flagged sensitive in the UI (louder consent, global toggles). */
 export const sensitivePluginPermissions: ReadonlySet<PluginPermission> = new Set(["voice:listen", "clipboard", "pet:speak:dynamic", "network:local", "network:write"]);
-export type PluginIcon = "plugin" | "bell" | "timer" | "github" | "heart" | "sparkles" | "coffee" | "focus" | "droplet";
 export type PluginConfigFieldType = "text" | "textarea" | "number" | "boolean" | "select" | "time" | "date" | "multiSelect" | "list" | "secret" | "sound";
 
 /** Asset kinds a v3 plugin can declare and bundle. */
@@ -95,6 +57,9 @@ export type OpenPetsJavascriptPluginManifest = {
   version: string;
   runtime: "javascript";
   sdkVersion: string;
+  /** Optional inclusive OpenPets application-version bounds (v3 only). */
+  minOpenPetsVersion?: string;
+  maxOpenPetsVersion?: string;
   entry: string;
   icon?: PluginIcon;
   permissions: PluginJavascriptPermission[];
@@ -121,7 +86,7 @@ export type PluginManifestValidationResult =
 // "$schema" is tolerated everywhere so manifests can opt into editor validation.
 const topLevelFields = new Set(["$schema", "manifestVersion", "id", "name", "description", "version", "runtime", "icon", "permissions", "configSchema", "triggers"]);
 const jsTopLevelFields = new Set(["$schema", "manifestVersion", "id", "name", "description", "version", "runtime", "sdkVersion", "entry", "icon", "permissions", "network", "configSchema"]);
-const jsV3TopLevelFields = new Set([...jsTopLevelFields, "assets", "panels"]);
+const jsV3TopLevelFields = new Set([...jsTopLevelFields, "assets", "panels", "minOpenPetsVersion", "maxOpenPetsVersion"]);
 const configFieldFields = new Set(["type", "label", "description", "default", "options", "presentation", "min", "max", "step", "maxLength", "maxItems", "itemSchema"]);
 const configOptionFields = new Set(["label", "value", "previewSprite"]);
 const triggerFields = new Set(["on", "everyMinutes", "actions"]);
@@ -242,12 +207,37 @@ function validateJavascriptPluginManifest(input: Record<string, unknown>, manife
   validateConfigSchema(input.configSchema, errors, manifestVersion);
   validateNetwork(input.network, input.permissions, errors);
   if (manifestVersion === 3) {
+    validateAppVersionBounds(input, errors);
     validateAssets(input.assets, errors);
     validateSpriteGridPreviews(input.configSchema, input.assets, errors);
     validatePanels(input.panels, errors);
   }
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, manifest: input as OpenPetsPluginManifest, errors: [] };
+}
+
+function validateAppVersionBounds(input: Record<string, unknown>, errors: PluginManifestValidationError[]): void {
+  const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+  const minimum = input.minOpenPetsVersion;
+  const maximum = input.maxOpenPetsVersion;
+  for (const [field, value] of [["minOpenPetsVersion", minimum], ["maxOpenPetsVersion", maximum]] as const) {
+    if (value === undefined) continue;
+    if (typeof value !== "string" || value.length > 80 || !stableVersion.test(value)) {
+      addError(errors, `$.${field}`, "invalid_format", `${field} must be a canonical stable version.`);
+    }
+  }
+  if (typeof minimum !== "string" || typeof maximum !== "string" || minimum.length > 80 || maximum.length > 80 || !stableVersion.test(minimum) || !stableVersion.test(maximum)) return;
+  const lower = minimum.split(".");
+  const upper = maximum.split(".");
+  for (let index = 0; index < 3; index += 1) {
+    const left = lower[index];
+    const right = upper[index];
+    if (left === right) continue;
+    if (left.length > right.length || (left.length === right.length && left > right)) {
+      addError(errors, "$.maxOpenPetsVersion", "invalid_range", "maxOpenPetsVersion must not be less than minOpenPetsVersion.");
+    }
+    break;
+  }
 }
 
 function validateSpriteGridPreviews(schema: unknown, assets: unknown, errors: PluginManifestValidationError[]): void {
