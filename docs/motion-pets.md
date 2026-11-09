@@ -52,6 +52,22 @@ renderer coordinator admits playback and reports first-frame start and terminal
 results separately from body/appearance results. See [Idle Activities](/pets#idle-activities)
 for the shared behavior and current verification boundary.
 
+## Reduced-motion integration
+
+Reduced-motion support has passed integrated checks and live macOS media-emulation
+verification, separately from manual pause and visibility suspension. The pet
+renderer observes the OS media preference and
+applies it locally, without saving or echoing it through body intent. A focused
+epoch-validated report informs the host's window-local activity admission;
+unknown or reduced preference blocks optional native activities in both formats.
+
+Motion uses an explicit still-frame mode rather than treating reduction as
+pause. It presents the selected body clip's first frame for current context,
+direction and outfit feedback, without decorative introduction/ending phases or
+a continuing decode timer. Finite events are suppressed and settled, not queued
+for replay. Manual pause remains independently effective, and suspended windows
+still do no unnecessary decoding.
+
 Desktop body suspension follows logical host visibility and system power state,
 not renderer document visibility. Host show/hide operations publish successful
 transitions explicitly; native events are reconciled against actual window

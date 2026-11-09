@@ -81,6 +81,7 @@ interface Runtime {
   preparePetActivityRender(window: Window, busy: boolean): void;
   updatePetActivityRender(window: Window, render: Render): void;
   setPetActivityScale(window: Window, scale: number): void;
+  setPetActivityReducedMotion(window: Window, reduced: boolean | null): void;
   playPetActivity(petId: string, activityId: string): Promise<unknown>;
   setPetActivityEnabled(petId: string, activityId: string, enabled: boolean): Promise<unknown>;
   startPetActivities(): void;
@@ -105,6 +106,7 @@ const cancels = () => window.webContents.sent.filter((message) => message.channe
 
 try {
   runtime.registerPetActivityWindow(window);
+  runtime.setPetActivityReducedMotion(window, false);
   runtime.updatePetActivityRender(window, render);
   window.webContents.emit("did-finish-load");
   runtime.startPetActivities();
@@ -138,6 +140,7 @@ try {
   runtime.setPetActivityScale(window, 1.75);
   window.webContents.emit("did-start-loading");
   window.webContents.emit("did-finish-load");
+  runtime.setPetActivityReducedMotion(window, false);
   runtime.updatePetActivityRender(window, { ...render });
   mock.timers.tick(1_000);
   await runtime.playPetActivity("cat", "read");

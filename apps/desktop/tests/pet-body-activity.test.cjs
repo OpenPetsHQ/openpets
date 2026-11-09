@@ -147,6 +147,41 @@ test('classic uses same arbiter and ignores stale external callbacks', () => {
   assert.deepEqual(f.stops, [1, 2]); f.coordinator.dispose();
 });
 
+test('reduced motion cancels Classic activity and rejects subsequent activities', () => {
+  const f = fixture(true);
+  assert.equal(f.coordinator.startActivity(f.strip(1)), true);
+  f.external[0].callback('started');
+  f.coordinator.setReducedMotion(true);
+  f.external[0].callback('completed');
+  assert.deepEqual(f.activityResults.map(x => x.outcome), ['started', 'cancelled']);
+  assert.equal(f.coordinator.startActivity(f.strip(2)), false);
+  assert.deepEqual(f.activityResults.map(x => x.outcome), ['started', 'cancelled', 'cancelled']);
+  assert.equal(f.coordinator.offerVariation(), false);
+  f.coordinator.dispose();
+});
+
+test('body updates report acceptance for Classic epochs and reject stale revisions', () => {
+  const f = fixture(true);
+  const body = { epoch: 'epoch', revision: 1, context: 'idle', paused: false, suspended: false };
+  assert.equal(f.coordinator.update({ input: body, motion: null }), false);
+  assert.equal(f.coordinator.update({ input: { ...body, revision: 2 }, motion: null }), true);
+  assert.equal(f.coordinator.update({ input: { ...body, epoch: 'next', revision: 0 }, motion: null }), true);
+  f.coordinator.dispose();
+});
+
+test('reduced motion cancels a Motion activity and does not route its result as a body event', () => {
+  const f = fixture();
+  assert.equal(f.coordinator.startActivity(f.motion(1)), true);
+  const old = f.calls.at(-1).callbacks;
+  old.onStarted();
+  f.coordinator.setReducedMotion(true);
+  old.onEnd(); old.onFailed(new Error('stale'));
+  assert.deepEqual(f.activityResults.map(x => x.outcome), ['started', 'cancelled']);
+  assert.equal(f.bodyResults.some(x => x.intentId === 'test'), false);
+  assert.equal(f.coordinator.startActivity(f.motion(2)), false);
+  f.coordinator.dispose();
+});
+
 test('context preemption cancels activity and restores newest context', () => {
   const f = fixture(); f.coordinator.startActivity(f.motion(1));
   f.update(2, { context: 'working' });

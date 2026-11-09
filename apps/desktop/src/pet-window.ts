@@ -24,12 +24,12 @@ import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
 import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
 import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from "./pet-window-show-coordinator.js";
-import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityScale, startPetActivitySpeech, updatePetActivityBody, updatePetActivityRender } from "./pet-activities.js";
+import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityReducedMotion, setPetActivityScale, startPetActivitySpeech, updatePetActivityBody, updatePetActivityRender } from "./pet-activities.js";
 import { rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
 import { petBodyChannels } from "./pet-body-contract.js";
 import type { MotionAppearance } from "./pet-body-contract.js";
 import { petContentCommittedChannel, registerPetBodyWindowCleanup } from "./pet-window-body-cleanup.js";
-import { createPetBodyState, createPetBodyVisibility, isCurrentPetContentCommit, updateLoadedPetDocument } from "./pet-body-state.js";
+import { createPetBodyState, createPetBodyVisibility, isCurrentPetContentCommit, readPetMotionPreference, updateLoadedPetDocument } from "./pet-body-state.js";
 import { releaseSupersededWindowSnapshots, releaseWindowSnapshots, retainWindowSnapshot } from "./pet-motion-snapshot.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { commitRenderedOutfit, failOutfitRequest, forgetOutfitWindow, getRenderedOutfits, noteOutfitRequest } from "./pet-wardrobe-render-state.js";
@@ -103,6 +103,10 @@ function installPetBodyState(window: BrowserWindow): void {
   const onResult = (event: IpcMainEvent, result: unknown) => {
     if (event.sender === contents) state.result(result);
   };
+  const onPreference = (event: IpcMainEvent, payload: unknown) => {
+    const reducedMotion = readPetMotionPreference(payload, ready && event.sender === contents, state.isCurrentEpoch);
+    if (reducedMotion !== null) setPetActivityReducedMotion(window, reducedMotion);
+  };
   const onContentCommitted = (event: IpcMainEvent, payload: unknown) => {
     if (event.sender !== contents || !payload || typeof payload !== "object") return;
     const pending = pendingContentCommit.get(window);
@@ -116,6 +120,7 @@ function installPetBodyState(window: BrowserWindow): void {
     }
   };
   const onNavigation = () => {
+    setPetActivityReducedMotion(window, null);
     if (!ready) return;
     ready = false;
     bodyReady.delete(window);
@@ -125,12 +130,13 @@ function installPetBodyState(window: BrowserWindow): void {
   resetBodyReady.set(window, onNavigation);
   ipcMain.on(petBodyChannels.ready, onReady);
   ipcMain.on(petBodyChannels.result, onResult);
+  ipcMain.on(petBodyChannels.preference, onPreference);
   ipcMain.on(petContentCommittedChannel, onContentCommitted);
   contents.on("did-start-loading", onNavigation);
   contents.on("render-process-gone", onNavigation);
   registerPetBodyWindowCleanup({
     window, contents, ipc: ipcMain,
-    ready: onReady, result: onResult, contentCommitted: onContentCommitted,
+    ready: onReady, result: onResult, preference: onPreference, contentCommitted: onContentCommitted,
     navigation: onNavigation, show: onShow, hide: onHide,
     forgetState: () => {
       bodyStates.delete(window);

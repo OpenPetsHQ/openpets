@@ -69,6 +69,18 @@ export function replacePluginSpriteWithReaction(clearSprite: () => void, react: 
   react();
 }
 
+/** Validate renderer-local OS motion preference against the active document. */
+export function readPetMotionPreference(
+  payload: unknown,
+  authorized: boolean,
+  isCurrentEpoch: (epoch: unknown) => boolean,
+): boolean | null {
+  if (!authorized || typeof payload !== "object" || payload === null) return null;
+  if (!("epoch" in payload) || typeof payload.epoch !== "string" || !isCurrentEpoch(payload.epoch)) return null;
+  if (!("reducedMotion" in payload) || typeof payload.reducedMotion !== "boolean") return null;
+  return payload.reducedMotion;
+}
+
 /** Window-local semantic intent, independent of transient presentation timers. */
 export function createPetBodyState(
   publish: (snapshot: PetBodySnapshot) => void,
@@ -76,6 +88,7 @@ export function createPetBodyState(
   publishActivityBody?: (state: MotionActivityBodyState | null) => void,
 ) {
   let input: PetBodyInput = { epoch: randomUUID(), revision: 0, context: "idle", paused: false, suspended: false };
+  let artwork: "unknown" | "classic" | "motion" = "unknown";
   let motion: MotionAppearance | null = null;
   let presented: MotionAppearance | null = null;
   let appearancePending = false;
@@ -96,12 +109,16 @@ export function createPetBodyState(
     notifyActivityBody();
   };
   return {
+    isCurrentEpoch(epoch: unknown): boolean {
+      return typeof epoch === "string" && epoch === input.epoch;
+    },
     ready() {
       send();
       notifyActivityBody();
     },
     documentLost() {
       input = { ...input, epoch: randomUUID(), revision: 0, event: undefined };
+      artwork = motion ? "motion" : "unknown";
       presented = null;
       appearancePending = motion !== null;
       eventAttempt = null;
@@ -116,6 +133,7 @@ export function createPetBodyState(
     publishMotionAppearance(candidate: MotionAppearance) {
       if (candidate !== prepared) return false;
       prepared = null;
+      artwork = "motion";
       if (motion === candidate) return true;
       motion = candidate;
       appearancePending = candidate !== presented;
@@ -124,13 +142,15 @@ export function createPetBodyState(
       return true;
     },
     clearMotion() {
+      artwork = "classic";
       prepared = null;
       presented = null;
       appearancePending = false;
-      if (!motion) return;
+      eventAttempt = null;
+      if (!motion && !input.event) return;
       motion = null;
       playbackId = 0;
-      update({});
+      update({ event: undefined });
     },
     setPaused(paused: boolean) {
       if (input.paused !== paused) update({ paused });
@@ -150,7 +170,7 @@ export function createPetBodyState(
     react(reaction: MotionContextReaction | MotionEventReaction | "idle") {
       if (reaction === "idle" || reaction === "thinking" || reaction === "working" || reaction === "editing" || reaction === "running" || reaction === "testing" || reaction === "waiting") {
         update({ context: reaction });
-      } else if (!input.suspended) {
+      } else if (!input.suspended && artwork !== "classic") {
         eventAttempt = null;
         update({ event: { id: randomUUID(), reaction } });
       }

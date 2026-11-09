@@ -67,6 +67,10 @@ test("Motion activity targets the committed body and rejects stale renderer resu
     const appearance = { assets: { snapshotId: "snapshot-a", metadata: data.metadata, urls: {}, verifiedClips: {} }, outfitId: "coat", presentationId: "look-a", reason: "initial" } as const;
     const body = { input: { epoch: "epoch", revision: 1, context: "idle", paused: false, suspended: false }, committed: appearance, appearancePending: false } as const;
     runtime.updatePetActivityBody(window as never, body as never);
+    await assert.rejects(() => runtime.playPetActivity("motion", "wave"), /preference is loading/);
+    runtime.setPetActivityReducedMotion(window as never, true);
+    await assert.rejects(() => runtime.playPetActivity("motion", "wave"), /reduced motion/);
+    runtime.setPetActivityReducedMotion(window as never, false);
     const snapshot = await runtime.getPetActivities("motion");
     assert.equal(snapshot.windowId, 7);
     assert.equal(snapshot.outfitId, "coat");
@@ -85,6 +89,12 @@ test("Motion activity targets the committed body and rejects stale renderer resu
     const preview = await runtime.readPetActivityPreview("motion", "wave", "coat", { windowId: 7, snapshotId: "snapshot-a", presentationId: "look-a" });
     assert.equal(preview.mimeType, "image/png");
     await assert.rejects(() => runtime.readPetActivityPreview("motion", "wave", "coat", { windowId: 7, snapshotId: "snapshot-b", presentationId: "look-a" }));
+    await runtime.playPetActivity("motion", "wave");
+    runtime.setPetActivityReducedMotion(window as never, false);
+    assert.equal((await runtime.getPetActivities("motion")).playingActivityId, "wave", "a duplicate report does not interrupt playback");
+    runtime.setPetActivityReducedMotion(window as never, true);
+    assert.equal((await runtime.getPetActivities("motion")).playingActivityId, null);
+    runtime.setPetActivityReducedMotion(window as never, false);
     await runtime.playPetActivity("motion", "wave");
     const command = window.webContents.sent.at(-1)?.payload as { generation: number; activityId: string; target: { epoch: string; snapshotId: string; presentationId: string; outfitId: string } };
     assert.equal(command.target.outfitId, "coat");
@@ -115,6 +125,7 @@ test("Motion activity targets the committed body and rejects stale renderer resu
     // updates must not destroy its carrier, while an uncommitted Motion body
     // must not fall back to that former Classic appearance.
     const classicWindow = new Window();
+    runtime.setPetActivityReducedMotion(classicWindow as never, false);
     runtime.registerPetActivityWindow(classicWindow as never);
     classicWindow.webContents.emit("did-finish-load");
     const render = {
@@ -129,9 +140,16 @@ test("Motion activity targets the committed body and rejects stale renderer resu
     runtime.startPetActivities();
     mock.timers.tick(250);
     for (let i = 0; i < 6; i += 1) mock.timers.tick(10_000);
+    runtime.setPetActivityReducedMotion(classicWindow as never, true);
+    for (let i = 0; i < 12; i += 1) mock.timers.tick(10_000);
+    assert.equal(classicWindow.webContents.sent.length, 0, "reduced motion blocks automatic activity and variation");
+    runtime.setPetActivityReducedMotion(classicWindow as never, false);
+    mock.timers.tick(250);
+    for (let i = 0; i < 6; i += 1) mock.timers.tick(10_000);
     semantic.ready();
     semantic.react("idle");
     runtime.updatePetActivityRender(classicWindow as never, { ...render } as never);
+    runtime.setPetActivityReducedMotion(classicWindow as never, false);
     for (let i = 0; i < 6; i += 1) mock.timers.tick(10_000);
     await new Promise<void>((resolve) => setImmediate(resolve));
     const automatic = classicWindow.webContents.sent.find((message) => (message.payload as { kind?: string }).kind === "play");
@@ -155,6 +173,13 @@ test("Motion activity targets the committed body and rejects stale renderer resu
     await runtime.playPetActivity("classic", "read");
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal((classicWindow.webContents.sent.at(-1)?.payload as { format?: string }).format, "classic");
+    runtime.setPetActivityReducedMotion(classicWindow as never, true);
+    await assert.rejects(() => runtime.playPetActivity("classic", "read"), /reduced motion/);
+    classicWindow.webContents.emit("did-start-loading");
+    classicWindow.webContents.emit("did-finish-load");
+    await assert.rejects(() => runtime.playPetActivity("classic", "read"), /preference is loading/);
+    runtime.setPetActivityReducedMotion(classicWindow as never, false);
+    await runtime.playPetActivity("classic", "read");
     classicWindow.emit("closed");
     runtime.stopPetActivities();
     mock.timers.reset();

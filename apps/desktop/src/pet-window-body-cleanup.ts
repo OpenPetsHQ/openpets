@@ -11,6 +11,7 @@ export function registerPetBodyWindowCleanup(options: {
   readonly ipc: EventEmitter;
   readonly ready: (event: IpcMainEvent) => void;
   readonly result: (event: IpcMainEvent, payload: unknown) => void;
+  readonly preference: (event: IpcMainEvent, payload: unknown) => void;
   readonly contentCommitted: (event: IpcMainEvent, payload: unknown) => void;
   readonly navigation: () => void;
   readonly show: () => void;
@@ -23,6 +24,7 @@ export function registerPetBodyWindowCleanup(options: {
     try {
       ipc.off(petBodyChannels.ready, options.ready);
       ipc.off(petBodyChannels.result, options.result);
+      ipc.off(petBodyChannels.preference, options.preference);
       ipc.off(petContentCommittedChannel, options.contentCommitted);
       contents.off("did-start-loading", options.navigation);
       contents.off("render-process-gone", options.navigation);

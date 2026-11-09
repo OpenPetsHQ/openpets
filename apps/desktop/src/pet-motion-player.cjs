@@ -71,7 +71,7 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
         throw new Error('Motion frame dimensions changed.');
       }
       playback.frame = result.image;
-      if (paused && !playback.started) present(playback);
+      if (playback.still || (paused && !playback.started)) present(playback);
       else schedule(playback, () => present(playback));
     } catch (error) {
       fail(playback, error);
@@ -128,6 +128,11 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
         playback.started = true;
         playback.onStarted();
         if (current !== playback) return;
+      }
+      if (playback.still) {
+        playback.decoder.close();
+        playback.decoder = null;
+        return;
       }
       const duration = playback.verified.frameDurationsMs[playback.index] / (playback.clip.playbackRate ?? 1);
       playback.due = Math.max(playback.due, now()) + duration;

@@ -62,11 +62,36 @@ const bodyCoordinator = createPetBodyCoordinator({
     if (base) base.style.visibility = (plugin || activity === "classic") && !drag ? "hidden" : "";
   },
 });
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+let bodyEpoch = null;
+bodyCoordinator.setReducedMotion(reducedMotionQuery.matches);
+
+function reportMotionPreference() {
+  if (bodyEpoch !== null) {
+    ipcRenderer.send("openpets:pet-motion-preference", { epoch: bodyEpoch, reducedMotion: reducedMotionQuery.matches });
+  }
+}
+
+function onMotionPreferenceChange() {
+  bodyCoordinator.setReducedMotion(reducedMotionQuery.matches);
+  reportMotionPreference();
+}
+
+reducedMotionQuery.addEventListener("change", onMotionPreferenceChange);
+
+function acceptBodySnapshot(snapshot) {
+  if (!bodyCoordinator.update(snapshot)) return;
+  if (snapshot.input.epoch !== bodyEpoch) {
+    bodyEpoch = snapshot.input.epoch;
+    reportMotionPreference();
+  }
+}
+
 ipcRenderer.on("openpets:pet-body-state", (_event, snapshot) => {
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => bodyCoordinator.update(snapshot), { once: true });
+    document.addEventListener("DOMContentLoaded", () => acceptBodySnapshot(snapshot), { once: true });
   } else {
-    bodyCoordinator.update(snapshot);
+    acceptBodySnapshot(snapshot);
   }
 });
 const installMotionPlayer = () => {
@@ -74,12 +99,13 @@ const installMotionPlayer = () => {
   bodyCoordinator.setMotionState(document.documentElement.dataset.motionState);
   bodyCoordinator.refresh();
   ipcRenderer.send("openpets:pet-body-ready");
-  window.addEventListener("beforeunload", () => {
-    bodyCoordinator.dispose();
-    nativeActivityPlayer.dispose();
-    petContentStage.dispose();
-  }, { once: true });
 };
+window.addEventListener("beforeunload", () => {
+  reducedMotionQuery.removeEventListener("change", onMotionPreferenceChange);
+  bodyCoordinator.dispose();
+  nativeActivityPlayer.dispose();
+  petContentStage.dispose();
+}, { once: true });
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", installMotionPlayer, { once: true });
 } else {

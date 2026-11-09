@@ -22,12 +22,14 @@ it("releases body ownership after the native window and its contents are destroy
   const capturedContents = window.webContents;
   const ready = () => {};
   const result = () => {};
+  const preference = () => {};
   const contentCommitted = () => {};
   const navigation = () => {};
   const show = () => {};
   const hide = () => {};
   ipc.on(petBodyChannels.ready, ready);
   ipc.on(petBodyChannels.result, result);
+  ipc.on(petBodyChannels.preference, preference);
   ipc.on(petContentCommittedChannel, contentCommitted);
   capturedContents.on("did-start-loading", navigation);
   capturedContents.on("render-process-gone", navigation);
@@ -36,7 +38,7 @@ it("releases body ownership after the native window and its contents are destroy
   let stateRetained = true;
   let snapshotRetained = true;
   registerPetBodyWindowCleanup({
-    window, contents: capturedContents, ipc, ready, result, contentCommitted, navigation, show, hide,
+    window, contents: capturedContents, ipc, ready, result, preference, contentCommitted, navigation, show, hide,
     forgetState: () => { stateRetained = false; },
     releaseSnapshots: () => { snapshotRetained = false; },
   });
@@ -50,6 +52,7 @@ it("releases body ownership after the native window and its contents are destroy
   assert.equal(laterClosedListenerRan, true);
   assert.equal(ipc.listenerCount(petBodyChannels.ready), 0);
   assert.equal(ipc.listenerCount(petBodyChannels.result), 0);
+  assert.equal(ipc.listenerCount(petBodyChannels.preference), 0);
   assert.equal(ipc.listenerCount(petContentCommittedChannel), 0);
   assert.equal(contents.listenerCount("did-start-loading"), 0);
   assert.equal(contents.listenerCount("render-process-gone"), 0);

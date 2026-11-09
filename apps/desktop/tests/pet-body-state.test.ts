@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import type { MotionBodyDescriptor, PetBodySnapshot } from "../src/pet-body-contract.js";
-import { createPetBodyState, createPetBodyVisibility, effectivePetBodyContext, isCurrentPetContentCommit, replacePluginSpriteWithReaction, updateLoadedPetDocument } from "../src/pet-body-state.js";
+import { createPetBodyState, createPetBodyVisibility, effectivePetBodyContext, isCurrentPetContentCommit, readPetMotionPreference, replacePluginSpriteWithReaction, updateLoadedPetDocument } from "../src/pet-body-state.js";
+
+it("accepts the motion preference only from the ready current document", () => {
+  const snapshots: PetBodySnapshot[] = [];
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
+  state.ready();
+  const epoch = snapshots.at(-1)!.input.epoch;
+  assert.equal(readPetMotionPreference({ epoch, reducedMotion: false }, true, state.isCurrentEpoch), false);
+  assert.equal(readPetMotionPreference({ epoch, reducedMotion: true }, true, state.isCurrentEpoch), true);
+  assert.equal(readPetMotionPreference({ epoch, reducedMotion: true }, false, state.isCurrentEpoch), null);
+  assert.equal(readPetMotionPreference({ epoch, reducedMotion: "true" }, true, state.isCurrentEpoch), null);
+  state.documentLost();
+  assert.equal(readPetMotionPreference({ epoch, reducedMotion: true }, true, state.isCurrentEpoch), null);
+});
 
 function setMotion(state: ReturnType<typeof createPetBodyState>, assets: MotionBodyDescriptor): void {
   const candidate = state.prepareMotionAppearance(assets, "default", "initial", false);
@@ -12,6 +25,53 @@ function sendResult(state: ReturnType<typeof createPetBodyState>, snapshots: Pet
   const appearance = [...snapshots].reverse().find((snapshot) => snapshot.motion?.assets.snapshotId === result.snapshotId)?.motion;
   state.result({ ...result, presentationId: appearance?.presentationId ?? "missing", outfitId: appearance?.outfitId ?? "default" });
 }
+
+it("preserves an event before the first Motion appearance is selected", () => {
+  const snapshots: PetBodySnapshot[] = [];
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
+  state.react("success");
+  const event = snapshots.at(-1)!.input.event;
+  assert.ok(event);
+  setMotion(state, { snapshotId: "motion" } as MotionBodyDescriptor);
+  assert.equal(snapshots.at(-1)!.input.event?.id, event.id);
+});
+
+it("treats a lost Classic document as unknown until its replacement is selected", () => {
+  const snapshots: PetBodySnapshot[] = [];
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
+  state.clearMotion();
+  state.documentLost();
+  state.react("waving");
+  const eventId = snapshots.at(-1)!.input.event?.id;
+  assert.ok(eventId);
+  setMotion(state, { snapshotId: "replacement" } as MotionBodyDescriptor);
+  assert.equal(snapshots.at(-1)!.input.event?.id, eventId);
+});
+
+it("discards Motion-only event intent for Classic and admits it again after switching to Motion", () => {
+  const snapshots: PetBodySnapshot[] = [];
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
+  state.react("success");
+  assert.ok(snapshots.at(-1)!.input.event);
+  state.clearMotion();
+  assert.equal(snapshots.at(-1)!.input.event, undefined);
+  const afterClassic = snapshots.length;
+  state.react("error");
+  assert.equal(snapshots.length, afterClassic);
+  state.react("working");
+  assert.equal(snapshots.at(-1)!.input.context, "working");
+  assert.equal(snapshots.at(-1)!.input.event, undefined);
+
+  setMotion(state, { snapshotId: "motion" } as MotionBodyDescriptor);
+  state.react("success");
+  const snapshot = snapshots.at(-1)!;
+  const event = snapshot.input.event;
+  assert.ok(event);
+  sendResult(state, snapshots, { epoch: snapshot.input.epoch, snapshotId: "motion", playbackId: 1, intentId: event.id, outcome: "started" });
+  sendResult(state, snapshots, { epoch: snapshot.input.epoch, snapshotId: "motion", playbackId: 1, intentId: event.id, outcome: "completed" });
+  assert.equal(snapshots.at(-1)!.input.event, undefined);
+  assert.equal(snapshots.at(-1)!.input.context, "working");
+});
 
 it("suspends a hidden pet, discards events, and resumes its latest context", () => {
   const snapshots: PetBodySnapshot[] = [];

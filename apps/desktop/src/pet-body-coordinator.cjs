@@ -19,6 +19,7 @@ function createPetBodyCoordinator(options) {
   let activity = null;
   let latestActivityGeneration = 0;
   let pendingVariation = null;
+  let reducedMotion = false;
   let disposed = false;
   let playbackId = 0;
   let semanticContext = null;
@@ -112,7 +113,7 @@ function createPetBodyCoordinator(options) {
   }
 
   function same(a, b) {
-    return a && b && a.kind === b.kind && a.key === b.key && a.animation === b.animation && a.appearance.presentationId === b.appearance.presentationId && a.epoch === b.epoch;
+    return a && b && a.kind === b.kind && a.key === b.key && a.animation === b.animation && a.appearance.presentationId === b.appearance.presentationId && a.epoch === b.epoch && a.still === b.still;
   }
 
   function playPhase(item, phase) {
@@ -125,6 +126,7 @@ function createPetBodyCoordinator(options) {
     }
     item.phase = phase;
     void player.play(item.appearance, clipId, {
+      still: item.still,
       onStarted() {
         if (active !== item || item.started) return;
         item.started = true;
@@ -172,9 +174,9 @@ function createPetBodyCoordinator(options) {
     cancelActive();
     if (!target || disposed) return;
     if (!target.appearance.assets.metadata.animations[target.animation]) return;
-    const item = { ...target, id: ++playbackId, started: false, phase: null };
+    const item = { ...target, still: reducedMotion, id: ++playbackId, started: false, phase: null };
     active = item;
-    playPhase(item, immediate ? 'body' : 'intro');
+    playPhase(item, immediate || reducedMotion ? 'body' : 'intro');
   }
 
   function clearCandidateTimer() {
@@ -297,7 +299,7 @@ function createPetBodyCoordinator(options) {
       return;
     }
     player.setPaused(snapshot.input.paused);
-    if (snapshot.input.paused && active && !candidate) return;
+    if (snapshot.input.paused && active && !candidate && !reducedMotion) return;
     if (activity?.request.format === 'motion') return;
     if ((plugin || activity?.request.format === 'classic') && !drag) {
       cancelActive();
@@ -306,13 +308,18 @@ function createPetBodyCoordinator(options) {
     }
     updateCandidate();
     if (active && candidate && active.appearance.presentationId === candidate.appearance.presentationId) return;
-    const target = desired(committed);
+    const desiredTarget = desired(committed);
+    const target = desiredTarget && { ...desiredTarget, still: reducedMotion };
     if (!target) return;
     if (same(active, target)) {
       cancelTransition();
       return;
     }
-    if (snapshot.input.paused && active) return;
+    if (snapshot.input.paused && active && !reducedMotion) return;
+    if (reducedMotion) {
+      start(target, true);
+      return;
+    }
     if (target.kind === 'drag') {
       start(target, true);
       return;
@@ -330,8 +337,8 @@ function createPetBodyCoordinator(options) {
   }
 
   function update(next) {
-    if (disposed || !next?.input) return;
-    if (snapshot && snapshot.input.epoch === next.input.epoch && next.input.revision <= snapshot.input.revision) return;
+    if (disposed || !next?.input) return false;
+    if (snapshot && snapshot.input.epoch === next.input.epoch && next.input.revision <= snapshot.input.revision) return false;
     const epochChanged = snapshot?.input.epoch !== next.input.epoch;
     if (epochChanged) {
       seenEvents.clear();
@@ -362,7 +369,7 @@ function createPetBodyCoordinator(options) {
       cancelActive();
       player.clear();
       onVisibility?.({ drag: Boolean(drag), plugin, activity: activity?.request.format ?? null, motion: false, suspended: next.input.suspended });
-      return;
+      return true;
     }
     if (newAppearance) {
       clearCandidateTimer();
@@ -376,13 +383,14 @@ function createPetBodyCoordinator(options) {
       const appearance = committed ?? candidate?.appearance;
       const variants = appearance && bindings(appearance).events?.[event.reaction];
       const candidateAllowsEvent = !candidate || !committed || candidate.appearance.reason === 'scheduled';
-      if (appearance && !next.input.paused && !next.input.suspended && !drag && !plugin && !(active?.kind === 'event' && active.key === event.reaction) && variants?.length && candidateAllowsEvent) {
+      if (appearance && !reducedMotion && !next.input.paused && !next.input.suspended && !drag && !plugin && !(active?.kind === 'event' && active.key === event.reaction) && variants?.length && candidateAllowsEvent) {
         start({ kind: 'event', key: event.reaction, intentId: event.id, animation: choose(variants), appearance, epoch: next.input.epoch });
       } else if (appearance) {
         send(appearance, ++playbackId, 'cancelled', event.id);
       }
     }
     reconcile(epochChanged);
+    return true;
   }
 
   function setDragDirection(value) {
@@ -415,7 +423,7 @@ function createPetBodyCoordinator(options) {
   }
   function canAdmitActivity() {
     const input = snapshot?.input;
-    return Boolean(input && input.context === 'idle' && !input.paused && !input.suspended
+    return Boolean(input && input.context === 'idle' && !input.paused && !input.suspended && !reducedMotion
       && !drag && !movement && !plugin && active?.kind !== 'event' && !candidate);
   }
 
@@ -495,7 +503,7 @@ function createPetBodyCoordinator(options) {
     if (activity?.request.generation === generation) finishActivity(activity, 'cancelled');
   }
   function offerVariation() {
-    if (pendingVariation || activity || candidate || !committed || !snapshot || snapshot.input.context !== 'idle' || snapshot.input.paused || snapshot.input.suspended || drag || movement || plugin || active?.kind !== 'context' || active.key !== 'idle') return false;
+    if (reducedMotion || pendingVariation || activity || candidate || !committed || !snapshot || snapshot.input.context !== 'idle' || snapshot.input.paused || snapshot.input.suspended || drag || movement || plugin || active?.kind !== 'context' || active.key !== 'idle') return false;
     const variants = bindings(committed).idle;
     if (variants.length < 2) return false;
     pendingVariation = { presentationId: committed.presentationId, animation: choose(variants, active.animation) };
@@ -504,6 +512,20 @@ function createPetBodyCoordinator(options) {
   function refresh() {
     player.mount();
     reconcile();
+  }
+  function setReducedMotion(value) {
+    const next = Boolean(value);
+    if (next === reducedMotion || disposed) return;
+    reducedMotion = next;
+    pendingVariation = null;
+    if (next) {
+      if (activity) finishActivity(activity, 'cancelled', false);
+      cancelActive();
+      reconcile(true);
+    } else if (!snapshot?.input.paused) {
+      cancelActive();
+      reconcile(true);
+    }
   }
   function dispose() {
     if (disposed) return;
@@ -518,6 +540,6 @@ function createPetBodyCoordinator(options) {
     if ((plugin || activity?.request.format === 'classic') && !drag) return null;
     return player.hitTest(x, y);
   }
-  return { update, setDragDirection, setMotionState, setFlipped, setPlugin, startActivity, cancelActivity, offerVariation, refresh, dispose, hitTest };
+  return { update, setDragDirection, setMotionState, setFlipped, setPlugin, setReducedMotion, startActivity, cancelActivity, offerVariation, refresh, dispose, hitTest };
 }
 module.exports = { createPetBodyCoordinator };

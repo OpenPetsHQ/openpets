@@ -233,6 +233,108 @@ test("intentional idle variation remains selected on HUD refresh and after movem
   coordinator.dispose();
 });
 
+test("reduced motion presents static body targets without replaying events or HUD updates", () => {
+  type Call = { clip: string; still: boolean; callbacks: { onStarted(): void; onEnd(): void } };
+  const calls: Call[] = [];
+  const results: Array<{ outcome: string; intentId?: string }> = [];
+  const player = {
+    play(_appearance: unknown, clip: string, callbacks: Call["callbacks"] & { still: boolean }) { calls.push({ clip, still: callbacks.still, callbacks }); callbacks.onStarted(); },
+    stop() {}, clear() {}, setPaused() {}, remaining: () => 1000, mount() {}, hitTest: () => null, dispose() {},
+  };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult: (result: typeof results[number]) => results.push(result) });
+  coordinator.update(state(1));
+  coordinator.update(state(2, { event: { id: "active-event", reaction: "waving" } }));
+  assert.equal(calls.at(-1)!.clip, "intro");
+  coordinator.setReducedMotion(true);
+  assert.equal(results.filter((result) => result.intentId === "active-event" && result.outcome === "cancelled").length, 1);
+  assert.equal(calls.at(-1)!.clip, "idle"); assert.equal(calls.at(-1)!.still, true);
+  const count = calls.length;
+  coordinator.update(state(3, { event: { id: "suppressed", reaction: "waving" } }));
+  coordinator.update(state(4, { event: { id: "suppressed", reaction: "waving" } }));
+  assert.equal(results.filter((result) => result.intentId === "suppressed" && result.outcome === "cancelled").length, 1);
+  assert.equal(calls.length, count);
+  coordinator.update(state(5, { context: "working" })); assert.equal(calls.at(-1)!.clip, "work");
+  coordinator.setDragDirection("run-left"); assert.equal(calls.at(-1)!.clip, "run");
+  coordinator.setDragDirection(null); assert.equal(calls.at(-1)!.clip, "work");
+  coordinator.setReducedMotion(false); assert.equal(calls.at(-1)!.still, false);
+  assert.equal(calls.filter((call) => call.clip === "intro").length, 1);
+  coordinator.dispose();
+});
+
+test("static outfit commits while manually paused and scheduled changes retain their deadline", () => {
+  const f = arbitrationFixture();
+  f.coordinator.setReducedMotion(true); assert.equal(f.calls.at(-1)!.clip, "idle");
+  f.calls.at(-1)!.callbacks.onStarted();
+  f.update(2, f.b, { paused: true }); assert.equal(f.calls.at(-1)!.clip, "coatIdle");
+  f.calls.at(-1)!.callbacks.onStarted();
+  assert.ok(f.results.some((result) => result.presentationId === "b" && result.outcome === "started"));
+  const before = f.calls.length; f.coordinator.setReducedMotion(false); assert.equal(f.calls.length, before);
+  f.update(3, f.b, { paused: false }); assert.ok(f.calls.length > before);
+  f.calls.at(-1)!.callbacks.onStarted();
+  f.coordinator.setReducedMotion(true); f.calls.at(-1)!.callbacks.onStarted();
+  const scheduled = { ...f.a, presentationId: "scheduled-static", reason: "scheduled" };
+  f.update(4, scheduled); f.advance(4999);
+  assert.notEqual(f.calls.at(-1)!.appearance.presentationId, "scheduled-static");
+  f.advance(1); assert.equal(f.calls.at(-1)!.appearance.presentationId, "scheduled-static");
+  f.calls.at(-1)!.callbacks.onStarted(); f.coordinator.dispose();
+});
+
+test("reduced motion keeps scheduled appearance deferred during drag and suspension", () => {
+  const f = arbitrationFixture();
+  f.coordinator.setReducedMotion(true); f.calls.at(-1)!.callbacks.onStarted();
+  f.coordinator.setDragDirection("run-left"); f.calls.at(-1)!.callbacks.onStarted();
+  const scheduled = { ...f.b, reason: "scheduled" };
+  f.update(2, scheduled); f.advance(6000);
+  assert.notEqual(f.calls.at(-1)!.appearance.presentationId, "b");
+  f.coordinator.setDragDirection(null); f.advance(2500);
+  f.update(3, scheduled, { suspended: true });
+  const count = f.calls.length; f.advance(6000); assert.equal(f.calls.length, count);
+  f.update(4, scheduled); f.advance(2499); assert.notEqual(f.calls.at(-1)!.appearance.presentationId, "b");
+  f.advance(1); assert.equal(f.calls.at(-1)!.appearance.presentationId, "b");
+  f.coordinator.dispose();
+});
+
+test("still mode decodes only frame zero and releases its decoder without timers", async () => {
+  const decoded: number[] = []; let closed = 0; let started = 0; let ended = 0;
+  const timers = new Map<number, () => void>(); let sequence = 0;
+  const base = { style: {}, appendChild(element: { parentNode: unknown }) { element.parentNode = this; } };
+  const player = createPetMotionPlayer({
+    document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage() {} }) }) },
+    loadBytes: async () => new Uint8Array([1]),
+    createDecoder: () => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async ({ frameIndex }: { frameIndex: number }) => { decoded.push(frameIndex); return { image: { displayWidth: 10, displayHeight: 10, close() {} } }; }, close() { closed++; } }),
+    now: () => 0, setTimeout: (callback: () => void) => { timers.set(++sequence, callback); return sequence; }, clearTimeout: (id: number) => timers.delete(id), onError: () => assert.fail(),
+  });
+  await player.play(appearance(), "idle", { still: true, onStarted() { started++; }, onEnd() { ended++; }, onFailed() { assert.fail(); } });
+  assert.deepEqual(decoded, [0]); assert.equal(started, 1); assert.equal(closed, 1);
+  assert.equal(ended, 0); assert.equal(timers.size, 0); player.dispose();
+});
+
+test("enabling reduced motion retires an in-flight animated decode before its frame can attach", async () => {
+  type Frame = { displayWidth: number; displayHeight: number; close(): void };
+  let resolveOld: (value: { image: Frame }) => void = () => {};
+  const oldDecode = new Promise<{ image: Frame }>((resolve) => { resolveOld = resolve; });
+  let decoderCount = 0; let oldFrameClosed = false; let draws = 0;
+  const base = { style: {}, appendChild(element: { parentNode: unknown }) { element.parentNode = this; } };
+  const player = createPetMotionPlayer({
+    document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage() { draws++; } }) }) },
+    loadBytes: async () => new Uint8Array([1]),
+    createDecoder: () => {
+      const index = ++decoderCount;
+      return { tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: () => index === 1 ? oldDecode : Promise.resolve({ image: { displayWidth: 10, displayHeight: 10, close() {} } }), close() {} };
+    },
+    now: () => 0, setTimeout, clearTimeout, onError: () => assert.fail(),
+  });
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  coordinator.update(state(1));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  coordinator.setReducedMotion(true);
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  resolveOld({ image: { displayWidth: 10, displayHeight: 10, close() { oldFrameClosed = true; } } });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(oldFrameClosed, true); assert.equal(draws, 1);
+  coordinator.dispose();
+});
+
 function outfitFixture() {
   const d = descriptor();
   Object.assign(d.metadata.animations, { coatIdle: { play: "loop", loop: "coatIdle" }, coatRun: { play: "loop", loop: "coatRun" } });

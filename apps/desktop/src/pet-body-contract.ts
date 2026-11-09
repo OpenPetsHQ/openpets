@@ -59,4 +59,5 @@ export const petBodyChannels = {
   ready: "openpets:pet-body-ready",
   state: "openpets:pet-body-state",
   result: "openpets:pet-body-result",
+  preference: "openpets:pet-motion-preference",
 } as const;

@@ -33,12 +33,14 @@ interface WindowEntry {
   scaleOverride: number | null;
   speechRequestId: string | null;
   ready: boolean;
+  reducedMotion: boolean | null;
   movedAt: number;
   interactionAt: number;
   readonly extraBusyReason: () => string | null;
 }
 
 const windows = new Map<BrowserWindow, WindowEntry>();
+const reducedMotionByWindow = new WeakMap<BrowserWindow, boolean | null>();
 const unavailable = new Map<string, Set<string>>();
 const installationRevisions = new Map<string, number>();
 const assetValidation = new PetActivityAssetCache();
@@ -96,6 +98,7 @@ export function registerPetActivityWindow(window: BrowserWindow, extraBusyReason
     scaleOverride: null,
     speechRequestId: null,
     ready: false,
+    reducedMotion: reducedMotionByWindow.get(window) ?? null,
     movedAt: 0,
     interactionAt: 0,
   };
@@ -104,6 +107,7 @@ export function registerPetActivityWindow(window: BrowserWindow, extraBusyReason
     entry.ready = false;
     entry.dragging = false;
     entry.speechRequestId = null;
+    setPetActivityReducedMotion(window, null);
     service.cancel(window.id);
   };
   const ready = (): void => {
@@ -152,6 +156,16 @@ export function registerPetActivityWindow(window: BrowserWindow, extraBusyReason
       }
     });
   }
+}
+
+/** Renderer reports the OS setting for its current document, never a saved preference. */
+export function setPetActivityReducedMotion(window: BrowserWindow, value: boolean | null): void {
+  const previous = reducedMotionByWindow.get(window) ?? null;
+  reducedMotionByWindow.set(window, value);
+  const entry = windows.get(window);
+  if (!entry) return;
+  entry.reducedMotion = value;
+  if (previous !== value) service.cancel(entry.windowId);
 }
 
 /** Called for raw display/status changes, before asynchronous render composition. */
@@ -296,6 +310,8 @@ function registerMotionCarrier(entry: WindowEntry): void {
 function getWindowBusyReason(entry: WindowEntry): string | null {
   const { window, render } = entry;
   if (suspended) return "Activities are paused.";
+  if (entry.reducedMotion === null) return "The motion preference is loading.";
+  if (entry.reducedMotion) return "Activities are disabled by reduced motion preference.";
   if (window.isDestroyed() || !window.isVisible()) return "Show this pet on the desktop to play an activity.";
   if (!entry.ready) return "This pet is loading.";
   const body = entry.body;
