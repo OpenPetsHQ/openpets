@@ -1,7 +1,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainEvent } from "electron";
 import { getAppStateSnapshot, getEnabledPetActivityIds, setEnabledPetActivityIds } from "./app-state.js";
 import { builtInPet } from "./built-in-pet.js";
-import { readInstalledPetMetadata } from "./installed-pet-layout.js";
+import { readInstalledPetPackage } from "./installed-pet-layout.js";
 import { info, warn } from "./logger.js";
 import { enumeratePetActivityAnimations, resolvePetActivityAnimation, type PetActivity } from "@open-pets/pet-format/activities";
 import type { PetActivitiesSnapshot } from "./pet-activities-types.js";
@@ -311,7 +311,9 @@ async function readActivities(petId: string): Promise<{ readonly activities: rea
   const source = pet.source?.kind === "team" ? "team" : "personal";
   if (pet.id === builtInPet.id) return { activities: [], source, metadata: null };
   assertSafePetId(petId);
-  const metadata = await readInstalledPetMetadata(petId, source);
+  const petPackage = await readInstalledPetPackage(petId, source);
+  if (petPackage.format === "motion") return { activities: [], source, metadata: null };
+  const { metadata } = petPackage;
   return { activities: metadata.activities ?? [], source, metadata };
 }
 

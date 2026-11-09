@@ -1,403 +1,227 @@
-/** Owns one animated WebP decoder and at most one prefetched VideoFrame. */
-function createPetMotionPlayer(options) {
-  const {
-    document,
-    loadBytes,
-    createDecoder,
-    now,
-    setTimeout,
-    clearTimeout,
-    onError,
-  } = options;
-  const playbackRate = options.playbackRate ?? 1;
-  let dragDirection = null;
-  const isMovement = (state) =>
-    state === "running-left" || state === "running-right";
-  let configuration = null;
+/** Decodes one clip at a time, keeping the last presented canvas across replacements. */
+function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTimeout, clearTimeout, onError, onWillPresent, onPresented }) {
+  let current = null;
   let canvas = null;
   let context = null;
-  let playback = null;
-  let requestedState = "idle";
-  let pendingOnce = null;
-  let completedState = null;
-  let paused = false;
-  let suspended = false;
-  let disposed = false;
+  let canvasGeometry = null;
+  let canvasSnapshotId = null;
   let generation = 0;
+  let paused = false;
+  let disposed = false;
   const encoded = new Map();
   let encodedBytes = 0;
 
-  const closePlayback = () => {
+  function stop() {
     generation += 1;
-    if (!playback) {
-      return;
-    }
-    clearTimeout(playback.timer);
-    playback.nextFrame?.close();
-    playback.nextFrame = null;
-    playback.decoder?.close();
-    playback = null;
-  };
+    if (!current) return;
+    clearTimeout(current.timer);
+    current.frame?.close();
+    current.decoder?.close();
+    current = null;
+  }
 
-  const readState = () => {
-    const root = document.documentElement.dataset;
-    const motion = dragDirection ?? root.motionState;
-    if (motion === "run-left" || motion === "run-right") {
-      const right = motion === "run-right";
-      return right !== (root.flipX === "true")
-        ? "running-right"
-        : "running-left";
-    }
-    return configuration?.pack.animations[root.reactionState]
-      ? root.reactionState
-      : "idle";
-  };
-
-  const targetState = () => {
-    if (pendingOnce) {
-      return pendingOnce;
-    }
-    return completedState === requestedState ? "idle" : requestedState;
-  };
-
-  const fail = (error, token) => {
-    if (disposed || token !== generation) {
-      return;
-    }
-    const state = playback?.state;
-    closePlayback();
-    canvas?.remove();
-    canvas = null;
-    context = null;
-    const base = document.querySelector(".sprite[data-motion-preview]");
-    if (base) {
-      base.style.backgroundImage = "";
-      base.style.animation = "";
-    }
-    document.documentElement.dataset.motionPreviewError = String(
-      error?.message ?? error,
-    );
-    onError({ state, message: String(error?.message ?? error) });
-  };
-
-  const bytesFor = async (url) => {
+  async function bytesFor(url) {
     if (encoded.has(url)) {
-      const data = encoded.get(url);
+      const bytes = encoded.get(url);
       encoded.delete(url);
-      encoded.set(url, data);
-      return data;
+      encoded.set(url, bytes);
+      return bytes;
     }
-    const data = await loadBytes(url);
-    if (
-      !(data instanceof Uint8Array) ||
-      data.byteLength === 0 ||
-      data.byteLength > 32 * 1024 * 1024
-    ) {
-      throw new Error("Motion clip bytes are unavailable or oversized.");
+    const bytes = await loadBytes(url);
+    if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > 32 * 1024 * 1024) {
+      throw new Error('Motion clip bytes are unavailable or oversized.');
     }
-    if (disposed) {
-      return data;
-    }
-    while (encodedBytes + data.byteLength > 48 * 1024 * 1024 && encoded.size) {
+    if (disposed) return bytes;
+    while (encodedBytes + bytes.byteLength > 48 * 1024 * 1024 && encoded.size) {
       const oldest = encoded.keys().next().value;
       encodedBytes -= encoded.get(oldest).byteLength;
       encoded.delete(oldest);
     }
-    encoded.set(url, data);
-    encodedBytes += data.byteLength;
-    return data;
-  };
+    encoded.set(url, bytes);
+    encodedBytes += bytes.byteLength;
+    return bytes;
+  }
 
-  const mount = () => {
-    const base = document.querySelector(".sprite[data-motion-preview]");
-    if (!base || !configuration || !canvas) {
-      return;
-    }
-    const { width, height, anchor, pixelsPerUnit } = configuration.pack;
-    canvas.style.cssText = `position:absolute;width:${width / pixelsPerUnit}px;height:${height / pixelsPerUnit}px;left:${96 - anchor.x / pixelsPerUnit}px;top:${201 - anchor.y / pixelsPerUnit}px;`;
-    base.style.backgroundImage = "none";
-    base.style.animation = "none";
-    if (canvas.parentNode !== base) {
-      base.appendChild(canvas);
-    }
-  };
+  function mount() {
+    const base = document.querySelector('.pet-shell .sprite[data-motion-body]');
+    if (!base || !canvas || !canvasGeometry) return;
+    const { width, height, pixelsPerUnit } = canvasGeometry;
+    canvas.style.cssText = `position:absolute;left:0;top:0;width:${width / pixelsPerUnit}px;height:${height / pixelsPerUnit}px;pointer-events:none;`;
+    if (canvas.parentNode !== base) base.appendChild(canvas);
+    base.style.backgroundImage = 'none';
+    base.style.animation = 'none';
+  }
 
-  const schedule = (current, callback) => {
-    clearTimeout(current.timer);
-    current.resume = callback;
-    if (paused || suspended || playback !== current) {
-      return;
+  function schedule(playback, callback) {
+    clearTimeout(playback.timer);
+    playback.callback = callback;
+    if (!paused && current === playback) {
+      playback.timer = setTimeout(callback, Math.max(0, playback.due - now()));
     }
-    current.timer = setTimeout(callback, Math.max(0, current.due - now()));
-  };
+  }
 
-  const boundary = (current) => {
-    if (playback !== current || paused || suspended) {
-      return;
-    }
-    const animation = configuration.pack.animations[current.state];
-    const target = targetState();
-    if (current.phase === "enter") {
-      void begin(current.state, "clip");
-    } else if (current.phase === "exit") {
-      void begin(target, "enter");
-    } else if (animation.play === "once") {
-      if (requestedState === current.state) {
-        completedState = current.state;
-      }
-      void begin(targetState(), "enter");
-    } else if (target !== current.state) {
-      if (animation.exit) {
-        void begin(current.state, "exit");
-      } else {
-        void begin(target, "enter");
-      }
-    } else {
-      // Reuse the current decoder for a loop. Native durations remain authoritative.
-      current.index = 0;
-      void prepareFrame(current);
-    }
-  };
-
-  const present = (current) => {
-    if (playback !== current || paused || suspended || !current.nextFrame) {
-      return;
-    }
-    const frame = current.nextFrame;
-    current.nextFrame = null;
-    if (!canvas) {
-      canvas = document.createElement("canvas");
-      canvas.className = "motion-pet-canvas";
-      canvas.width = configuration.pack.width;
-      canvas.height = configuration.pack.height;
-      context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) {
-        frame.close();
-        fail(new Error("Motion canvas is unavailable."), current.token);
-        return;
-      }
-    }
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(frame, 0, 0);
-    const duration = frame.duration / 1000;
-    frame.close();
-    if (!Number.isFinite(duration) || duration < 16 || duration > 1000) {
-      fail(new Error("Motion frame has invalid timing."), current.token);
-      return;
-    }
-    mount();
-    const root = document.documentElement.dataset;
-    root.motionPreviewState = current.state;
-    root.motionPreviewPhase = current.phase;
-    current.due = Math.max(current.due, now()) + duration / playbackRate;
-    current.index += 1;
-    if (current.index >= current.clip.frames) {
-      schedule(current, () => boundary(current));
-    } else {
-      void prepareFrame(current);
-    }
-  };
-
-  const prepareFrame = async (current) => {
+  async function prepare(playback) {
     try {
-      const result = await current.decoder.decode({
-        frameIndex: current.index,
-        completeFramesOnly: true,
-      });
-      if (playback !== current || disposed) {
+      const result = await playback.decoder.decode({ frameIndex: playback.index, completeFramesOnly: true });
+      if (disposed || current !== playback) {
         result.image.close();
         return;
       }
-      if (
-        result.image.displayWidth !== configuration.pack.width ||
-        result.image.displayHeight !== configuration.pack.height
-      ) {
+      const geometry = playback.descriptor.metadata.geometry;
+      if (result.image.displayWidth !== geometry.width || result.image.displayHeight !== geometry.height) {
         result.image.close();
-        throw new Error("Motion frame dimensions changed.");
+        throw new Error('Motion frame dimensions changed.');
       }
-      current.nextFrame = result.image;
-      schedule(current, () => present(current));
+      playback.frame = result.image;
+      if (paused && !playback.started) present(playback);
+      else schedule(playback, () => present(playback));
     } catch (error) {
-      fail(error, current.token);
+      fail(playback, error);
     }
-  };
+  }
 
-  const begin = async (state, phase) => {
-    if (!configuration || disposed || suspended) {
-      return;
-    }
-    closePlayback();
-    const animation = configuration.pack.animations[state];
-    if (state === pendingOnce) {
-      pendingOnce = null;
-    }
-    if (phase === "enter" && !animation.enter) {
-      phase = "clip";
-    }
-    const clip = animation[phase];
-    const current = {
-      state,
-      phase,
-      clip,
-      token: generation,
-      decoder: null,
-      nextFrame: null,
-      index: 0,
-      timer: null,
-      due: now(),
-      resume: null,
-    };
-    playback = current;
+  function fail(playback, error) {
+    if (disposed || current !== playback) return;
+    stop();
+    onError?.({ message: String(error?.message ?? error), clipId: playback.clipId });
+    playback.onFailed(error);
+  }
+
+  function present(playback) {
+    if ((paused && playback.started) || current !== playback || !playback.frame) return;
+    const geometry = playback.descriptor.metadata.geometry;
+    const frame = playback.frame;
+    playback.frame = null;
     try {
-      const data = await bytesFor(configuration.urls[clip.file]);
-      if (playback !== current || disposed) {
-        return;
-      }
-      current.decoder = createDecoder({
-        data,
-        type: "image/webp",
-        preferAnimation: true,
-      });
-      await current.decoder.tracks.ready;
-      if (playback !== current || disposed) {
-        return;
-      }
-      if (current.decoder.tracks.selectedTrack?.frameCount !== clip.frames) {
-        throw new Error("Motion clip frame count does not match its manifest.");
-      }
-      current.due = now();
-      await prepareFrame(current);
-    } catch (error) {
-      fail(error, current.token);
-    }
-  };
-
-  const refresh = () => {
-    if (disposed) {
-      return;
-    }
-    const base = document.querySelector(".sprite[data-motion-preview]");
-    if (!base) {
-      closePlayback();
-      canvas?.remove();
-      canvas = null;
-      context = null;
-      configuration = null;
-      requestedState = "idle";
-      completedState = null;
-      pendingOnce = null;
-      delete document.documentElement.dataset.motionPreviewError;
-      return;
-    }
-    if (!configuration) {
-      try {
-        const json = base.dataset.motionPreview;
-        if (typeof json !== "string" || json.length > 32 * 1024) {
-          throw new Error("Invalid motion preview configuration.");
+      const snapshotId = playback.descriptor.snapshotId;
+      // Replacement pixels must exist before the stage and its geometry are committed.
+      if (!canvas || canvasSnapshotId !== snapshotId || canvasGeometry !== geometry) {
+        const replacement = document.createElement('canvas');
+        replacement.className = 'motion-pet-canvas';
+        replacement.width = geometry.width;
+        replacement.height = geometry.height;
+        const replacementContext = replacement.getContext('2d', { willReadFrequently: true });
+        if (!replacementContext) throw new Error('Motion canvas is unavailable.');
+        replacementContext.drawImage(frame, 0, 0);
+        if (onWillPresent && !onWillPresent(snapshotId)) {
+          frame.close();
+          return;
         }
-        configuration = JSON.parse(json);
-      } catch (error) {
-        fail(error, generation);
-        return;
+        if (!document.querySelector('.pet-shell .sprite[data-motion-body]')) throw new Error('Motion body mount is unavailable.');
+        canvas?.remove();
+        canvas = replacement;
+        context = replacementContext;
+        canvasGeometry = geometry;
+        canvasSnapshotId = snapshotId;
+      } else {
+        if (onWillPresent && !onWillPresent(snapshotId)) {
+          frame.close();
+          return;
+        }
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(frame, 0, 0);
       }
-    }
-    const nextState = readState();
-    const movementChanged =
-      nextState !== requestedState &&
-      (isMovement(nextState) || isMovement(requestedState));
-    if (nextState !== requestedState) {
-      completedState = null;
-      // A short host reaction may expire before the current loop reaches its
-      // neutral boundary. Keep the latest one-shot until it actually starts.
-      if (configuration.pack.animations[nextState].play === "once") {
-        pendingOnce = nextState;
+      frame.close();
+      mount();
+      onPresented?.(snapshotId);
+      if (!playback.started) {
+        playback.started = true;
+        playback.onStarted();
+        if (current !== playback) return;
       }
-    }
-    requestedState = nextState;
-    document.documentElement.dataset.motionPreviewRequested = nextState;
-    const nextPaused = document.documentElement.dataset.paused === "true";
-    const wasPaused = paused;
-    paused = nextPaused;
-    const nextSuspended = Boolean(
-      document.querySelector(
-        ".plugin-sprite-override, .native-activity-sprite",
-      ),
-    );
-    if (nextSuspended !== suspended) {
-      suspended = nextSuspended;
-      if (suspended) {
-        closePlayback();
+      const duration = playback.verified.frameDurationsMs[playback.index] / (playback.clip.playbackRate ?? 1);
+      playback.due = Math.max(playback.due, now()) + duration;
+      if (paused) playback.remaining = duration;
+      playback.index += 1;
+      if (playback.index === playback.clip.frames) {
+        schedule(playback, () => {
+          if (current !== playback) return;
+          playback.onEnd();
+        });
+      } else {
+        void prepare(playback);
       }
+    } catch (error) {
+      frame.close();
+      fail(playback, error);
     }
-    mount();
-    if (paused && playback) {
-      clearTimeout(playback.timer);
-    }
-    if (
-      !suspended &&
-      movementChanged &&
-      !document.documentElement.dataset.motionPreviewError
-    ) {
-      // Direct manipulation takes priority over cinematic entry/return clips.
-      void begin(nextState, "clip");
-    } else if (
-      !suspended &&
-      !playback &&
-      !document.documentElement.dataset.motionPreviewError
-    ) {
-      void begin(targetState(), "enter");
-    } else if (wasPaused && !paused && playback) {
-      // Resume from the displayed frame, without skipping ahead over the pause.
+  }
+
+  async function play(descriptor, clipId, callbacks) {
+    stop();
+    if (disposed) return;
+    const clip = descriptor.metadata.clips[clipId];
+    const verified = descriptor.verifiedClips[clipId];
+    const playback = { descriptor, clipId, clip, verified, ...callbacks, index: 0, due: now(), timer: null, decoder: null, frame: null, started: false };
+    current = playback;
+    try {
+      if (!clip || !verified || !descriptor.urls[clipId]) throw new Error('Motion clip is unavailable.');
+      const bytes = await bytesFor(descriptor.urls[clipId]);
+      if (current !== playback || disposed) return;
+      playback.decoder = createDecoder({ data: bytes, type: 'image/webp', preferAnimation: true });
+      await playback.decoder.tracks.ready;
+      if (current !== playback || disposed) return;
+      if (playback.decoder.tracks.selectedTrack?.frameCount !== clip.frames) throw new Error('Motion clip frame count changed.');
       playback.due = now();
-      if (playback.resume) {
-        schedule(playback, playback.resume);
-      }
+      await prepare(playback);
+    } catch (error) {
+      fail(playback, error);
     }
-  };
+  }
 
-  const hitTest = (clientX, clientY) => {
-    if (!canvas || !context || suspended || !canvas.isConnected) {
-      return null;
+  function setPaused(value) {
+    if (paused === value) return;
+    paused = value;
+    if (!current) return;
+    if (paused) {
+      current.remaining = Math.max(0, current.due - now());
+      clearTimeout(current.timer);
+    } else if (current.callback) {
+      current.due = now() + (current.remaining ?? 0);
+      schedule(current, current.callback);
     }
+  }
+
+  function remaining() {
+    if (!current?.verified) return Infinity;
+    const rate = current.clip.playbackRate ?? 1;
+    return Math.max(0, current.due - now()) + current.verified.frameDurationsMs.slice(current.index).reduce((a, b) => a + b, 0) / rate;
+  }
+
+  function hitTest(x, y) {
+    if (!canvas || !context || !canvas.isConnected) return null;
     const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-      return null;
-    }
-    let x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
-    if (x < 0 || x >= 1 || y < 0 || y >= 1) {
-      return false;
-    }
-    if (document.documentElement.dataset.flipX === "true") {
-      x = 1 - x;
-    }
-    const px = Math.min(canvas.width - 1, Math.floor(x * canvas.width));
-    const py = Math.min(canvas.height - 1, Math.floor(y * canvas.height));
-    const pixels = context.getImageData(px - 1, py - 1, 3, 3).data;
-    for (let i = 3; i < pixels.length; i += 4) {
-      if (pixels[i] >= 64) {
-        return true;
-      }
-    }
+    if (!rect.width || !rect.height) return null;
+    let nx = (x - rect.left) / rect.width;
+    const ny = (y - rect.top) / rect.height;
+    if (nx < 0 || nx >= 1 || ny < 0 || ny >= 1) return false;
+    if (document.documentElement.dataset.flipX === 'true') nx = 1 - nx;
+    const px = Math.min(canvas.width - 1, Math.floor(nx * canvas.width));
+    const py = Math.min(canvas.height - 1, Math.floor(ny * canvas.height));
+    const data = context.getImageData(Math.max(0, px - 1), Math.max(0, py - 1), Math.min(3, canvas.width - Math.max(0, px - 1)), Math.min(3, canvas.height - Math.max(0, py - 1))).data;
+    for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) return true;
     return false;
-  };
+  }
 
-  const dispose = () => {
+  function dispose() {
     disposed = true;
-    closePlayback();
+    stop();
     canvas?.remove();
     canvas = null;
     context = null;
+    canvasGeometry = null;
+    canvasSnapshotId = null;
     encoded.clear();
     encodedBytes = 0;
-  };
-
-  const setDragDirection = (direction) => {
-    dragDirection = direction;
-    refresh();
-  };
-
-  return { refresh, hitTest, dispose, setDragDirection };
+  }
+  function clear() {
+    stop();
+    canvas?.remove();
+    canvas = null;
+    context = null;
+    canvasGeometry = null;
+    canvasSnapshotId = null;
+  }
+  return { play, stop, clear, setPaused, remaining, mount, hitTest, dispose };
 }
-
 module.exports = { createPetMotionPlayer };

@@ -14,9 +14,10 @@ import { withAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
 import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
 import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { warn } from "./logger.js";
-import { getMotionPreview } from "./pet-motion-preview.js";
 import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
-import { readInstalledPetMetadata } from "./installed-pet-layout.js";
+import { readInstalledPetPackage } from "./installed-pet-layout.js";
+import { prepareInstalledMotionSnapshot } from "./pet-motion-snapshot.js";
+import type { MotionBodyDescriptor } from "./pet-body-contract.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
 import { defaultMediaDurationMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
@@ -47,8 +48,7 @@ function petFlipCacheToken(petId: string): string {
 
 export function createBuiltInPetRender(paused: boolean, display: PetTransientDisplay | null, badge: PetStatusBadgeReaction | null, scale: PetScaleValue, cachePrefix: string, petId: string, dismissToken: string | undefined, pluginBubbles: PetPluginBubbles | null, petRole: "default" | "agent", petDragRegion: "drag" | "no-drag"): PetContentRender {
   // The wardrobe follows the built-in pet itself, also when it stands in for a broken default pet.
-  const motionPreview = getMotionPreview();
-  const outfitId = motionPreview ? "default" : resolveRenderedPetOutfit(builtInPet.id, builtInPetWardrobe);
+  const outfitId = resolveRenderedPetOutfit(builtInPet.id, builtInPetWardrobe);
   const spriteUrl = pathToFileURL(join(app.getAppPath(), "assets", builtInPetOutfitFileName(outfitId) ?? defaultPetSprite.fileName)).toString();
   const assetDisplayName = builtInPet.displayName;
   const state = getAppStateSnapshot();
@@ -58,8 +58,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
   const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
-  const motionAttribute = motionPreview ? ` data-motion-preview="${escapeHtml(JSON.stringify(motionPreview))}"` : "";
-  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite"${motionAttribute} role="img" aria-label="Animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
+  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
@@ -74,13 +73,13 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     displayName,
     assetName: assetDisplayName,
     reactionState,
-    codexSpriteVersion: motionPreview ? 1 : defaultPetSprite.version,
+    codexSpriteVersion: defaultPetSprite.version,
     petScale: scale,
     gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale),
     paused,
     flipped: isPetFlippedHorizontally(petId),
     html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${motionPreview ? 1 : defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
+    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
       <head>
         <meta charset="utf-8" />
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
@@ -146,6 +145,8 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
        petDragRegion,
     );
   } catch (error) {
+    const petPackage = await readInstalledPetPackage(selected.id, selected.source?.kind === "team" ? "team" : "personal").catch(() => null);
+    if (petPackage?.format === "motion") throw error;
     console.error(`Failed to render installed default pet ${selected.id}; falling back to built-in pet.`, error);
     try {
       markPetBroken(selected.id, error instanceof Error ? error.message : "Installed pet rendering failed.");
@@ -204,7 +205,12 @@ export async function createInstalledPetRender(
   const displayName = petRole === "default"
     ? resolveCompanionDisplayName(personalityPetName ?? getAppStateSnapshot().preferences.personality?.petName, assetDisplayName)
     : assetDisplayName;
-  const metadata = await readInstalledPetMetadata(petId, source);
+  const petPackage = await readInstalledPetPackage(petId, source);
+  if (petPackage.format === "motion") {
+    const motion = await prepareInstalledMotionSnapshot(petId, source);
+    return createInstalledMotionRender(motion, displayName, assetDisplayName, paused, display, scale, badge, cachePrefix, dismissToken, pluginBubbles, petRole, petDragRegion);
+  }
+  const metadata = petPackage.metadata;
   const petDirectory = getPetDir(petId, source);
   await assertPetSpritesheetFiles(petDirectory, metadata);
   const { outfitId, atlasRelativePath, spritesheetPath, spritesheet } = await resolveRenderableAtlas(petId, petDirectory, metadata);
@@ -277,6 +283,35 @@ export async function createInstalledPetRender(
           ${bodyHtml}
         </body>
       </html>`,
+  };
+}
+
+function createInstalledMotionRender(
+  motion: MotionBodyDescriptor, displayName: string, assetDisplayName: string, paused: boolean,
+  display: PetTransientDisplay | null, scale: PetScaleValue, badge: PetStatusBadgeReaction | null,
+  cachePrefix: string, dismissToken: string | undefined, pluginBubbles: PetPluginBubbles | null,
+  petRole: "default" | "agent", petDragRegion: "drag" | "no-drag",
+): PetContentRender {
+  const { geometry } = motion.metadata;
+  const width = geometry.width / geometry.pixelsPerUnit;
+  const height = geometry.height / geometry.pixelsPerUnit;
+  const hasPinned = Boolean(pluginBubbles?.pinned);
+  const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
+  const voiceActive = petRole === "default" && display?.suppressReactionMessage === true;
+  const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" data-motion-body role="img" aria-label="${escapeHtml(displayName)}"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, voiceActive, voiceActive && display?.canSubmitRecording === true);
+  const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
+  const flipped = isPetFlippedHorizontally(motion.metadata.id);
+  return {
+    motion, renderedPetId: motion.metadata.id, renderedOutfitId: "default", activities: [],
+    cacheKey: `${cachePrefix}:motion:${paused}:${scale}:${hudScale}:${getAppStateSnapshot().preferences.bubbleScale}:${getAppStateSnapshot().preferences.bubbleTheme}:${petButtonsCacheToken()}:${getActiveLocale()}:${flipped}:${width}:${height}:${geometry.footAnchor.x}:${geometry.footAnchor.y}`,
+    bodyHtml, displayName, assetName: assetDisplayName, reactionState, codexSpriteVersion: 1,
+    petScale: scale, gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale), paused, flipped,
+    html: `<!doctype html><html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="idle" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${flipped}" data-codex-sprite-version="1" data-paused="${paused}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OpenPets Pet</title><style>
+      ${createPetWindowCss(paused, scale, hudScale, petDragRegion)}
+      .pet-shell { width: ${width * scale}px; height: ${height * scale}px; left: ${(width / 2 - geometry.footAnchor.x / geometry.pixelsPerUnit) * scale}px; top: ${(height - geometry.footAnchor.y / geometry.pixelsPerUnit) * scale}px; }
+      .pet-hitbox { width: ${width * scale + 16}px; height: ${height * scale + 16}px; }
+      .sprite[data-motion-body] { position: relative; width: ${width}px; height: ${height}px; transform: scale(${scale}); transform-origin: top left; }
+    </style></head><body>${bodyHtml}</body></html>`,
   };
 }
 

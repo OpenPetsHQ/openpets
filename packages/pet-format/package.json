@@ -32,6 +32,18 @@
       "types": "./dist/metadata.d.ts",
       "default": "./dist/metadata.js"
     },
+    "./motion": {
+      "types": "./dist/motion.d.ts",
+      "default": "./dist/motion.js"
+    },
+    "./package-types": {
+      "types": "./dist/package-types.d.ts",
+      "default": "./dist/package-types.js"
+    },
+    "./package": {
+      "types": "./dist/package.d.ts",
+      "default": "./dist/package.js"
+    },
     "./wardrobe": {
       "types": "./dist/wardrobe.d.ts",
       "default": "./dist/wardrobe.js"
@@ -67,6 +79,10 @@
     "./node/atlas-validation": {
       "types": "./dist/node/atlas-validation.d.ts",
       "default": "./dist/node/atlas-validation.js"
+    },
+    "./node/package-validation": {
+      "types": "./dist/node/package-validation.d.ts",
+      "default": "./dist/node/package-validation.js"
     }
   },
   "scripts": {

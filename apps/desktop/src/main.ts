@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
 import { getAppStateSnapshot, initializeAppState, releaseStartupInstallLock, updatePreferences } from "./app-state.js";
-import { initializeMotionPreview } from "./pet-motion-preview.js";
 import { createAppIcon } from "./assets.js";
 import { summarizeLegacyCodexV2MigrationSkips } from "./codex-pet-migration.js";
 import { migrateLegacyCodexV2ImportsAtStartup } from "./codex-pets.js";
@@ -53,6 +52,7 @@ import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
 import { removePetActivitiesForPet, resetPetActivitiesForPet, startPetActivities, stopPetActivities, suspendPetActivities } from "./pet-activities.js";
+import { suspendPetBodies } from "./pet-window.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 
 let teamService: TeamService | null = null;
@@ -125,6 +125,15 @@ if (captureSessionDir) {
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
+const onPetSystemSuspend = () => {
+  suspendPetActivities(true);
+  suspendPetBodies(true);
+};
+const onPetSystemResume = () => {
+  suspendPetActivities(false);
+  suspendPetBodies(false);
+};
+
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
@@ -151,6 +160,8 @@ if (!gotSingleInstanceLock) {
       return managerCheckInService?.stop() ?? Promise.resolve();
     },
     stopPetDisplayCoordinator: () => {
+      powerMonitor.off("suspend", onPetSystemSuspend);
+      powerMonitor.off("resume", onPetSystemResume);
       petDisplayCoordinator?.stop();
       stopPetActivities();
       setPetInstallationChangeHandler(null);
@@ -193,19 +204,14 @@ if (!gotSingleInstanceLock) {
     }
 
     initializeAppState();
-    await initializeMotionPreview({
-      directory: process.env.OPENPETS_MOTION_PREVIEW_DIR,
-      userData: app.getPath("userData"),
-      isPackaged: app.isPackaged,
-    });
     startPetActivities();
     setPetInstallationChangeHandler((petId, removed) => {
       if (removed) removePetActivitiesForPet(petId);
       else resetPetActivitiesForPet(petId, true);
       refreshPetWindowsForPetId(petId, removed ? "pet-remove" : "pet-install");
     });
-    powerMonitor.on("suspend", () => suspendPetActivities(true));
-    powerMonitor.on("resume", () => suspendPetActivities(false));
+    powerMonitor.on("suspend", onPetSystemSuspend);
+    powerMonitor.on("resume", onPetSystemResume);
     getSharedVoiceDeviceService({
       enumerate: enumerateTrustedVoiceDevices,
       probeOutputSelection: probeTrustedVoiceOutput,

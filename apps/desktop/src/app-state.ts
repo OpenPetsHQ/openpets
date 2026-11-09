@@ -1,9 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { app } from "electron";
 import { isValidZedNodeCommand } from "@open-pets/zed";
 import { validatePetSpritesheetPath } from "install-pet/spritesheet";
+import { maxCodexPetJsonBytes } from "@open-pets/pet-format/metadata";
+import { validatePetPackageMetadata } from "@open-pets/pet-format/package";
+import { motionMaxClipBytes, motionMaxTotalBytes } from "@open-pets/pet-format/node/package-validation";
 
 import { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, defaultBubbleTheme, normalizeBubbleDurationScale, normalizeBubbleScale, normalizeBubbleTheme, type BubbleDurationScaleValue, type BubbleScaleValue, type BubbleTheme, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
@@ -948,7 +951,30 @@ function validateInstalledPetFiles(petId: string, source: InstalledPetState["sou
       ? getTeamPetDir(petId)
       : getInstalledPetDir(petId);
     const petJsonPath = join(dir, "pet.json");
-    const metadata = JSON.parse(readFileSync(petJsonPath, "utf8")) as unknown;
+    const metadata = JSON.parse(readBoundedPetManifest(petJsonPath)) as unknown;
+    if (isRecord(metadata) && metadata.format === "motion") {
+      const petPackage = validatePetPackageMetadata(metadata, petId);
+      if (petPackage.format !== "motion") throw new Error("Invalid Motion pet metadata.");
+      const clipsDirectory = join(dir, "clips");
+      const clipsStats = lstatSync(clipsDirectory);
+      if (!clipsStats.isDirectory() || clipsStats.isSymbolicLink()) throw new Error("Motion clips directory is invalid.");
+      let total = 0;
+      for (const [clipId, clip] of Object.entries(petPackage.metadata.clips)) {
+        const clipStats = (() => {
+          try {
+            return lstatSync(join(dir, clip.file));
+          } catch {
+            throw new Error(`Motion clip ${clipId} is missing.`);
+          }
+        })();
+        if (!clipStats.isFile() || clipStats.isSymbolicLink() || clipStats.size <= 0 || clipStats.size > motionMaxClipBytes) {
+          throw new Error(`Motion clip ${clipId} is invalid or too large.`);
+        }
+        total += clipStats.size;
+        if (total > motionMaxTotalBytes) throw new Error("Motion clips exceed the aggregate size limit.");
+      }
+      return undefined;
+    }
     const selectedPath = validatePetSpritesheetPath(isRecord(metadata) ? metadata.spritesheetPath : undefined);
     const spritesheetPath = join(dir, selectedPath);
     const otherPath = selectedPath === "spritesheet.svg" ? "spritesheet.webp" : "spritesheet.svg";
@@ -960,6 +986,25 @@ function validateInstalledPetFiles(petId: string, source: InstalledPetState["sou
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : "Installed pet files are invalid.";
+  }
+}
+
+function readBoundedPetManifest(path: string): string {
+  const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > maxCodexPetJsonBytes) throw new Error("Installed pet metadata is missing or too large.");
+    const bytes = Buffer.alloc(maxCodexPetJsonBytes + 1);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(descriptor, bytes, offset, bytes.length - offset, null);
+      if (count === 0) break;
+      offset += count;
+    }
+    if (offset > maxCodexPetJsonBytes) throw new Error("Installed pet metadata is too large.");
+    return bytes.subarray(0, offset).toString("utf8");
+  } finally {
+    closeSync(descriptor);
   }
 }
 

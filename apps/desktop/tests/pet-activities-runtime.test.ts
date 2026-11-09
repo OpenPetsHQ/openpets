@@ -27,7 +27,7 @@ const modules: Record<string, string> = {
     export const setEnabledPetActivityIds = (_petId, ids) => state.save(ids);
   `,
   "./built-in-pet.js": "export const builtInPet = { id: 'builtin' };",
-  "./installed-pet-layout.js": "export const readInstalledPetMetadata = async () => ({ activities: globalThis.__petActivitiesRuntimeTest.activities });",
+  "./installed-pet-layout.js": "export const readInstalledPetPackage = async () => ({ format: 'classic', metadata: { activities: globalThis.__petActivitiesRuntimeTest.activities } });",
   "./logger.js": "export const info = () => {}; export const warn = () => {};",
   "./pet-atlas-validation.js": "export const readPetActivitySpritesheet = async () => globalThis.__petActivitiesRuntimeTest.readAsset();",
   "./pet-paths.js": "export const assertSafePetId = () => {}; export const getPetDir = () => '/pets/cat';",

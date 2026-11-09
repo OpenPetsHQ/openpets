@@ -24,6 +24,8 @@ Docs here are the *narrative* layer on top of those maps.
   discovery, transports, the lease model, request methods, security.
 - **[pets.md](pets.md)** - the pet model end to end: spritesheets, reactions,
   reaction→animation mapping, installation, Codex pets, motion.
+- **[motion-pets.md](motion-pets.md)** - Motion package direction, current
+  contract boundary, ownership and acceptance evidence.
 - **[wardrobe.md](wardrobe.md)** - pet outfits and schedules: vocabulary,
   `pet.json` contract, resolution order, packaging, two-ZIP catalog
   distribution, old-app compatibility, and future work.

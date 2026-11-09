@@ -79,7 +79,7 @@ OpenPets is a pnpm/TypeScript monorepo for an Electron desktop companion app, a 
 4. The desktop IPC server routes commands through lease-managed controllers so default and agent pets can coexist safely.
 5. The plugin service loads approved catalog or local `openpets.plugin.json` manifests, persists plugin state/config, schedules declarative timers, and bridges SDK v3 calls through permission-checked host modules for UI, audio, events, storage, AI, OAuth, voice, panels, and pet control. Plugin voice input remains one-shot, live-track-accounted, cancellable, timeout-bounded, and never ambient; the separate realtime conversation foundation is host-private and not exposed through the SDK.
 6. Pet windows render reaction-driven animations, localized speech, host-rendered bubbles/alerts/HUDs, and status reactions using desktop state plus reaction mapping metadata.
-7. Pet assets are resolved from built-in assets, locally developed Codex pets, or remotely downloaded catalog ZIPs.
+7. Pet assets are resolved from built-in assets, locally developed Codex pets, or remotely downloaded catalog ZIPs. Explicit Motion packages use named animated WebP clips through shared validation and the existing local import transaction; desktop snapshots pin bytes across replacement, while the renderer body coordinator owns semantic playback.
 8. Workspace packages share TypeScript/ESM build conventions and are wired together through pnpm `workspace:*` dependencies.
 9. The standalone VS Code UI host provides a bundled pet and outfits, catalog and local ZIP installation, manual outfits, and editor/sidebar webviews without the desktop IPC service. Scene instances, roaming and settings are implemented; the locally packaged extension is for evaluation, not Marketplace release.
 

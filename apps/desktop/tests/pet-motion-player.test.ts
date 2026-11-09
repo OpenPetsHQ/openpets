@@ -2,275 +2,229 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { test } from "node:test";
-
-interface Player {
-  refresh(): void;
-  setDragDirection(direction: string | null): void;
-  dispose(): void;
-  hitTest(x: number, y: number): boolean | null;
-}
-interface Frame {
-  name: string;
-  index: number;
-  displayWidth: number;
-  displayHeight: number;
-  duration: number;
-  closed: boolean;
-  close(): void;
-}
 const require = createRequire(import.meta.url);
-const { createPetMotionPlayer } = require(
-  join(
-    process.env.OPENPETS_DESKTOP_ROOT ?? process.cwd(),
-    "src/pet-motion-player.cjs",
-  ),
-) as {
-  createPetMotionPlayer(options: Record<string, unknown>): Player;
-};
-
-function fixture(playbackRate = 1) {
-  let clock = 0;
-  let sequence = 0;
-  const timers = new Map<number, { at: number; callback(): void }>();
-  const shown: Array<{ name: string; index: number; at: number }> = [];
-  const frames: Frame[] = [];
-  const errors: unknown[] = [];
-  const root: Record<string, string> = { reactionState: "idle" };
-  const clip = (file: string) => ({ file, frames: 3 });
-  const pack = {
-    width: 10,
-    height: 10,
-    pixelsPerUnit: 1,
-    anchor: { x: 5, y: 9 },
-    animations: {
-      idle: { play: "loop", clip: clip("idle") },
-      waving: { play: "once", clip: clip("wave") },
-      "running-left": { play: "loop", clip: clip("run-left") },
-      "running-right": {
-        play: "loop",
-        enter: clip("turn"),
-        clip: clip("run"),
-        exit: clip("return"),
-      },
-    },
-  };
-  const urls = Object.fromEntries(
-    ["idle", "wave", "turn", "run", "run-left", "return"].map((name) => [
-      name,
-      name,
-    ]),
-  );
-  const makeBase = () => ({
-    dataset: { motionPreview: JSON.stringify({ pack, urls }) },
-    style: {} as Record<string, string>,
-    appendChild(element: { parentNode: unknown }) {
-      element.parentNode = this;
-    },
-  });
-  let base = makeBase();
-  const canvas = {
-    parentNode: null as unknown,
-    isConnected: true,
-    style: {},
-    width: 10,
-    height: 10,
-    remove() {
-      this.isConnected = false;
-    },
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }),
-    getContext: () => ({
-      clearRect() {},
-      drawImage(frame: Frame) {
-        shown.push({ name: frame.name, index: frame.index, at: clock });
-      },
-      getImageData(x: number) {
-        return { data: new Uint8Array([0, 0, 0, x < 4 ? 255 : 0]) };
-      },
-    }),
-  };
-  const player = createPetMotionPlayer({
-    playbackRate,
-    document: {
-      documentElement: { dataset: root },
-      querySelector: (selector: string) =>
-        selector.startsWith(".sprite") ? base : null,
-      createElement: () => canvas,
-    },
-    loadBytes: async (name: string) => new TextEncoder().encode(name),
-    createDecoder({ data }: { data: Uint8Array }) {
-      const name = new TextDecoder().decode(data);
-      return {
-        tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 3 } },
-        async decode({ frameIndex }: { frameIndex: number }) {
-          const frame: Frame = {
-            name,
-            index: frameIndex,
-            displayWidth: 10,
-            displayHeight: 10,
-            duration: [40_000, 50_000, 60_000][frameIndex]!,
-            closed: false,
-            close() {
-              this.closed = true;
-            },
-          };
-          frames.push(frame);
-          return { image: frame };
-        },
-        close() {},
-      };
-    },
-    now: () => clock,
-    setTimeout(callback: () => void, delay: number) {
-      const id = ++sequence;
-      timers.set(id, { at: clock + delay, callback });
-      return id;
-    },
-    clearTimeout: (id: number) => timers.delete(id),
-    onError: (error: unknown) => errors.push(error),
-  });
-  const flush = async () => {
-    for (let i = 0; i < 12; i += 1) await Promise.resolve();
-  };
-  return {
-    player,
-    root,
-    shown,
-    frames,
-    errors,
-    timers,
-    canvas,
-    replaceStage() {
-      base = makeBase();
-      player.refresh();
-      return base;
-    },
-    async advance(duration: number) {
-      const until = clock + duration;
-      await flush();
-      for (;;) {
-        const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-        if (!next || next[1].at > until) break;
-        timers.delete(next[0]);
-        clock = next[1].at;
-        next[1].callback();
-        await flush();
-      }
-      clock = until;
-    },
-  };
+const root = process.env.OPENPETS_DESKTOP_ROOT ?? process.cwd();
+const { createPetBodyCoordinator } = require(join(root, "src/pet-body-coordinator.cjs"));
+const { createPetMotionPlayer } = require(join(root, "src/pet-motion-player.cjs"));
+function descriptor(id = "one") {
+  const clips = Object.fromEntries(["idle", "run", "intro", "wave", "outro", "work"].map((name) => [name, { file: name, frames: 1, playbackRate: name === "work" ? 2 : 1 }]));
+  return { snapshotId: id, metadata: { geometry: { width: 10, height: 10, pixelsPerUnit: 1, footAnchor: { x: 5, y: 9 } }, clips, animations: { idle: { play: "loop", loop: "idle" }, run: { play: "loop", loop: "run" }, work: { play: "loop", loop: "work" }, wave: { play: "once", intro: "intro", clip: "wave", outro: "outro" } }, bindings: { idle: [{ animation: "idle" }], movement: { left: "run", right: "run" }, contexts: { working: [{ animation: "work" }] }, events: { waving: [{ animation: "wave" }] } } }, urls: Object.fromEntries(Object.keys(clips).map((name) => [name, `${id}-${name}`])), verifiedClips: Object.fromEntries(Object.keys(clips).map((name) => [name, { frameDurationsMs: [100], durationMs: 100 }])) };
 }
-
-test("motion playback preserves every frame and its native duration across loops", async () => {
-  const f = fixture();
-  f.player.refresh();
-  await f.advance(150);
-  assert.deepEqual(f.shown, [
-    { name: "idle", index: 0, at: 0 },
-    { name: "idle", index: 1, at: 40 },
-    { name: "idle", index: 2, at: 90 },
-    { name: "idle", index: 0, at: 150 },
-  ]);
-  f.player.dispose();
-  assert.ok(f.frames.every((frame) => frame.closed));
-  assert.equal(f.timers.size, 0);
-  assert.deepEqual(f.errors, []);
+function state(revision: number, extra: Record<string, unknown> = {}) { return { input: { epoch: "epoch", revision, context: "idle", paused: false, suspended: false, ...extra }, motion: descriptor() }; }
+test("event phases return to current context without HUD resetting playback", () => {
+  const calls: string[] = [];
+  const results: Array<{ outcome: string; intentId?: string }> = [];
+  let callback: { onStarted(): void; onEnd(): void } | undefined;
+  const player = { play(_d: unknown, clip: string, next: NonNullable<typeof callback>) { calls.push(clip); callback = next; next.onStarted(); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult: (result: typeof results[number]) => results.push(result) });
+  coordinator.update(state(1));
+  coordinator.update(state(2, { event: { id: "e", reaction: "waving" } }));
+  coordinator.update(state(3, { context: "working" }));
+  coordinator.refresh();
+  assert.deepEqual(calls, ["idle", "intro"]);
+  callback!.onEnd(); callback!.onEnd(); callback!.onEnd();
+  assert.deepEqual(calls, ["idle", "intro", "wave", "outro", "work"]);
+  assert.ok(results.some((result) => result.intentId === "e" && result.outcome === "completed"));
+  coordinator.dispose();
+});
+test("drag preempts a live plugin and blocked events do not replay", () => {
+  const calls: string[] = [];
+  const player = { play(_d: unknown, clip: string) { calls.push(clip); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => true, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  coordinator.update(state(1)); coordinator.setPlugin(true);
+  coordinator.update(state(2, { event: { id: "blocked", reaction: "waving" } }));
+  coordinator.setDragDirection("run-left"); assert.equal(calls.at(-1), "run");
+  coordinator.setDragDirection(null); assert.equal(coordinator.hitTest(0, 0), null);
+  coordinator.setPlugin(false); assert.equal(calls.at(-1), "idle");
+  assert.ok(!calls.includes("wave")); coordinator.dispose();
+});
+test("replacement retains old canvas until the new frame is presented", async () => {
+  const shown: string[] = [];
+  const frames: Array<{ closed: boolean }> = [];
+  const timers = new Map<number, () => void>();
+  let sequence = 0;
+  let resolveLoad: (bytes: Uint8Array) => void = () => {};
+  const load = new Promise<Uint8Array>((resolve) => { resolveLoad = resolve; });
+  const base = { style: {}, appendChild(canvas: { parentNode: unknown; isConnected: boolean }) { canvas.parentNode = base; canvas.isConnected = true; } };
+  const player = createPetMotionPlayer({ document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, isConnected: true, width: 0, height: 0, remove() { this.isConnected = false; }, getContext: () => ({ clearRect() {}, drawImage(frame: { name: string }) { shown.push(frame.name); } }) }) }, loadBytes: (url: string) => url.startsWith("two") ? load : Promise.resolve(new TextEncoder().encode(url)), createDecoder: ({ data }: { data: Uint8Array }) => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async () => { const frame = { name: new TextDecoder().decode(data), displayWidth: 10, displayHeight: 10, closed: false, close() { this.closed = true; } }; frames.push(frame); return { image: frame }; }, close() {} }), now: () => 0, setTimeout: (fn: () => void) => { timers.set(++sequence, fn); return sequence; }, clearTimeout: (id: number) => timers.delete(id), onError: () => assert.fail("unexpected failure") });
+  const started: string[] = [];
+  const play = (d: ReturnType<typeof descriptor>) => player.play(d, "idle", { onStarted: () => started.push(d.snapshotId), onEnd() {}, onFailed: () => assert.fail("unexpected failure") });
+  await play(descriptor()); [...timers.values()][0]!(); timers.clear();
+  const pending = play(descriptor("two")); assert.deepEqual(started, ["one"]); assert.deepEqual(shown, ["one-idle"]);
+  resolveLoad(new TextEncoder().encode("two-idle")); await pending; [...timers.values()][0]!(); timers.clear();
+  assert.deepEqual(started, ["one", "two"]); assert.deepEqual(shown, ["one-idle", "two-idle"]);
+  player.dispose(); assert.ok(frames.every((frame) => frame.closed));
+});
+test("a context transition waits at most the remaining budget and direct input cuts immediately", () => {
+  const calls: string[] = [];
+  let end: (() => void) | undefined;
+  let remaining = 100;
+  const player = { play(_d: unknown, clip: string, callbacks: { onEnd(): void }) { calls.push(clip); end = callbacks.onEnd; }, stop() {}, clear() {}, setPaused() {}, remaining: () => remaining, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  coordinator.update(state(1)); coordinator.update(state(2, { context: "working" }));
+  assert.deepEqual(calls, ["idle"]); end!(); assert.deepEqual(calls, ["idle", "work"]);
+  remaining = 100; coordinator.setDragDirection("run-right"); assert.equal(calls.at(-1), "run");
+  coordinator.dispose();
+});
+test("same active event is coalesced and interruption never replays it", () => {
+  const calls: string[] = [];
+  const results: Array<{ outcome: string; intentId?: string }> = [];
+  const player = { play(_d: unknown, clip: string) { calls.push(clip); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 500, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult: (result: typeof results[number]) => results.push(result) });
+  coordinator.update(state(1, { event: { id: "first", reaction: "waving" } }));
+  coordinator.update(state(2, { event: { id: "second", reaction: "waving" } }));
+  assert.equal(calls.filter((clip) => clip === "intro").length, 1);
+  coordinator.setDragDirection("run-right"); coordinator.setDragDirection(null);
+  assert.equal(calls.at(-1), "idle");
+  assert.ok(results.some((result) => result.intentId === "first" && result.outcome === "cancelled"));
+  coordinator.dispose();
+});
+test("a retired asynchronous clip cannot report failure or displace the newer playback", async () => {
+  let rejectOld: (error: Error) => void = () => {};
+  const old = new Promise<Uint8Array>((_resolve, reject) => { rejectOld = reject; });
+  const shown: string[] = [];
+  const timers = new Map<number, () => void>(); let sequence = 0; let failures = 0;
+  const base = { style: {}, appendChild(canvas: { parentNode: unknown }) { canvas.parentNode = base; } };
+  const player = createPetMotionPlayer({ document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage(frame: { name: string }) { shown.push(frame.name); } }) }) }, loadBytes: (url: string) => url.startsWith("one") ? old : Promise.resolve(new TextEncoder().encode(url)), createDecoder: ({ data }: { data: Uint8Array }) => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async () => ({ image: { name: new TextDecoder().decode(data), displayWidth: 10, displayHeight: 10, close() {} } }), close() {} }), now: () => 0, setTimeout: (fn: () => void) => { timers.set(++sequence, fn); return sequence; }, clearTimeout: (id: number) => timers.delete(id), onError: () => { failures++; } });
+  const callbacks = { onStarted() {}, onEnd() {}, onFailed() { failures++; } };
+  const first = player.play(descriptor(), "idle", callbacks);
+  await player.play(descriptor("two"), "idle", callbacks);
+  [...timers.values()][0]!(); timers.clear();
+  rejectOld(new Error("old failed")); await first;
+  assert.deepEqual(shown, ["two-idle"]); assert.equal(failures, 0); player.dispose();
+});
+test("blocked and coalesced event IDs settle exactly once even when resent", () => {
+  const results: Array<{ outcome: string; intentId?: string; playbackId: number }> = [];
+  const calls: string[] = [];
+  const player = { play(_d: unknown, clip: string) { calls.push(clip); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult: (result: typeof results[number]) => results.push(result) });
+  coordinator.update(state(1)); coordinator.setPlugin(true);
+  coordinator.update(state(2, { event: { id: "blocked", reaction: "waving" } }));
+  coordinator.setPlugin(false);
+  coordinator.update(state(3, { event: { id: "blocked", reaction: "waving" } }));
+  assert.equal(results.filter((result) => result.intentId === "blocked" && result.outcome === "cancelled").length, 1);
+  assert.ok(!calls.includes("intro"));
+  coordinator.update(state(4, { event: { id: "active", reaction: "waving" } }));
+  coordinator.update(state(5, { event: { id: "coalesced", reaction: "waving" } }));
+  coordinator.update(state(6, { event: { id: "coalesced", reaction: "waving" } }));
+  assert.equal(results.filter((result) => result.intentId === "coalesced" && result.outcome === "cancelled").length, 1);
+  assert.equal(results.filter((result) => result.intentId === "active" && result.outcome === "cancelled").length, 0);
+  coordinator.dispose();
+});
+test("pause retains the frame and resumes using authored clip speed", async () => {
+  let clock = 0; let sequence = 0;
+  const timers = new Map<number, { at: number; run(): void }>();
+  const shown: number[] = [];
+  const base = { style: {}, appendChild(canvas: { parentNode: unknown }) { canvas.parentNode = base; } };
+  const d = descriptor();
+  const player = createPetMotionPlayer({ document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage() { shown.push(clock); } }) }) }, loadBytes: async () => new Uint8Array([1]), createDecoder: () => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async () => ({ image: { displayWidth: 10, displayHeight: 10, close() {} } }), close() {} }), now: () => clock, setTimeout: (run: () => void, delay: number) => { timers.set(++sequence, { at: clock + delay, run }); return sequence; }, clearTimeout: (id: number) => timers.delete(id), onError: () => assert.fail() });
+  let ended = false;
+  await player.play(d, "work", { onStarted() {}, onEnd() { ended = true; }, onFailed() { assert.fail(); } });
+  const initial = [...timers.entries()][0]!; timers.delete(initial[0]); initial[1].run();
+  assert.deepEqual(shown, [0]); assert.equal([...timers.values()][0]!.at, 50);
+  clock = 20; player.setPaused(true); assert.equal(timers.size, 0);
+  clock = 1020; player.setPaused(false); assert.equal([...timers.values()][0]!.at, 1050);
+  clock = 1050; const resumed = [...timers.entries()][0]!; timers.delete(resumed[0]); resumed[1].run(); assert.equal(ended, true);
+  player.dispose(); assert.equal(timers.size, 0);
+});
+test("a HUD stage replacement reattaches the presented canvas without restarting playback", async () => {
+  let base = { style: {}, appendChild(element: { parentNode: unknown }) { element.parentNode = this; } };
+  const originalBase = base;
+  const canvas = { style: {}, parentNode: null as unknown, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage() {} }) };
+  let pending: (() => void) | undefined;
+  let started = 0;
+  const player = createPetMotionPlayer({ document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => canvas }, loadBytes: async () => new Uint8Array([1]), createDecoder: () => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async () => ({ image: { displayWidth: 10, displayHeight: 10, close() {} } }), close() {} }), now: () => 0, setTimeout: (callback: () => void) => { pending = callback; return 1; }, clearTimeout() {}, onError: () => assert.fail() });
+  await player.play(descriptor(), "idle", { onStarted() { started += 1; }, onEnd() {}, onFailed() { assert.fail(); } });
+  pending!(); assert.equal(canvas.parentNode, originalBase);
+  base = { style: {}, appendChild(element: { parentNode: unknown }) { element.parentNode = this; } };
+  player.mount(); assert.equal(canvas.parentNode, base); assert.equal(started, 1); player.dispose();
+});
+test("physical movement differs from running context, respects plugin priority and compensates flip for drag and roaming", () => {
+  const calls: string[] = [];
+  const player = { play(_d: unknown, clip: string) { calls.push(clip); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  const d = descriptor();
+  Object.assign(d.metadata.animations, { left: { play: "loop", loop: "left" }, right: { play: "loop", loop: "right" } });
+  Object.assign(d.metadata.bindings.movement, { left: "left", right: "right" });
+  Object.assign(d.metadata.bindings.contexts, { running: [{ animation: "work" }] });
+  coordinator.update({ ...state(1, { context: "running" }), motion: d });
+  assert.equal(calls.at(-1), "work");
+  coordinator.setMotionState("run-left"); assert.equal(calls.at(-1), "left");
+  const count = calls.length;
+  coordinator.setMotionState("run-left"); assert.equal(calls.length, count);
+  coordinator.setFlipped(true); assert.equal(calls.at(-1), "right");
+  coordinator.setPlugin(true); const blockedCount = calls.length;
+  coordinator.setMotionState("run-right"); assert.equal(calls.length, blockedCount);
+  coordinator.setDragDirection("run-left"); assert.equal(calls.at(-1), "right");
+  coordinator.setFlipped(false); assert.equal(calls.at(-1), "left");
+  coordinator.setDragDirection(null); assert.equal(calls.length, blockedCount + 2);
+  coordinator.setPlugin(false); assert.equal(calls.at(-1), "right");
+  coordinator.setMotionState("idle"); assert.equal(calls.at(-1), "work");
+  coordinator.dispose();
 });
 
-test("one-shot reactions finish and return to idle while the reaction remains selected", async () => {
-  const f = fixture();
-  f.root.reactionState = "waving";
-  f.player.refresh();
-  await f.advance(450);
-  assert.deepEqual(
-    f.shown.slice(0, 4).map((frame) => frame.name),
-    ["wave", "wave", "wave", "idle"],
-  );
-  assert.equal(f.shown.filter((frame) => frame.name === "wave").length, 3);
-  f.player.dispose();
+test("suspension during decode closes the stale frame without presenting it", async () => {
+  type Frame = { displayWidth: number; displayHeight: number; closed: boolean; close(): void };
+  let resolveFrame: (result: { image: Frame }) => void = () => {};
+  const decoding = new Promise<{ image: Frame }>((resolve) => { resolveFrame = resolve; });
+  let decoderClosed = false;
+  let draws = 0;
+  const player = createPetMotionPlayer({ document: { documentElement: { dataset: {} }, querySelector: () => ({}), createElement: () => ({ style: {}, getContext: () => ({ drawImage() { draws += 1; } }) }) }, loadBytes: async () => new Uint8Array([1]), createDecoder: () => ({ tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: () => decoding, close() { decoderClosed = true; } }), now: () => 0, setTimeout, clearTimeout, onError: () => assert.fail() });
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  coordinator.update(state(1));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  coordinator.update(state(2, { suspended: true }));
+  const frame = { displayWidth: 10, displayHeight: 10, closed: false, close() { this.closed = true; } };
+  resolveFrame({ image: frame });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(decoderClosed, true); assert.equal(frame.closed, true); assert.equal(draws, 0);
+  coordinator.dispose();
+});
+test("host movement waits for a finite event and resumes afterward", () => {
+  const calls: string[] = [];
+  let end: (() => void) | undefined;
+  const player = { play(_d: unknown, clip: string, callbacks: { onEnd(): void }) { calls.push(clip); end = callbacks.onEnd; }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => 0, onResult() {} });
+  coordinator.update(state(1, { event: { id: "wave", reaction: "waving" } }));
+  coordinator.setMotionState("run-left"); assert.deepEqual(calls, ["intro"]);
+  end!(); end!(); end!();
+  assert.deepEqual(calls, ["intro", "wave", "outro", "run"]);
+  coordinator.dispose();
+});
+test("context variant remains selected through refreshes and preemption, then changes only with context", () => {
+  const calls: string[] = [];
+  let selections = 0;
+  const player = { play(_d: unknown, clip: string) { calls.push(clip); }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => 0, random: () => (selections++ % 2 === 0 ? 0 : 0.99), onResult() {} });
+  const d = descriptor();
+  Object.assign(d.metadata.animations, { a: { play: "loop", loop: "clip-a" }, b: { play: "loop", loop: "clip-b" } });
+  Object.assign(d.metadata.bindings.contexts, { working: [{ animation: "a" }, { animation: "b" }] });
+  coordinator.update({ ...state(1, { context: "working" }), motion: d });
+  assert.deepEqual(calls, ["clip-a"]); assert.equal(selections, 1);
+  coordinator.refresh(); coordinator.update({ ...state(2, { context: "working" }), motion: d }); coordinator.refresh();
+  assert.deepEqual(calls, ["clip-a"]); assert.equal(selections, 1);
+  coordinator.setMotionState("run-left"); coordinator.setMotionState("idle");
+  assert.deepEqual(calls, ["clip-a", "run", "clip-a"]); assert.equal(selections, 1);
+  coordinator.update({ ...state(3, { context: "idle" }), motion: d });
+  coordinator.update({ ...state(4, { context: "working" }), motion: d });
+  assert.equal(calls.at(-1), "clip-b"); assert.equal(selections, 2);
+  coordinator.dispose();
 });
 
-test("drag interrupts the current animation immediately and release skips the return clip", async () => {
-  const f = fixture();
-  f.player.refresh();
-  await f.advance(20);
-  f.player.setDragDirection("run-right");
-  await f.advance(0);
-  assert.deepEqual(f.shown.at(-1), { name: "run", index: 0, at: 20 });
-  await f.advance(20);
-  f.player.setDragDirection("run-left");
-  await f.advance(0);
-  assert.deepEqual(f.shown.at(-1), { name: "run-left", index: 0, at: 40 });
-  f.player.setDragDirection(null);
-  await f.advance(0);
-  assert.deepEqual(f.shown.at(-1), { name: "idle", index: 0, at: 40 });
-  assert.ok(
-    f.shown.every((frame) => frame.name !== "turn" && frame.name !== "return"),
-  );
-  f.player.dispose();
-});
-
-test("faster playback retains all frames while reducing their display time", async () => {
-  const f = fixture(1.5);
-  f.player.refresh();
-  await f.advance(100);
-  assert.deepEqual(
-    f.shown.map((frame) => frame.index),
-    [0, 1, 2, 0],
-  );
-  assert.equal(f.shown.at(-1)?.at, 100);
-  f.player.dispose();
-});
-
-test("pause and HUD replacement preserve the current artwork and release resources on teardown", async () => {
-  const f = fixture();
-  f.player.refresh();
-  await f.advance(40);
-  f.root.paused = "true";
-  f.player.refresh();
-  await f.advance(500);
-  assert.equal(f.shown.length, 2);
-  const replacement = f.replaceStage();
-  assert.equal(f.canvas.parentNode, replacement);
-  assert.equal(f.shown.length, 2);
-  f.root.paused = "false";
-  f.player.refresh();
-  await f.advance(0);
-  assert.equal(f.shown.at(-1)?.index, 2);
-  assert.equal(f.player.hitTest(2, 5), true);
-  assert.equal(f.player.hitTest(8, 5), false);
-  f.root.flipX = "true";
-  assert.equal(f.player.hitTest(8, 5), true);
-  f.player.dispose();
-  await f.advance(500);
-  assert.equal(f.shown.length, 3);
-  assert.ok(f.frames.every((frame) => frame.closed));
-});
-
-test("disposing during an asynchronous load never attaches artwork", async () => {
-  const f = fixture();
-  f.player.refresh();
-  f.player.dispose();
-  await f.advance(500);
-  assert.deepEqual(f.shown, []);
-  assert.equal(f.timers.size, 0);
-});
-
-test("a short reaction is still played when it expires before the idle boundary", async () => {
-  const f = fixture();
-  f.player.refresh();
-  await f.advance(40);
-  f.root.reactionState = "waving";
-  f.player.refresh();
-  await f.advance(40);
-  f.root.reactionState = "idle";
-  f.player.refresh();
-  await f.advance(220);
-  assert.deepEqual(
-    f.shown
-      .filter((frame) => frame.name === "wave")
-      .map((frame) => frame.index),
-    [0, 1, 2],
-  );
-  assert.equal(f.shown.at(-1)?.name, "idle");
-  f.player.dispose();
+test("intentional idle variation remains selected on HUD refresh and after movement", () => {
+  const calls: string[] = [];
+  let clock = 0;
+  let end: (() => void) | undefined;
+  const player = { play(_d: unknown, clip: string, callbacks: { onEnd(): void }) { calls.push(clip); end = callbacks.onEnd; }, stop() {}, clear() {}, setPaused() {}, remaining: () => 200, mount() {}, hitTest: () => null, dispose() {} };
+  const coordinator = createPetBodyCoordinator({ player, now: () => clock, random: () => 0, onResult() {} });
+  const d = descriptor();
+  Object.assign(d.metadata.animations, { alternative: { play: "loop", loop: "alternative" } });
+  d.metadata.bindings.idle.push({ animation: "alternative" });
+  coordinator.update({ ...state(1), motion: d });
+  clock = 30000; end!(); assert.deepEqual(calls, ["idle", "alternative"]);
+  coordinator.refresh(); coordinator.update({ ...state(2), motion: d });
+  assert.deepEqual(calls, ["idle", "alternative"]);
+  coordinator.setMotionState("run-left"); coordinator.setMotionState("idle");
+  assert.deepEqual(calls, ["idle", "alternative", "run", "alternative"]);
+  coordinator.dispose();
 });

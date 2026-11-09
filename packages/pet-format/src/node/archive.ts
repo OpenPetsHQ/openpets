@@ -7,7 +7,7 @@ import yauzl from "yauzl";
 import type { Entry, ZipFile } from "yauzl";
 
 import { maxCodexPetJsonBytes } from "../metadata.js";
-import { assertOutputPathInside, ZipEntryPathTracker } from "./paths.js";
+import { assertOutputPathInside, validateZipEntryName, ZipEntryPathTracker } from "./paths.js";
 
 export interface PetZipLimits {
   readonly maxZipDownloadBytes: number;
@@ -28,6 +28,7 @@ export const defaultPetZipLimits: Readonly<PetZipLimits> = Object.freeze({
 export interface PetZipExtractionOptions {
   readonly limits?: PetZipLimits;
   readonly signal?: AbortSignal;
+  readonly format?: "classic" | "motion";
 }
 
 /** The caller owns staging cleanup; rejection waits until active writes have closed. */
@@ -36,7 +37,7 @@ export async function extractPetZip(zip: Buffer, tempDir: string, options: PetZi
   signal?.throwIfAborted();
   const { maxZipDownloadBytes, maxExtractedTotalBytes, maxFiles, maxIndividualFileBytes, maxCodexPetJsonBytes } = limits;
   const zipFile = await openZipFromBuffer(zip);
-  const pathTracker = new ZipEntryPathTracker();
+  const pathTracker = new ZipEntryPathTracker(options.format);
   const seenRequired = new Set<string>();
   let fileCount = 0;
   let extractedTotal = 0;
@@ -244,4 +245,81 @@ function writeEntry(entry: Entry, zipFile: ZipFile, outputPath: string, expected
         });
     });
   });
+}
+
+/** Inspect only bounded pet.json bytes; extraction must still validate every entry. */
+export async function detectPetZipFormat(
+  zip: Buffer,
+  limits: PetZipLimits = defaultPetZipLimits,
+): Promise<"classic" | "motion"> {
+  if (zip.byteLength > limits.maxZipDownloadBytes) throw new Error("Zip is too large.");
+  const zipFile = await openZipFromBuffer(zip);
+  let manifest: Buffer | undefined;
+  let files = 0;
+  try {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      let settled = false;
+      const fail = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        rejectPromise(error);
+      };
+      zipFile.on("error", fail);
+      zipFile.on("end", () => {
+        if (!settled) {
+          settled = true;
+          resolvePromise();
+        }
+      });
+      zipFile.on("entry", (entry) => {
+        try {
+          files += 1;
+          if (files > limits.maxFiles) throw new Error("Zip contains too many entries.");
+          validateEntryMetadata(entry, limits.maxZipDownloadBytes, limits.maxIndividualFileBytes);
+          const parts = entry.fileName.split("/");
+          if (parts.at(-1) !== "pet.json") {
+            zipFile.readEntry();
+            return;
+          }
+          const path = validateZipEntryName(entry.fileName);
+          if (path.relativeOutputPath !== "pet.json" || manifest) throw new Error("Zip contains duplicate or invalid pet.json entries.");
+          if (entry.uncompressedSize > limits.maxCodexPetJsonBytes) throw new Error("pet.json is too large.");
+          zipFile.openReadStream(entry, (error, stream) => {
+            if (error || !stream) {
+              fail(error ?? new Error("Cannot read pet.json from zip."));
+              return;
+            }
+            const chunks: Buffer[] = [];
+            let size = 0;
+            stream.on("error", fail);
+            stream.on("data", (chunk: Buffer) => {
+              size += chunk.length;
+              if (size > limits.maxCodexPetJsonBytes) {
+                stream.destroy(new Error("pet.json is too large."));
+                return;
+              }
+              chunks.push(chunk);
+            });
+            stream.on("end", () => {
+              if (settled) return;
+              if (size !== entry.uncompressedSize) {
+                fail(new Error("pet.json extracted size did not match metadata."));
+                return;
+              }
+              manifest = Buffer.concat(chunks, size);
+              zipFile.readEntry();
+            });
+          });
+        } catch (error) {
+          fail(error);
+        }
+      });
+      zipFile.readEntry();
+    });
+  } finally {
+    zipFile.close();
+  }
+  if (!manifest) throw new Error("Zip is missing pet.json.");
+  const value: unknown = JSON.parse(manifest.toString("utf8"));
+  return typeof value === "object" && value !== null && "format" in value && value.format === "motion" ? "motion" : "classic";
 }

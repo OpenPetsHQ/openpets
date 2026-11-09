@@ -332,6 +332,8 @@ export const en = {
   "pets.detail.closeAria": "Close pet details",
   "pets.detail.eyebrow": "Pet detail",
   "pets.detail.previewAnimations": "Preview Animations",
+  "pets.detail.previewStatic": "Static preview",
+  "pets.detail.motionStaticHint": "A still preview of this pet. Animations play on your desktop.",
   "pets.detail.preview.idle": "Idle",
   "pets.detail.preview.thinking": "Thinking",
   "pets.detail.preview.happy": "Happy",

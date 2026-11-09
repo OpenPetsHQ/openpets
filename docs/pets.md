@@ -15,32 +15,31 @@ installation), `packages/install-pet/codemap.md` (standalone installer).
 
 ## What a pet is
 
-### Local motion preview experiment
+### Motion packages
 
-An unpackaged desktop build can replace the built-in Hoodie Cat artwork with a
-complete animated WebP set by setting `OPENPETS_MOTION_PREVIEW_DIR` to an absolute
-directory containing `motion.json` and its clips. This is a local quality trial;
-it is not an installable pet package or a published catalog format.
+Motion artwork uses an explicit `format: "motion"`, `version: 1` manifest with
+named animated WebP clips, semantic bindings and shared logical geometry. It
+does not require a Classic spritesheet or the nine Classic visual slots.
+The shared contract and validation owners are
+`@open-pets/pet-format/package` and its Node `package-validation` subpath.
 
-`pet-motion-preview-format.ts` validates the nine canonical animation states,
-shared canvas dimensions and foot anchor, display scale, and optional movement
-entry/exit clips. `pet-motion-preview.ts` decodes and validates the files, copies
-them into a private session snapshot, and removes that snapshot on normal exit.
-Packaged builds ignore the flag. Assets use the existing authorized sprite-bytes
-IPC, without granting the renderer access to arbitrary directories.
+The first implementation accepts the default appearance only; outfit, activity
+and gaze declarations are rejected rather than silently ignored. Classic pets
+retain their existing wardrobe, activity and gaze support. See
+[Motion pets](/motion-pets) for the delivery boundary and future capabilities.
 
-`pet-motion-player.cjs` uses Electron's `ImageDecoder` and a transparent canvas to
-retain every encoded frame. The desktop trial plays at 1.5× source speed. It owns decoder/frame cleanup,
-pause/resume, finite reactions, movement transitions, and alpha hit testing.
-Dragging starts the directional run immediately; direction changes and release
-interrupt playback without waiting for a loop, turn, or stopping clip. Other
-reaction changes wait for clip boundaries. HUD updates reattach
-the same canvas. Decode errors restore the bundled atlas and log a scoped warning.
+Desktop imports use the existing folder/ZIP transaction. Immutable per-revision
+snapshots keep lazy clip reads consistent during replacement. Main-process body
+intent remains separate from speech-bubble expiration; the renderer body
+coordinator chooses the artwork and reports finite completion or cancellation.
+Dragging interrupts immediately, while HUD updates retain the current canvas.
+Native frame timing and any authored per-clip pace replace the old global speed
+multiplier. Control Center uses a static neutral-frame image, not an atlas crop.
 
-The trial uses the default outfit and disables cursor gaze. Generated outfit and
-gaze variants, Studio generation, catalog distribution, and production format
-selection remain separate decisions after evaluating the actual desktop pet.
-See [Development](/development#previewing-generated-motion) for launch commands.
+The development-only `motion.json` replacement and
+`OPENPETS_MOTION_PREVIEW_DIR` path have been removed. Existing local experiments
+must be explicitly converted into a normal `pet.json` package; they are not
+silently treated as production packages. The bundled fallback remains Classic.
 
 ### Published pet packages
 

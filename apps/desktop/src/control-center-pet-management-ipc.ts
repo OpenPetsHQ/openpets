@@ -1,5 +1,6 @@
 import type { getAppStateSnapshot } from "./app-state.js";
-import { codexV2SpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import { codexV2SpriteLayout } from "@open-pets/pet-format/sprite-layout";
+import type { InstalledPetPresentation } from "./installed-pet-layout.js";
 
 export type ControlCenterPetManagementIpcChannel =
   | "openpets:get-pets-state"
@@ -79,7 +80,7 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly setTimeout: (callback: () => void, delayMs: number) => { readonly unref?: () => void };
   readonly getAppStateSnapshot: () => AppStateSnapshot;
   readonly getSettingsStateSnapshot: () => unknown;
-  readonly readInstalledPetSpriteLayout: (petId: string, source: "personal" | "team") => Promise<CodexPetSpriteLayout>;
+  readonly readInstalledPetPresentation: (petId: string, source: "personal" | "team") => Promise<InstalledPetPresentation>;
   readonly getCatalogUiState: () => unknown | Promise<unknown>;
   readonly getCatalogPageUiState: (page: number) => unknown | Promise<unknown>;
   readonly getCatalogSearchUiState: () => unknown | Promise<unknown>;
@@ -135,7 +136,7 @@ export function installControlCenterPetManagementIpcHandlers({
   setTimeout,
   getAppStateSnapshot,
   getSettingsStateSnapshot,
-  readInstalledPetSpriteLayout,
+  readInstalledPetPresentation,
   getCatalogUiState,
   getCatalogPageUiState,
   getCatalogSearchUiState,
@@ -163,7 +164,7 @@ export function installControlCenterPetManagementIpcHandlers({
 }: ControlCenterPetManagementIpcDependencies): void {
   registerHandle("openpets:get-pets-state", (event) => {
     authorizeSender(event);
-    return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout);
+    return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation);
   });
 
   registerHandle("openpets:get-catalog", async (event) => {
@@ -200,7 +201,7 @@ export function installControlCenterPetManagementIpcHandlers({
     // default must lose its pinned window.
     syncPinnedPets();
     return isCurrentControlCenterSender(event)
-      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
       : state;
   });
 
@@ -246,7 +247,7 @@ export function installControlCenterPetManagementIpcHandlers({
     const state = await installPetWardrobe(petId);
     refreshPetWindowsForPetId(petId, "wardrobe-install");
     return isCurrentControlCenterSender(event)
-      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
       : state;
   });
 
@@ -257,7 +258,7 @@ export function installControlCenterPetManagementIpcHandlers({
     const state = await installPet(petId);
     syncPinnedPets();
     return isCurrentControlCenterSender(event)
-      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
       : state;
   });
 
@@ -265,7 +266,7 @@ export function installControlCenterPetManagementIpcHandlers({
     authorizeSender(event);
     const owner = getOwnerForSender(event);
     const importKind = await chooseLocalPetImportKind(owner, showMessageBox);
-    if (!importKind) return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout);
+    if (!importKind) return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation);
 
     const options: OpenDialogOptions = importKind === "zip" ? {
       title: "Install pet from ZIP",
@@ -278,7 +279,7 @@ export function installControlCenterPetManagementIpcHandlers({
       properties: ["openDirectory"],
     };
     const result = await showOpenDialog(owner, options);
-    if (result.canceled || !result.filePaths[0]) return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout);
+    if (result.canceled || !result.filePaths[0]) return getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation);
     const selectedPath = result.filePaths[0];
     try {
       const selectedStats = await stat(selectedPath);
@@ -290,7 +291,7 @@ export function installControlCenterPetManagementIpcHandlers({
       // A freshly imported pet that is already pinned gets its window back.
       syncPinnedPets();
       return isCurrentControlCenterSender(event)
-        ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+        ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
         : state;
     } catch (error) {
       logger.error("local pet import failed", { error: error instanceof Error ? error.message : String(error) });
@@ -318,7 +319,7 @@ export function installControlCenterPetManagementIpcHandlers({
     const state = await importCodexPet(petId);
     syncPinnedPets();
     return isCurrentControlCenterSender(event)
-      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
       : state;
   });
 
@@ -330,7 +331,7 @@ export function installControlCenterPetManagementIpcHandlers({
     syncPinnedPets();
     refreshDefaultPetContent();
     return isCurrentControlCenterSender(event)
-      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetSpriteLayout)
+      ? getPetsStateSnapshot(getAppStateSnapshot, readInstalledPetPresentation)
       : state;
   });
 
@@ -343,18 +344,18 @@ export function installControlCenterPetManagementIpcHandlers({
 
 async function getPetsStateSnapshot(
   getAppStateSnapshot: () => AppStateSnapshot,
-  readInstalledPetSpriteLayout: (petId: string, source: "personal" | "team") => Promise<CodexPetSpriteLayout>,
+  readInstalledPetPresentation: (petId: string, source: "personal" | "team") => Promise<InstalledPetPresentation>,
 ): Promise<{
   readonly preferences: { readonly defaultPetId: string };
-  readonly pets: { readonly installed: ReadonlyArray<InstalledPet & { readonly spriteLayout?: CodexPetSpriteLayout }> };
+  readonly pets: { readonly installed: ReadonlyArray<InstalledPet & Partial<InstalledPetPresentation>> };
 }> {
   const state = getAppStateSnapshot();
   const installed = await Promise.all(state.pets.installed.map(async (pet) => {
-    if (pet.builtIn) return { ...pet, spriteLayout: codexV2SpriteLayout };
+    if (pet.builtIn) return { ...pet, format: "classic" as const, previewFormat: "atlas" as const, spriteLayout: codexV2SpriteLayout, capabilities: { outfits: true, activities: false, gaze: true } };
     try {
       return {
         ...pet,
-        spriteLayout: await readInstalledPetSpriteLayout(pet.id, pet.source?.kind === "team" ? "team" : "personal"),
+        ...await readInstalledPetPresentation(pet.id, pet.source?.kind === "team" ? "team" : "personal"),
       };
     } catch {
       return pet;

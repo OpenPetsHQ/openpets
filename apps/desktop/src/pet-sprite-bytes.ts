@@ -5,6 +5,7 @@ import { extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { warn } from "./logger.js";
+import { isMotionSnapshotPath, isWindowMotionSnapshotUrlAuthorized } from "./pet-motion-snapshot.js";
 
 /**
  * Serves sprite sheet bytes to pet-window renderers for pixel-accurate hit
@@ -83,6 +84,7 @@ function ensureHandler(): void {
       warn("pet.window", "sprite bytes request outside allowed roots", { filePath });
       return null;
     }
+    if (await isMotionSnapshotPath(canonical) && !isWindowMotionSnapshotUrlAuthorized(event.sender, url)) return null;
     if (!allowedSpriteExtensions.has(extname(canonical).toLowerCase())) return null;
 
     // O_NOFOLLOW keeps the canonical containment decision honest: the final

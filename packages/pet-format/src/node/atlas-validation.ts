@@ -14,6 +14,7 @@ export interface ImageMetadata {
   readonly format?: string;
   readonly width?: number;
   readonly height?: number;
+  readonly pageHeight?: number;
   readonly hasAlpha?: boolean;
   readonly pages?: number;
   readonly loop?: number;

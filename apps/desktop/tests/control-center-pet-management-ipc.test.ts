@@ -96,15 +96,16 @@ function createHarness() {
     },
     getAppStateSnapshot: () => { record("getAppStateSnapshot"); return state as never; },
     getSettingsStateSnapshot: () => { record("getSettingsStateSnapshot"); return settings; },
-    readInstalledPetSpriteLayout: async (petId, source) => {
-      record("readInstalledPetSpriteLayout", petId, source);
+    readInstalledPetPresentation: async (petId, source) => {
+      record("readInstalledPetPresentation", petId, source);
       layoutPaths.push(`${petId}:${source}`);
       activeLayouts += 1;
       maxActiveLayouts = Math.max(maxActiveLayouts, activeLayouts);
       await Promise.resolve();
       activeLayouts -= 1;
       if (petId === "broken-layout") throw new Error("missing layout");
-      return { petId, source } as never;
+      if (petId === "motion") return { format: "motion", previewFormat: "image", previewWidth: 16, previewHeight: 16, capabilities: { outfits: false, activities: false, gaze: false } };
+      return { format: "classic", previewFormat: "atlas", spriteLayout: { petId, source } as never, capabilities: { outfits: false, activities: false, gaze: false } };
     },
     getCatalogUiState: async () => { record("getCatalogUiState"); return { catalog: true }; },
     getCatalogPageUiState: async (page) => { record("getCatalogPageUiState", page); return { page }; },
@@ -185,6 +186,18 @@ assert.deepEqual([...createHarness().handlers.keys()], channels);
     await assert.rejects(async () => getHandler(harness, channel)(event, ...args), /unauthorized/);
   }
   assert.deepEqual(harness.calls, [], "authorization is first for every channel");
+}
+
+{
+  const harness = createHarness();
+  harness.state.pets.installed.push({ id: "motion", builtIn: false, displayName: "Motion" });
+  const snapshot = await getHandler(harness, "openpets:get-pets-state")(event) as {
+    readonly pets: { readonly installed: readonly { readonly id: string; readonly format?: string; readonly spriteLayout?: unknown; readonly capabilities?: unknown }[] };
+  };
+  const motion = snapshot.pets.installed.find((pet) => pet.id === "motion");
+  assert.equal(motion?.format, "motion");
+  assert.equal(motion?.spriteLayout, undefined);
+  assert.deepEqual(motion?.capabilities, { outfits: false, activities: false, gaze: false });
 }
 
 {

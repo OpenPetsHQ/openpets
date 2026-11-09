@@ -6,6 +6,7 @@ import type { Point } from "./display.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { UniversalSpriteState } from "@open-pets/pet-format/animation";
+import type { MotionBodyDescriptor } from "./pet-body-contract.js";
 
 export interface PetWindowInteractionHooks {
   readonly onBubbleDismissed?: (dismissToken: string) => void;
@@ -78,6 +79,7 @@ export interface PetShowMediaOptions {
 export type PetStatusBadgeReaction = Exclude<OpenPetsReaction, "idle">;
 
 export interface PetContentRender {
+  readonly motion?: MotionBodyDescriptor;
   /** Actual rendered identity/appearance, including base-atlas fallback. */
   readonly renderedPetId: string;
   readonly renderedOutfitId: string;

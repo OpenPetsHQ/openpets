@@ -2,7 +2,7 @@ import { app } from "electron";
 import { closeAllAgentPets } from "./agent-pet-controller.js";
 import { destroyDefaultPet } from "./default-pet-controller.js";
 import { info, warn } from "./logger.js";
-import { disposeMotionPreview } from "./pet-motion-preview.js";
+import { cleanupAllMotionSnapshots } from "./pet-motion-snapshot.js";
 import { stopLocalIpcServer } from "./local-ipc.js";
 import { stopRemoteControlService } from "./remote-control-service.js";
 import { closeAllLanVisitingPets } from "./lan-pet-controller.js";
@@ -94,8 +94,8 @@ export function installAppLifecycle(options: AppLifecycleOptions = {}): void {
       closeAllAgentPets();
       closeAllPinnedPets();
       destroyDefaultPet();
-      await disposeMotionPreview().catch((error: unknown) => {
-        warn("pet.window", "motion preview cleanup failed", { error: String(error) });
+      await cleanupAllMotionSnapshots().catch((error: unknown) => {
+        warn("pet.window", "motion snapshot cleanup failed", { error: String(error) });
       });
       cleanupFinished = true;
       app.quit();
