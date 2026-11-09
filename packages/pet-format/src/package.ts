@@ -1,7 +1,8 @@
 import { validateCodexPetMetadata } from "./metadata.js";
-import type { MotionAnimation, MotionBindings, MotionContextReaction, MotionEventReaction, MotionOutfit, MotionPetMetadata, MotionVariant, MotionWardrobe } from "./motion.js";
+import { maxPetActivities, validatePetActivityIdentity } from "./activities.js";
+import type { MotionActivity, MotionActivityAnimation, MotionAnimation, MotionBindings, MotionContextReaction, MotionEventReaction, MotionOutfit, MotionPetMetadata, MotionVariant, MotionWardrobe } from "./motion.js";
 import type { PetPackage } from "./package-types.js";
-import { maxPetOutfits, validateCreatorOutfitSchedule, validateOutfitIdentity } from "./wardrobe.js";
+import { defaultOutfitId, isSafeOutfitId, maxPetOutfits, validateCreatorOutfitSchedule, validateOutfitIdentity } from "./wardrobe.js";
 
 export type { PetPackage, ValidatedPetPackage } from "./package-types.js";
 
@@ -20,7 +21,7 @@ export function validatePetPackageMetadata(value: unknown, expectedId: string): 
 }
 
 function validateMotionMetadata(value: Record<string, unknown>, expectedId: string): MotionPetMetadata {
-  keys(value, ["format", "version", "id", "displayName", "description", "geometry", "clips", "animations", "bindings", "wardrobe"], "Motion metadata");
+  keys(value, ["format", "version", "id", "displayName", "description", "geometry", "clips", "animations", "bindings", "wardrobe", "activities"], "Motion metadata");
   if (value.version !== 1) throw new Error("Unsupported Motion package version.");
   if (typeof value.id !== "string" || value.id !== expectedId || !namePattern.test(value.id) || value.id === "builtin") {
     throw new Error("Motion pet id must be valid and match its folder name.");
@@ -67,11 +68,46 @@ function validateMotionMetadata(value: Record<string, unknown>, expectedId: stri
 
   const bindings = validateMotionBindings(value.bindings, animations, "bindings");
   const wardrobe = value.wardrobe === undefined ? undefined : validateMotionWardrobe(value.wardrobe, animations);
+  const activities = value.activities === undefined ? undefined : validateMotionActivities(value.activities, animations, wardrobe);
   return {
     format: "motion", version: 1, id: value.id, displayName, description,
     geometry: { width, height, pixelsPerUnit, footAnchor }, clips, animations,
-    bindings, ...(wardrobe ? { wardrobe } : {}),
+    bindings, ...(wardrobe ? { wardrobe } : {}), ...(activities ? { activities } : {}),
   };
+}
+
+function validateMotionActivities(value: unknown, animations: Record<string, MotionAnimation>, wardrobe: MotionWardrobe | undefined): readonly MotionActivity[] {
+  if (!Array.isArray(value) || value.length > maxPetActivities) {
+    throw new Error(`Pet activities must be an array of at most ${maxPetActivities} entries.`);
+  }
+  const availableOutfits = new Set([defaultOutfitId, ...(wardrobe?.outfits.map((outfit) => outfit.id) ?? [])]);
+  const activityIds = new Set<string>();
+  return value.map((raw: unknown) => {
+    const activity = object(raw, "Motion activity");
+    keys(activity, ["id", "displayName", "outfitId", "animation", "outfitVariants"], "Motion activity");
+    const identity = validatePetActivityIdentity(activity);
+    if (activityIds.has(identity.id)) throw new Error("Pet activity ids must be unique.");
+    activityIds.add(identity.id);
+    const outfitIds = new Set<string>();
+    const representation = (entry: Record<string, unknown>): MotionActivityAnimation => {
+      if (!isSafeOutfitId(entry.outfitId) || !availableOutfits.has(entry.outfitId)) {
+        throw new Error("Pet activity references an unknown outfit.");
+      }
+      if (outfitIds.has(entry.outfitId)) throw new Error("Pet activity outfits must be unique.");
+      outfitIds.add(entry.outfitId);
+      return { outfitId: entry.outfitId, animation: animationReference(entry.animation, animations, "once", `activity ${identity.id}`) };
+    };
+    const primary = representation(activity);
+    if (activity.outfitVariants !== undefined && (!Array.isArray(activity.outfitVariants) || activity.outfitVariants.length > maxPetOutfits)) {
+      throw new Error(`Pet activity outfitVariants must be an array of at most ${maxPetOutfits} entries.`);
+    }
+    const outfitVariants = Array.isArray(activity.outfitVariants) ? activity.outfitVariants.map((rawVariant: unknown) => {
+      const variant = object(rawVariant, "Motion activity outfit variant");
+      keys(variant, ["outfitId", "animation"], "Motion activity outfit variant");
+      return representation(variant);
+    }) : [];
+    return { ...identity, ...primary, ...(outfitVariants.length > 0 ? { outfitVariants } : {}) };
+  });
 }
 
 function validateMotionBindings(value: unknown, animations: Record<string, MotionAnimation>, label: string): MotionBindings {

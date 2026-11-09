@@ -23,7 +23,7 @@ import { readInstalledPetPackage, readInstalledPetPresentation, readInstalledPet
 import { defaultOutfitId, isSafeOutfitId } from "@open-pets/pet-format/wardrobe";
 import { getPetWardrobeSnapshot, retryPetOutfit, subscribePetWardrobeChanges, updatePetWardrobe } from "./pet-wardrobe.js";
 import { getRenderedOutfits, subscribeRenderedOutfits } from "./pet-wardrobe-render-state.js";
-import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
+import { getPetActivities, playPetActivity, readPetActivityPreview, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
 import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference, setPetWindowOverlaySuppressed } from "./pet-window.js";
@@ -663,16 +663,29 @@ export function installInternalUiProtocol(): void {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
       const url = new URL(request.url);
-      if (url.search || url.hash) return new Response(null, { status: 404 });
+      if (url.hash) return new Response(null, { status: 404 });
       if (url.hostname === "activity") {
         const parts = url.pathname.replace(/^\//, "").split("/").map(decodeURIComponent);
         if (parts.length !== 3) return new Response(null, { status: 404 });
         const [petId = "", activityId = "", outfitId = ""] = parts;
         if (!isSafeOutfitId(outfitId)) return new Response(null, { status: 404 });
-        return new Response(await readInstalledActivityAsset(petId, activityId, outfitId), {
-          headers: { "Content-Type": "image/webp", "Cache-Control": "no-store" },
+        const keys = [...url.searchParams.keys()];
+        const allowed = ["windowId", "snapshotId", "presentationId"];
+        if (keys.some((key) => !allowed.includes(key)) || new Set(keys).size !== keys.length || (keys.length !== 0 && keys.length !== allowed.length)) return new Response(null, { status: 404 });
+        let target: { windowId: number; snapshotId: string; presentationId: string } | undefined;
+        if (keys.length) {
+          const windowId = Number(url.searchParams.get("windowId"));
+          const snapshotId = url.searchParams.get("snapshotId");
+          const presentationId = url.searchParams.get("presentationId");
+          if (!Number.isSafeInteger(windowId) || windowId <= 0 || !snapshotId || !presentationId) return new Response(null, { status: 404 });
+          target = { windowId, snapshotId, presentationId };
+        }
+        const preview = await readPetActivityPreview(petId, activityId, outfitId, target);
+        return new Response(preview.bytes, {
+          headers: { "Content-Type": preview.mimeType, "Cache-Control": "no-store" },
         });
       }
+      if (url.search) return new Response(null, { status: 404 });
       if (url.hostname !== "spritesheet") return new Response(null, { status: 404 });
       // `/{petId}` serves the base atlas; `/{petId}/{outfitId}` one wardrobe outfit.
       const [petId = "", outfitId, ...rest] = url.pathname.replace(/^\//, "").split("/").map((part) => decodeURIComponent(part));

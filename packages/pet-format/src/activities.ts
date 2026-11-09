@@ -9,9 +9,12 @@ export interface PetActivityAnimation {
   readonly fps: number;
 }
 
-export interface PetActivity extends PetActivityAnimation {
+export interface PetActivityIdentity {
   readonly id: string;
   readonly displayName: string;
+}
+
+export interface PetActivity extends PetActivityIdentity, PetActivityAnimation {
   readonly outfitVariants?: readonly PetActivityAnimation[];
 }
 
@@ -40,6 +43,22 @@ export function resolvePetActivityAnimation(activity: PetActivity, outfitId: str
   return enumeratePetActivityAnimations(activity).find((animation) => animation.outfitId === outfitId) ?? null;
 }
 
+export function validatePetActivityIdentity(value: unknown): PetActivityIdentity {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Pet activity must be an object.");
+  }
+  const activity = value as Record<string, unknown>;
+  if (typeof activity.id !== "string" || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(activity.id)) {
+    throw new Error("Pet activity id is invalid.");
+  }
+  if (typeof activity.displayName !== "string"
+    || activity.displayName.trim().length < 1
+    || activity.displayName.trim().length > 40) {
+    throw new Error("Pet activity displayName must contain 1 to 40 characters.");
+  }
+  return { id: activity.id, displayName: activity.displayName.trim() };
+}
+
 /** Validate untrusted pet.json data without image, filesystem, or platform dependencies. */
 export function validatePetActivities(value: unknown, availableOutfitIds: readonly string[] = []): readonly PetActivity[] {
   if (value === undefined) return [];
@@ -53,16 +72,9 @@ export function validatePetActivities(value: unknown, availableOutfitIds: readon
       throw new Error("Pet activity must be an object.");
     }
     const activity = entry as Record<string, unknown>;
-    if (typeof activity.id !== "string" || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(activity.id)) {
-      throw new Error("Pet activity id is invalid.");
-    }
-    if (ids.has(activity.id)) throw new Error("Pet activity ids must be unique.");
-    ids.add(activity.id);
-    if (typeof activity.displayName !== "string"
-      || activity.displayName.trim().length < 1
-      || activity.displayName.trim().length > 40) {
-      throw new Error("Pet activity displayName must contain 1 to 40 characters.");
-    }
+    const identity = validatePetActivityIdentity(activity);
+    if (ids.has(identity.id)) throw new Error("Pet activity ids must be unique.");
+    ids.add(identity.id);
     const outfitIds = new Set<string>();
     const validateAnimation = (value: unknown, primary: boolean): PetActivityAnimation => {
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -74,7 +86,7 @@ export function validatePetActivities(value: unknown, availableOutfitIds: readon
       }
       if (outfitIds.has(animation.outfitId)) throw new Error("Pet activity outfits must be unique.");
       outfitIds.add(animation.outfitId);
-      const expectedPath = primary ? `activities/${activity.id}.webp` : `activities/${activity.id}.${animation.outfitId}.webp`;
+      const expectedPath = primary ? `activities/${identity.id}.webp` : `activities/${identity.id}.${animation.outfitId}.webp`;
       if (animation.spritesheetPath !== expectedPath) {
         throw new Error("Pet activity spritesheetPath must match its activity and outfit ids.");
       }
@@ -108,8 +120,7 @@ export function validatePetActivities(value: unknown, availableOutfitIds: readon
     }
     const outfitVariants = (activity.outfitVariants as unknown[] | undefined)?.map((variant) => validateAnimation(variant, false));
     return {
-      id: activity.id,
-      displayName: activity.displayName.trim(),
+      ...identity,
       ...primary,
       ...(outfitVariants?.length ? { outfitVariants } : {}),
     };

@@ -25,8 +25,9 @@ The shared contract and validation owners are
 
 Motion wardrobes add complete per-outfit bindings through the existing
 preference and schedule owners. The wardrobe contract has passed integrated
-checks and live synthetic-fixture verification. Activity and gaze declarations
-remain rejected rather than silently ignored. Classic pets retain their existing
+checks and live synthetic-fixture verification. Motion activities also have
+integrated and live synthetic-contract coverage as described below; gaze remains
+unsupported. Classic pets retain their existing
 wardrobe, activity and gaze support. See [Motion pets](/motion-pets) and
 [Wardrobe](/wardrobe#motion-wardrobes) for the current delivery boundary.
 
@@ -114,7 +115,7 @@ activity uses artwork matching the pet's rendered outfit; without a matching
 representation, it is skipped rather than switching the pet's clothes. Automatic
 play preferences and cooldowns belong to the activity and are shared across outfits.
 
-A full pet package may optionally declare `pet.json.activities`: at most 16
+A Classic pet package may optionally declare `pet.json.activities`: at most 16
 logical one-shot animations separate from its reaction atlas. Each entry
 has a unique lowercase `id` matching `^[a-z0-9][a-z0-9_-]{0,31}$`, a trimmed
 `displayName` of 1–40 characters, a primary `outfitId` of `default` or a declared
@@ -147,6 +148,35 @@ the existing install transaction. Packages without activities retain their
 existing installation behavior. Runtime reads of optional activity assets stay
 separate from base-atlas validation, so a damaged optional strip need not make
 the base pet unusable.
+
+### Motion activity contract
+
+Motion packages use the same logical activity IDs, outfit availability and
+preferences, but each representation names a finite root `animation` instead of
+declaring a Classic strip. The primary representation is not a fallback for
+another outfit. Playback runs introduction, main clip and ending once. Node
+package validation sums verified native durations divided by each clip's
+authored pace and enforces the same 1–12 second bounds across all phases.
+Motion activities use the package's existing clips and aggregate asset limits;
+there is no additional `activities/` artwork directory.
+
+The desktop integration has passed focused/integrated checks and live macOS
+synthetic-contract verification. Its host activity service owns
+the single quiet-opportunity cadence, logical cooldown history and reservations.
+The body coordinator owns admission and interruption for both formats. History
+is recorded when the first activity frame is presented, not merely requested.
+Ordinary cancellation is distinct from artwork failure and must not quarantine
+an otherwise valid activity.
+
+Motion carriers resolve against the actual committed appearance and immutable
+asset snapshot, not a saved outfit preference or a pending render. A pending
+outfit switch cancels activity and blocks new admission; a failed switch leaves
+the retained outfit's matching representations available. Activity results have
+their own generation and appearance target and cannot commit clothes or settle
+semantic reactions. The activity panel identifies its selected window/outfit;
+Motion previews show the first frame of the activity's introduction, or main
+clip when no introduction exists. Missing carriers disable playback without
+preventing preference changes.
 
 ## Teams-owned pets
 

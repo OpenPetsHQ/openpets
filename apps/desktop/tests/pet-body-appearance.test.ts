@@ -1,9 +1,35 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { createMotionAppearance, createPetBodyState } from "../src/pet-body-state.js";
-import type { MotionBodyDescriptor, PetBodySnapshot } from "../src/pet-body-contract.js";
+import type { MotionActivityBodyState, MotionBodyDescriptor, PetBodySnapshot } from "../src/pet-body-contract.js";
 
 const assets = { snapshotId: "snapshot" } as MotionBodyDescriptor;
+
+it("publishes only the committed body, restoring it after replacement failure", () => {
+  const snapshots: PetBodySnapshot[] = [];
+  const bodies: Array<MotionActivityBodyState | null> = [];
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {}, (body) => bodies.push(body));
+  state.ready();
+  assert.equal(bodies.at(-1), null);
+  const a = state.prepareMotionAppearance(assets, "default", "initial", false);
+  state.publishMotionAppearance(a);
+  assert.equal(bodies.at(-1)?.appearancePending, true);
+  const epoch = snapshots.at(-1)!.input.epoch;
+  state.result({ epoch, snapshotId: "snapshot", presentationId: a.presentationId, outfitId: "default", playbackId: 1, outcome: "started" });
+  assert.equal(bodies.at(-1)?.committed, a);
+  assert.equal(bodies.at(-1)?.appearancePending, false);
+  const count = bodies.length;
+  const hud = state.prepareMotionAppearance(assets, "default", "manual", false);
+  state.publishMotionAppearance(hud);
+  assert.equal(bodies.length, count);
+  const b = state.prepareMotionAppearance(assets, "night", "scheduled", false);
+  state.publishMotionAppearance(b);
+  assert.equal(bodies.at(-1)?.committed, a);
+  assert.equal(bodies.at(-1)?.appearancePending, true);
+  state.result({ epoch, snapshotId: "snapshot", presentationId: b.presentationId, outfitId: "night", playbackId: 2, outcome: "failed" });
+  assert.equal(bodies.at(-1)?.committed, a);
+  assert.equal(bodies.at(-1)?.appearancePending, false);
+});
 
 it("keeps the same appearance for HUD updates and allocates for explicit retry", () => {
   let next = 0;

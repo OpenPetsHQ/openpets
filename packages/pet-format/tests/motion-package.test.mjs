@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { validatePetPackageMetadata } from "../dist/package.js";
-import { getMotionOutfitBindings } from "../dist/motion.js";
+import { calculateMotionActivityDurationMs, getMotionAnimationFirstClip, getMotionOutfitBindings, resolveMotionActivityAnimation } from "../dist/motion.js";
+import { validatePetActivities } from "../dist/activities.js";
 import { resolveWornOutfitId, validatePetWardrobe } from "../dist/wardrobe.js";
 import { motionMaxClipBytes, validatePetPackageAssets } from "../dist/node/package-validation.js";
 import { validateZipEntryName } from "../dist/node/paths.js";
@@ -99,7 +100,6 @@ test("Motion wardrobe rejects incomplete outfits, invalid references, duplicate 
     (v) => { v.wardrobe.schedule[0].when.days = ["someday"]; },
     (v) => { v.wardrobe.schedule[0].extra = true; },
     (v) => { v.wardrobe.outfits[0].gaze = {}; },
-    (v) => { v.activities = []; },
     (v) => { v.gaze = {}; },
     (v) => { v.wardrobe.outfits = Array.from({ length: 17 }, (_, i) => ({ ...structuredClone(v.wardrobe.outfits[0]), id: `coat${i}` })); },
   ];
@@ -108,6 +108,79 @@ test("Motion wardrobe rejects incomplete outfits, invalid references, duplicate 
     mutate(value);
     assert.throws(() => validatePetPackageMetadata(value, "cat"));
   }
+});
+
+function activityFixture() {
+  const value = wardrobeFixture();
+  value.clips.intro = { file: "clips/intro.webp", frames: 2, playbackRate: 2 };
+  value.clips.outro = { file: "clips/outro.webp", frames: 2 };
+  value.animations.trick = { play: "once", intro: "intro", clip: "coat", outro: "outro" };
+  value.activities = [{ id: "trick", displayName: " Trick ", outfitId: "coat", animation: "trick" }];
+  return value;
+}
+
+test("Motion activity selects only exact outfit and first finite clip", () => {
+  const pet = validatePetPackageMetadata(activityFixture(), "cat");
+  const activity = pet.metadata.activities[0];
+  assert.equal(activity.displayName, "Trick");
+  assert.equal(resolveMotionActivityAnimation(activity, "default"), null);
+  assert.equal(resolveMotionActivityAnimation(activity, "coat").animation, "trick");
+  assert.equal(getMotionAnimationFirstClip(pet.metadata.animations.trick), "intro");
+  assert.equal(getMotionAnimationFirstClip({ play: "once", clip: "coat" }), "coat");
+});
+
+test("Motion activities reject unknown and looping references, duplicate identities and outfits", () => {
+  const mutations = [
+    (v) => { v.activities[0].animation = "idle"; },
+    (v) => { v.activities[0].animation = "missing"; },
+    (v) => { v.activities[0].outfitId = "unknown"; },
+    (v) => { v.activities[0].outfitVariants = [{ outfitId: "coat", animation: "trick" }]; },
+    (v) => { v.activities.push(structuredClone(v.activities[0])); },
+    (v) => { v.activities[0].id = "INVALID"; },
+    (v) => { v.activities[0].displayName = " "; },
+    (v) => { v.activities[0].outfitVariants = [{ outfitId: "default", animation: "trick", extra: true }]; },
+    (v) => { v.activities = Array.from({ length: 17 }, (_, i) => ({ ...v.activities[0], id: `trick${i}` })); },
+    (v) => { v.gaze = {}; },
+  ];
+  for (const mutate of mutations) {
+    const value = activityFixture();
+    mutate(value);
+    assert.throws(() => validatePetPackageMetadata(value, "cat"));
+  }
+  const value = activityFixture();
+  value.activities[0].outfitVariants = [{ outfitId: "default", animation: "wave" }];
+  const activity = validatePetPackageMetadata(value, "cat").metadata.activities[0];
+  assert.equal(resolveMotionActivityAnimation(activity, "default").animation, "wave");
+});
+
+test("Motion activity duration checks verified intro, main and outro with per-clip playback rates", async () => {
+  const value = activityFixture();
+  const pet = validatePetPackageMetadata(value, "cat");
+  const root = await mkdtemp(join(tmpdir(), "motion-activity-"));
+  try {
+    await mkdir(join(root, "clips"));
+    await writeFile(join(root, "pet.json"), "{}");
+    for (const [name, clip] of Object.entries(value.clips)) await writeFile(join(root, clip.file), name);
+    const durations = { idle: 100, intro: 400, coat: 1000, outro: 300 };
+    const imageDecoder = { open: (bytes) => decoder({ delay: [durations[bytes.toString()] / 2, durations[bytes.toString()] / 2] }).open() };
+    const result = await validatePetPackageAssets(root, pet, imageDecoder, { exactPackage: true });
+    assert.equal(calculateMotionActivityDurationMs(pet.metadata.animations.trick, pet.metadata.clips, result.verifiedClips), 1500);
+    durations.coat = 500;
+    await validatePetPackageAssets(root, pet, imageDecoder);
+    durations.coat = 499;
+    await assert.rejects(validatePetPackageAssets(root, pet, imageDecoder));
+    durations.coat = 11500;
+    await validatePetPackageAssets(root, pet, imageDecoder);
+    durations.outro = 301;
+    await assert.rejects(validatePetPackageAssets(root, pet, imageDecoder));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Classic activity strip validation retains identity and exact-outfit behavior", () => {
+  const [activity] = validatePetActivities([{ id: "trick", displayName: " Trick ", outfitId: "default", spritesheetPath: "activities/trick.webp", frameCount: 4, fps: 4 }]);
+  assert.equal(activity.displayName, "Trick");
+  assert.equal(activity.spritesheetPath, "activities/trick.webp");
+  assert.throws(() => validatePetActivities([{ ...activity, fps: 0 }]));
 });
 
 test("Classic wardrobe identity and creator schedules retain existing behavior", () => {

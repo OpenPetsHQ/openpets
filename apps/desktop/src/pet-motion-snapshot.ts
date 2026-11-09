@@ -218,6 +218,12 @@ export function isWindowMotionSnapshotUrlAuthorized(contents: WebContents, url: 
   return false;
 }
 
+/** Preview readers may use only the original descriptor retained by a live carrier. */
+export function isTrackedMotionSnapshotDescriptor(descriptor: MotionBodyDescriptor): boolean {
+  const snapshot = snapshots.get(descriptor.snapshotId);
+  return snapshot?.descriptor === descriptor && [...snapshot.owners].some((contents) => !contents.isDestroyed());
+}
+
 export async function cleanupAllMotionSnapshots(): Promise<void> {
   shuttingDown = true;
   generation += 1;

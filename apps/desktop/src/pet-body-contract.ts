@@ -38,6 +38,13 @@ export interface PetBodySnapshot {
   readonly motion: MotionAppearance | null;
 }
 
+/** Current semantic input and first-frame-committed Motion activity target. */
+export interface MotionActivityBodyState {
+  readonly input: PetBodyInput;
+  readonly committed: MotionAppearance | null;
+  readonly appearancePending: boolean;
+}
+
 export interface PetBodyResult {
   readonly epoch: string;
   readonly snapshotId: string;

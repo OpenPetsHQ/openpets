@@ -1,8 +1,9 @@
 import { lstat, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { maxCodexSpritesheetBytes } from "../metadata.js";
+import { maxPetActivityDurationMs, minPetActivityDurationMs } from "../activities.js";
 import { motionMaxDecodedPixels } from "../package.js";
-import type { VerifiedMotionClip } from "../motion.js";
+import { calculateMotionActivityDurationMs, enumerateMotionActivityAnimations, type VerifiedMotionClip } from "../motion.js";
 import type { PetPackage, ValidatedPetPackage } from "../package-types.js";
 import { validatePetAtlases, type ImageDecoder } from "./atlas-validation.js";
 import { readBoundedRegularFile } from "./files.js";
@@ -59,6 +60,16 @@ export async function validatePetPackageAssets(
     await image.decode();
     verifiedClips[name] = { frameDurationsMs, durationMs };
     if (options.copyTo) await writeFile(join(options.copyTo, clip.file), bytes, { mode: 0o600, flag: "wx" });
+  }
+  for (const activity of metadata.activities ?? []) {
+    for (const representation of enumerateMotionActivityAnimations(activity)) {
+      const animation = metadata.animations[representation.animation];
+      if (!animation || animation.play !== "once") throw new Error(`Motion activity ${activity.id} needs a finite animation.`);
+      const durationMs = calculateMotionActivityDurationMs(animation, metadata.clips, verifiedClips);
+      if (durationMs < minPetActivityDurationMs || durationMs > maxPetActivityDurationMs) {
+        throw new Error(`Motion activity ${activity.id} duration must be from 1000 to 12000 milliseconds.`);
+      }
+    }
   }
   return { package: petPackage, verifiedClips };
 }

@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { PetActivityService, type PetActivityCarrier } from "../src/pet-activity-service.js";
 import { normalizePetActivityPreferences } from "../src/pet-activity-policy.js";
-import type { PetActivity } from "@open-pets/pet-format/activities";
 
-const activities: readonly PetActivity[] = ["read", "stretch"].map((id) => ({
-  id, displayName: id, outfitId: "default", spritesheetPath: `activities/${id}.webp`, frameCount: 8, fps: 4,
-}));
+const activities = ["read", "stretch"].map((id) => ({ id, displayName: id, durationMs: 2000 }));
 
 function fixture(enabled: readonly string[] = ["read", "stretch"]) {
   let now = 0;
@@ -13,191 +10,93 @@ function fixture(enabled: readonly string[] = ["read", "stretch"]) {
   const played: Array<{ id: string; generation: number; windowId: number }> = [];
   const stopped: number[] = [];
   const failed: string[] = [];
+  let variations = 0;
   const service = new PetActivityService({
-    now: () => now,
-    random: () => 0,
-    enabledIds: () => enabled,
-    onFailure: (_petId, activityId) => failed.push(activityId),
+    now: () => now, random: () => 0, enabledIds: () => enabled,
+    onFailure: (_pet, id, outfit, revision) => failed.push(`${id}:${outfit}:${revision}`),
   });
-  const carrier = (id = 1, outfitId = "default"): PetActivityCarrier => ({
-    id, petId: "cat", activities, outfitId,
+  const carrier = (id = 1, outfitId = "default", revision = "v1"): PetActivityCarrier => ({
+    id, petId: "cat", outfitId, revision, failureRevision: revision,
+    activities: outfitId === "pajamas" ? [activities[1]!] : activities,
     availabilityReason: () => busy,
     play: (activity, generation) => played.push({ id: activity.id, generation, windowId: id }),
-    stop: (generation) => stopped.push(generation),
+    stop: (_activity, generation) => stopped.push(generation),
+    variation: () => { variations += 1; },
   });
   service.register(carrier());
   return {
     service, played, stopped, failed, carrier,
     at(value: number) { now = value; service.tick(); },
     busy(value: string | null) { busy = value; },
+    get variations() { return variations; },
+    result(index: number, outcome: "started" | "completed" | "cancelled" | "failed") {
+      const item = played[index]!;
+      service.result(item.windowId, item.generation, item.id, outcome);
+    },
   };
 }
 
-// Automatic playback is opt-in and cannot begin before continuous idle plus a random opportunity.
+// Quiet opportunities are opt-in, bounded, and can trigger neutral variation.
 {
   const f = fixture([]);
-  f.at(0);
-  f.at(120_000);
-  assert.equal(f.played.length, 0);
-  const enabled = fixture();
-  enabled.at(0);
-  enabled.at(119_999);
-  assert.equal(enabled.played.length, 0);
-  enabled.at(120_000);
-  assert.equal(enabled.played[0]?.id, "read");
+  f.at(0); f.at(119_999); assert.equal(f.played.length, 0);
+  f.at(120_000); assert.equal(f.played.length, 0); assert.equal(f.variations, 1);
 }
 
-// Raw busy signals/movement cancel playback and reset idle; there is no missed-work backlog.
+// Busy interruption resets the opportunity and does not quarantine an asset.
 {
   const f = fixture();
-  f.at(0);
-  f.at(119_000);
-  f.service.cancel(1);
-  f.at(120_000);
-  assert.equal(f.played.length, 0);
-  f.at(240_000);
-  assert.equal(f.played.length, 1);
-  f.busy("agent is working even if its mapped sprite is idle");
-  f.at(240_001);
+  f.at(0); f.at(120_000); assert.equal(f.played[0]?.id, "read");
+  f.busy("working"); f.at(120_001);
   assert.equal(f.service.getPlayingActivityId("cat"), null);
-  assert.equal(f.stopped.length, 1);
-  f.busy(null);
-  f.at(1_000_000);
-  assert.equal(f.played.length, 1);
+  assert.deepEqual(f.failed, []); assert.equal(f.stopped.length, 1);
+  f.busy(null); f.at(120_002); f.at(240_001); assert.equal(f.played.length, 1);
 }
 
-// Cooldowns and repeat history are per pet, even when another carrier performs the next activity.
+// Only a first-frame acknowledgement consumes cooldown; cancellation before it does not.
 {
   const f = fixture();
-  f.service.register(f.carrier(2));
-  f.service.play("cat", "read");
-  assert.throws(() => f.service.play("cat", "stretch"), /already playing/);
-  const first = f.played[0]!;
-  f.service.complete(first.windowId, first.generation);
-  f.service.remove(1);
-  f.at(0);
-  f.at(120_000);
-  assert.equal(f.played[1]?.id, "stretch");
-  assert.equal(f.played[1]?.windowId, 2);
-  const second = f.played[1]!;
-  f.service.complete(second.windowId, second.generation);
-  f.at(120_000);
-  f.at(240_000);
-  assert.equal(f.played.length, 2, "the previous read is still cooling down");
-  f.at(360_000);
-  assert.equal(f.played[2]?.id, "read");
-}
-
-// A sole enabled activity can repeat later, but cannot become a continuous playlist.
-{
-  const f = fixture(["read"]);
-  f.service.play("cat", "read");
-  const first = f.played[0]!;
-  f.service.complete(1, first.generation);
-  f.at(0);
-  f.at(120_000);
-  f.at(240_000);
-  assert.equal(f.played.length, 1);
-  f.at(360_000);
-  assert.equal(f.played.length, 2);
-}
-
-// Manual ignores timing/preferences, but not appearance, busy state or missing windows.
-{
-  const f = fixture([]);
-  f.service.play("cat", "read");
-  const first = f.played[0]!;
-  f.service.complete(1, first.generation);
-  f.service.play("cat", "read");
-  assert.equal(f.played.length, 2);
+  f.service.play("cat", "read", 1);
+  assert.throws(() => f.service.play("cat", "stretch", 1), /already playing/);
   f.service.cancel(1);
+  f.result(0, "started");
+  f.at(0); f.at(120_000); assert.equal(f.played[1]?.id, "read");
+  f.result(1, "started"); f.result(1, "completed");
   f.service.register(f.carrier(1, "pajamas"));
-  assert.throws(() => f.service.play("cat", "read"), /unavailable/);
+  f.at(120_000); f.at(240_000); assert.equal(f.played[2]?.id, "stretch");
+  f.result(2, "started"); f.result(2, "completed");
   f.service.register(f.carrier());
-  f.busy("chat is open");
-  assert.throws(() => f.service.play("cat", "read"), /chat is open/);
-  f.service.remove(1);
-  assert.throws(() => f.service.play("cat", "read"), /Show this pet/);
+  f.at(240_000); f.at(360_000); assert.equal(f.played.length, 3);
+  f.at(480_000); assert.equal(f.played[3]?.id, "read");
 }
 
-// Stale completion never stops a replacement; renderer failures disable only the optional activity.
+// Wrong identity and stale generations cannot complete or fail a replacement.
 {
   const f = fixture();
-  f.service.play("cat", "read");
+  f.service.play("cat", "read", 1);
   const first = f.played[0]!;
-  f.service.register(f.carrier());
-  f.service.play("cat", "stretch");
-  const second = f.played[1]!;
-  f.service.complete(1, first.generation, true);
-  assert.equal(f.service.getPlayingActivityId("cat"), "stretch");
+  f.service.register(f.carrier()); // HUD-only refresh retains the active reservation.
+  assert.equal(f.service.isCurrent(1, first.generation), true);
+  f.service.result(1, first.generation, "stretch", "failed");
   assert.deepEqual(f.failed, []);
-  f.service.complete(1, second.generation, true);
-  assert.deepEqual(f.failed, ["stretch"]);
-  assert.throws(() => f.service.play("cat", "stretch"), /unavailable/);
-  f.service.play("cat", "read");
-  f.service.stop();
-  assert.equal(f.service.getPlayingActivityId("cat"), null);
+  f.service.register(f.carrier(1, "pajamas"));
+  f.service.play("cat", "stretch", 1);
+  f.result(0, "failed");
+  assert.equal(f.service.getPlayingActivityId("cat"), "stretch");
+  f.result(1, "failed");
+  assert.deepEqual(f.failed, ["stretch:pajamas:v1"]);
+  assert.throws(() => f.service.play("cat", "stretch", 1), /unavailable/);
+  f.service.register(f.carrier(1, "default", "v2"));
+  f.service.play("cat", "stretch", 1);
 }
 
-// A renderer that never completes cannot retain playback ownership indefinitely.
+// A nonresponsive renderer cannot retain the reservation indefinitely.
 {
   const f = fixture();
-  f.service.play("cat", "read");
-  f.at(7_001);
+  f.service.play("cat", "read", 1);
+  f.at(7001);
   assert.equal(f.service.getPlayingActivityId("cat"), null);
-  assert.deepEqual(f.failed, ["read"]);
-  assert.equal(f.stopped.length, 1);
+  assert.deepEqual(f.failed, ["read:default:v1"]);
 }
 
-// Outfit selection filters before random choice and retains the logical cooldown.
-{
-  let now = 0;
-  const played: Array<{ activity: PetActivity; generation: number }> = [];
-  const stopped: number[] = [];
-  const failures: string[] = [];
-  const variant: PetActivity = {
-    ...activities[1]!,
-    outfitVariants: [{ outfitId: "pajamas", spritesheetPath: "activities/stretch.pajamas.webp", frameCount: 12, fps: 6 }],
-  };
-  const service = new PetActivityService({
-    now: () => now, random: () => 0, enabledIds: () => ["read", "stretch"],
-    onFailure: (_pet, id, outfit) => failures.push(`${id}:${outfit}`),
-  });
-  const carrier = (outfitId: string): PetActivityCarrier => ({
-    id: 1, petId: "cat", outfitId, activities: [activities[0]!, variant],
-    availabilityReason: () => null,
-    play: (activity, generation) => played.push({ activity, generation }),
-    stop: (generation) => stopped.push(generation),
-  });
-  service.register(carrier("pajamas"));
-  assert.throws(() => service.play("cat", "read"), /unavailable/);
-  service.tick();
-  now = 120_000;
-  service.tick();
-  assert.equal(played[0]?.activity.id, "stretch");
-  assert.equal(played[0]?.activity.outfitId, "pajamas");
-  assert.equal(played[0]?.activity.frameCount, 12);
-  assert.equal(played[0]?.activity.fps, 6);
-  const first = played[0]!;
-  service.register(carrier("default"));
-  assert.deepEqual(stopped, [first.generation]);
-  assert.equal(service.isCurrent(1, first.generation), false);
-  service.complete(1, first.generation, true);
-  assert.deepEqual(failures, []);
-  service.tick();
-  now = 240_000;
-  service.tick();
-  assert.equal(played[1]?.activity.id, "read", "cooldown is shared across outfit representations");
-  service.complete(1, played[1]!.generation);
-  service.register(carrier("pajamas"));
-  service.play("cat", "stretch");
-  service.complete(1, played[2]!.generation, true);
-  assert.deepEqual(failures, ["stretch:pajamas"]);
-  service.register(carrier("default"));
-  service.play("cat", "stretch");
-  assert.equal(played[3]?.activity.outfitId, "default", "a failed outfit does not suppress the default representation");
-}
-
-assert.equal(normalizePetActivityPreferences(undefined), undefined);
 assert.deepEqual(normalizePetActivityPreferences({ cat: ["read", "read", "cat_nap", false, "../bad"], dog: [] }), { cat: ["read", "cat_nap"] });
-console.log("Native activity scheduling, interruption, appearance and ownership behavior passed.");

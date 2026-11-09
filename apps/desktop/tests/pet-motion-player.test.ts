@@ -224,11 +224,12 @@ test("intentional idle variation remains selected on HUD refresh and after movem
   Object.assign(d.metadata.animations, { alternative: { play: "loop", loop: "alternative" } });
   d.metadata.bindings.idle.push({ animation: "alternative" });
   coordinator.update({ ...state(1), motion: appearance(d) });
-  clock = 30000; end!(); assert.deepEqual(calls, ["idle", "alternative"]);
+  clock = 30000; end!(); assert.deepEqual(calls, ["idle", "idle"]);
+  assert.equal(coordinator.offerVariation(), true); end!(); assert.deepEqual(calls, ["idle", "idle", "alternative"]);
   coordinator.refresh(); coordinator.update({ ...state(2), motion: appearance(d) });
-  assert.deepEqual(calls, ["idle", "alternative"]);
+  assert.deepEqual(calls, ["idle", "idle", "alternative"]);
   coordinator.setMotionState("run-left"); coordinator.setMotionState("idle");
-  assert.deepEqual(calls, ["idle", "alternative", "run", "alternative"]);
+  assert.deepEqual(calls, ["idle", "idle", "alternative", "run", "alternative"]);
   coordinator.dispose();
 });
 

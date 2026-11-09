@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { MotionContextReaction, MotionEventReaction } from "@open-pets/pet-format/motion";
-import type { MotionAppearance, MotionBodyDescriptor, PetBodyInput, PetBodyResult, PetBodySnapshot } from "./pet-body-contract.js";
+import type { MotionActivityBodyState, MotionAppearance, MotionBodyDescriptor, PetBodyInput, PetBodyResult, PetBodySnapshot } from "./pet-body-contract.js";
 
 export function createMotionAppearance(current: MotionAppearance | null, assets: MotionBodyDescriptor, outfitId: string, reason: MotionAppearance["reason"], retry: boolean, allocateId: () => string): MotionAppearance {
   if (!retry && current?.assets.snapshotId === assets.snapshotId && current.outfitId === outfitId) return current;
@@ -70,25 +70,43 @@ export function replacePluginSpriteWithReaction(clearSprite: () => void, react: 
 }
 
 /** Window-local semantic intent, independent of transient presentation timers. */
-export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void, appearanceResult: (appearance: MotionAppearance, outcome: "started" | "deferred" | "failed") => void) {
+export function createPetBodyState(
+  publish: (snapshot: PetBodySnapshot) => void,
+  appearanceResult: (appearance: MotionAppearance, outcome: "started" | "deferred" | "failed") => void,
+  publishActivityBody?: (state: MotionActivityBodyState | null) => void,
+) {
   let input: PetBodyInput = { epoch: randomUUID(), revision: 0, context: "idle", paused: false, suspended: false };
   let motion: MotionAppearance | null = null;
   let presented: MotionAppearance | null = null;
+  let appearancePending = false;
   let prepared: MotionAppearance | null = null;
   let eventAttempt: { intentId: string; presentationId: string; playbackId: number } | null = null;
   let playbackId = 0;
   const send = () => publish({ input, motion });
+  const notifyActivityBody = () => {
+    if (!motion && !presented) {
+      publishActivityBody?.(null);
+      return;
+    }
+    publishActivityBody?.({ input, committed: presented, appearancePending });
+  };
   const update = (patch: Partial<PetBodyInput>) => {
     input = { ...input, ...patch, revision: input.revision + 1 };
     send();
+    notifyActivityBody();
   };
   return {
-    ready: send,
+    ready() {
+      send();
+      notifyActivityBody();
+    },
     documentLost() {
       input = { ...input, epoch: randomUUID(), revision: 0, event: undefined };
       presented = null;
+      appearancePending = motion !== null;
       eventAttempt = null;
       playbackId = 0;
+      notifyActivityBody();
     },
     prepareMotionAppearance(assets: MotionBodyDescriptor, outfitId: string, reason: MotionAppearance["reason"], retry: boolean, manualCommand = false) {
       const promoteScheduled = manualCommand && reason === "manual" && motion?.reason === "scheduled";
@@ -100,6 +118,7 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
       prepared = null;
       if (motion === candidate) return true;
       motion = candidate;
+      appearancePending = candidate !== presented;
       playbackId = 0;
       update({});
       return true;
@@ -107,6 +126,7 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
     clearMotion() {
       prepared = null;
       presented = null;
+      appearancePending = false;
       if (!motion) return;
       motion = null;
       playbackId = 0;
@@ -122,6 +142,7 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
         input = { ...input, epoch: randomUUID(), revision: 0, event: undefined, suspended: true };
         eventAttempt = null;
         send();
+        notifyActivityBody();
       } else {
         update({ suspended: false });
       }
@@ -152,11 +173,14 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
         }
         if (id < playbackId) return;
         playbackId = id;
+        const bodyChanged = presented !== motion || appearancePending;
         presented = motion;
+        appearancePending = false;
         if (result.intentId && result.intentId === input.event?.id) {
           eventAttempt = { intentId: result.intentId, presentationId: motion.presentationId, playbackId: id };
         }
         appearanceResult(motion, "started");
+        if (bodyChanged) notifyActivityBody();
         return;
       }
       if (result.outcome === "deferred") {
@@ -164,7 +188,11 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
         return;
       }
       if (result.outcome !== "completed" && result.outcome !== "cancelled" && result.outcome !== "failed") return;
-      if (result.outcome === "failed" && requested && motion && presented !== motion) appearanceResult(motion, "failed");
+      if (result.outcome === "failed" && requested && motion && presented !== motion) {
+        appearancePending = false;
+        appearanceResult(motion, "failed");
+        notifyActivityBody();
+      }
       if (result.intentId && result.intentId === input.event?.id) {
         if (eventAttempt?.intentId === result.intentId && (eventAttempt.presentationId !== result.presentationId || eventAttempt.playbackId !== id)) return;
         eventAttempt = null;

@@ -26,7 +26,7 @@ export type InstalledPetPresentation =
       readonly previewFormat: "image";
       readonly previewWidth: number;
       readonly previewHeight: number;
-      readonly capabilities: { readonly outfits: boolean; readonly activities: false; readonly gaze: false };
+      readonly capabilities: { readonly outfits: boolean; readonly activities: boolean; readonly gaze: false };
     };
 
 /** Clone-safe artwork facts for installed-pet UI snapshots. */
@@ -41,7 +41,7 @@ export async function readInstalledPetPresentation(
       previewFormat: "image",
       previewWidth: petPackage.metadata.geometry.width,
       previewHeight: petPackage.metadata.geometry.height,
-      capabilities: { outfits: Boolean(petPackage.metadata.wardrobe?.outfits.length), activities: false, gaze: false },
+      capabilities: { outfits: Boolean(petPackage.metadata.wardrobe?.outfits.length), activities: Boolean(petPackage.metadata.activities?.length), gaze: false },
     };
   }
   const { metadata } = petPackage;

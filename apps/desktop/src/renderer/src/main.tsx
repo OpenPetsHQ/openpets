@@ -4536,32 +4536,31 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                 </div>
 
                 {selected.installed && !selected.broken && (selected.format !== "motion" || selected.capabilities?.outfits) && (
-                  <>
-                    <WardrobePanel
-                      key={selected.id}
-                      petId={selected.id}
-                      spriteLayout={selected.spriteLayout}
-                      load={api.getPetWardrobe}
-                      update={api.updatePetWardrobe}
-                      retryOutfit={api.retryPetOutfit!}
-                      onWardrobeChanged={api.onPetWardrobeChanged!}
-                      installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
-                        ? async () => {
-                          await api.installPetWardrobe(selected.id);
-                          await loadPetsData();
-                        }
-                        : undefined}
-                    />
-                    {selected.format !== "motion" && (
-                      <ActivitiesPanel
-                        key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
-                        petId={selected.id}
-                        load={api.getPetActivities}
-                        setPetActivityEnabled={api.setPetActivityEnabled}
-                        playPetActivity={api.playPetActivity}
-                      />
-                    )}
-                  </>
+                  <WardrobePanel
+                    key={selected.id}
+                    petId={selected.id}
+                    spriteLayout={selected.spriteLayout}
+                    load={api.getPetWardrobe}
+                    update={api.updatePetWardrobe}
+                    retryOutfit={api.retryPetOutfit!}
+                    onWardrobeChanged={api.onPetWardrobeChanged!}
+                    installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
+                      ? async () => {
+                        await api.installPetWardrobe(selected.id);
+                        await loadPetsData();
+                      }
+                      : undefined}
+                  />
+                )}
+
+                {selected.installed && !selected.broken && (selected.format !== "motion" || selected.capabilities?.activities) && (
+                  <ActivitiesPanel
+                    key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
+                    petId={selected.id}
+                    load={api.getPetActivities}
+                    setPetActivityEnabled={api.setPetActivityEnabled}
+                    playPetActivity={api.playPetActivity}
+                  />
                 )}
 
                 <div className="actions-container mt-6 flex flex-col gap-3 pet-detail-actions">

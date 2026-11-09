@@ -18,6 +18,8 @@ Motion v1 metadata is strictly validated before its declared animated WebP clips
 
 Optional Motion wardrobes share the Classic outfit identity, schedule and preference-resolution rules. Each named outfit supplies its own complete idle and movement bindings, plus optional context and event bindings, referencing the package-wide clips and animations. The default outfit uses root bindings; named outfits do not inherit them.
 
+Motion activities share Classic logical identity and outfit matching, but reference finite package animations instead of strip atlases. Every representation must match an actual outfit; after all clips are decoded, its full intro/main/outro playback duration, adjusted by each clip's authored rate, must be 1–12 seconds. They use the same package-wide clip inventory and budgets.
+
 ## Integration Points
 
 **Consumers**: Desktop and standalone browser surfaces.

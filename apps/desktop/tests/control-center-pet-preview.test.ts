@@ -7,6 +7,14 @@ import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSprite
 // rejecting it turns valid outfit artwork into a placeholder.
 assert.equal(isAllowedPetActivityPreview("openpets-installed://activity/activity-fixture/shared/default"), true);
 assert.equal(isAllowedPetActivityPreview("openpets-installed://activity/activity-fixture/shared/pajamas"), true);
+const activityBase = "openpets-installed://activity/activity-fixture/shared/default";
+const motionQuery = new URLSearchParams({
+  windowId: "24",
+  snapshotId: "d65d51dc-97d8-4478-8f18-187b72e4b24a",
+  presentationId: "4d8a8129-09b9-4c57-a231-bf4c393e3595",
+});
+assert.equal(isAllowedPetActivityPreview(`${activityBase}?${motionQuery}`), true);
+assert.equal(isAllowedPetActivityPreview(`${activityBase}?windowId=24&snapshotId=opaque%3Aid&presentationId=other_id`), true);
 for (const invalid of [
   "openpets-installed://activity/activity-fixture/shared",
   "openpets-installed://activity/activity-fixture/shared/pajamas/extra",
@@ -14,6 +22,17 @@ for (const invalid of [
   "openpets-installed://activity/activity-fixture/%2e%2e/default",
   "openpets-installed://activity/activity-fixture/shared/%2fdefault",
   "openpets-installed://activity/activity-fixture/shared/default?x=1",
+  `${activityBase}?windowId=24&snapshotId=snapshot`,
+  `${activityBase}?${motionQuery}&windowId=25`,
+  `${activityBase}?${motionQuery}&extra=1`,
+  `${activityBase}?windowId=0&snapshotId=a&presentationId=b`,
+  `${activityBase}?windowId=9007199254740992&snapshotId=a&presentationId=b`,
+  `${activityBase}?windowId=1.5&snapshotId=a&presentationId=b`,
+  `${activityBase}?windowId=24&snapshotId=&presentationId=b`,
+  `${activityBase}?windowId=24&snapshotId=%ZZ&presentationId=b`,
+  `${activityBase}?${motionQuery}#fragment`,
+  "openpets-installed://user@activity/activity-fixture/shared/default",
+  "openpets-installed://activity:24/activity-fixture/shared/default",
   "https://activity/activity-fixture/shared/default",
 ]) {
   assert.equal(isAllowedPetActivityPreview(invalid), false, invalid);

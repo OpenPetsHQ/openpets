@@ -37,10 +37,20 @@ validation, integrated desktop checks and live macOS synthetic-fixture checks
 cover switching, failure retention, explicit retry, independent windows sharing
 assets, scheduled-to-manual promotion, cleanup and preference persistence.
 This establishes contract behavior, not a second genuine outfit or artwork
-quality. Activities and gaze remain unsupported and are rejected rather than
-ignored. Control Center's Motion previews are deliberately static neutral
+quality. Finite idle activities have passed integrated checks and live macOS
+synthetic-contract verification, including interruption, exact-outfit availability,
+automatic opportunities, first-frame history and restart/cleanup. This does not
+establish genuine activity artwork quality or production readiness. Gaze remains
+unsupported. Control Center's pet previews are deliberately static neutral
 frames. See [Wardrobe](/wardrobe#motion-wardrobes) for appearance commitment,
 failure/retry and the shared preference/schedule contract.
+
+Motion activity representations reference finite named animations for an exact
+outfit, with duration validated from all verified phases and authored clip rates.
+The existing host service remains the only timed quiet-opportunity owner; the
+renderer coordinator admits playback and reports first-frame start and terminal
+results separately from body/appearance results. See [Idle Activities](/pets#idle-activities)
+for the shared behavior and current verification boundary.
 
 Desktop body suspension follows logical host visibility and system power state,
 not renderer document visibility. Host show/hide operations publish successful

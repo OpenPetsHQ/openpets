@@ -24,7 +24,7 @@ import { installPetContextMenu } from "./pet-window-context-menu.js";
 import { installPetWindowInteraction } from "./pet-window-interaction.js";
 import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
 import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from "./pet-window-show-coordinator.js";
-import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityScale, startPetActivitySpeech, updatePetActivityRender } from "./pet-activities.js";
+import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityScale, startPetActivitySpeech, updatePetActivityBody, updatePetActivityRender } from "./pet-activities.js";
 import { rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
 import { petBodyChannels } from "./pet-body-contract.js";
 import type { MotionAppearance } from "./pet-body-contract.js";
@@ -75,7 +75,7 @@ function installPetBodyState(window: BrowserWindow): void {
     } else {
       failOutfitRequest(windowId, petId, appearance.presentationId, outcome);
     }
-  });
+  }, (body) => updatePetActivityBody(window, body));
   bodyStates.set(window, state);
   const visibility = createPetBodyVisibility(systemPetBodiesSuspended, (suspended, details) => {
     debug("pet.window", "body visibility changed", { windowId, ...details, suspended });
@@ -656,7 +656,7 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
   const commit = () => {
     rememberPetRenderGeometry(window, render);
     updatePetGazeConfiguration(window, render, render.flipped);
-    updatePetActivityRender(window, render);
+    if (!render.motion) updatePetActivityRender(window, render);
     applyLinuxPetWindowShape(window, render.petScale, hasBubble, hasPinned, hasMediaBubble);
   };
   if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;
@@ -716,7 +716,7 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
     const commit = () => {
       rememberPetRenderGeometry(window, render);
       updatePetGazeConfiguration(window, render, render.flipped);
-      updatePetActivityRender(window, render);
+      if (!render.motion) updatePetActivityRender(window, render);
       applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned, hasMediaBubble);
     };
     if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;

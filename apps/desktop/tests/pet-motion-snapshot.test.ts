@@ -130,9 +130,12 @@ try {
   assert.equal(first.snapshotId, same.snapshotId, "concurrent preparations share one revision");
   const window = new FakeWindow() as unknown as BrowserWindow;
   const other = new FakeWindow() as unknown as BrowserWindow;
+  assert.equal(snapshots.isTrackedMotionSnapshotDescriptor(first), false);
   bytes.trackPetSpriteBytesWebContents(window.webContents);
   bytes.trackPetSpriteBytesWebContents(other.webContents);
   snapshots.retainWindowSnapshot(window, first);
+  assert.equal(snapshots.isTrackedMotionSnapshotDescriptor(first), true);
+  assert.equal(snapshots.isTrackedMotionSnapshotDescriptor({ ...first }), false);
   snapshots.releaseSupersededWindowSnapshots(window, first.snapshotId);
   const handler = (globalThis as typeof globalThis & { motionByteHandler: (event: { sender: WebContents }, url: string) => Promise<Buffer | null> }).motionByteHandler;
   assert.equal((await handler({ sender: window.webContents }, first.urls.idle))?.toString(), "old");
@@ -150,6 +153,7 @@ try {
   snapshots.releaseSupersededWindowSnapshots(window, second.snapshotId);
   assert.equal(await handler({ sender: window.webContents }, first.urls.idle), null);
   snapshots.releaseWindowSnapshots(window);
+  assert.equal(snapshots.isTrackedMotionSnapshotDescriptor(second), false);
   assert.equal(await handler({ sender: window.webContents }, second.urls.idle), null);
 
   const destroyedWindow = new FakeWindow();

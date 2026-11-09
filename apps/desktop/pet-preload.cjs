@@ -31,26 +31,35 @@ const motionPlayer = createPetMotionPlayer({
   onPresented: (snapshotId) => petContentStage.motionPresented(snapshotId),
 });
 let spriteOverrideElement = null;
-let activeActivityGeneration = null;
+let interactionActivityGeneration = null;
+const { createNativePetActivityPlayer } = require("./src/pet-activity-player.cjs");
+const nativeActivityPlayer = createNativePetActivityPlayer({
+  document,
+  createImage: () => new Image(),
+  setTimeout,
+  clearTimeout,
+  now: () => performance.now(),
+});
 const bodyCoordinator = createPetBodyCoordinator({
   player: motionPlayer,
   getBindings: getMotionOutfitBindings,
   now: () => performance.now(),
   random: Math.random,
   onResult: (result) => ipcRenderer.send("openpets:pet-body-result", result),
-  onActivityCancel: () => {
-    nativeActivityPlayer.cancel();
-    if (activeActivityGeneration !== null) {
-      ipcRenderer.send("openpets:pet-activity-complete", { generation: activeActivityGeneration, failed: true });
-      activeActivityGeneration = null;
+  onActivityResult: (result) => {
+    if (result.outcome !== "started" && interactionActivityGeneration === result.generation) {
+      interactionActivityGeneration = null;
     }
+    ipcRenderer.send("openpets:pet-activity-complete", result);
   },
+  playExternalActivity: (command, onOutcome) => nativeActivityPlayer.play(command, onOutcome),
+  stopExternalActivity: (generation) => nativeActivityPlayer.cancel(generation),
   onVisibility: ({ drag, plugin, activity, motion }) => {
     if (spriteOverrideElement) spriteOverrideElement.style.visibility = drag ? "hidden" : "";
     const base = document.querySelector(motion
       ? ".pet-shell .sprite[data-motion-body]"
       : ".pet-shell .sprite, .pet-shell .installed-card");
-    if (base) base.style.visibility = (plugin || activity) && !drag ? "hidden" : "";
+    if (base) base.style.visibility = (plugin || activity === "classic") && !drag ? "hidden" : "";
   },
 });
 ipcRenderer.on("openpets:pet-body-state", (_event, snapshot) => {
@@ -67,6 +76,7 @@ const installMotionPlayer = () => {
   ipcRenderer.send("openpets:pet-body-ready");
   window.addEventListener("beforeunload", () => {
     bodyCoordinator.dispose();
+    nativeActivityPlayer.dispose();
     petContentStage.dispose();
   }, { once: true });
 };
@@ -75,40 +85,24 @@ if (document.readyState === "loading") {
 } else {
   installMotionPlayer();
 }
-const { createNativePetActivityPlayer } = require("./src/pet-activity-player.cjs");
-const nativeActivityPlayer = createNativePetActivityPlayer({
-  document,
-  createImage: () => new Image(),
-  setTimeout,
-  clearTimeout,
-  now: () => performance.now(),
-  onComplete: (payload) => {
-    if (activeActivityGeneration === payload.generation) activeActivityGeneration = null;
-    bodyCoordinator.setActivity(false);
-    ipcRenderer.send("openpets:pet-activity-complete", payload);
-  },
-});
 ipcRenderer.on("openpets:pet-activity", (_event, payload) => {
-  if (payload?.cancel) {
-    nativeActivityPlayer.play(payload);
-    if (activeActivityGeneration === payload.generation) {
-      activeActivityGeneration = null;
-      bodyCoordinator.setActivity(false);
+  if (payload?.kind === "play" && Number.isSafeInteger(payload.generation)) {
+    if (interactionActivityGeneration === null || payload.generation > interactionActivityGeneration) {
+      interactionActivityGeneration = payload.generation;
     }
-    return;
+    bodyCoordinator.startActivity(payload);
+  } else if (payload?.kind === "cancel" && Number.isSafeInteger(payload.generation)) {
+    if (interactionActivityGeneration === payload.generation) interactionActivityGeneration = null;
+    bodyCoordinator.cancelActivity(payload.generation);
+  } else if (payload?.kind === "variation") {
+    bodyCoordinator.offerVariation();
   }
-  if (!bodyCoordinator.setActivity(true)) {
-    ipcRenderer.send("openpets:pet-activity-complete", { generation: payload?.generation, failed: true });
-    return;
-  }
-  activeActivityGeneration = payload?.generation ?? null;
-  nativeActivityPlayer.play(payload);
 });
 for (const eventName of ["mousedown", "contextmenu"]) {
   document.addEventListener(eventName, () => {
-    nativeActivityPlayer.cancel();
-    activeActivityGeneration = null;
-    bodyCoordinator.setActivity(false);
+    if (interactionActivityGeneration !== null) {
+      bodyCoordinator.cancelActivity(interactionActivityGeneration);
+    }
     ipcRenderer.send("openpets:pet-activity-interaction");
   }, true);
 }
@@ -2165,9 +2159,6 @@ const installDefaultPetManagerCheckIn = () => {
 
 let spriteOverrideGeneration = 0;
 ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
-  nativeActivityPlayer.cancel();
-  activeActivityGeneration = null;
-  bodyCoordinator.setActivity(false);
   const generation = ++spriteOverrideGeneration;
   const shell = document.querySelector(".pet-shell");
   if (!shell) return;

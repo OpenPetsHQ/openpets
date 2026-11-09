@@ -1,4 +1,5 @@
 import { defaultOutfitId, type PetOutfitIdentity, type WardrobeDefinition } from "./wardrobe.js";
+import type { PetActivityIdentity } from "./activities.js";
 
 export type MotionContextReaction =
   | "thinking"
@@ -44,6 +45,15 @@ export interface MotionWardrobe extends WardrobeDefinition {
   readonly outfits: readonly MotionOutfit[];
 }
 
+export interface MotionActivityAnimation {
+  readonly outfitId: string;
+  readonly animation: string;
+}
+
+export interface MotionActivity extends PetActivityIdentity, MotionActivityAnimation {
+  readonly outfitVariants?: readonly MotionActivityAnimation[];
+}
+
 export interface MotionPetMetadata {
   readonly format: "motion";
   readonly version: 1;
@@ -64,6 +74,40 @@ export interface MotionPetMetadata {
   readonly animations: Record<string, MotionAnimation>;
   readonly bindings: MotionBindings;
   readonly wardrobe?: MotionWardrobe;
+  readonly activities?: readonly MotionActivity[];
+}
+
+export function enumerateMotionActivityAnimations(activity: MotionActivity): readonly MotionActivityAnimation[] {
+  return [activity, ...(activity.outfitVariants ?? [])];
+}
+
+export function resolveMotionActivityAnimation(activity: MotionActivity, outfitId: string): MotionActivityAnimation | null {
+  return enumerateMotionActivityAnimations(activity).find((animation) => animation.outfitId === outfitId) ?? null;
+}
+
+export function getMotionAnimationFirstClip(animation: Extract<MotionAnimation, { play: "once" }>): string {
+  return animation.intro ?? animation.clip;
+}
+
+/** Calculate complete one-shot playback time using verified native timing and per-clip pace. */
+export function calculateMotionActivityDurationMs(
+  animation: Extract<MotionAnimation, { play: "once" }>,
+  clips: MotionPetMetadata["clips"],
+  verifiedClips: Readonly<Record<string, VerifiedMotionClip>>,
+): number {
+  const names = [animation.intro, animation.clip, animation.outro];
+  let durationMs = 0;
+  for (const name of names) {
+    if (name === undefined) continue;
+    const clip = clips[name];
+    const verified = verifiedClips[name];
+    if (!clip || !verified || !Number.isFinite(verified.durationMs) || verified.durationMs <= 0
+      || !Number.isFinite(clip.playbackRate ?? 1) || (clip.playbackRate ?? 1) <= 0) {
+      throw new Error(`Motion activity clip ${name} has invalid verified timing.`);
+    }
+    durationMs += verified.durationMs / (clip.playbackRate ?? 1);
+  }
+  return durationMs;
 }
 
 export function getMotionOutfitBindings(metadata: MotionPetMetadata, outfitId: string): MotionBindings {
