@@ -16,6 +16,22 @@ exact package checksum and the submitted listing, README, changelog and media
 snapshot. Publishing a new version must not mutate the currently public version.
 Installed plugins remain usable without the marketplace or a signed-in account.
 
+## Desktop navigation and existing users
+
+The desktop has one **Marketplace** section with **Browse** and **Installed**.
+Browse is the only discovery surface. Installed reads saved records directly,
+without waiting for catalog/network requests, and retains configuration,
+commands, enablement, removal and the local developer loader. Existing profiles
+open Installed first. The internal `plugins` route remains the plugin-domain
+route, not a second visible catalog or a new compatibility alias.
+
+Upgrading does not require an account, reinstall pets or move plugin data into
+the cloud. Existing plugin IDs, enabled choices, configuration, approved
+permissions/network hosts and storage remain local. Bundled updates preserve
+user choices. An unavailable marketplace must not prevent installed plugins
+from starting. Studio likewise retains its existing users, sessions, identities,
+profiles, credits and project records through additive database changes.
+
 ## Implementation contract
 
 This section is the shared implementation contract for the new service and its
@@ -99,13 +115,36 @@ ratings are one editable integer from 1 through 5 per account and plugin.
 - `POST /api/marketplace/admin/reports/{reportId}/resolve` accepts `{note}`.
 - `POST /api/marketplace/admin/import/{pluginId}` accepts the same multipart
   package/media fields as submission, preserving exact previously reviewed ZIPs.
-  Only reserved legacy IDs are accepted; a matching retry is idempotent and a
-  changed published snapshot conflicts. Historical official/community attribution
+  Initial import requires the exact frozen ID/version/SHA and is allowed only
+  once per plugin. An exact audited retry is idempotent, including after ownership
+  changes or withdrawal; it never reapproves a release. A changed published
+  snapshot conflicts. Historical official/community attribution
   is independent of the ID prefix. Admin-only import metadata may include reviewed
   minimum/maximum app bounds from the old catalog; those live separately from
   the original manifest and never change package bytes.
 
 ## Durable invariants
+
+### Existing publisher accounts
+
+Admins use `/plugins/admin` → **Publishers & Owners** to assign imported
+official or community plugins to existing Studio accounts. Exact-email lookup is not proof
+of original authorship and never creates or automatically claims an account.
+Historical attribution is separate from publishing authority and remains intact.
+
+The private API lists audited imports at `GET /api/marketplace/admin/ownership/plugins`,
+looks up accounts at `GET /api/marketplace/admin/accounts/lookup?email=`, and
+reads ownership/audit at `GET /api/marketplace/admin/plugins/{id}/ownership`.
+`POST /api/marketplace/admin/plugins/{id}/owner` accepts
+`{userId, expectedOwnerId, reason}`; a null target returns authority to team custody.
+Stale ownership, pending releases and deleted/deleting targets conflict. Changes
+are transactional and audited. Account deletion detaches authority without
+erasing imported authorship or transferring rights to a new signup.
+
+Assignment grants publishing authority for that plugin, not platform admin
+rights. All subsequent versions, including official plugins, use owner submission
+and remain pending until an administrator reviews them. Revocation or account
+deletion never reopens the one-time bootstrap path.
 
 Plugin IDs remain installation/config/storage identities. Existing official and
 community IDs are preserved by an explicit, repeatable admin import; ownership
@@ -141,6 +180,70 @@ and prompts only for additional end-user permissions. Administrator review of
 every version is separate from end-user permission approval.
 
 ## Rollout and validation
+
+### Prepare the inventory before client cutover
+
+Studio's `original_inventory.json` freezes the selected launch inventory.
+Seventeen entries retain their original verified ZIP bytes. Focus Buddy is an
+explicit exception: its old mutable URL returned different bytes under 1.2.0,
+so the owner selected a fresh **1.2.1** built from repository source. The pinned
+bootstrap ZIP records its new checksum alongside the old version/checksum and
+replacement reason. This neither relabels the old public catalog nor overwrites
+existing installations. Preparation is not publication; authenticated admin
+import is the explicit review/approval action for this curated launch inventory.
+
+From the root repository:
+
+```sh
+pnpm marketplace:migrate plan --catalog web/public/plugins/catalog.v2.json \
+  --provenance web/public/plugins/provenance.json --out /path/to/migration-plan
+pnpm marketplace:migrate check --plan /path/to/migration-plan/plan.json
+```
+
+Planning verifies every source archive before any import and accepts only the
+exact local replacement pinned by the frozen inventory. Arbitrary checksum
+changes, a changed historical baseline and tampered packages fail. Keep the
+cached packages, metadata, inventory/plan digests and reports; no partial plan
+is published.
+
+After deploying the API independently, configure `OPENPETS_STUDIO_API_URL` and
+an administrator's `OPENPETS_STUDIO_TOKEN`, then deliberately import and verify:
+
+```sh
+pnpm marketplace:migrate import --plan /path/to/migration-plan/plan.json
+pnpm marketplace:migrate verify --plan /path/to/migration-plan/plan.json
+```
+
+Import preflights the entire cache before its first write. Exact retries remain
+idempotent after account assignment. Withdrawn releases are reported as withdrawn,
+never silently reapproved. Strict initial verification requires all planned
+releases to be approved, anonymously downloadable and consistent with their
+immutable receipt, checksum and compatibility. Bootstrap is restricted server-side
+to one frozen release per plugin; subsequent versions require an explicitly
+assigned account, ordinary owner submission and administrator review.
+
+### Release gates
+
+`GET /api/marketplace/readiness` reports inventory revision and durable import/audit
+accounting, not a deep artifact-integrity claim. The deployment preflight checks
+anonymous ZIP/media bytes and desktop app/SDK/runtime compatibility independently:
+
+```sh
+pnpm marketplace:release:check --desktop-version 4.1.0
+pnpm marketplace:release:check --web
+```
+
+Use the actual desktop version being released. Desktop release and website deploy
+commands run this gate before builds/publication. API deployment is not gated on
+imports because it must happen first. Later gates allow legitimately withdrawn
+historical imports without demanding eighteen public plugins forever. Missing
+audit/history, corrupt public files, incomplete migration or no usable desktop
+release fail closed. Verification uses normal GET downloads and increments
+approximate download statistics; it never publishes or changes ownership/review.
+
+Cutover order: **deploy API → import/review inventory → verify complete plan and
+release gates → deploy website/new desktop**. Verify the Docker image's Node/Sharp
+runtime and native desktop permission approval as part of rollout.
 
 Legacy catalog URLs are retained only as a versioned boundary for released apps;
 current runtime and website use the marketplace. Import and deployment are

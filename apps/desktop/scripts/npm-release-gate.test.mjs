@@ -164,13 +164,19 @@ async function main() {
   // no network access and no writes; only the local plan is inspected.
   const yesPlan = readStagePlan(["--yes"]);
   const yesIds = yesPlan.map((stage) => stage.id);
-  assertEqual(yesIds[0], "verify:npm-integrations", "early gate runs before expensive builds");
-  assertEqual(yesPlan[0].status, "always", "early gate re-runs on every invocation, never checkpoint-skipped");
+  const firstBuildIndex = yesIds.findIndex((id) => id === "checks" || id.startsWith("build:"));
+  if (firstBuildIndex < 0) throw new Error("release plan is missing its build boundary");
+  for (const gateId of ["verify:marketplace", "verify:npm-integrations"]) {
+    const gateIndex = yesIds.indexOf(gateId);
+    if (gateIndex < 0 || gateIndex >= firstBuildIndex) {
+      throw new Error(`${gateId} must run before expensive builds`);
+    }
+    assertEqual(yesPlan[gateIndex].status, "always", `${gateId} is never checkpoint-skipped`);
+  }
   assertEqual(yesIds[yesIds.indexOf("tag") - 1], "verify:npm-pre-tag", "revalidation precedes tag creation");
   assertEqual(yesPlan[yesIds.indexOf("tag") - 1].status, "always", "pre-tag revalidation is never checkpoint-skipped");
   assertEqual(yesIds[yesIds.indexOf("release:publish") - 1], "verify:npm-pre-publish", "revalidation precedes release publication");
   assertEqual(yesPlan[yesIds.indexOf("release:publish") - 1].status, "always", "pre-publish revalidation is never checkpoint-skipped");
-  assertMatch(yesPlan[0].id, /^verify:npm-integrations$/, "full release mode gate wiring");
 
   // Wiring: non-release invocations carry no npm gate stages.
   const plainPlan = readStagePlan([]);

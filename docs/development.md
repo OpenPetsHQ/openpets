@@ -50,6 +50,8 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm marketplace:validator:check` | Verify the checked-in validator bundle is current |
 | `pnpm marketplace:validator:test` | Exercise package validation and publisher CLI behavior |
 | `pnpm marketplace:publish …` | Prepare, validate, reserve and submit immutable plugin releases through the API |
+| `pnpm marketplace:migrate …` | Plan, check, explicitly import and verify the complete existing inventory |
+| `pnpm marketplace:release:check …` | Check audited cutover inventory, public artifact integrity and release compatibility |
 
 ### Plugin DX commands
 
@@ -102,8 +104,8 @@ catch.
    a copied environment. The launch is bounded to 10 seconds; a timeout kills
    only the owned launcher and does not retry through Electron's shell opener,
    avoiding a possible duplicate browser launch.
-- Plugin authors using the installed app do not need this repo: open **Plugins →
-  Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
+- Plugin authors using the installed app do not need this repo: open **Marketplace →
+  Installed → Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
   reload a standalone plugin folder.
 - For plugin work, `pnpm dev:desktop:plugins` points the local loader at both
   `plugins/official` and `plugins/dev` (via `OPENPETS_DEV_PLUGIN_ROOTS`) so

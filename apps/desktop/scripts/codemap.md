@@ -24,8 +24,8 @@ Load/validate checkpoint in .release-state/v<version>.json (discarded when HEAD 
 → Preflight checks (git clean, remote sync, version validity, AppImage `unsquashfs` availability, tag/release expectations)
 → Capture previous release tag before any new tag
 → Run the stage plan, skipping stages already checkpointed with intact outputs
-   (the always-run npm verification stages re-run on every invocation):
-   (with --yes) verify:npm-integrations → checks → clean → per-target temporary + actual-artifact payload validation → build:mac-dmg/zip → build:linux-appimage
+   (the marketplace and npm verification stages re-run on every invocation):
+   verify:marketplace → (with --yes) verify:npm-integrations → checks → clean → per-target temporary + actual-artifact payload validation → build:mac-dmg/zip → build:linux-appimage
    → build:linux-deb → build:linux-rpm → build:linux-targz
    → (with --linux-package-dir) stage:linux-packages instead of local DEB/RPM
    → verify:local (working tree + pre-signing artifact set; checkpoint outputs carry SHA-256 digests)

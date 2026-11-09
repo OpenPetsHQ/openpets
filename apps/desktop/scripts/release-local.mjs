@@ -150,6 +150,16 @@ function createStagePlan(context, state) {
   const stages = [];
   const artifactPath = (name) => join(outputDir, name);
 
+  stages.push({
+    id: "verify:marketplace",
+    title: "Verify marketplace readiness and desktop compatibility",
+    alwaysRun: true,
+    run: () => {
+      run(process.execPath, [join(repoRoot, "web/scripts/marketplace-release-check.mjs"), "--desktop-version", version], { cwd: repoRoot });
+      return [];
+    },
+  });
+
   if (yes) {
     stages.push({
       id: "verify:npm-integrations",
@@ -1060,6 +1070,7 @@ run is retried by re-running the same command: completed stages are skipped and
 work resumes at the stage that failed.
 
 Stages (default plan):
+  verify:marketplace      verify marketplace readiness and desktop compatibility (always runs)
   verify:npm-integrations verify exact @open-pets/opencode + @open-pets/openclaw versions exist on npm (--yes only)
   checks                  pnpm build + desktop check
   clean                   clean apps/desktop/dist-electron

@@ -46,7 +46,9 @@
     "test": "pnpm build && node scripts/npm-workspace-release.test.mjs && node scripts/npm-release-policy.test.mjs && node scripts/release-npm-ref-orchestration.test.mjs && node apps/desktop/scripts/npm-release-gate.test.mjs && pnpm -r --if-present test",
     "check": "pnpm -r check",
     "typecheck": "pnpm -r typecheck",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "marketplace:migrate": "node scripts/marketplace-migrate.mjs",
+    "marketplace:release:check": "node web/scripts/marketplace-release-check.mjs"
   },
   "devDependencies": {
     "@open-pets/plugin-sdk": "workspace:*",

@@ -511,7 +511,7 @@ replaced by a marketplace package.
 `plugin-local-loader.ts` validates a selected local folder and snapshots the
 manifest, entry file, and declared assets into `userData/plugins-dev/{id}`, with
 symlink/path/size protections. In the installed desktop app, authors use
-**Plugins → Developer Mode → Load unpacked plugin folder**; OpenPets persists the
+**Marketplace → Installed → Developer Mode → Load unpacked plugin folder**; OpenPets persists the
 original source folder, watches it, and re-snapshots/reloads after edits. The
 repo dev build still supports maintainer-only env paths with
 `OPENPETS_DEV_PLUGIN_ROOTS` / `OPENPETS_DEV_PLUGIN_PATHS` and

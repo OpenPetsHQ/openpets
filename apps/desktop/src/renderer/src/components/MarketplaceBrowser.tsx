@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { formatMarketplaceReleaseDate } from "../../../plugin-marketplace-format.js";
 import type { MarketplacePlugin, MarketplaceDetail, MarketplacePage, MarketplaceQuery } from "../../../plugin-marketplace-types.js";
 
 export type MarketplaceBrowserApi = {
@@ -605,7 +606,7 @@ export function MarketplaceBrowser({
                         <div key={rel.releaseId} className="flex items-center justify-between rounded-xl border border-stone-800 bg-stone-900/40 p-3 text-xs">
                           <div className="flex items-center space-x-3">
                             <span className="font-bold text-stone-200">v{rel.version}</span>
-                            <span className="text-stone-500 text-[11px]">{rel.createdAt ? new Date(rel.createdAt).toLocaleDateString() : ""}</span>
+                            <span className="text-stone-500 text-[11px]">{formatMarketplaceReleaseDate(rel.createdAt)}</span>
                           </div>
                           <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
                             Approved

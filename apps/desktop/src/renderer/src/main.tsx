@@ -84,7 +84,7 @@ type UpdateStatus = { state: "idle" | "checking" | "available" | "current" | "er
 type DashboardActivity = { messagesSent: number; reactionsSent: number; reactionCounts: Record<string, number>; perPetActivityCounts: Record<string, number>; lastActivityAt?: number };
 type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
 type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
-type PluginFilter = "all" | "installed" | "catalog" | "local" | "broken";
+type PluginFilter = "all" | "local" | "broken";
 type PluginPermission =
   | "pet:speak" | "pet:reaction" | "pet:move" | "timer" | "schedule" | "storage" | "status" | "commands" | "network"
   | "pet:interact" | "pet:pin" | "pet:animate" | "pet:speak:dynamic" | "pet:drop" | "pets:read" | "pets:manage"
@@ -101,12 +101,10 @@ type PluginCommand = { id: string; title: string; description?: string; form?: P
 type PluginCategory = "Companion" | "Wellness" | "Focus" | "Developer" | "Advanced";
 type PluginStatus = { text: string; tone?: "info" | "success" | "warning" | "error" };
 type PluginConfigError = { path?: string; code?: string; message?: string };type SafePluginRecord = { id: string; name?: string; description?: string; version: string; icon?: PluginIconName; iconDataUrl?: string; source: "catalog" | "local"; sourcePath?: string; bundled?: boolean; category?: PluginCategory; enabled: boolean; brokenReason?: string; approvedPermissions: PluginPermission[]; runtime?: "declarative" | "javascript"; sdkVersion?: string; catalogDisabled?: boolean; catalogDeprecated?: boolean; catalogStatusReason?: string; configSchema?: PluginConfigSchema; effectiveConfig?: PluginConfig; configErrors?: PluginConfigError[]; spritePreviews?: Record<string, { url: string; frameWidth: number; frameHeight: number; frames: number; durationMs: number }>; commands?: PluginCommand[]; status?: PluginStatus };
-type SafeCatalogPluginRecord = { id: string; name: string; version: string; description: string; runtime: "declarative" | "javascript"; icon?: PluginIconName; iconDataUrl?: string; sdkVersion?: string; permissions: PluginPermission[]; installed: boolean; bundled?: boolean; category?: PluginCategory; deprecated?: boolean; statusReason?: string; publisherType?: "official" | "community" };
 type PluginServiceSnapshot = { plugins: SafePluginRecord[] };
-type PluginCatalogSnapshot = { plugins: SafeCatalogPluginRecord[] };
 type PluginServiceResult = { ok: true; snapshot: PluginServiceSnapshot } | { ok: false; error: string; snapshot: PluginServiceSnapshot };
 type PluginConfigSoundPickResult = { ok: true; sound: { kind: "user-sound"; id: string; name?: string }; snapshot: PluginServiceSnapshot } | { ok: false; error: string; snapshot: PluginServiceSnapshot };
-type PluginEntry = { id: string; installed?: SafePluginRecord; catalog?: SafeCatalogPluginRecord };
+type PluginEntry = { id: string; installed: SafePluginRecord };
 type RemoteControlScope = "status" | "react" | "say";
 type RemoteControlConfigSnapshot = { enabled: boolean; address?: string; port?: number; listening: boolean };
 type RemoteControlClientSummary = { id: string; name: string; scopes: RemoteControlScope[]; createdAt: number; updatedAt: number; lastActivityAt?: number; revoked: boolean; revokedAt?: number };
@@ -220,7 +218,6 @@ type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   updatePetWardrobe(petId: string, patch: PetWardrobeUpdate): Promise<PetWardrobeSnapshot | null>;
   installPetWardrobe(petId: string): Promise<unknown>;
   getPluginsSnapshot(): Promise<PluginServiceSnapshot>;
-  getPluginCatalogSnapshot(refresh?: boolean): Promise<PluginCatalogSnapshot>;
   getMarketplacePlugins(options?: { q?: string; sort?: string; category?: string; offset?: number; limit?: number }): Promise<import("../../../src/plugin-marketplace-types.js").MarketplacePage>;
   getMarketplacePlugin(id: string): Promise<import("../../../src/plugin-marketplace-types.js").MarketplaceDetail>;
   setPluginEnabled(id: string, enabled: boolean): Promise<PluginServiceResult>;
@@ -3112,8 +3109,6 @@ function LanStatusMetric({ label, value, tone }: { label: string; value: string;
 }
 const pluginFilterLabelKeys: Record<PluginFilter, string> = {
   all: "plugins.filter.all",
-  installed: "plugins.filter.installed",
-  catalog: "plugins.filter.catalog",
   local: "plugins.filter.local",
   broken: "plugins.filter.broken",
 };
@@ -3199,52 +3194,36 @@ function PluginIcon({ icon = "plugin", className = "plugin-glyph" }: { icon?: Pl
 }
 
 function PluginIconImage({ entry, className = "plugin-glyph" }: { entry: PluginEntry; className?: string }) {
-  const iconDataUrl = isPluginIconDataUrl(entry.installed?.iconDataUrl) ? entry.installed.iconDataUrl : isPluginIconDataUrl(entry.catalog?.iconDataUrl) ? entry.catalog.iconDataUrl : undefined;
+  const iconDataUrl = isPluginIconDataUrl(entry.installed.iconDataUrl) ? entry.installed.iconDataUrl : undefined;
   if (iconDataUrl) return <img className={`${className} plugin-icon-img`} src={iconDataUrl} alt="" aria-hidden="true" draggable="false" />;
   return <PluginIcon icon={pluginIcon(entry)} className={className} />;
 }
 
 function pluginIcon(entry: PluginEntry): PluginIconName {
-  return entry.installed?.icon || entry.catalog?.icon || "plugin";
+  return entry.installed.icon || "plugin";
 }
 
 function pluginName(entry: PluginEntry): string {
-  return entry.installed?.name || entry.catalog?.name || entry.id;
+  return entry.installed.name || entry.id;
 }
 
 function pluginDescription(entry: PluginEntry, t: (key: string, vars?: Record<string, string | number>) => string): string {
   if (entry.installed?.brokenReason) return entry.installed.brokenReason;
-  return entry.installed?.description || entry.catalog?.description || (entry.installed ? t("plugins.description.installedReady") : t("plugins.description.availableCatalog"));
+  return entry.installed.description || t("plugins.description.installedReady");
 }
 
 function pluginPrimaryTone(entry: PluginEntry): keyof typeof statusPillToneClass {
   if (entry.installed?.brokenReason) return "red";
   if (entry.installed?.catalogDisabled) return "orange";
   if (entry.installed?.enabled) return "green";
-  if (entry.installed) return "slate";
-  return "blue";
+  return "slate";
 }
 
 function pluginPrimaryLabel(entry: PluginEntry, t: (key: string, vars?: Record<string, string | number>) => string): string {
   if (entry.installed?.brokenReason) return t("plugins.status.broken");
   if (entry.installed?.catalogDisabled) return t("plugins.status.catalogDisabled");
   if (entry.installed?.enabled) return t("plugins.status.active");
-  if (entry.installed) return t("plugins.status.disabled");
-  return t("plugins.status.available");
-}
-
-function mergePluginEntries(snapshot: PluginServiceSnapshot | null, catalog: PluginCatalogSnapshot | null): PluginEntry[] {
-  const merged = new Map<string, PluginEntry>();
-  for (const installed of snapshot?.plugins ?? []) merged.set(installed.id, { id: installed.id, installed });
-  for (const catalogPlugin of catalog?.plugins ?? []) {
-    const current = merged.get(catalogPlugin.id) ?? { id: catalogPlugin.id };
-    merged.set(catalogPlugin.id, { ...current, catalog: catalogPlugin });
-  }
-  return [...merged.values()].sort((a, b) => {
-    const installedDelta = Number(Boolean(b.installed)) - Number(Boolean(a.installed));
-    if (installedDelta) return installedDelta;
-    return pluginName(a).localeCompare(pluginName(b));
-  });
+  return t("plugins.status.disabled");
 }
 
 function initialConfigValue(field: PluginConfigField): unknown {
@@ -3544,7 +3523,6 @@ function ConfigFieldEditor({ pluginId, fieldKey, field, value, onChange, onPickS
 function PluginsView() {
   const { t } = useI18n();
   const [snapshot, setSnapshot] = useState<PluginServiceSnapshot | null>(null);
-  const [catalog, setCatalog] = useState<PluginCatalogSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
   const [busy, setBusy] = useState("");
@@ -3554,33 +3532,32 @@ function PluginsView() {
   const [commandDrafts, setCommandDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const [activeCommandId, setActiveCommandId] = useState("");
   const [showDeveloperMode, setShowDeveloperMode] = useState(false);
-  const [pluginTab, setPluginTab] = useState<"installed" | "marketplace">("installed");
+  const [pluginTab, setPluginTab] = useState<"installed" | "browse">("installed");
+  const initialTabChosen = useRef(false);
 
-  async function load(refreshCatalog = false, clearMessages = true) {
+  async function load(clearMessages = true) {
     if (clearMessages) setError("");
-    const [nextSnapshot, nextCatalog] = await Promise.all([
-      api.getPluginsSnapshot(),
-      api.getPluginCatalogSnapshot(refreshCatalog).catch(() => ({ plugins: [] } as PluginCatalogSnapshot)),
-    ]);
+    const nextSnapshot = await api.getPluginsSnapshot();
     setSnapshot(nextSnapshot);
-    setCatalog(nextCatalog);
-    const entries = mergePluginEntries(nextSnapshot, nextCatalog);
-    setSelectedId((current) => entries.some((entry) => entry.id === current) ? current : "");
+    if (!initialTabChosen.current) {
+      initialTabChosen.current = true;
+      setPluginTab(nextSnapshot.plugins.length ? "installed" : "browse");
+    }
+    setSelectedId((current) => nextSnapshot.plugins.some((plugin) => plugin.id === current) ? current : "");
   }
 
   useEffect(() => { void load().catch((err) => setError(String(err?.message ?? err))); }, []);
-  // Re-fetch plugin records when the host locale changes so `$t:` labels re-render translated.
-  useEffect(() => api.onPluginsRefresh(() => { void load(false, false).catch((err) => setError(String(err?.message ?? err))); }), []);
+  // Re-fetch translated records without changing the user's tab.
+  useEffect(() => api.onPluginsRefresh(() => { void load(false).catch((err) => setError(String(err?.message ?? err))); }), []);
   useEffect(() => {
     if (!message) return;
     const timeout = window.setTimeout(() => setMessage(""), 2200);
     return () => window.clearTimeout(timeout);
   }, [message]);
 
-  const entries = useMemo(() => mergePluginEntries(snapshot, catalog), [snapshot, catalog]);
+  const entries = useMemo(() => (snapshot?.plugins ?? []).map((installed) => ({ id: installed.id, installed })).sort((a, b) => pluginName(a).localeCompare(pluginName(b))), [snapshot]);
   const selected = entries.find((entry) => entry.id === selectedId);
   const installed = selected?.installed;
-  const catalogPlugin = selected?.catalog;
   const hasConfigFields = Boolean(installed?.configSchema && Object.keys(installed.configSchema).length > 0);
   const activeCommand = installed?.commands?.find((command) => command.id === activeCommandId);
 
@@ -3589,8 +3566,6 @@ function PluginsView() {
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
-      if (filter === "installed" && !entry.installed) return false;
-      if (filter === "catalog" && entry.installed) return false;
       if (filter === "local" && entry.installed?.source !== "local") return false;
       if (filter === "broken" && !entry.installed?.brokenReason) return false;
       return true;
@@ -3629,12 +3604,12 @@ function PluginsView() {
     } catch (err) { setError(String((err as Error)?.message ?? err)); }
   }
 
-  async function installCatalogEntry(entry: PluginEntry) {
-    const result = await api.installCatalogPlugin(entry.id);
+  async function installCatalogEntry(id: string) {
+    const result = await api.installCatalogPlugin(id);
     if (!applyResult(result)) return;
-    const installedPlugin = result.snapshot.plugins.find((plugin) => plugin.id === entry.id);
+    const installedPlugin = result.snapshot.plugins.find((plugin) => plugin.id === id);
     if (!installedPlugin) { setMessage(t("plugins.toast.noPluginInstalled")); return; }
-    await load(false, false);
+    await load(false);
     setMessage(t("plugins.toast.pluginInstalled"));
   }
 
@@ -3643,7 +3618,7 @@ function PluginsView() {
     const result = await api.updateCatalogPlugin(plugin.id);
     if (!applyResult(result)) return;
     const updatedPlugin = result.snapshot.plugins.find((nextPlugin) => nextPlugin.id === plugin.id);
-    await load(false, false);
+    await load(false);
     setMessage(updatedPlugin && updatedPlugin.version !== previousVersion ? t("plugins.toast.pluginUpdated") : t("plugins.toast.noPluginUpdate"));
   }
 
@@ -3652,15 +3627,15 @@ function PluginsView() {
       {error && <div className="error settings-message">{error}</div>}
       {message && <div className="settings-success settings-message">{message}</div>}
       <div className="filters">
-        <button className={`filter ${pluginTab === "installed" ? "active" : ""}`} onClick={() => setPluginTab("installed")}>Installed</button>
-        <button className={`filter ${pluginTab === "marketplace" ? "active" : ""}`} onClick={() => setPluginTab("marketplace")}>Marketplace</button>
+        <button className={`filter ${pluginTab === "browse" ? "active" : ""}`} onClick={() => { initialTabChosen.current = true; setPluginTab("browse"); }}>{t("plugins.tab.browse")}</button>
+        <button className={`filter ${pluginTab === "installed" ? "active" : ""}`} onClick={() => { initialTabChosen.current = true; setPluginTab("installed"); }}>{t("plugins.filter.installed")}</button>
       </div>
-      {pluginTab === "marketplace" ? (
+      {pluginTab === "browse" ? (
         <MarketplaceBrowser
           api={api}
           installed={snapshot?.plugins ?? []}
           onInstall={async (id) => {
-            await run(t("plugins.busy.installing"), () => installCatalogEntry({ id }));
+            await run(t("plugins.busy.installing"), () => installCatalogEntry(id));
           }}
           onUpdate={async (id) => {
             const plugin = snapshot?.plugins.find((item) => item.id === id);
@@ -3701,7 +3676,7 @@ function PluginsView() {
       </div>
       <GlassCard className="plugins-hub">
         <div className="filters">
-          {(["all", "installed", "catalog", "local", "broken"] as PluginFilter[]).map((nextFilter) => (
+          {(["all", "local", "broken"] as PluginFilter[]).map((nextFilter) => (
             <button key={nextFilter} className={`filter ${filter === nextFilter ? "active" : ""}`} onClick={() => setFilter(nextFilter)}>{t(pluginFilterLabelKeys[nextFilter])}</button>
           ))}
         </div>
@@ -3716,16 +3691,15 @@ function PluginsView() {
                   <div className="badges mt-1">
                     <StatusPill tone={pluginPrimaryTone(entry)}>{pluginPrimaryLabel(entry, t)}</StatusPill>
                     {entry.installed?.bundled && <StatusPill tone="blue">{t("plugins.badge.bundled")}</StatusPill>}
-                    {entry.catalog?.publisherType === "community" && <StatusPill tone="orange">{t("plugins.badge.community")}</StatusPill>}
                     {entry.installed?.source === "local" && <StatusPill tone="orange">{t("plugins.badge.local")}</StatusPill>}
-                    {entry.installed?.runtime === "javascript" || entry.catalog?.runtime === "javascript" ? <StatusPill tone="purple">{t("plugins.badge.js")}</StatusPill> : <StatusPill tone="slate">{t("plugins.badge.declarative")}</StatusPill>}
+                    {entry.installed.runtime === "javascript" ? <StatusPill tone="purple">{t("plugins.badge.js")}</StatusPill> : <StatusPill tone="slate">{t("plugins.badge.declarative")}</StatusPill>}
                   </div>
                 </div>
               </div>
 
               <div className="plugin-card-footer">
                 <div className="plugin-card-meta">
-                  <span className="text-[10px] font-bold text-slatecopy/50 uppercase tracking-tight">v{entry.installed?.version || entry.catalog?.version}</span>
+                  <span className="text-[10px] font-bold text-slatecopy/50 uppercase tracking-tight">v{entry.installed.version}</span>
                 </div>
 
                 <div className="plugin-card-actions">
@@ -3747,14 +3721,8 @@ function PluginsView() {
                     </div>
                   )}
 
-                  {entry.installed ? (
-                    <>
-                      {entry.installed.source === "local" && entry.installed.sourcePath && <Button variant="secondary" size="compact" icon={<RefreshIcon />} disabled={!!busy} onClick={() => void run(t("plugins.busy.refreshingSource"), async () => { applyResult(await api.refreshLocalPlugin(entry.id), t("plugins.toast.localRefreshed")); })}>{t("plugins.card.refresh")}</Button>}
-                      <Button variant="secondary" size="compact" icon={<ConfigureIcon />} disabled={!!busy} onClick={() => setSelectedId(entry.id)}>{t("plugins.card.configure")}</Button>
-                    </>
-                  ) : (
-                    <Button variant="primary" size="compact" icon={<InstallIcon />} disabled={!!busy || entry.catalog?.deprecated} onClick={() => void run(t("plugins.busy.installing"), async () => { await installCatalogEntry(entry); })}>{t("plugins.card.installPlugin")}</Button>
-                  )}
+                  {entry.installed.source === "local" && entry.installed.sourcePath && <Button variant="secondary" size="compact" icon={<RefreshIcon />} disabled={!!busy} onClick={() => void run(t("plugins.busy.refreshingSource"), async () => { applyResult(await api.refreshLocalPlugin(entry.id), t("plugins.toast.localRefreshed")); })}>{t("plugins.card.refresh")}</Button>}
+                  <Button variant="secondary" size="compact" icon={<ConfigureIcon />} disabled={!!busy} onClick={() => setSelectedId(entry.id)}>{t("plugins.card.configure")}</Button>
                 </div>
               </div>
             </article>
@@ -3762,12 +3730,11 @@ function PluginsView() {
           {!filteredEntries.length && <div className="plugin-empty"><PluginGlyph /><strong>{t("plugins.empty.title")}</strong><small>{t("plugins.empty.description")}</small></div>}
         </div>
         <div className="plugin-hub-footer">
-          <span><strong>{snapshot?.plugins.length ?? 0}</strong> {t("plugins.footer.installed")} · <strong>{catalog?.plugins.length ?? 0}</strong> {t("plugins.footer.catalog")}</span>
+          <span><strong>{snapshot?.plugins.length ?? 0}</strong> {t("plugins.footer.installed")}</span>
           <span className="plugin-hub-actions">
-            <Button variant="secondary" size="compact" disabled={!!busy} icon={<RefreshIcon />} onClick={() => void run(t("plugins.busy.refreshing"), async () => { await load(true); setMessage(t("plugins.toast.catalogRefreshed")); })}>{t("plugins.footer.refresh")}</Button>
             <Button variant="secondary" size="compact" icon={<FolderPlusIcon />} disabled={!!busy} onClick={() => void run(t("plugins.busy.loading"), async () => {
               const result = await api.loadLocalPlugin();
-              if (applyResult(result, t("plugins.toast.localLoaded"))) await load(false, false);
+              if (applyResult(result, t("plugins.toast.localLoaded"))) await load(false);
             })}>{t("plugins.footer.loadLocal")}</Button>
           </span>
         </div>
@@ -3783,15 +3750,14 @@ function PluginsView() {
           </div>
           <div className="meta">
             <StatusPill tone={pluginPrimaryTone(selected)}>{pluginPrimaryLabel(selected, t)}</StatusPill>
-            <StatusPill tone="slate">v{installed?.version ?? catalogPlugin?.version}</StatusPill>
+            <StatusPill tone="slate">v{installed?.version}</StatusPill>
             {installed?.bundled && <StatusPill tone="blue">{t("plugins.badge.bundled")}</StatusPill>}
-            {catalogPlugin?.publisherType === "community" && <StatusPill tone="orange">{t("plugins.badge.community")}</StatusPill>}
             {installed?.source === "local" && <StatusPill tone="orange">{t("plugins.badge.local")}</StatusPill>}
-            {(installed?.catalogDeprecated || catalogPlugin?.deprecated) && <StatusPill tone="orange">{t("plugins.badge.deprecated")}</StatusPill>}
+            {installed?.catalogDeprecated && <StatusPill tone="orange">{t("plugins.badge.deprecated")}</StatusPill>}
           </div>
-          {(installed?.catalogStatusReason || catalogPlugin?.statusReason || installed?.status?.text) && <div className="plugin-status-strip">
+          {(installed?.catalogStatusReason || installed?.status?.text) && <div className="plugin-status-strip">
             {installed?.status?.text && <StatusPill tone={installed.status.tone ? pluginStatusTone[installed.status.tone] : "blue"}>{installed.status.text}</StatusPill>}
-            <span>{installed?.catalogStatusReason || catalogPlugin?.statusReason}</span>
+            <span>{installed?.catalogStatusReason}</span>
           </div>}
           {installed ? <>
             <section className="plugin-section">
@@ -3841,15 +3807,10 @@ function PluginsView() {
             <section className="plugin-section plugin-actions-section">
               {installed.source === "local" && installed.sourcePath && <Button variant="secondary" disabled={!!busy} icon={<FolderPlusIcon />} onClick={() => void run(t("plugins.busy.refreshingSource"), async () => { applyResult(await api.refreshLocalPlugin(installed.id), t("plugins.toast.localRefreshed")); })}>{t("plugins.inspector.refreshFromFolder")}</Button>}
               <Button variant="secondary" disabled={!!busy} icon={<RefreshIcon />} onClick={() => void run(t("plugins.busy.reloading"), async () => { applyResult(await api.reloadPlugin(installed.id), t("plugins.toast.pluginReloaded")); })}>{t("plugins.inspector.reload")}</Button>
-              {installed.source === "catalog" && !installed.bundled && catalogPlugin && catalogPlugin.version !== installed.version && <Button variant="primary" icon={<InstallIcon />} disabled={!!busy} onClick={() => void run(t("plugins.busy.updating"), async () => { await updateCatalogEntry(installed); })}>{t("plugins.inspector.update")}</Button>}
+              {installed.source === "catalog" && !installed.bundled && <Button variant="primary" icon={<InstallIcon />} disabled={!!busy} onClick={() => void run(t("plugins.busy.updating"), async () => { await updateCatalogEntry(installed); })}>{t("settings.general.checkForUpdates")}</Button>}
               {!installed.bundled && <Button variant="danger" icon={<RemoveIcon />} disabled={!!busy} onClick={() => { if (window.confirm(t("plugins.inspector.uninstallConfirm", { name: pluginName(selected) }))) void run(t("plugins.busy.uninstalling"), async () => { if (applyResult(await api.uninstallPlugin(installed.id), t("plugins.toast.pluginUninstalled"))) setSelectedId(""); }); }}>{t("plugins.inspector.uninstall")}</Button>}
             </section>
-          </> : <section className="plugin-section">
-            <div className="plugin-section-title"><small>{t("plugins.inspector.catalog")}</small><strong>{t("plugins.inspector.readyToInstall")}</strong></div>
-            <p className="desc">{t("plugins.inspector.catalogDescription")}</p>
-            <div className="badges plugin-permissions">{catalogPlugin?.permissions.map((permission) => <StatusPill key={permission} tone={sensitivePermissionSet.has(permission) ? "red" : permission === "network" || permission === "network:write" ? "orange" : "blue"}>{t(pluginPermissionLabelKeys[permission])}</StatusPill>)}</div>
-            <Button variant="primary" fullWidth icon={<InstallIcon />} disabled={!!busy || catalogPlugin?.deprecated} onClick={() => void run(t("plugins.busy.installing"), async () => { await installCatalogEntry(selected); })}>{t("plugins.inspector.installPlugin")}</Button>
-          </section>}
+          </> : null}
         </> : <div className="plugin-empty plugin-empty-detail"><PluginGlyph /><strong>{t("plugins.emptyDetail.title")}</strong><small>{t("plugins.emptyDetail.description")}</small></div>}
         </GlassCard>
       </div>}
