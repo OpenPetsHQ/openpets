@@ -18,12 +18,12 @@ from a public catalog.
 
 ## Runtime topology
 
-There are four runtime worlds. Keep them distinct in your head.
+There are five runtime worlds. Keep their ownership distinct.
 
 1. **The desktop app** (`apps/desktop/`) - an Electron process tree. The main
    process owns state, windows, the tray, the pet windows, the plugin runtime,
    and a **local IPC server**, plus a separate opt-in remote-control listener.
-   This is the only long-lived process; remote control is disabled by default.
+    This is the local long-lived desktop service; remote control is disabled by default.
 2. **Agent-side integrations** (`packages/*`) - short-lived code that runs
    inside or alongside a coding agent (Claude Code hooks, the MCP server,
     OpenCode plugin, Cursor config, Zed config, Devin config, Pi extension, the native OpenClaw
@@ -37,14 +37,22 @@ There are four runtime worlds. Keep them distinct in your head.
    `@open-pets/dsh` is the strict local-only v1 exception: it always uses local
    IPC and the default pet and ignores all remote configuration.
 3. **The public web origin** (`openpets.dev`, source in `web/`) - static
-   catalogs and asset hosting. The app fetches pet/plugin catalogs and downloads
-   ZIPs from here. Only the *data* side of `web/` (catalogs, ZIP hosting, pet
+   pet catalogs and asset hosting, plus older-app plugin catalog boundaries.
+   Only the *data* side of `web/` (catalogs, ZIP hosting, pet
    metadata) is in scope for these docs; the marketing site/frontend is not.
 4. **The VS Code extension foundation** (`apps/vscode-extension/`) - a standalone
    UI-host preview with editor/sidebar webviews and independent SQLite-backed
    state. It provides catalog installation, whole-package ZIP import and manual
    outfits without the desktop app or its IPC server. It is locally packaged
-   for evaluation, not released on the Marketplace. See [OpenPets for VS Code](/vscode).
+    for evaluation, not released on the Marketplace. See [OpenPets for VS Code](/vscode).
+
+5. **The Studio service** (`web/studio/`) - the existing Python account and pet
+   generation service also hosts a separate marketplace domain. It owns shared
+   account identity, SQLite marketplace state and immutable package/media bytes
+   on its durable volume, publishing only administrator-approved snapshots. The
+   website and current desktop consume this API; repository-generated plugin
+   catalogs are an older-app versioned-data boundary, not the new publishing
+   authority. See [Marketplace](/marketplace).
 
 ```
 coding agent  ──(hook/MCP/plugin event)──▶  @open-pets/client
@@ -57,7 +65,8 @@ coding agent  ──(hook/MCP/plugin event)──▶  @open-pets/client
                                           └─ catalog/install
                                                   │  HTTPS
                                                   ▼
-                                         openpets.dev (catalogs, ZIPs on R2)
+                                         openpets.dev (pet catalogs/ZIPs)
+                                         Studio API (reviewed plugins/ZIPs)
 ```
 
 An explicitly configured remote agent uses a separate path: private IPv4
@@ -267,9 +276,11 @@ in memory. Each links to the doc that details it.
   OpenClaw CLI's cold inventory and its managed install/update/enable/remove
   actions are issued through OpenClaw's plugin commands. See [Agent
   integrations](/agent-integrations).
-- **Publishing content.** Pets and plugins are packaged into versioned catalogs
-  and ZIPs, validated, and uploaded to R2 behind `openpets.dev`. See
-  [Catalogs](/catalog) and [Testing and validation](/testing-and-validation).
+- **Publishing content.** Pets use versioned catalogs and validated ZIPs on R2.
+  Plugins use the Studio marketplace API: upload, package validation, immutable
+  pending snapshot, administrator review, then publication without website
+  deployment. See [Marketplace](/marketplace), [Catalogs](/catalog) and
+  [Testing and validation](/testing-and-validation).
 
 ## Cross-cutting invariants
 

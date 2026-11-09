@@ -133,6 +133,15 @@ export class PluginRuntime {
     }
   }
 
+  isPluginActive(id: string, version: string): boolean {
+    const record = this.#stateStore.getRecord(id);
+    return this.#active && record?.version === version && record.enabled && !record.brokenReason && this.#slots.get(id)?.active === true;
+  }
+
+  async suspendPlugin(id: string): Promise<void> {
+    await this.#cancelPlugin(id);
+  }
+
   async #reloadPlugin(id: string): Promise<void> {
     const started = Date.now();
     logPluginDiagnostic(this.#logger, "debug", "plugin reload", { pluginId: id, phase: "begin" });

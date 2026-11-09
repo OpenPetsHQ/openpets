@@ -11,6 +11,7 @@ import { PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js
 let lastRoot = "";
 
 class FakeRuntime {
+  active = true;
   reloads: string[] = [];
   logs: Array<{ level: string; message: string; fields?: Record<string, unknown> }> = [];
   commandState: Record<string, Array<{ id: string; title: string; description?: string; form?: { submitLabel?: string; fields: Array<{ id: string; type: string; label: string }> } }>> = {};
@@ -20,6 +21,8 @@ class FakeRuntime {
   async start(): Promise<void> {}
   stop(): void { this.stopped = true; }
   async reloadPlugin(id: string): Promise<void> { this.reloads.push(id); }
+  isPluginActive(): boolean { return this.active; }
+  async suspendPlugin(): Promise<void> {}
   getPluginState(id: string): { commands: Array<{ id: string; title: string; description?: string; form?: { submitLabel?: string; fields: Array<{ id: string; type: string; label: string }> } }> } { return { commands: this.commandState[id] ?? [] }; }
   async executeCommand(pluginId: string, commandId: string): Promise<void> { this.executed.push({ pluginId, commandId }); if (this.commandError) throw this.commandError; }
   log(level: string, message: string, fields?: Record<string, unknown>): void { this.logs.push({ level, message, fields }); }
@@ -625,15 +628,58 @@ await catalogRollbackScenario("catalog update rolls back manifest if state write
   assert.equal(result.ok, false);
   assert.equal(store.getRecord("rollback-plug")?.version, "1.0.0");
   assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).version, "1.0.0");
-  assert.deepEqual(runtime.reloads, []);
+  assert.deepEqual(runtime.reloads, ["rollback-plug"]);
 });
+
+await catalogRollbackScenario("failed activation restores the previous approved plugin", async ({ service, store, runtime, userData }) => {
+  const oldManifest = manifest({ id: "rollback-plug", version: "1.0.0" });
+  const install = join(userData, "plugins", "rollback-plug");
+  const manifestPath = writeManifest(install, oldManifest);
+  store.upsertRecord({ id: "rollback-plug", version: "1.0.0", installPath: install, manifestPath, source: "catalog", enabled: true, approvedPermissions: ["timer", "pet:speak"], config: { preserved: true } });
+  runtime.active = false;
+  const result = await service.updateCatalog("rollback-plug");
+  assert.equal(result.ok, false);
+  assert.equal(store.getRecord("rollback-plug")?.version, "1.0.0");
+  assert.deepEqual(store.getRecord("rollback-plug")?.config, { preserved: true });
+  assert.deepEqual(store.getRecord("rollback-plug")?.approvedPermissions, ["pet:speak", "timer"]);
+  assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).version, "1.0.0");
+});
+
+await catalogRollbackScenario("install selects the highest compatible approved release", async ({ service, store }) => {
+  const result = await service.installCatalog("rollback-plug");
+  assert.equal(result.ok, true);
+  assert.equal(store.getRecord("rollback-plug")?.version, "2.0.0");
+});
+
+await catalogRollbackScenario("catalog update does not downgrade an installed plugin", async ({ service, store, userData }) => {
+  const oldManifest = manifest({ id: "rollback-plug", version: "3.0.0" });
+  const install = join(userData, "plugins", "rollback-plug");
+  const manifestPath = writeManifest(install, oldManifest);
+  store.upsertRecord({ id: "rollback-plug", version: "3.0.0", installPath: install, manifestPath, source: "catalog", enabled: false, approvedPermissions: ["timer"], config: { retained: true } });
+  const result = await service.updateCatalog("rollback-plug");
+  assert.equal(result.ok, false);
+  assert.equal(store.getRecord("rollback-plug")?.version, "3.0.0");
+  assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).version, "3.0.0");
+});
+
+await catalogRollbackScenario("cancelled permission escalation retains old plugin", async ({ service, store, userData }) => {
+  const oldManifest = manifest({ id: "rollback-plug", version: "1.0.0" });
+  const install = join(userData, "plugins", "rollback-plug");
+  const manifestPath = writeManifest(install, oldManifest);
+  store.upsertRecord({ id: "rollback-plug", version: "1.0.0", installPath: install, manifestPath, source: "catalog", enabled: false, approvedPermissions: ["timer"], config: { retained: true } });
+  const result = await service.updateCatalog("rollback-plug");
+  assert.equal(result.ok, true);
+  assert.equal(store.getRecord("rollback-plug")?.version, "1.0.0");
+  assert.deepEqual(store.getRecord("rollback-plug")?.config, { retained: true });
+  assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).version, "1.0.0");
+}, false);
 
 await catalogCompatibilityScenario("catalog filters and blocks incompatible plugins", async ({ service }) => {
   const snapshot = await service.getCatalogSnapshot(true);
   assert.deepEqual(snapshot.plugins.map((plugin) => plugin.id), ["compatible-plug"]);
   const result = await service.installCatalog("future-plug");
   assert.equal(result.ok, false);
-  assert.match(result.error, /incompatible with this OpenPets version/);
+  assert.match(result.error, /compatible approved plugin release/);
 });
 
 await scenario("disabled catalog returns no discover plugins", async ({ userData, store, runtime }) => {
@@ -715,7 +761,7 @@ async function localScenario(name: string, fn: (ctx: { root: string; userData: s
   try { await fn({ root, userData, source, store, service, runtime }); } catch (error) { throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-async function catalogRollbackScenario(name: string, fn: (ctx: { root: string; userData: string; store: ThrowingStateStore; service: PluginService; runtime: FakeRuntime }) => Promise<void>): Promise<void> {
+async function catalogRollbackScenario(name: string, fn: (ctx: { root: string; userData: string; store: ThrowingStateStore; service: PluginService; runtime: FakeRuntime }) => Promise<void>, approve = true): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "openpets-plugin-catalog-root-"));
   const userData = mkdtempSync(join(tmpdir(), "openpets-plugin-catalog-user-"));
   mkdirSync(join(userData, "plugins"), { recursive: true });
@@ -725,14 +771,15 @@ async function catalogRollbackScenario(name: string, fn: (ctx: { root: string; u
   const runtime = new FakeRuntime();
   const nextManifest = manifest({ id: "rollback-plug", version: "2.0.0" });
   const zip = makeZip(OPENPETS_PLUGIN_MANIFEST_FILENAME, Buffer.from(JSON.stringify(nextManifest), "utf8"));
-  const downloadUrl = "https://zip.openpets.dev/plugins/rollback-plug.zip";
+  const downloadUrl = "https://studio-api.openpets.dev/api/marketplace/plugins/rollback-plug/releases/2.0.0/download";
   const catalog = { version: 1, generatedAt: new Date().toISOString(), plugins: [{ id: nextManifest.id, name: nextManifest.name, version: nextManifest.version, description: "Rollback", runtime: "declarative", permissions: nextManifest.permissions, downloadUrl, sha256: createHash("sha256").update(zip).digest("hex") }] };
   const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
     const value = String(url);
     if (value === downloadUrl) return new Response(new Uint8Array(zip), { status: 200 });
-    return new Response(JSON.stringify(catalog), { status: 200 });
+    const detail = marketplaceDetail(catalog.plugins[0]);
+    return Response.json({ ...detail, releases: [...detail.releases, { ...detail.releases[0], id: "release-3", version: "3.0.0", minOpenPetsVersion: "99.0.0", downloadUrl: "https://studio-api.openpets.dev/api/marketplace/plugins/rollback-plug/releases/3.0.0/download" }] });
   };
-  const service = new PluginService({ userDataPath: userData, stateStore: store, runtime: runtime as never, fetchImpl, confirmPermissions: async () => true });
+  const service = new PluginService({ userDataPath: userData, stateStore: store, runtime: runtime as never, fetchImpl, confirmPermissions: async () => approve });
   try { await fn({ root, userData, store, service, runtime }); } catch (error) { throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
@@ -740,14 +787,18 @@ async function catalogCompatibilityScenario(name: string, fn: (ctx: { service: P
   const userData = mkdtempSync(join(tmpdir(), "openpets-plugin-compat-user-"));
   const store = new PluginStateStore({ statePath: join(userData, "state.json") });
   store.initialize();
-  const catalog = { version: 1, generatedAt: new Date().toISOString(), plugins: [catalogEntry("compatible-plug", "1.0.0"), catalogEntry("future-plug", "9.0.0")] };
-  const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify(catalog), { status: 200 });
+  const catalog = { version: 2, generatedAt: new Date().toISOString(), plugins: [catalogEntry("compatible-plug", "1.0.0"), catalogEntry("future-plug", "9.0.0")] };
+  const fetchImpl = async (url: string | URL | Request): Promise<Response> => String(url).includes("catalog.v2.json") ? Response.json(catalog) : Response.json(marketplaceDetail(catalog.plugins[1]));
   const service = new PluginService({ userDataPath: userData, stateStore: store, runtime: new FakeRuntime() as never, fetchImpl, currentAppVersion: "2.0.0", confirmPermissions: async () => true });
   try { await fn({ service }); } catch (error) { throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-function catalogEntry(id: string, minOpenPetsVersion: string): object {
-  return { id, name: id, version: "1.0.0", description: "Test", runtime: "declarative", permissions: ["timer", "pet:speak"], downloadUrl: `https://zip.openpets.dev/plugins/${id}.zip`, sha256: "0".repeat(64), minOpenPetsVersion };
+function catalogEntry(id: string, minOpenPetsVersion: string) {
+  return { id, name: id, version: "1.0.0", description: "Test", runtime: "declarative", permissions: ["timer", "pet:speak"], downloadUrl: `https://studio-api.openpets.dev/api/marketplace/plugins/${id}/releases/1.0.0/download`, sha256: "0".repeat(64), minOpenPetsVersion };
+}
+
+function marketplaceDetail(entry: { id: string; name: string; description: string; version: string; runtime: string; permissions: readonly string[]; downloadUrl: string; sha256: string; minOpenPetsVersion?: string }) {
+  return { ...entry, releaseId: "release-1", category: "tools", tags: [], publisher: { id: "author", username: "author", displayName: "Author", publisherType: "community" }, iconUrl: null, heartCount: 0, ratingAverage: null, ratingCount: 0, downloadCount: 0, hearted: false, myRating: null, readme: "", screenshots: [], sourceUrl: null, homepageUrl: null, license: null, changelog: "", releases: [{ ...entry, id: "release-1", pluginId: entry.id, status: "approved" }] };
 }
 
 function addPlugin(store: PluginStateStore, patch: Partial<PluginStateRecord> = {}, data: unknown = manifest()): void {

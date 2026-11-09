@@ -46,8 +46,18 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm release:desktop` | macOS-local build, automatic SignPath Windows signing, and verified GitHub publication |
 | `pnpm release:npm` | Publish npm packages |
 | `pnpm plugins:*` | Plugin test/validate/package/publish/deploy (see below) |
+| `pnpm marketplace:validator:build` | Rebuild Studio's portable plugin validator from desktop validation source |
+| `pnpm marketplace:validator:check` | Verify the checked-in validator bundle is current |
+| `pnpm marketplace:validator:test` | Exercise package validation and publisher CLI behavior |
+| `pnpm marketplace:publish …` | Prepare, validate, reserve and submit immutable plugin releases through the API |
+| `pnpm marketplace:migrate …` | Plan, check, explicitly import and verify the complete existing inventory |
+| `pnpm marketplace:release:check …` | Check audited cutover inventory, public artifact integrity and release compatibility |
 
 ### Plugin DX commands
+
+For new publication, use the [marketplace](/marketplace). The `plugins:publish`,
+`plugins:deploy` and `plugins:release` commands below are the repository/R2
+catalog workflow for older app versions, not the marketplace publishing path.
 
 | Command | Purpose |
 |---------|---------|
@@ -94,8 +104,8 @@ catch.
    a copied environment. The launch is bounded to 10 seconds; a timeout kills
    only the owned launcher and does not retry through Electron's shell opener,
    avoiding a possible duplicate browser launch.
-- Plugin authors using the installed app do not need this repo: open **Plugins →
-  Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
+- Plugin authors using the installed app do not need this repo: open **Marketplace →
+  Installed → Developer Mode → Load unpacked plugin folder** to validate, snapshot, watch, and
   reload a standalone plugin folder.
 - For plugin work, `pnpm dev:desktop:plugins` points the local loader at both
   `plugins/official` and `plugins/dev` (via `OPENPETS_DEV_PLUGIN_ROOTS`) so

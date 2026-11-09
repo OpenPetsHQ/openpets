@@ -21,7 +21,14 @@ Source maps: `apps/desktop/src/codemap.md` (the `plugin-*.ts` modules),
 
 ## Source lanes
 
-Plugin source is split by publishing intent:
+The [marketplace](/marketplace) owns current plugin publication. Authors upload
+packages through the website or publishing API using their existing Studio
+account. Every version requires an administrator's review; GitHub is optional.
+The repository source lanes below remain useful for bundled first-party plugins,
+local development, and the deliberate catalog boundary for older released apps.
+They are not a requirement for marketplace publication.
+
+Repository plugin source is split by publishing intent:
 
 - `plugins/official/` - first-party, reviewed OpenPets plugins. Only these can be
   bundled or enabled by default.
@@ -482,20 +489,34 @@ replacement generation's deliveries, pets, or motion.
 
 ### Catalog install
 
-`plugin-catalog.ts` fetches the active plugin catalog (v2; see
-[Catalogs](/catalog)) with timeout, redirect rejection, size cap, and cache.
-`plugin-catalog-validation.ts` validates the catalog strictly. `plugin-package.ts`
-downloads the ZIP from `zip.openpets.dev/plugins/`, **verifies SHA-256**,
-restricts ZIP size/entries, extracts the **root manifest only**, checks
-manifest↔catalog consistency, and installs to `userData/plugins/{id}`. It also
-owns safe uninstall path resolution.
+`plugin-marketplace.ts` fetches approved marketplace pages and release details;
+`plugin-catalog.ts` consumes the strict API catalog v2 projection (see
+[Catalogs](/catalog)). Both transports have deadlines and response bounds.
+`plugin-package.ts` verifies the exact ZIP checksum and expected manifest
+ID/version, validates declared files, and prepares a staging directory.
+`plugin-install-transaction.ts` owns a durable marker and the package/state
+replacement; startup recovers unfinished transactions before runtime discovery.
+`plugin-service.ts` confirms any expanded permissions, preserves existing config
+and enabled state, and requires successful activation before committing the
+replacement. A failed install restores the prior package and permission state.
+Rollback restores an already-damaged prior package as-is rather than requiring
+its manifest to validate. Runtime discovery marks that plugin broken independently,
+so recovery does not block healthy plugins from starting. Filesystem and state
+restoration failures still propagate; deferred cleanup retains a settled journal
+that can be retried without revalidating the broken manifest.
+Plugin-written storage and external side effects are not rolled back.
+
+The selected release is the highest approved version compatible with the app,
+SDK and runtime; pending/rejected/withdrawn versions cannot be installed. Bundled
+plugins remain application-managed. Local development plugins are never silently
+replaced by a marketplace package.
 
 ### Local development
 
 `plugin-local-loader.ts` validates a selected local folder and snapshots the
 manifest, entry file, and declared assets into `userData/plugins-dev/{id}`, with
 symlink/path/size protections. In the installed desktop app, authors use
-**Plugins → Developer Mode → Load unpacked plugin folder**; OpenPets persists the
+**Marketplace → Installed → Developer Mode → Load unpacked plugin folder**; OpenPets persists the
 original source folder, watches it, and re-snapshots/reloads after edits. The
 repo dev build still supports maintainer-only env paths with
 `OPENPETS_DEV_PLUGIN_ROOTS` / `OPENPETS_DEV_PLUGIN_PATHS` and
@@ -572,7 +593,16 @@ each state.
 4. **Validate**: `openpets plugin validate <dir>` checks manifest, permissions,
    SDK compatibility, config field types, network hosts, asset formats/size
    caps, entry files, and HTML panels. (`packages/cli/src/plugin-validate.ts`.)
-5. **Package & publish**: see below.
+5. **Package**: `pnpm marketplace:publish prepare <dir> <package.zip>` validates
+   the exact package using the same manifest/assets rules as the desktop.
+6. **Submit**: use the website's Publisher Hub or
+   `pnpm marketplace:publish submit <package.zip> --metadata <metadata.json>`.
+   The CLI uses `OPENPETS_STUDIO_API_URL` and `OPENPETS_STUDIO_TOKEN`; submission
+   creates a pending immutable release, never an automatic approval.
+7. **Review**: an administrator inspects and approves each exact version. Listing
+   metadata, README and screenshots are part of that reviewed snapshot. Approval
+   makes the release available without a website deployment. See
+   [Marketplace](/marketplace) for the API and rollout boundary.
 
 Official plugins are the best worked examples for this workflow. Calendar
 Airmail demonstrates OAuth, network allowlists, scheduled work, durable plugin
@@ -581,9 +611,9 @@ demonstrates reminder state, snooze/done actions, optional notifications, and
 sound assets. See [Official plugins](/official-plugins) for the current
 reviewed lineup.
 
-## Packaging, catalog & release validation
+## Legacy catalog packaging & release validation
 
-The release path is gated by the validators in
+The repository-generated catalog boundary for older apps is gated by validators in
 [Testing and validation](/testing-and-validation), with maintainer release
 steps in [Release guide](/release). The command surface (run from repo root):
 

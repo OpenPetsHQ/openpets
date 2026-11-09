@@ -160,6 +160,23 @@ packaging or CI alone does not establish Marketplace readiness.
 
 ## Plugin testing
 
+- **Marketplace:** `pnpm marketplace:validator:check` and
+  `pnpm marketplace:validator:test` verify the portable authoritative validator
+  and publishing CLI. Studio's `tests/test_marketplace_*.py` protect immutable
+  snapshots, review state, account retention, artifact visibility and API
+  authorization; desktop's `plugin-marketplace`, `plugin-package`,
+  `plugin-service` and plugin IPC tests protect transport and replacement.
+  Final runtime verification must use the actual generated Node validator and
+  the actual API JSON with the desktop client, not only independently mocked
+  producer/consumer fixtures. See [Marketplace](/marketplace).
+- Existing-user upgrade coverage uses pre-marketplace state fixtures across
+  offline, HTTP 404 and HTTP 500 startup, same-ID updates and declined permission
+  escalation. Studio migration tests protect existing accounts, sessions, credits
+  and project references. The batch migration tool has local-server plan/import/
+  receipt tests; the standalone web release guard checks audited inventory,
+  anonymous artifact bytes and target-desktop compatibility. Run the website's
+  configured tests with `bun run test` (the Node runner), not Bun's distinct
+  native `bun test` command.
 - **Unit**: each official plugin has a `test.js` using
   `@open-pets/plugin-sdk/testing` - fake time/events, descriptor-level
   assertions, no Electron. Run via `pnpm plugins:test`, which first runs

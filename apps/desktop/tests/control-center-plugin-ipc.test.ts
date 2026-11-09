@@ -18,6 +18,8 @@ const channels = [
   "openpets:plugins-execute-command",
   "openpets:plugins-load-local",
   "openpets:plugins-catalog-snapshot",
+  "openpets:plugins-marketplace-list",
+  "openpets:plugins-marketplace-detail",
   "openpets:plugins-install-catalog",
   "openpets:plugins-update-catalog",
   "openpets:plugins-uninstall",
@@ -54,6 +56,8 @@ function createHarness(): {
     executeCommand: async (...args) => { record("executeCommand", ...args); return { ok: true, snapshot }; },
     loadLocal: async () => { record("loadLocal"); return { ok: true, snapshot }; },
     getCatalogSnapshot: async (...args) => { record("getCatalogSnapshot", ...args); return { plugins: [] }; },
+    getMarketplacePlugins: async (...args) => { record("getMarketplacePlugins", ...args); return { plugins: [], total: 0, offset: 0, limit: 24 }; },
+    getMarketplacePlugin: async (...args) => { record("getMarketplacePlugin", ...args); return { id: "plugin", pluginId: "plugin", releaseId: "release", status: "approved", name: "Plugin", description: "", version: "1.0.0", runtime: "declarative", permissions: [], downloadUrl: "https://studio-api.openpets.dev/file", sha256: "a".repeat(64), category: "tools", tags: [], publisher: { id: "author", username: "author", displayName: "Author", publisherType: "community" }, iconUrl: null, heartCount: 0, ratingAverage: null, ratingCount: 0, downloadCount: 0, hearted: false, myRating: null, readme: "", screenshots: [], sourceUrl: null, homepageUrl: null, license: null, changelog: "", createdAt: null, reviewedAt: null, releases: [] }; },
     installCatalog: async (...args) => { record("installCatalog", ...args); return { ok: true, snapshot }; },
     updateCatalog: async (...args) => { record("updateCatalog", ...args); return { ok: true, snapshot }; },
     uninstall: async (...args) => { record("uninstall", ...args); return { ok: true, snapshot }; },
@@ -83,6 +87,8 @@ const validArgs: Record<(typeof channels)[number], readonly unknown[]> = {
   "openpets:plugins-execute-command": ["plugin", "command:run", { value: 1 }],
   "openpets:plugins-load-local": [],
   "openpets:plugins-catalog-snapshot": [true],
+  "openpets:plugins-marketplace-list": [{}],
+  "openpets:plugins-marketplace-detail": ["plugin"],
   "openpets:plugins-install-catalog": ["plugin"],
   "openpets:plugins-update-catalog": ["plugin"],
   "openpets:plugins-uninstall": ["plugin"],
@@ -145,12 +151,12 @@ assert.deepEqual([...createHarness().handlers.keys()], channels, "only the fixed
     if (channel === "openpets:plugins-inspector") assert.deepEqual(result, { id: "plugin" }, "inspector returns the current runtime inspector result unchanged");
   }
   assert.deepEqual(harness.calls.map(({ method }) => method), [
-    "getSnapshot", "setEnabled", "saveConfig", "pickConfigSound", "reload", "refreshLocal", "executeCommand", "loadLocal", "getCatalogSnapshot", "installCatalog", "updateCatalog", "uninstall", "getInspectorState",
+    "getSnapshot", "setEnabled", "saveConfig", "pickConfigSound", "reload", "refreshLocal", "executeCommand", "loadLocal", "getCatalogSnapshot", "getMarketplacePlugins", "getMarketplacePlugin", "installCatalog", "updateCatalog", "uninstall", "getInspectorState",
   ]);
   assert.deepEqual(harness.calls[1]?.args, ["plugin", true]);
   assert.equal(harness.calls[2]?.args[1], config);
   assert.equal(harness.calls[6]?.args[2], commandArgs);
-  assert.deepEqual(harness.calls[12]?.args, ["plugin"]);
+  assert.deepEqual(harness.calls[14]?.args, ["plugin"]);
 }
 
 {

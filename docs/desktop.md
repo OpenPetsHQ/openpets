@@ -299,7 +299,7 @@ pet keeps rendering during fullscreen video and games.
 ### Control Center (renderer)
 
 The React/Tailwind UI under `src/renderer/`. Pages: **Dashboard,
-Pets, Settings, Plugins, Integrations, Teams**. It is a pure consumer of main-process
+Pets, Settings, Marketplace, Integrations, Teams**. It is a pure consumer of main-process
 snapshots and actions exposed over the preload bridge - it holds no privileged
 capability of its own. The Control Center renderer is the only management
 frontend in scope for these docs; the companion renderer is documented above
@@ -320,7 +320,7 @@ plugins while preserving personal content in an isolated lane. It supports
 pending deep-link enrollment with display-name input, explicit synchronization,
 explicit leave with destructive-action confirmation, and clear presentation of
 permission-block or synchronization failure states. Team-owned first installs
-require an explicit approval here, not in the Plugins tab: the approval shows all
+require an explicit approval here, not in Marketplace: the approval shows all
 requested permissions and network hosts and is bound to the current artifact, so
 organization membership or policy cannot silently approve it. Team Packs remain
 pending/not current until that approval succeeds.
