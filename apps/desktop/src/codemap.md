@@ -353,6 +353,9 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-activity-service.ts` / `pet-activity-policy.ts`: Electron-free logical-activity scheduling and exact-outfit selection, continuous idle opportunities, cooldown/repeat history, cancellation/completion ownership, and preference normalization with injectable time/random.
 - `pet-activity-asset-cache.ts`: Snapshot-only outfit-specific asset validation cache, keyed by activity and outfit with filesystem freshness checks and bounded installed-pet ownership.
 - `pet-activity-player.cjs`: Dedicated finite rectangular-strip preload player, with image-load/completion generations, cleanup, baseline/scale preservation, and isolation from plugin overrides.
+- `pet-motion-preview-format.ts`: Pure bounded schema for a complete local animated WebP trial, independent of published pet packages.
+- `pet-motion-preview.ts`: Development-only asset validation, private session snapshot and cleanup, initialized by `main.ts` and read by built-in pet rendering.
+- `pet-motion-player.cjs`: Preload-owned animated WebP decoding and canvas playback, native timing, transition clips, pause, alpha hit testing and frame/decoder cleanup; opt-in through the built-in render metadata.
 - `pet-activities-types.ts` / `control-center-pet-activities-ipc.ts`: Clone-safe activity UI snapshot and authorized narrow get/enable/play IPC contracts.
 - `pet-window-styles.ts`: Pet-window CSS generation for reaction/movement sprite states and V2 cursor-glance atlas overrides; V2 idle keeps its animated row-zero loop outside an active glance, and paused V2 idle holds the static neutral cell
 - `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override to the currently rendered sprite

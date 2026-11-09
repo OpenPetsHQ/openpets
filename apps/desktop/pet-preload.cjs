@@ -12,6 +12,33 @@ const {
 const { installDefaultPetSession } = require("./pet-session/session-overlay-view.cjs");
 const { createPetContentStageController } = require("./src/pet-content-stage.cjs");
 const { createPetAlphaHitTester, decodeSpriteSheetPixels } = require("./src/pet-alpha-hit-test.ts");
+const { createPetMotionPlayer } = require("./src/pet-motion-player.cjs");
+const motionPlayer = createPetMotionPlayer({
+  document,
+  loadBytes: (url) => ipcRenderer.invoke("openpets:pet-sprite-bytes", url),
+  createDecoder: (options) => new ImageDecoder(options),
+  now: () => performance.now(),
+  setTimeout,
+  clearTimeout,
+  onError: (fields) => console.warn("[openpets:motion] playback failed", JSON.stringify(fields)),
+});
+const installMotionPlayer = () => {
+  motionPlayer.refresh();
+  const observer = new MutationObserver(() => motionPlayer.refresh());
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-reaction-state", "data-motion-state", "data-paused", "data-flip-x"],
+  });
+  window.addEventListener("beforeunload", () => {
+    observer.disconnect();
+    motionPlayer.dispose();
+  }, { once: true });
+};
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", installMotionPlayer, { once: true });
+} else {
+  installMotionPlayer();
+}
 const { createNativePetActivityPlayer } = require("./src/pet-activity-player.cjs");
 const nativeActivityPlayer = createNativePetActivityPlayer({
   document,
@@ -206,6 +233,7 @@ ipcRenderer.on("openpets:pet-content-state", (_event, state) => {
       }
     }
     nativeActivityPlayer.refreshStage();
+    motionPlayer.refresh();
     updateOnPetTalkButton(latestVoiceSnapshot);
     updateDefaultPetCheckInButton();
   };
@@ -266,7 +294,7 @@ const isOpaquePetSurfaceHit = (target, clientX, clientY) => {
   }
   let opaque;
   try {
-    opaque = getPetAlphaHitTester().isOpaqueAt(clientX, clientY);
+    opaque = motionPlayer.hitTest(clientX, clientY) ?? getPetAlphaHitTester().isOpaqueAt(clientX, clientY);
   } catch {
     // A hit-test failure must never make the pet ungrabbable.
     opaque = true;
@@ -2087,6 +2115,7 @@ ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
   if (spriteOverrideElement) { spriteOverrideElement.remove(); spriteOverrideElement = null; }
   if (!override || typeof override.fileUrl !== "string" || !override.fileUrl.startsWith("file://")) {
     if (base) base.style.visibility = "";
+    motionPlayer.refresh();
     return;
   }
   const probe = new Image();
@@ -2108,6 +2137,7 @@ ipcRenderer.on("openpets:pet-sprite-override", (_event, override) => {
     if (base) base.style.visibility = "hidden";
     shell.appendChild(el);
     spriteOverrideElement = el;
+    motionPlayer.refresh();
   };
   probe.src = override.fileUrl;
 });

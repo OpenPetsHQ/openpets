@@ -53,6 +53,27 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm marketplace:migrate …` | Plan, check, explicitly import and verify the complete existing inventory |
 | `pnpm marketplace:release:check …` | Check audited cutover inventory, public artifact integrity and release compatibility |
 
+### Previewing generated motion
+
+Build the desktop, then start an isolated capture profile with a generated pack:
+
+```sh
+pnpm --filter @open-pets/desktop build
+OPENPETS_MOTION_PREVIEW_DIR=/absolute/path/to/pack pnpm capture start --no-build --plugins ''
+pnpm capture react waving
+pnpm capture react success
+pnpm capture react thinking
+pnpm capture stop
+```
+
+The pack must contain `motion.json` and every referenced animated WebP. The
+experimental schema and bounds are owned by `pet-motion-preview-format.ts`;
+`pet-motion-preview.ts` validates geometry, alpha, frame counts and timing before
+opening any pet window. Keep generated packs and provider credentials outside the
+repository. This opt-in affects the built-in pet only and is ignored in packaged
+releases. See [Pets](/pets#local-motion-preview-experiment) for playback behavior
+and current evaluation limits.
+
 ### Plugin DX commands
 
 For new publication, use the [marketplace](/marketplace). The `plugins:publish`,

@@ -15,6 +15,34 @@ installation), `packages/install-pet/codemap.md` (standalone installer).
 
 ## What a pet is
 
+### Local motion preview experiment
+
+An unpackaged desktop build can replace the built-in Hoodie Cat artwork with a
+complete animated WebP set by setting `OPENPETS_MOTION_PREVIEW_DIR` to an absolute
+directory containing `motion.json` and its clips. This is a local quality trial;
+it is not an installable pet package or a published catalog format.
+
+`pet-motion-preview-format.ts` validates the nine canonical animation states,
+shared canvas dimensions and foot anchor, display scale, and optional movement
+entry/exit clips. `pet-motion-preview.ts` decodes and validates the files, copies
+them into a private session snapshot, and removes that snapshot on normal exit.
+Packaged builds ignore the flag. Assets use the existing authorized sprite-bytes
+IPC, without granting the renderer access to arbitrary directories.
+
+`pet-motion-player.cjs` uses Electron's `ImageDecoder` and a transparent canvas to
+retain every encoded frame and its native duration. It owns decoder/frame cleanup,
+pause/resume, finite reactions, movement transitions, and alpha hit testing.
+Changes wait for clip boundaries; this can delay reactions by a few seconds and
+is one of the behaviors this trial is intended to evaluate. HUD updates reattach
+the same canvas. Decode errors restore the bundled atlas and log a scoped warning.
+
+The trial uses the default outfit and disables cursor gaze. Generated outfit and
+gaze variants, Studio generation, catalog distribution, and production format
+selection remain separate decisions after evaluating the actual desktop pet.
+See [Development](/development#previewing-generated-motion) for launch commands.
+
+### Published pet packages
+
 A pet package is small and asset-driven:
 
 - **`pet.json`** - metadata: `id`, `displayName`, `description`,
