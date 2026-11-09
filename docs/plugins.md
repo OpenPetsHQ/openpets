@@ -499,6 +499,11 @@ replacement; startup recovers unfinished transactions before runtime discovery.
 `plugin-service.ts` confirms any expanded permissions, preserves existing config
 and enabled state, and requires successful activation before committing the
 replacement. A failed install restores the prior package and permission state.
+Rollback restores an already-damaged prior package as-is rather than requiring
+its manifest to validate. Runtime discovery marks that plugin broken independently,
+so recovery does not block healthy plugins from starting. Filesystem and state
+restoration failures still propagate; deferred cleanup retains a settled journal
+that can be retried without revalidating the broken manifest.
 Plugin-written storage and external side effects are not rolled back.
 
 The selected release is the highest approved version compatible with the app,

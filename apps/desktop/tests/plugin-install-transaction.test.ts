@@ -47,6 +47,72 @@ for (const failure of ["rename", "state", "activation"] as const) {
   assert.equal(JSON.parse(readFileSync(join(f.target, "openpets.plugin.json"), "utf8")).version, "1.0.0");
 }
 
+for (const damage of ["missing", "invalid"] as const) {
+  const f = fixture();
+  const manifestPath = join(f.target, "openpets.plugin.json");
+  if (damage === "missing") rmSync(manifestPath);
+  else writeFileSync(manifestPath, "{invalid json");
+  const previous = { ...f.old, approvedNetworkHosts: ["example.com"], config: { preserved: "local" } };
+  f.store.upsertRecord(previous);
+  const storagePath = join(f.userDataPath, "plugin-storage", `${id}.json`);
+  mkdirSync(join(f.userDataPath, "plugin-storage"));
+  writeFileSync(storagePath, '{"saved":"value"}');
+
+  await assert.rejects(() => commitPluginInstall({
+    userDataPath: f.userDataPath,
+    id,
+    stagePath: f.stage,
+    previous,
+    store: f.store,
+    activate: async () => {
+      f.store.upsertRecord(f.next);
+      throw new Error("replacement activation failed");
+    },
+  }), /replacement activation failed/);
+  assert.deepEqual(f.store.getRecord(id), previous);
+  assert.equal(readdirSync(f.root).some((name) => name.startsWith(".openpets-transaction-")), false);
+
+  // Simulate interruption after replacement promotion and before rollback.
+  f.writePackage(f.stage, f.next);
+  renameSync(f.target, f.backup);
+  renameSync(f.stage, f.target);
+  f.store.upsertRecord(f.next);
+  const markerPath = join(f.root, `.openpets-transaction-${token}.json`);
+  writeFileSync(markerPath, JSON.stringify({ version: 1, id, token, stage: `.tmp-${id}-${token}`, previous, committed: false }));
+
+  const healthyId = "healthy-plugin";
+  const healthyPath = join(f.root, healthyId);
+  mkdirSync(healthyPath);
+  writeFileSync(join(healthyPath, "openpets.plugin.json"), JSON.stringify({ manifestVersion: 1, id: healthyId, name: "Healthy", version: "1.0.0", runtime: "declarative", permissions: ["timer"], triggers: [{ on: "timer", everyMinutes: 5, actions: [] }] }));
+  f.store.upsertRecord({ ...f.old, id: healthyId, installPath: healthyPath, manifestPath: join(healthyPath, "openpets.plugin.json"), config: {} });
+  let deferCleanup = true;
+  const service = new PluginService({
+    userDataPath: f.userDataPath,
+    petApi: { speak() {}, react() {}, moveBy() {}, wander() {}, moveToHome() {} },
+    seedBundledPlugins: false,
+    pluginInstallRecoveryCleanup: async () => { if (deferCleanup) throw new Error("cleanup deferred"); },
+  });
+  try {
+    await service.start();
+    assert.equal(service.runtime.isPluginActive(healthyId, "1.0.0"), true);
+    const restored = service.stateStore.getRecord(id);
+    assert.ok(restored?.brokenReason);
+    const { brokenReason: _brokenReason, ...restoredRecord } = restored;
+    assert.deepEqual(restoredRecord, previous);
+    assert.equal(readFileSync(storagePath, "utf8"), '{"saved":"value"}');
+    assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).rolledBack, true);
+    deferCleanup = false;
+    await service.stop();
+    await service.start();
+    assert.equal(service.runtime.isPluginActive(healthyId, "1.0.0"), true);
+    assert.ok(service.stateStore.getRecord(id)?.brokenReason);
+    assert.equal(existsSync(markerPath), false);
+  } finally {
+    await service.stop();
+    rmSync(f.userDataPath, { recursive: true, force: true });
+  }
+}
+
 {
   const f = fixture();
   let activated = false;

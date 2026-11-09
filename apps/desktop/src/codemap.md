@@ -238,7 +238,7 @@ plugin-marketplace.ts → Studio marketplace browse/details and approved compati
 ├── plugin-marketplace-types.ts owns host-neutral renderer/main data contracts
 ├── plugin-catalog.ts → plugin-catalog-validation.ts validates the API catalog v2 projection
 └── plugin-package.ts downloads bounded ZIPs, validates SHA-256 plus manifest ID/version, and stages declared package files
-    └── plugin-install-transaction.ts owns package/state commit, rollback and restart recovery; plugin-service.ts verifies activation before commit
+    └── plugin-install-transaction.ts owns package/state commit, rollback and restart recovery, restoring broken prior packages for independent discovery validation; plugin-service.ts verifies activation before commit
 
 Control Center marketplace links:
 control-center-pet-management-ipc.ts → validated plugin/publisher target → fixed openpets.dev marketplace URL

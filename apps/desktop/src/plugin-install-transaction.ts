@@ -169,10 +169,9 @@ async function recover(
   } else if (marker.rolledBack) {
     const current = store.getRecord(marker.id);
     if (marker.previous) {
-      if (!current || current.source !== "catalog" || current.installPath !== target || current.version !== marker.previous.version) {
+      if (!current || current.source !== "catalog" || current.installPath !== target || current.version !== marker.previous.version || !(await exists(target))) {
         throw new Error("Rolled-back plugin transaction state is invalid.");
       }
-      await validateInstalled(root, current);
     } else if (current || await exists(target)) {
       throw new Error("Rolled-back plugin transaction still has an installed package.");
     }
@@ -184,7 +183,8 @@ async function recover(
     } else if (!(await exists(target))) {
       throw new Error("Plugin transaction lost its previous package.");
     }
-    await validateInstalled(root, marker.previous);
+    // The previous package may already have been broken before the update.
+    // Restore it as-is; runtime discovery validates it independently.
     store.upsertRecord(marker.previous);
     await syncState(store);
   } else {
