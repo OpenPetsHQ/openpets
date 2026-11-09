@@ -15,6 +15,7 @@ const { createPetAlphaHitTester, decodeSpriteSheetPixels } = require("./src/pet-
 const { createPetMotionPlayer } = require("./src/pet-motion-player.cjs");
 const motionPlayer = createPetMotionPlayer({
   document,
+  playbackRate: 1.5,
   loadBytes: (url) => ipcRenderer.invoke("openpets:pet-sprite-bytes", url),
   createDecoder: (options) => new ImageDecoder(options),
   now: () => performance.now(),
@@ -2400,9 +2401,18 @@ const installMouseInterop = () => {
   if (usesNativePetDrag()) installLayerShellContextMenu();
 
   let dragStartPoint = null;
+  let previousDragX = null;
+  window.addEventListener("blur", () => motionPlayer.setDragDirection(null));
 
   document.addEventListener("mousemove", (event) => {
     updateInteractiveHit(event);
+    if (dragging && previousDragX !== null) {
+      const delta = event.screenX - previousDragX;
+      if (delta !== 0) {
+        motionPlayer.setDragDirection(delta < 0 ? "run-left" : "run-right");
+      }
+      previousDragX = event.screenX;
+    }
     if (dragging && !usesNativePetDrag()) ipcRenderer.send("openpets:pet-drag-move", { screenX: event.screenX, screenY: event.screenY });
   }, { passive: true });
 
@@ -2413,6 +2423,8 @@ const installMouseInterop = () => {
     if (event.button !== 0 || !interactive || !(target instanceof Element)) return;
     if (isInteractivePanelOrBubble(target)) return;
     if (!target.closest(".pet-hitbox, .pet-shell")) return;
+    previousDragX = event.screenX;
+    motionPlayer.setDragDirection("run-right");
     if (usesNativePetDrag()) {
       dragging = true;
       dragStartPoint = { screenX: event.screenX, screenY: event.screenY };
@@ -2429,6 +2441,8 @@ const installMouseInterop = () => {
   document.addEventListener("mouseup", (event) => {
     if (!dragging) return;
     dragging = false;
+    previousDragX = null;
+    motionPlayer.setDragDirection(null);
     if (dragStartPoint && Math.hypot(event.screenX - dragStartPoint.screenX, event.screenY - dragStartPoint.screenY) > 4) {
       suppressClickUntil = Date.now() + 300;
     }

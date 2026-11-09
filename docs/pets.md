@@ -30,10 +30,11 @@ Packaged builds ignore the flag. Assets use the existing authorized sprite-bytes
 IPC, without granting the renderer access to arbitrary directories.
 
 `pet-motion-player.cjs` uses Electron's `ImageDecoder` and a transparent canvas to
-retain every encoded frame and its native duration. It owns decoder/frame cleanup,
+retain every encoded frame. The desktop trial plays at 1.5× source speed. It owns decoder/frame cleanup,
 pause/resume, finite reactions, movement transitions, and alpha hit testing.
-Changes wait for clip boundaries; this can delay reactions by a few seconds and
-is one of the behaviors this trial is intended to evaluate. HUD updates reattach
+Dragging starts the directional run immediately; direction changes and release
+interrupt playback without waiting for a loop, turn, or stopping clip. Other
+reaction changes wait for clip boundaries. HUD updates reattach
 the same canvas. Decode errors restore the bundled atlas and log a scoped warning.
 
 The trial uses the default outfit and disables cursor gaze. Generated outfit and

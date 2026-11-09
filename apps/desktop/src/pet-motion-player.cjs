@@ -9,6 +9,10 @@ function createPetMotionPlayer(options) {
     clearTimeout,
     onError,
   } = options;
+  const playbackRate = options.playbackRate ?? 1;
+  let dragDirection = null;
+  const isMovement = (state) =>
+    state === "running-left" || state === "running-right";
   let configuration = null;
   let canvas = null;
   let context = null;
@@ -37,8 +41,9 @@ function createPetMotionPlayer(options) {
 
   const readState = () => {
     const root = document.documentElement.dataset;
-    if (root.motionState === "run-left" || root.motionState === "run-right") {
-      const right = root.motionState === "run-right";
+    const motion = dragDirection ?? root.motionState;
+    if (motion === "run-left" || motion === "run-right") {
+      const right = motion === "run-right";
       return right !== (root.flipX === "true")
         ? "running-right"
         : "running-left";
@@ -184,7 +189,7 @@ function createPetMotionPlayer(options) {
     const root = document.documentElement.dataset;
     root.motionPreviewState = current.state;
     root.motionPreviewPhase = current.phase;
-    current.due = Math.max(current.due, now()) + duration;
+    current.due = Math.max(current.due, now()) + duration / playbackRate;
     current.index += 1;
     if (current.index >= current.clip.frames) {
       schedule(current, () => boundary(current));
@@ -297,6 +302,9 @@ function createPetMotionPlayer(options) {
       }
     }
     const nextState = readState();
+    const movementChanged =
+      nextState !== requestedState &&
+      (isMovement(nextState) || isMovement(requestedState));
     if (nextState !== requestedState) {
       completedState = null;
       // A short host reaction may expire before the current loop reaches its
@@ -326,6 +334,13 @@ function createPetMotionPlayer(options) {
       clearTimeout(playback.timer);
     }
     if (
+      !suspended &&
+      movementChanged &&
+      !document.documentElement.dataset.motionPreviewError
+    ) {
+      // Direct manipulation takes priority over cinematic entry/return clips.
+      void begin(nextState, "clip");
+    } else if (
       !suspended &&
       !playback &&
       !document.documentElement.dataset.motionPreviewError
@@ -377,7 +392,12 @@ function createPetMotionPlayer(options) {
     encodedBytes = 0;
   };
 
-  return { refresh, hitTest, dispose };
+  const setDragDirection = (direction) => {
+    dragDirection = direction;
+    refresh();
+  };
+
+  return { refresh, hitTest, dispose, setDragDirection };
 }
 
 module.exports = { createPetMotionPlayer };

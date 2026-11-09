@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 interface Player {
   refresh(): void;
+  setDragDirection(direction: string | null): void;
   dispose(): void;
   hitTest(x: number, y: number): boolean | null;
 }
@@ -27,7 +28,7 @@ const { createPetMotionPlayer } = require(
   createPetMotionPlayer(options: Record<string, unknown>): Player;
 };
 
-function fixture() {
+function fixture(playbackRate = 1) {
   let clock = 0;
   let sequence = 0;
   const timers = new Map<number, { at: number; callback(): void }>();
@@ -44,6 +45,7 @@ function fixture() {
     animations: {
       idle: { play: "loop", clip: clip("idle") },
       waving: { play: "once", clip: clip("wave") },
+      "running-left": { play: "loop", clip: clip("run-left") },
       "running-right": {
         play: "loop",
         enter: clip("turn"),
@@ -53,7 +55,10 @@ function fixture() {
     },
   };
   const urls = Object.fromEntries(
-    ["idle", "wave", "turn", "run", "return"].map((name) => [name, name]),
+    ["idle", "wave", "turn", "run", "run-left", "return"].map((name) => [
+      name,
+      name,
+    ]),
   );
   const makeBase = () => ({
     dataset: { motionPreview: JSON.stringify({ pack, urls }) },
@@ -84,6 +89,7 @@ function fixture() {
     }),
   };
   const player = createPetMotionPlayer({
+    playbackRate,
     document: {
       documentElement: { dataset: root },
       querySelector: (selector: string) =>
@@ -183,19 +189,35 @@ test("one-shot reactions finish and return to idle while the reaction remains se
   f.player.dispose();
 });
 
-test("movement plays its entry, repeats the gait, and returns before the next reaction", async () => {
+test("drag interrupts the current animation immediately and release skips the return clip", async () => {
   const f = fixture();
-  f.root.motionState = "run-right";
   f.player.refresh();
-  await f.advance(300);
-  f.root.motionState = "idle";
-  f.root.reactionState = "waving";
+  await f.advance(20);
+  f.player.setDragDirection("run-right");
+  await f.advance(0);
+  assert.deepEqual(f.shown.at(-1), { name: "run", index: 0, at: 20 });
+  await f.advance(20);
+  f.player.setDragDirection("run-left");
+  await f.advance(0);
+  assert.deepEqual(f.shown.at(-1), { name: "run-left", index: 0, at: 40 });
+  f.player.setDragDirection(null);
+  await f.advance(0);
+  assert.deepEqual(f.shown.at(-1), { name: "idle", index: 0, at: 40 });
+  assert.ok(
+    f.shown.every((frame) => frame.name !== "turn" && frame.name !== "return"),
+  );
+  f.player.dispose();
+});
+
+test("faster playback retains all frames while reducing their display time", async () => {
+  const f = fixture(1.5);
   f.player.refresh();
-  await f.advance(450);
-  const starts = f.shown
-    .filter((frame) => frame.index === 0)
-    .map((frame) => frame.name);
-  assert.deepEqual(starts, ["turn", "run", "run", "return", "wave", "idle"]);
+  await f.advance(100);
+  assert.deepEqual(
+    f.shown.map((frame) => frame.index),
+    [0, 1, 2, 0],
+  );
+  assert.equal(f.shown.at(-1)?.at, 100);
   f.player.dispose();
 });
 
