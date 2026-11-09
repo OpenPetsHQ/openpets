@@ -19,9 +19,12 @@ export type OutfitWeekday = typeof outfitWeekdays[number];
 
 export type PetOutfitSpritesheetPath = `outfits/${string}.webp` | `outfits/${string}.svg`;
 
-export interface PetOutfit {
+export interface PetOutfitIdentity {
   readonly id: string;
   readonly displayName: string;
+}
+
+export interface PetOutfit extends PetOutfitIdentity {
   readonly spritesheetPath: PetOutfitSpritesheetPath;
 }
 
@@ -52,10 +55,14 @@ export interface OutfitScheduleRule {
   readonly enabled?: false;
 }
 
-export interface PetWardrobe {
-  readonly outfits: readonly PetOutfit[];
+export interface WardrobeDefinition {
+  readonly outfits: readonly PetOutfitIdentity[];
   /** Ordered; the first matching enabled rule wins. */
   readonly schedule: readonly OutfitScheduleRule[];
+}
+
+export interface PetWardrobe extends WardrobeDefinition {
+  readonly outfits: readonly PetOutfit[];
 }
 
 /** The user's per-pet wardrobe choices. Absent fields fall back to the pet's own behavior. */
@@ -87,33 +94,40 @@ export function validatePetWardrobe(value: unknown): PetWardrobe {
     outfits.push(outfit);
   }
 
-  const schedule: OutfitScheduleRule[] = [];
-  if (value.schedule !== undefined) {
-    if (!Array.isArray(value.schedule) || value.schedule.length > maxOutfitScheduleRules) {
-      throw new Error(`Pet wardrobe schedule must be an array of at most ${maxOutfitScheduleRules} rules.`);
-    }
-    for (const entry of value.schedule as unknown[]) {
-      const rule = parseOutfitScheduleRule(entry);
-      if (rule.outfit !== defaultOutfitId && !ids.has(rule.outfit)) {
-        throw new Error(`Pet wardrobe schedule references an unknown outfit: ${rule.outfit}`);
-      }
-      schedule.push(rule);
-    }
-  }
-  return { outfits, schedule };
+  return { outfits, schedule: validateCreatorOutfitSchedule(value.schedule, ids) };
 }
 
-function validatePetOutfit(value: unknown): PetOutfit {
+export function validateOutfitIdentity(value: unknown): PetOutfitIdentity {
   if (!isRecord(value)) throw new Error("Pet wardrobe outfit must be an object.");
   if (!isSafeOutfitId(value.id) || value.id === defaultOutfitId || value.id === automaticOutfitChoice) throw new Error("Pet wardrobe outfit id is invalid.");
   const displayName = typeof value.displayName === "string" ? value.displayName.trim() : "";
   if (displayName.length === 0 || displayName.length > maxOutfitDisplayNameLength) {
     throw new Error(`Pet wardrobe outfit displayName is invalid: ${value.id}`);
   }
+  return { id: value.id, displayName };
+}
+
+export function validateCreatorOutfitSchedule(value: unknown, outfitIds: ReadonlySet<string>): readonly OutfitScheduleRule[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > maxOutfitScheduleRules) {
+    throw new Error(`Pet wardrobe schedule must be an array of at most ${maxOutfitScheduleRules} rules.`);
+  }
+  return value.map((entry: unknown) => {
+    const rule = parseOutfitScheduleRule(entry);
+    if (rule.outfit !== defaultOutfitId && !outfitIds.has(rule.outfit)) {
+      throw new Error(`Pet wardrobe schedule references an unknown outfit: ${rule.outfit}`);
+    }
+    return rule;
+  });
+}
+
+function validatePetOutfit(value: unknown): PetOutfit {
+  const identity = validateOutfitIdentity(value);
+  if (!isRecord(value)) throw new Error("Pet wardrobe outfit must be an object.");
   if (value.spritesheetPath !== `outfits/${value.id}.webp` && value.spritesheetPath !== `outfits/${value.id}.svg`) {
     throw new Error(`Pet wardrobe outfit spritesheetPath must be outfits/${value.id}.webp or outfits/${value.id}.svg.`);
   }
-  return { id: value.id, displayName, spritesheetPath: value.spritesheetPath as PetOutfitSpritesheetPath };
+  return { ...identity, spritesheetPath: value.spritesheetPath as PetOutfitSpritesheetPath };
 }
 
 /** Parse one schedule rule; throws on any malformed field. Outfit existence is the caller's concern. */
@@ -183,7 +197,7 @@ export function normalizePetWardrobePreference(value: unknown): PetWardrobePrefe
 }
 
 /** The schedule in effect for a pet: the user's edited copy, else the creator's. */
-export function getEffectiveOutfitSchedule(wardrobe: PetWardrobe, preference: PetWardrobePreference | undefined): readonly OutfitScheduleRule[] {
+export function getEffectiveOutfitSchedule(wardrobe: WardrobeDefinition, preference: PetWardrobePreference | undefined): readonly OutfitScheduleRule[] {
   return preference?.schedule ?? wardrobe.schedule;
 }
 
@@ -192,7 +206,7 @@ export function getEffectiveOutfitSchedule(wardrobe: PetWardrobe, preference: Pe
  * preferences or rules are ignored, so a pet update that drops an outfit falls
  * back gracefully instead of breaking the pet.
  */
-export function resolveWornOutfitId(wardrobe: PetWardrobe | undefined, preference: PetWardrobePreference | undefined, now: Date): string {
+export function resolveWornOutfitId(wardrobe: WardrobeDefinition | undefined, preference: PetWardrobePreference | undefined, now: Date): string {
   if (!wardrobe) return defaultOutfitId;
   if (preference?.outfit !== undefined && isWardrobeOutfit(wardrobe, preference.outfit)) return preference.outfit;
   const schedule = getEffectiveOutfitSchedule(wardrobe, preference);
@@ -200,12 +214,12 @@ export function resolveWornOutfitId(wardrobe: PetWardrobe | undefined, preferenc
 }
 
 /** Index of the first enabled rule that matches `now` and names a known outfit, or -1. */
-export function findActiveOutfitRuleIndex(wardrobe: PetWardrobe, schedule: readonly OutfitScheduleRule[], now: Date): number {
+export function findActiveOutfitRuleIndex(wardrobe: WardrobeDefinition, schedule: readonly OutfitScheduleRule[], now: Date): number {
   return schedule.findIndex((rule) => rule.enabled !== false && isWardrobeOutfit(wardrobe, rule.outfit) && matchesOutfitScheduleWhen(rule.when, now));
 }
 
 /** Whether `id` is the default outfit or one declared by this wardrobe. */
-export function isWardrobeOutfit(wardrobe: PetWardrobe, id: unknown): id is string {
+export function isWardrobeOutfit(wardrobe: WardrobeDefinition, id: unknown): id is string {
   return id === defaultOutfitId || wardrobe.outfits.some((outfit) => outfit.id === id);
 }
 

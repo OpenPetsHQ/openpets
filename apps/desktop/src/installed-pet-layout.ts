@@ -12,6 +12,7 @@ import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-
 import { petSpritesheetMimeType } from "install-pet/spritesheet";
 import { getPetDir } from "./pet-paths.js";
 import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
+import { getMotionOutfitBindings } from "@open-pets/pet-format/motion";
 
 export type InstalledPetPresentation =
   | {
@@ -25,7 +26,7 @@ export type InstalledPetPresentation =
       readonly previewFormat: "image";
       readonly previewWidth: number;
       readonly previewHeight: number;
-      readonly capabilities: { readonly outfits: false; readonly activities: false; readonly gaze: false };
+      readonly capabilities: { readonly outfits: boolean; readonly activities: false; readonly gaze: false };
     };
 
 /** Clone-safe artwork facts for installed-pet UI snapshots. */
@@ -40,7 +41,7 @@ export async function readInstalledPetPresentation(
       previewFormat: "image",
       previewWidth: petPackage.metadata.geometry.width,
       previewHeight: petPackage.metadata.geometry.height,
-      capabilities: { outfits: false, activities: false, gaze: false },
+      capabilities: { outfits: Boolean(petPackage.metadata.wardrobe?.outfits.length), activities: false, gaze: false },
     };
   }
   const { metadata } = petPackage;
@@ -65,9 +66,9 @@ export async function readInstalledPetPreview(
 ): Promise<{ readonly bytes: Buffer; readonly mimeType: string }> {
   const petPackage = await readInstalledPetPackage(petId, source);
   if (petPackage.format === "classic") return readInstalledPetSpritesheet(petId, source, outfitId);
-  if (outfitId !== defaultOutfitId) throw new Error("Motion pets have no additional outfits.");
   const metadata = petPackage.metadata;
-  const animation = metadata.animations[metadata.bindings.idle[0]!.animation];
+  const bindings = getMotionOutfitBindings(metadata, outfitId);
+  const animation = metadata.animations[bindings.idle[0]!.animation];
   if (!animation || animation.play !== "loop") throw new Error("Motion pet has no idle loop.");
   const clip = metadata.clips[animation.loop];
   if (!clip) throw new Error("Motion pet idle clip is unavailable.");

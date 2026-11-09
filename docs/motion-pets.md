@@ -32,10 +32,15 @@ shipping or runtime performance budgets. Existing ZIP limits remain unchanged.
 the format, then applies format-specific extraction paths. Existing Classic
 callers keep their default behavior.
 
-The first desktop slice accepts only the default appearance and rejects outfit,
-activity and gaze declarations. Shared-format support for those capabilities is
-subsequent implementation work, not an ignored future field in the manifest.
-Control Center's Motion previews are deliberately static neutral frames.
+The accepted wardrobe slice adds optional complete per-outfit bindings. Shared
+validation, integrated desktop checks and live macOS synthetic-fixture checks
+cover switching, failure retention, explicit retry, independent windows sharing
+assets, scheduled-to-manual promotion, cleanup and preference persistence.
+This establishes contract behavior, not a second genuine outfit or artwork
+quality. Activities and gaze remain unsupported and are rejected rather than
+ignored. Control Center's Motion previews are deliberately static neutral
+frames. See [Wardrobe](/wardrobe#motion-wardrobes) for appearance commitment,
+failure/retry and the shared preference/schedule contract.
 
 Desktop body suspension follows logical host visibility and system power state,
 not renderer document visibility. Host show/hide operations publish successful

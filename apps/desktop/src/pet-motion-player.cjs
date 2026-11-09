@@ -4,15 +4,13 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
   let canvas = null;
   let context = null;
   let canvasGeometry = null;
-  let canvasSnapshotId = null;
-  let generation = 0;
+  let canvasPresentationId = null;
   let paused = false;
   let disposed = false;
   const encoded = new Map();
   let encodedBytes = 0;
 
   function stop() {
-    generation += 1;
     if (!current) return;
     clearTimeout(current.timer);
     current.frame?.close();
@@ -67,7 +65,7 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
         result.image.close();
         return;
       }
-      const geometry = playback.descriptor.metadata.geometry;
+      const geometry = playback.appearance.assets.metadata.geometry;
       if (result.image.displayWidth !== geometry.width || result.image.displayHeight !== geometry.height) {
         result.image.close();
         throw new Error('Motion frame dimensions changed.');
@@ -89,13 +87,13 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
 
   function present(playback) {
     if ((paused && playback.started) || current !== playback || !playback.frame) return;
-    const geometry = playback.descriptor.metadata.geometry;
+    const geometry = playback.appearance.assets.metadata.geometry;
     const frame = playback.frame;
     playback.frame = null;
     try {
-      const snapshotId = playback.descriptor.snapshotId;
+      const appearance = playback.appearance;
       // Replacement pixels must exist before the stage and its geometry are committed.
-      if (!canvas || canvasSnapshotId !== snapshotId || canvasGeometry !== geometry) {
+      if (!canvas || canvasPresentationId !== appearance.presentationId || canvasGeometry !== geometry) {
         const replacement = document.createElement('canvas');
         replacement.className = 'motion-pet-canvas';
         replacement.width = geometry.width;
@@ -103,8 +101,9 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
         const replacementContext = replacement.getContext('2d', { willReadFrequently: true });
         if (!replacementContext) throw new Error('Motion canvas is unavailable.');
         replacementContext.drawImage(frame, 0, 0);
-        if (onWillPresent && !onWillPresent(snapshotId)) {
+        if (onWillPresent && !onWillPresent(appearance)) {
           frame.close();
+          fail(playback, new Error('Motion presentation is no longer current.'));
           return;
         }
         if (!document.querySelector('.pet-shell .sprite[data-motion-body]')) throw new Error('Motion body mount is unavailable.');
@@ -112,10 +111,11 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
         canvas = replacement;
         context = replacementContext;
         canvasGeometry = geometry;
-        canvasSnapshotId = snapshotId;
+        canvasPresentationId = appearance.presentationId;
       } else {
-        if (onWillPresent && !onWillPresent(snapshotId)) {
+        if (onWillPresent && !onWillPresent(appearance)) {
           frame.close();
+          fail(playback, new Error('Motion presentation is no longer current.'));
           return;
         }
         context.clearRect(0, 0, canvas.width, canvas.height);
@@ -123,7 +123,7 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
       }
       frame.close();
       mount();
-      onPresented?.(snapshotId);
+      onPresented?.(appearance);
       if (!playback.started) {
         playback.started = true;
         playback.onStarted();
@@ -147,12 +147,13 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
     }
   }
 
-  async function play(descriptor, clipId, callbacks) {
+  async function play(appearance, clipId, callbacks) {
     stop();
     if (disposed) return;
+    const descriptor = appearance.assets;
     const clip = descriptor.metadata.clips[clipId];
     const verified = descriptor.verifiedClips[clipId];
-    const playback = { descriptor, clipId, clip, verified, ...callbacks, index: 0, due: now(), timer: null, decoder: null, frame: null, started: false };
+    const playback = { appearance, clipId, clip, verified, ...callbacks, index: 0, due: now(), timer: null, decoder: null, frame: null, started: false };
     current = playback;
     try {
       if (!clip || !verified || !descriptor.urls[clipId]) throw new Error('Motion clip is unavailable.');
@@ -210,7 +211,7 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
     canvas = null;
     context = null;
     canvasGeometry = null;
-    canvasSnapshotId = null;
+    canvasPresentationId = null;
     encoded.clear();
     encodedBytes = 0;
   }
@@ -220,7 +221,7 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
     canvas = null;
     context = null;
     canvasGeometry = null;
-    canvasSnapshotId = null;
+    canvasPresentationId = null;
   }
   return { play, stop, clear, setPaused, remaining, mount, hitTest, dispose };
 }

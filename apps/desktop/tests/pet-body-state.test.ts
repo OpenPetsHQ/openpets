@@ -3,11 +3,21 @@ import { it } from "node:test";
 import type { MotionBodyDescriptor, PetBodySnapshot } from "../src/pet-body-contract.js";
 import { createPetBodyState, createPetBodyVisibility, effectivePetBodyContext, isCurrentPetContentCommit, replacePluginSpriteWithReaction, updateLoadedPetDocument } from "../src/pet-body-state.js";
 
+function setMotion(state: ReturnType<typeof createPetBodyState>, assets: MotionBodyDescriptor): void {
+  const candidate = state.prepareMotionAppearance(assets, "default", "initial", false);
+  state.publishMotionAppearance(candidate);
+}
+
+function sendResult(state: ReturnType<typeof createPetBodyState>, snapshots: PetBodySnapshot[], result: { readonly epoch: string; readonly snapshotId: string; readonly playbackId: number; readonly intentId?: string; readonly outcome: "started" | "completed" | "cancelled" | "failed" }): void {
+  const appearance = [...snapshots].reverse().find((snapshot) => snapshot.motion?.assets.snapshotId === result.snapshotId)?.motion;
+  state.result({ ...result, presentationId: appearance?.presentationId ?? "missing", outfitId: appearance?.outfitId ?? "default" });
+}
+
 it("suspends a hidden pet, discards events, and resumes its latest context", () => {
   const snapshots: PetBodySnapshot[] = [];
   const commits: string[] = [];
-  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (id) => commits.push(id));
-  state.setMotion({ snapshotId: "one" } as MotionBodyDescriptor);
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (appearance) => commits.push(appearance.assets.snapshotId));
+  setMotion(state, { snapshotId: "one" } as MotionBodyDescriptor);
   state.react("working");
   state.react("success");
   const previous = snapshots.at(-1)!.input;
@@ -16,7 +26,7 @@ it("suspends a hidden pet, discards events, and resumes its latest context", () 
   assert.equal(snapshots.at(-1)!.input.event, undefined);
   state.react("waiting");
   state.react("error");
-  state.result({ epoch: previous.epoch, snapshotId: "one", playbackId: 1, outcome: "started" });
+  sendResult(state, snapshots, { epoch: previous.epoch, snapshotId: "one", playbackId: 1, outcome: "started" });
   state.setSuspended(false);
   assert.equal(snapshots.at(-1)!.input.suspended, false);
   assert.equal(snapshots.at(-1)!.input.context, "waiting");
@@ -88,9 +98,16 @@ it("updates loaded documents rather than navigating for appearance changes", () 
 });
 
 it("rejects stale content acknowledgements", () => {
-  assert.equal(isCurrentPetContentCommit("2:5", 5, 5, "2:5"), true);
-  assert.equal(isCurrentPetContentCommit("2:5", 5, 6, "2:5"), false);
-  assert.equal(isCurrentPetContentCommit("2:5", 5, 5, "2:4"), false);
+  const pending = { token: "2:5", sequence: 5, presentationId: "p", outfitId: "night" };
+  const valid = { token: "2:5", presentationId: "p", outfitId: "night" };
+  assert.equal(isCurrentPetContentCommit(pending, 5, valid), true);
+  assert.equal(isCurrentPetContentCommit(pending, 6, valid), false);
+  assert.equal(isCurrentPetContentCommit(pending, 5, { ...valid, token: "2:4" }), false);
+  assert.equal(isCurrentPetContentCommit(pending, 5, { ...valid, presentationId: "old" }), false);
+  assert.equal(isCurrentPetContentCommit(pending, 5, { ...valid, outfitId: "default" }), false);
+  const classic = { ...pending, presentationId: null, outfitId: null };
+  assert.equal(isCurrentPetContentCommit(classic, 5, { token: "2:5", presentationId: null, outfitId: null }), true);
+  assert.equal(isCurrentPetContentCommit(classic, 5, { token: "2:5" }), false);
 });
 
 it("restores the underlying work context after voice clears", () => {
@@ -101,13 +118,13 @@ it("restores the underlying work context after voice clears", () => {
 it("invalidates playback after navigation without replaying the event", () => {
   const snapshots: PetBodySnapshot[] = [];
   const commits: string[] = [];
-  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (id) => commits.push(id));
-  state.setMotion({ snapshotId: "one" } as MotionBodyDescriptor);
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (appearance) => commits.push(appearance.assets.snapshotId));
+  setMotion(state, { snapshotId: "one" } as MotionBodyDescriptor);
   state.react("working");
   state.react("success");
   const old = snapshots.at(-1)!.input;
   state.documentLost();
-  state.result({ epoch: old.epoch, snapshotId: "one", playbackId: 1, outcome: "started", intentId: old.event?.id });
+  sendResult(state, snapshots, { epoch: old.epoch, snapshotId: "one", playbackId: 1, outcome: "started", intentId: old.event?.id });
   state.ready();
   assert.notEqual(snapshots.at(-1)!.input.epoch, old.epoch);
   assert.equal(snapshots.at(-1)!.input.context, "working");
@@ -119,10 +136,10 @@ it("does not mint a new event during an appearance or pause refresh", () => {
   const snapshots: PetBodySnapshot[] = [];
   const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
   const motion = { snapshotId: "one" } as MotionBodyDescriptor;
-  state.setMotion(motion);
+  setMotion(state, motion);
   state.react("success");
   const event = snapshots.at(-1)!.input.event!;
-  state.setMotion(motion);
+  setMotion(state, motion);
   state.setPaused(true);
   state.ready();
   assert.equal(snapshots.at(-1)!.input.event?.id, event.id);
@@ -131,18 +148,18 @@ it("does not mint a new event during an appearance or pause refresh", () => {
 it("retains context through transient event completion and ignores stale playback", () => {
   const snapshots: PetBodySnapshot[] = [];
   const commits: string[] = [];
-  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (id) => commits.push(id));
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (appearance) => commits.push(appearance.assets.snapshotId));
   const motion = { snapshotId: "package-1" } as MotionBodyDescriptor;
-  state.setMotion(motion);
+  setMotion(state, motion);
   state.react("working");
   state.react("success");
   const event = snapshots.at(-1)!.input.event!;
   const epoch = snapshots.at(-1)!.input.epoch;
   state.react("waiting");
-  state.result({ epoch, snapshotId: "package-1", playbackId: 3, outcome: "started", intentId: event.id });
-  state.result({ epoch, snapshotId: "package-1", playbackId: 2, outcome: "completed", intentId: "older-event" });
+  sendResult(state, snapshots, { epoch, snapshotId: "package-1", playbackId: 3, outcome: "started", intentId: event.id });
+  sendResult(state, snapshots, { epoch, snapshotId: "package-1", playbackId: 2, outcome: "completed", intentId: "older-event" });
   assert.equal(snapshots.at(-1)!.input.event?.id, event.id);
-  state.result({ epoch, snapshotId: "package-1", playbackId: 3, outcome: "completed", intentId: event.id });
+  sendResult(state, snapshots, { epoch, snapshotId: "package-1", playbackId: 3, outcome: "completed", intentId: event.id });
   assert.equal(snapshots.at(-1)!.input.context, "waiting");
   assert.equal(snapshots.at(-1)!.input.event, undefined);
   assert.deepEqual(commits, ["package-1"]);
@@ -151,32 +168,32 @@ it("retains context through transient event completion and ignores stale playbac
 it("commits a presented frame after a newer event attempt was declined", () => {
   const snapshots: PetBodySnapshot[] = [];
   const commits: string[] = [];
-  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (id) => commits.push(id));
-  state.setMotion({ snapshotId: "one" } as MotionBodyDescriptor);
+  const state = createPetBodyState((snapshot) => snapshots.push(snapshot), (appearance) => commits.push(appearance.assets.snapshotId));
+  setMotion(state, { snapshotId: "one" } as MotionBodyDescriptor);
   state.react("success");
   const input = snapshots.at(-1)!.input;
-  state.result({ epoch: input.epoch, snapshotId: "one", playbackId: 2, intentId: input.event!.id, outcome: "cancelled" });
+  sendResult(state, snapshots, { epoch: input.epoch, snapshotId: "one", playbackId: 2, intentId: input.event!.id, outcome: "cancelled" });
   assert.equal(snapshots.at(-1)!.input.event, undefined);
-  state.result({ epoch: "old-epoch", snapshotId: "one", playbackId: 1, outcome: "started" });
-  state.result({ epoch: input.epoch, snapshotId: "old-snapshot", playbackId: 1, outcome: "started" });
+  sendResult(state, snapshots, { epoch: "old-epoch", snapshotId: "one", playbackId: 1, outcome: "started" });
+  sendResult(state, snapshots, { epoch: input.epoch, snapshotId: "old-snapshot", playbackId: 1, outcome: "started" });
   assert.deepEqual(commits, []);
-  state.result({ epoch: input.epoch, snapshotId: "one", playbackId: 1, outcome: "started" });
+  sendResult(state, snapshots, { epoch: input.epoch, snapshotId: "one", playbackId: 1, outcome: "started" });
   assert.deepEqual(commits, ["one"]);
 });
 
 it("does not let a stale package or event clear a newer event", () => {
   const snapshots: PetBodySnapshot[] = [];
   const state = createPetBodyState((snapshot) => snapshots.push(snapshot), () => {});
-  state.setMotion({ snapshotId: "one" } as MotionBodyDescriptor);
+  setMotion(state, { snapshotId: "one" } as MotionBodyDescriptor);
   state.react("success");
   const old = snapshots.at(-1)!.input.event!;
   state.react("error");
   const current = snapshots.at(-1)!.input;
-  state.setMotion({ snapshotId: "two" } as MotionBodyDescriptor);
+  setMotion(state, { snapshotId: "two" } as MotionBodyDescriptor);
   state.react("waving");
   const replacement = snapshots.at(-1)!.input.event!;
-  state.result({ epoch: current.epoch, snapshotId: "one", playbackId: 1, intentId: old.id, outcome: "cancelled" });
+  sendResult(state, snapshots, { epoch: current.epoch, snapshotId: "one", playbackId: 1, intentId: old.id, outcome: "cancelled" });
   assert.equal(snapshots.at(-1)!.input.event?.id, replacement.id);
-  state.result({ epoch: current.epoch, snapshotId: "two", playbackId: 2, intentId: replacement.id, outcome: "cancelled" });
+  sendResult(state, snapshots, { epoch: current.epoch, snapshotId: "two", playbackId: 2, intentId: replacement.id, outcome: "cancelled" });
   assert.equal(snapshots.at(-1)!.input.event, undefined);
 });

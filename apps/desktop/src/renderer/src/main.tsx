@@ -212,6 +212,8 @@ type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   setPetPoolOrder(ids: string[]): Promise<SettingsState>;
   setPetPinned(petId: string, pinned: boolean): Promise<SettingsState>;
   getPetWardrobe(petId: string): Promise<PetWardrobeSnapshot | null>;
+  retryPetOutfit?: (petId: string, outfitId: string) => Promise<PetWardrobeSnapshot | null>;
+  onPetWardrobeChanged?: (listener: (petId: string) => void) => () => void;
   getPetActivities(petId: string): Promise<PetActivitiesSnapshot | null>;
   setPetActivityEnabled(petId: string, activityId: string, enabled: boolean): Promise<PetActivitiesSnapshot | null>;
   playPetActivity(petId: string, activityId: string): Promise<PetActivitiesSnapshot | null>;
@@ -4533,7 +4535,7 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   </aside>
                 </div>
 
-                {selected.installed && !selected.broken && selected.format !== "motion" && (
+                {selected.installed && !selected.broken && (selected.format !== "motion" || selected.capabilities?.outfits) && (
                   <>
                     <WardrobePanel
                       key={selected.id}
@@ -4541,21 +4543,24 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                       spriteLayout={selected.spriteLayout}
                       load={api.getPetWardrobe}
                       update={api.updatePetWardrobe}
+                      retryOutfit={api.retryPetOutfit!}
+                      onWardrobeChanged={api.onPetWardrobeChanged!}
                       installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
                         ? async () => {
                           await api.installPetWardrobe(selected.id);
-                          // The installed source changes, which retires the offer.
                           await loadPetsData();
                         }
                         : undefined}
                     />
-                    <ActivitiesPanel
-                      key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
-                      petId={selected.id}
-                      load={api.getPetActivities}
-                      setPetActivityEnabled={api.setPetActivityEnabled}
-                      playPetActivity={api.playPetActivity}
-                    />
+                    {selected.format !== "motion" && (
+                      <ActivitiesPanel
+                        key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
+                        petId={selected.id}
+                        load={api.getPetActivities}
+                        setPetActivityEnabled={api.setPetActivityEnabled}
+                        playPetActivity={api.playPetActivity}
+                      />
+                    )}
                   </>
                 )}
 

@@ -8,7 +8,7 @@ function createPetContentStageController(document, options = {}) {
   let loadingImage = null;
   let pendingMotion = null;
   let pendingPresentation = null;
-  let visibleMotionId = null;
+  let visibleMotion = null;
   let disposed = false;
 
   function applyReceivedScaleOverride() {
@@ -67,7 +67,9 @@ function createPetContentStageController(document, options = {}) {
   }
 
   function commit(candidate) {
-    if (candidate.state.contentCommitToken) options.onCommit?.(candidate.state.contentCommitToken);
+    if (candidate.state.contentCommitToken) {
+      options.onCommit?.({ token: candidate.state.contentCommitToken, presentationId: candidate.state.motionPresentationId ?? null, outfitId: candidate.state.motionOutfitId ?? null });
+    }
   }
 
   function cancelLoad() {
@@ -92,10 +94,10 @@ function createPetContentStageController(document, options = {}) {
       const candidate = { parsed, stage, state, onApplied, generation: token };
       const motion = stage.querySelector('.pet-shell .sprite[data-motion-body]');
       if (motion) {
-        if (typeof state.motionSnapshotId !== 'string' || !state.motionSnapshotId) {
+        if (typeof state.motionSnapshotId !== 'string' || !state.motionSnapshotId || typeof state.motionPresentationId !== 'string' || !state.motionPresentationId || typeof state.motionOutfitId !== 'string' || !state.motionOutfitId) {
           throw new Error('Motion content has no snapshot identity.');
         }
-        if (state.motionSnapshotId === visibleMotionId) {
+        if (matches(state, visibleMotion)) {
           applyDocument(candidate);
           commit(candidate);
         } else {
@@ -116,7 +118,7 @@ function createPetContentStageController(document, options = {}) {
           image.onerror = null;
           loadingImage = null;
           applyDocument(candidate);
-          visibleMotionId = null;
+          visibleMotion = null;
           commit(candidate);
         } catch (error) {
           if (!disposed && token === generation && loadingImage === image) {
@@ -138,10 +140,14 @@ function createPetContentStageController(document, options = {}) {
     }
   }
 
-  function prepareMotionPresentation(snapshotId) {
+  function matches(state, appearance) {
+    return appearance && state.motionSnapshotId === appearance.assets.snapshotId && state.motionPresentationId === appearance.presentationId && state.motionOutfitId === appearance.outfitId;
+  }
+
+  function prepareMotionPresentation(appearance) {
     if (disposed) return false;
-    if (snapshotId === visibleMotionId) return true;
-    if (pendingMotion?.state.motionSnapshotId === snapshotId) {
+    if (visibleMotion && appearance.presentationId === visibleMotion.presentationId && appearance.outfitId === visibleMotion.outfitId && appearance.assets.snapshotId === visibleMotion.assets.snapshotId) return true;
+    if (pendingMotion && matches(pendingMotion.state, appearance)) {
       const candidate = pendingMotion;
       pendingMotion = null;
       applyDocument(candidate);
@@ -149,13 +155,13 @@ function createPetContentStageController(document, options = {}) {
       return true;
     }
     // The initial document is already loaded before the first body snapshot.
-    return !visibleMotionId && !pendingMotion && Boolean(document.querySelector('.pet-shell .sprite[data-motion-body]'));
+    return !visibleMotion && !pendingMotion && Boolean(document.querySelector('.pet-shell .sprite[data-motion-body]'));
   }
 
-  function motionPresented(snapshotId) {
+  function motionPresented(appearance) {
     if (disposed) return;
-    visibleMotionId = snapshotId;
-    if (pendingPresentation?.state.motionSnapshotId === snapshotId && pendingPresentation.generation === generation) {
+    visibleMotion = appearance;
+    if (pendingPresentation && matches(pendingPresentation.state, appearance) && pendingPresentation.generation === generation) {
       const candidate = pendingPresentation;
       pendingPresentation = null;
       commit(candidate);

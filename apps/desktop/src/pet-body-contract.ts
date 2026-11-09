@@ -26,17 +26,26 @@ export interface MotionBodyDescriptor {
   readonly verifiedClips: Readonly<Record<string, VerifiedMotionClip>>;
 }
 
+export interface MotionAppearance {
+  readonly assets: MotionBodyDescriptor;
+  readonly outfitId: string;
+  readonly presentationId: string;
+  readonly reason: "initial" | "manual" | "scheduled" | "replacement";
+}
+
 export interface PetBodySnapshot {
   readonly input: PetBodyInput;
-  readonly motion: MotionBodyDescriptor | null;
+  readonly motion: MotionAppearance | null;
 }
 
 export interface PetBodyResult {
   readonly epoch: string;
   readonly snapshotId: string;
+  readonly presentationId: string;
+  readonly outfitId: string;
   readonly playbackId: number;
   readonly intentId?: string;
-  readonly outcome: "started" | "completed" | "cancelled" | "failed";
+  readonly outcome: "started" | "completed" | "cancelled" | "failed" | "deferred";
 }
 
 export const petBodyChannels = {

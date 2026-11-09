@@ -1,38 +1,18 @@
-// Renderer-side wardrobe shapes and pure helpers for the rule editor. The
-// authoritative contract and validation live in the main process
-// (`src/pet-wardrobe-core.ts`); these mirror the snapshot it sends.
+// Renderer-side wardrobe shapes and pure helpers for the rule editor.
+// Authoritative types are imported from `../../../pet-wardrobe-types.js`.
+
+import type {
+  PetWardrobeSnapshot,
+  PetWardrobeUpdate,
+} from "../../../pet-wardrobe-types.js";
+import type { OutfitScheduleRule } from "@open-pets/pet-format/wardrobe";
+
+export type { PetWardrobeSnapshot, PetWardrobeUpdate };
+export type WardrobeRule = OutfitScheduleRule;
 
 export const defaultOutfitId = "default";
 export const weekdays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 export type Weekday = typeof weekdays[number];
-
-export type WardrobeRule = {
-  readonly outfit: string;
-  readonly when: {
-    readonly time?: { readonly from: string; readonly to: string };
-    readonly days?: readonly Weekday[];
-    readonly dates?: { readonly from: string; readonly to: string };
-  };
-  readonly enabled?: false;
-};
-
-export type PetWardrobeSnapshot = {
-  readonly petId: string;
-  readonly outfits: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
-  readonly creatorSchedule: readonly WardrobeRule[];
-  readonly schedule: readonly WardrobeRule[];
-  readonly scheduleCustomized: boolean;
-  readonly choice: string;
-  readonly wearing: string;
-  readonly scheduled: string;
-  readonly activeRuleIndex: number;
-};
-
-/** `outfit: "auto"` follows the schedule; `schedule: null` restores the creator schedule. */
-export type PetWardrobeUpdate = {
-  readonly outfit?: string;
-  readonly schedule?: readonly WardrobeRule[] | null;
-};
 
 export type OutfitRuleDraft = {
   readonly outfit: string;

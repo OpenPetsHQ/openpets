@@ -16,6 +16,8 @@ Desktop and other hosts share pet contracts and catalog V3 validation/transport.
 
 Motion v1 metadata is strictly validated before its declared animated WebP clips are inventoried, fully decoded and optionally copied. Hard safety ceilings are 32 MiB per clip, 160 MiB total and 40 million decoded pixels per clip; they are not shipping performance budgets. ZIP inspection reads bounded `pet.json` before selecting the explicit Motion extraction mode; the default Classic allowlist and ZIP limits remain unchanged.
 
+Optional Motion wardrobes share the Classic outfit identity, schedule and preference-resolution rules. Each named outfit supplies its own complete idle and movement bindings, plus optional context and event bindings, referencing the package-wide clips and animations. The default outfit uses root bindings; named outfits do not inherit them.
+
 ## Integration Points
 
 **Consumers**: Desktop and standalone browser surfaces.

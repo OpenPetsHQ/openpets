@@ -52,7 +52,8 @@ import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
 import { removePetActivitiesForPet, resetPetActivitiesForPet, startPetActivities, stopPetActivities, suspendPetActivities } from "./pet-activities.js";
-import { suspendPetBodies } from "./pet-window.js";
+import { markOutfitRefresh, suspendPetBodies } from "./pet-window.js";
+import { setPetWardrobeChangeHandler } from "./pet-wardrobe.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 
 let teamService: TeamService | null = null;
@@ -165,6 +166,7 @@ if (!gotSingleInstanceLock) {
       petDisplayCoordinator?.stop();
       stopPetActivities();
       setPetInstallationChangeHandler(null);
+      setPetWardrobeChangeHandler(null);
     },
   });
 
@@ -205,6 +207,10 @@ if (!gotSingleInstanceLock) {
 
     initializeAppState();
     startPetActivities();
+    setPetWardrobeChangeHandler((petId, reason, retry) => {
+      markOutfitRefresh(petId, reason, retry);
+      refreshPetWindowsForPetId(petId, `outfit-${reason}`);
+    });
     setPetInstallationChangeHandler((petId, removed) => {
       if (removed) removePetActivitiesForPet(petId);
       else resetPetActivitiesForPet(petId, true);

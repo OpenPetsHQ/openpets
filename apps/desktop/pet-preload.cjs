@@ -14,8 +14,9 @@ const { createPetContentStageController } = require("./src/pet-content-stage.cjs
 const { createPetAlphaHitTester, decodeSpriteSheetPixels } = require("./src/pet-alpha-hit-test.ts");
 const { createPetMotionPlayer } = require("./src/pet-motion-player.cjs");
 const { createPetBodyCoordinator } = require("./src/pet-body-coordinator.cjs");
+const { getMotionOutfitBindings } = require("@open-pets/pet-format/motion");
 const petContentStage = createPetContentStageController(document, {
-  onCommit: (token) => ipcRenderer.send("openpets:pet-content-committed", { token }),
+  onCommit: (payload) => ipcRenderer.send("openpets:pet-content-committed", payload),
   onError: (error) => console.warn("[openpets:pet-content] update failed", String(error)),
 });
 const motionPlayer = createPetMotionPlayer({
@@ -33,6 +34,7 @@ let spriteOverrideElement = null;
 let activeActivityGeneration = null;
 const bodyCoordinator = createPetBodyCoordinator({
   player: motionPlayer,
+  getBindings: getMotionOutfitBindings,
   now: () => performance.now(),
   random: Math.random,
   onResult: (result) => ipcRenderer.send("openpets:pet-body-result", result),

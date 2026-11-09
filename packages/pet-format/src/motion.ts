@@ -1,3 +1,5 @@
+import { defaultOutfitId, type PetOutfitIdentity, type WardrobeDefinition } from "./wardrobe.js";
+
 export type MotionContextReaction =
   | "thinking"
   | "working"
@@ -27,6 +29,21 @@ export type MotionAnimation =
     readonly outro?: string;
   };
 
+export interface MotionBindings {
+  readonly idle: MotionVariant[];
+  readonly movement: { readonly left: string; readonly right: string };
+  readonly contexts?: Partial<Record<MotionContextReaction, MotionVariant[]>>;
+  readonly events?: Partial<Record<MotionEventReaction, MotionVariant[]>>;
+}
+
+export interface MotionOutfit extends PetOutfitIdentity {
+  readonly bindings: MotionBindings;
+}
+
+export interface MotionWardrobe extends WardrobeDefinition {
+  readonly outfits: readonly MotionOutfit[];
+}
+
 export interface MotionPetMetadata {
   readonly format: "motion";
   readonly version: 1;
@@ -45,12 +62,15 @@ export interface MotionPetMetadata {
     readonly playbackRate?: number;
   }>;
   readonly animations: Record<string, MotionAnimation>;
-  readonly bindings: {
-    readonly idle: MotionVariant[];
-    readonly movement: { readonly left: string; readonly right: string };
-    readonly contexts?: Partial<Record<MotionContextReaction, MotionVariant[]>>;
-    readonly events?: Partial<Record<MotionEventReaction, MotionVariant[]>>;
-  };
+  readonly bindings: MotionBindings;
+  readonly wardrobe?: MotionWardrobe;
+}
+
+export function getMotionOutfitBindings(metadata: MotionPetMetadata, outfitId: string): MotionBindings {
+  if (outfitId === defaultOutfitId) return metadata.bindings;
+  const outfit = metadata.wardrobe?.outfits.find((candidate) => candidate.id === outfitId);
+  if (!outfit) throw new Error(`Unknown Motion outfit: ${outfitId}`);
+  return outfit.bindings;
 }
 
 /** Native encoded durations; the authored playback rate is applied at runtime. */

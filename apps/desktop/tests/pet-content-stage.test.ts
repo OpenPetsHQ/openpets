@@ -7,7 +7,7 @@ const root = process.env.OPENPETS_DESKTOP_ROOT ?? process.cwd();
 const { createPetContentStageController } = require(join(root, "src/pet-content-stage.cjs"));
 type Stage = { motion?: boolean; name?: string; replaceWith(next: Stage): void };
 function fixture(initialMotion = false) {
-  const commits: string[] = [];
+  const commits: Array<{ token: string; presentationId: string | null; outfitId: string | null }> = [];
   const errors: unknown[] = [];
   const images: Array<{ onload: (() => void) | null; onerror: (() => void) | null; src: string; decode(): Promise<void> }> = [];
   const sprite = { matches: () => true };
@@ -36,29 +36,30 @@ function fixture(initialMotion = false) {
     parseDocument(html: string) { return { documentElement: { lang: "en", dataset: { paused: "true", flipX: "true" } }, head: { querySelectorAll: () => [{ textContent: `css-${html}` }] }, querySelector: () => ({ motion: html.startsWith("motion"), name: html }) }; },
     createStyleSheet() { return { replaceSync() {}, cssRules: [{ selectorText: ".sprite", style: { backgroundImage: 'url("file:///pet.webp")' } }] }; },
     createImage() { const image = { onload: null, onerror: null, src: "", decode: () => Promise.resolve() }; images.push(image); return image; },
-    onCommit: (token: string) => commits.push(token), onError: (error: unknown) => errors.push(error),
+    onCommit: (payload: typeof commits[number]) => commits.push(payload), onError: (error: unknown) => errors.push(error),
   });
-  if (initialMotion) controller.motionPresented("old-snapshot");
-  function replace(html: string, token: string, id: string | null = null) { controller.replaceStage({ documentHtml: html, contentCommitToken: token, motionSnapshotId: id }, () => { applied += 1; }); }
-  return { controller, replace, commits, errors, images, getApplied: () => applied, getMotion: () => motion, getStage: () => currentStage.name, hostStyle, document };
+  const appearance = (id: string) => ({ assets: { snapshotId: id }, presentationId: id, outfitId: "default" });
+  if (initialMotion) controller.motionPresented(appearance("old-snapshot"));
+  function replace(html: string, token: string, id: string | null = null) { controller.replaceStage({ documentHtml: html, contentCommitToken: token, motionSnapshotId: id, motionPresentationId: id, motionOutfitId: id ? "default" : null }, () => { applied += 1; }); }
+  return { controller, replace, appearance, commits, errors, images, getApplied: () => applied, getMotion: () => motion, getStage: () => currentStage.name, hostStyle, document };
 }
 
 test("visible Motion HUD commits immediately without waiting for another frame", () => {
   const f = fixture(true); f.replace("motion-hud", "hud", "old-snapshot");
   assert.equal(f.getApplied(), 1); assert.equal(f.getStage(), "motion-hud");
   assert.equal(f.hostStyle.textContent, "css-motion-hud"); assert.equal(f.document.documentElement.dataset.flipX, "true");
-  assert.deepEqual(f.commits, ["hud"]);
+  assert.deepEqual(f.commits, [{ token: "hud", presentationId: "old-snapshot", outfitId: "default" }]);
 });
 
 test("replacement retains old stage, dimensions and attributes until matching frame", () => {
   const f = fixture(true); f.replace("motion-new-geometry", "new", "new-snapshot");
   assert.equal(f.getStage(), "old"); assert.equal(f.hostStyle.textContent, "old-style");
   assert.equal(f.document.documentElement.dataset.flipX, "false"); assert.deepEqual(f.commits, []);
-  assert.equal(f.controller.prepareMotionPresentation("old-snapshot"), true);
-  f.controller.motionPresented("old-snapshot"); assert.equal(f.getStage(), "old"); assert.deepEqual(f.commits, []);
-  assert.equal(f.controller.prepareMotionPresentation("new-snapshot"), true);
+  assert.equal(f.controller.prepareMotionPresentation(f.appearance("old-snapshot")), true);
+  f.controller.motionPresented(f.appearance("old-snapshot")); assert.equal(f.getStage(), "old"); assert.deepEqual(f.commits, []);
+  assert.equal(f.controller.prepareMotionPresentation(f.appearance("new-snapshot")), true);
   assert.equal(f.getStage(), "motion-new-geometry"); assert.deepEqual(f.commits, []);
-  f.controller.motionPresented("new-snapshot"); assert.deepEqual(f.commits, ["new"]);
+  f.controller.motionPresented(f.appearance("new-snapshot")); assert.deepEqual(f.commits, [{ token: "new", presentationId: "new-snapshot", outfitId: "default" }]);
 });
 
 test("failed Classic artwork leaves existing Motion body and styles intact", () => {
@@ -69,13 +70,32 @@ test("failed Classic artwork leaves existing Motion body and styles intact", () 
 test("superseded Classic decode cannot apply or commit", async () => {
   const f = fixture(true); f.replace("classic-old", "old"); const stale = f.images[0]!.onload!; f.replace("classic-new", "new"); stale(); await Promise.resolve();
   assert.equal(f.getMotion(), true); f.images[1]!.onload!(); await Promise.resolve();
-  assert.equal(f.getMotion(), false); assert.equal(f.getApplied(), 1); assert.deepEqual(f.commits, ["new"]);
+  assert.equal(f.getMotion(), false); assert.equal(f.getApplied(), 1); assert.deepEqual(f.commits, [{ token: "new", presentationId: null, outfitId: null }]);
 });
 
 test("Classic remains visible until a new Motion frame and stale candidates never commit", () => {
   const f = fixture(false); f.replace("motion-old", "old", "one"); f.replace("motion-new", "new", "two");
-  assert.equal(f.getStage(), "old"); assert.equal(f.controller.prepareMotionPresentation("one"), false); assert.deepEqual(f.commits, []);
-  assert.equal(f.controller.prepareMotionPresentation("two"), true); assert.equal(f.getStage(), "motion-new");
-  assert.deepEqual(f.commits, []); f.controller.motionPresented("two"); assert.deepEqual(f.commits, ["new"]);
+  assert.equal(f.getStage(), "old"); assert.equal(f.controller.prepareMotionPresentation(f.appearance("one")), false); assert.deepEqual(f.commits, []);
+  assert.equal(f.controller.prepareMotionPresentation(f.appearance("two")), true); assert.equal(f.getStage(), "motion-new");
+  assert.deepEqual(f.commits, []); f.controller.motionPresented(f.appearance("two")); assert.deepEqual(f.commits, [{ token: "new", presentationId: "two", outfitId: "default" }]);
+  f.controller.dispose();
+});
+
+test("different outfits sharing one snapshot commit only their matching presentation", () => {
+  const f = fixture(false);
+  const a = { assets: { snapshotId: "shared" }, presentationId: "a", outfitId: "default" };
+  const b = { assets: { snapshotId: "shared" }, presentationId: "b", outfitId: "coat" };
+  f.controller.replaceStage({ documentHtml: "motion-a", contentCommitToken: "a-token", motionSnapshotId: "shared", motionPresentationId: "a", motionOutfitId: "default" }, () => {});
+  assert.equal(f.controller.prepareMotionPresentation(a), true);
+  f.controller.motionPresented(a);
+  f.controller.replaceStage({ documentHtml: "motion-b", contentCommitToken: "b-token", motionSnapshotId: "shared", motionPresentationId: "b", motionOutfitId: "coat" }, () => {});
+  assert.equal(f.getStage(), "motion-a");
+  assert.equal(f.controller.prepareMotionPresentation(a), true);
+  f.controller.motionPresented(a);
+  assert.equal(f.getStage(), "motion-a");
+  assert.equal(f.controller.prepareMotionPresentation(b), true);
+  f.controller.motionPresented(b);
+  assert.equal(f.getStage(), "motion-b");
+  assert.deepEqual(f.commits, [{ token: "a-token", presentationId: "a", outfitId: "default" }, { token: "b-token", presentationId: "b", outfitId: "coat" }]);
   f.controller.dispose();
 });

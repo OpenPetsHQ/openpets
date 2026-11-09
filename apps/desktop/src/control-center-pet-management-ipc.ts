@@ -13,6 +13,7 @@ export type ControlCenterPetManagementIpcChannel =
   | "openpets:set-pet-pinned"
   | "openpets:get-pet-wardrobe"
   | "openpets:update-pet-wardrobe"
+  | "openpets:retry-pet-outfit"
   | "openpets:install-pet-wardrobe"
   | "openpets:install-pet"
   | "openpets:install-local-pet"
@@ -99,6 +100,7 @@ export type ControlCenterPetManagementIpcDependencies = {
   readonly getPetWardrobeSnapshot: (petId: string) => Promise<unknown>;
   /** Validate and apply a wardrobe change; returns the updated wardrobe view. */
   readonly updatePetWardrobe: (petId: string, patch: unknown) => Promise<unknown>;
+  readonly retryPetOutfit: (petId: string, outfitId: string) => Promise<unknown>;
   /** Replace an installed catalog pet with its catalog wardrobe package. */
   readonly installPetWardrobe: (petId: string) => unknown | Promise<unknown>;
   /** Re-render every window showing this pet after its files changed. */
@@ -152,6 +154,7 @@ export function installControlCenterPetManagementIpcHandlers({
   syncPinnedPets,
   getPetWardrobeSnapshot,
   updatePetWardrobe,
+  retryPetOutfit,
   installPetWardrobe,
   refreshPetWindowsForPetId,
   installPet,
@@ -238,6 +241,15 @@ export function installControlCenterPetManagementIpcHandlers({
     const { petId, patch } = payload as { readonly petId?: unknown; readonly patch?: unknown };
     if (typeof petId !== "string") throw new Error("Invalid wardrobe update: expected a pet id.");
     return updatePetWardrobe(petId, patch);
+  });
+
+  registerHandle("openpets:retry-pet-outfit", async (event, payload: unknown) => {
+    authorizeSender(event);
+    if (typeof payload !== "object" || payload === null || !("petId" in payload) || !("outfitId" in payload)
+      || typeof payload.petId !== "string" || typeof payload.outfitId !== "string") {
+      throw new Error("Invalid outfit retry request.");
+    }
+    return retryPetOutfit(payload.petId, payload.outfitId);
   });
 
   registerHandle("openpets:install-pet-wardrobe", async (event, petId: unknown) => {

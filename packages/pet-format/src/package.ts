@@ -1,6 +1,7 @@
 import { validateCodexPetMetadata } from "./metadata.js";
-import type { MotionAnimation, MotionContextReaction, MotionEventReaction, MotionPetMetadata, MotionVariant } from "./motion.js";
+import type { MotionAnimation, MotionBindings, MotionContextReaction, MotionEventReaction, MotionOutfit, MotionPetMetadata, MotionVariant, MotionWardrobe } from "./motion.js";
 import type { PetPackage } from "./package-types.js";
+import { maxPetOutfits, validateCreatorOutfitSchedule, validateOutfitIdentity } from "./wardrobe.js";
 
 export type { PetPackage, ValidatedPetPackage } from "./package-types.js";
 
@@ -19,7 +20,7 @@ export function validatePetPackageMetadata(value: unknown, expectedId: string): 
 }
 
 function validateMotionMetadata(value: Record<string, unknown>, expectedId: string): MotionPetMetadata {
-  keys(value, ["format", "version", "id", "displayName", "description", "geometry", "clips", "animations", "bindings"], "Motion metadata");
+  keys(value, ["format", "version", "id", "displayName", "description", "geometry", "clips", "animations", "bindings", "wardrobe"], "Motion metadata");
   if (value.version !== 1) throw new Error("Unsupported Motion package version.");
   if (typeof value.id !== "string" || value.id !== expectedId || !namePattern.test(value.id) || value.id === "builtin") {
     throw new Error("Motion pet id must be valid and match its folder name.");
@@ -64,20 +65,54 @@ function validateMotionMetadata(value: Record<string, unknown>, expectedId: stri
       : { play: "once", clip: reference(animation.clip, clips, `animation ${name} clip`), ...common };
   }
 
-  const binding = object(value.bindings, "bindings");
-  keys(binding, ["idle", "movement", "contexts", "events"], "bindings");
-  const movement = object(binding.movement, "movement");
-  keys(movement, ["left", "right"], "movement");
-  const left = animationReference(movement.left, animations, "loop", "movement.left");
-  const right = animationReference(movement.right, animations, "loop", "movement.right");
-  const idle = variants(binding.idle, animations, "loop", "idle");
-  const contextBindings = roleBindings(binding.contexts, contexts, animations, "loop", "contexts");
-  const eventBindings = roleBindings(binding.events, events, animations, "once", "events");
+  const bindings = validateMotionBindings(value.bindings, animations, "bindings");
+  const wardrobe = value.wardrobe === undefined ? undefined : validateMotionWardrobe(value.wardrobe, animations);
   return {
     format: "motion", version: 1, id: value.id, displayName, description,
     geometry: { width, height, pixelsPerUnit, footAnchor }, clips, animations,
-    bindings: { idle, movement: { left, right }, ...(contextBindings ? { contexts: contextBindings } : {}), ...(eventBindings ? { events: eventBindings } : {}) },
+    bindings, ...(wardrobe ? { wardrobe } : {}),
   };
+}
+
+function validateMotionBindings(value: unknown, animations: Record<string, MotionAnimation>, label: string): MotionBindings {
+  const binding = object(value, label);
+  keys(binding, ["idle", "movement", "contexts", "events"], label);
+  const movement = object(binding.movement, `${label}.movement`);
+  keys(movement, ["left", "right"], `${label}.movement`);
+  const left = animationReference(movement.left, animations, "loop", `${label}.movement.left`);
+  const right = animationReference(movement.right, animations, "loop", `${label}.movement.right`);
+  const idle = variants(binding.idle, animations, "loop", `${label}.idle`);
+  const contextBindings = roleBindings(binding.contexts, contexts, animations, "loop", `${label}.contexts`);
+  const eventBindings = roleBindings(binding.events, events, animations, "once", `${label}.events`);
+  return { idle, movement: { left, right }, ...(contextBindings ? { contexts: contextBindings } : {}), ...(eventBindings ? { events: eventBindings } : {}) };
+}
+
+function validateMotionWardrobe(value: unknown, animations: Record<string, MotionAnimation>): MotionWardrobe {
+  const wardrobe = object(value, "Motion wardrobe");
+  keys(wardrobe, ["outfits", "schedule"], "Motion wardrobe");
+  if (!Array.isArray(wardrobe.outfits) || wardrobe.outfits.length === 0 || wardrobe.outfits.length > maxPetOutfits) {
+    throw new Error(`Pet wardrobe must list between 1 and ${maxPetOutfits} outfits.`);
+  }
+  const ids = new Set<string>();
+  const outfits: MotionOutfit[] = wardrobe.outfits.map((raw: unknown) => {
+    const entry = object(raw, "Motion outfit");
+    keys(entry, ["id", "displayName", "bindings"], "Motion outfit");
+    const identity = validateOutfitIdentity(entry);
+    if (ids.has(identity.id)) throw new Error(`Pet wardrobe outfit id is duplicated: ${identity.id}`);
+    ids.add(identity.id);
+    return { ...identity, bindings: validateMotionBindings(entry.bindings, animations, `outfit ${identity.id} bindings`) };
+  });
+  if (Array.isArray(wardrobe.schedule)) {
+    for (const raw of wardrobe.schedule) {
+      const rule = object(raw, "Motion schedule rule");
+      keys(rule, ["outfit", "when", "enabled"], "Motion schedule rule");
+      const when = object(rule.when, "Motion schedule when");
+      keys(when, ["time", "days", "dates"], "Motion schedule when");
+      if (when.time !== undefined) keys(object(when.time, "Motion schedule time"), ["from", "to"], "Motion schedule time");
+      if (when.dates !== undefined) keys(object(when.dates, "Motion schedule dates"), ["from", "to"], "Motion schedule dates");
+    }
+  }
+  return { outfits, schedule: validateCreatorOutfitSchedule(wardrobe.schedule, ids) };
 }
 
 function roleBindings<K extends MotionContextReaction | MotionEventReaction>(value: unknown, allowed: readonly K[], animations: Record<string, MotionAnimation>, play: "loop" | "once", label: string): Partial<Record<K, MotionVariant[]>> | undefined {

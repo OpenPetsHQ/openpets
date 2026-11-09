@@ -99,6 +99,12 @@ const api = {
   setPetActivityEnabled: (petId, activityId, enabled) => ipcRenderer.invoke("openpets:set-pet-activity-enabled", { petId, activityId, enabled }),
   playPetActivity: (petId, activityId) => ipcRenderer.invoke("openpets:play-pet-activity", { petId, activityId }),
   updatePetWardrobe: (petId, patch) => ipcRenderer.invoke("openpets:update-pet-wardrobe", { petId, patch }),
+  retryPetOutfit: (petId, outfitId) => ipcRenderer.invoke("openpets:retry-pet-outfit", { petId, outfitId }),
+  onPetWardrobeChanged: (callback) => {
+    const listener = (_event, petId) => callback(petId);
+    ipcRenderer.on("openpets:pet-wardrobe-changed", listener);
+    return () => ipcRenderer.removeListener("openpets:pet-wardrobe-changed", listener);
+  },
   installPetWardrobe: (petId) => ipcRenderer.invoke("openpets:install-pet-wardrobe", petId),
   installPet: (petId) => ipcRenderer.invoke("openpets:install-pet", petId),
   installLocalPet: () => ipcRenderer.invoke("openpets:install-local-pet"),

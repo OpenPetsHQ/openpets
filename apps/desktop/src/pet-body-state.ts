@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { MotionContextReaction, MotionEventReaction } from "@open-pets/pet-format/motion";
-import type { MotionBodyDescriptor, PetBodyInput, PetBodyResult, PetBodySnapshot } from "./pet-body-contract.js";
+import type { MotionAppearance, MotionBodyDescriptor, PetBodyInput, PetBodyResult, PetBodySnapshot } from "./pet-body-contract.js";
+
+export function createMotionAppearance(current: MotionAppearance | null, assets: MotionBodyDescriptor, outfitId: string, reason: MotionAppearance["reason"], retry: boolean, allocateId: () => string): MotionAppearance {
+  if (!retry && current?.assets.snapshotId === assets.snapshotId && current.outfitId === outfitId) return current;
+  return { assets, outfitId, reason, presentationId: allocateId() };
+}
 
 export function petBodyContext(reaction: MotionContextReaction | MotionEventReaction | "idle" | null): MotionContextReaction | "idle" | null {
   switch (reaction) {
@@ -22,8 +27,11 @@ export function updateLoadedPetDocument(ready: boolean, currentSequence: number 
   return true;
 }
 
-export function isCurrentPetContentCommit(token: string, sequence: number, currentSequence: number | undefined, receivedToken: unknown): boolean {
-  return sequence === currentSequence && token === receivedToken;
+export function isCurrentPetContentCommit(pending: { readonly token: string; readonly sequence: number; readonly presentationId: string | null; readonly outfitId: string | null }, currentSequence: number | undefined, payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  if (!("token" in payload) || !("presentationId" in payload) || !("outfitId" in payload)) return false;
+  return pending.sequence === currentSequence && pending.token === payload.token
+    && pending.presentationId === payload.presentationId && pending.outfitId === payload.outfitId;
 }
 
 /** Visibility is host-owned: an offscreen layer-shell document can be visible. */
@@ -62,9 +70,12 @@ export function replacePluginSpriteWithReaction(clearSprite: () => void, react: 
 }
 
 /** Window-local semantic intent, independent of transient presentation timers. */
-export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void, committed: (snapshotId: string) => void) {
+export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void, appearanceResult: (appearance: MotionAppearance, outcome: "started" | "deferred" | "failed") => void) {
   let input: PetBodyInput = { epoch: randomUUID(), revision: 0, context: "idle", paused: false, suspended: false };
-  let motion: MotionBodyDescriptor | null = null;
+  let motion: MotionAppearance | null = null;
+  let presented: MotionAppearance | null = null;
+  let prepared: MotionAppearance | null = null;
+  let eventAttempt: { intentId: string; presentationId: string; playbackId: number } | null = null;
   let playbackId = 0;
   const send = () => publish({ input, motion });
   const update = (patch: Partial<PetBodyInput>) => {
@@ -75,14 +86,31 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
     ready: send,
     documentLost() {
       input = { ...input, epoch: randomUUID(), revision: 0, event: undefined };
+      presented = null;
+      eventAttempt = null;
       playbackId = 0;
     },
-    setMotion(next: MotionBodyDescriptor | null) {
-      if (motion?.snapshotId === next?.snapshotId) return;
-      const event = motion ? undefined : input.event;
-      motion = next;
+    prepareMotionAppearance(assets: MotionBodyDescriptor, outfitId: string, reason: MotionAppearance["reason"], retry: boolean, manualCommand = false) {
+      const promoteScheduled = manualCommand && reason === "manual" && motion?.reason === "scheduled";
+      prepared = createMotionAppearance(motion, assets, outfitId, reason, retry || promoteScheduled, randomUUID);
+      return prepared;
+    },
+    publishMotionAppearance(candidate: MotionAppearance) {
+      if (candidate !== prepared) return false;
+      prepared = null;
+      if (motion === candidate) return true;
+      motion = candidate;
       playbackId = 0;
-      update({ event });
+      update({});
+      return true;
+    },
+    clearMotion() {
+      prepared = null;
+      presented = null;
+      if (!motion) return;
+      motion = null;
+      playbackId = 0;
+      update({});
     },
     setPaused(paused: boolean) {
       if (input.paused !== paused) update({ paused });
@@ -92,6 +120,7 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
       if (suspended) {
         playbackId = 0;
         input = { ...input, epoch: randomUUID(), revision: 0, event: undefined, suspended: true };
+        eventAttempt = null;
         send();
       } else {
         update({ suspended: false });
@@ -101,22 +130,44 @@ export function createPetBodyState(publish: (snapshot: PetBodySnapshot) => void,
       if (reaction === "idle" || reaction === "thinking" || reaction === "working" || reaction === "editing" || reaction === "running" || reaction === "testing" || reaction === "waiting") {
         update({ context: reaction });
       } else if (!input.suspended) {
+        eventAttempt = null;
         update({ event: { id: randomUUID(), reaction } });
       }
     },
     result(value: unknown) {
       if (!value || typeof value !== "object") return;
       const result = value as Partial<PetBodyResult>;
-      if (!motion || result.epoch !== input.epoch || result.snapshotId !== motion.snapshotId || !Number.isSafeInteger(result.playbackId) || (result.playbackId ?? 0) <= 0) return;
+      if (result.epoch !== input.epoch || !Number.isSafeInteger(result.playbackId) || (result.playbackId ?? 0) <= 0) return;
+      const matches = (appearance: MotionAppearance | null) => appearance !== null && result.snapshotId === appearance.assets.snapshotId && result.presentationId === appearance.presentationId && result.outfitId === appearance.outfitId;
+      const requested = matches(motion);
+      const wasPresented = matches(presented);
+      if (!requested && !wasPresented) return;
       const id = result.playbackId as number;
       if (result.outcome === "started") {
+        if (!requested || !motion) {
+          if (wasPresented && presented && result.intentId && result.intentId === input.event?.id) {
+            eventAttempt = { intentId: result.intentId, presentationId: presented.presentationId, playbackId: id };
+          }
+          return;
+        }
         if (id < playbackId) return;
         playbackId = id;
-        committed(motion.snapshotId);
+        presented = motion;
+        if (result.intentId && result.intentId === input.event?.id) {
+          eventAttempt = { intentId: result.intentId, presentationId: motion.presentationId, playbackId: id };
+        }
+        appearanceResult(motion, "started");
+        return;
+      }
+      if (result.outcome === "deferred") {
+        if (requested && motion) appearanceResult(motion, result.outcome);
         return;
       }
       if (result.outcome !== "completed" && result.outcome !== "cancelled" && result.outcome !== "failed") return;
+      if (result.outcome === "failed" && requested && motion && presented !== motion) appearanceResult(motion, "failed");
       if (result.intentId && result.intentId === input.event?.id) {
+        if (eventAttempt?.intentId === result.intentId && (eventAttempt.presentationId !== result.presentationId || eventAttempt.playbackId !== id)) return;
+        eventAttempt = null;
         update({ event: undefined });
       }
     },

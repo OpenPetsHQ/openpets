@@ -356,6 +356,8 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-activity-player.cjs`: Dedicated finite rectangular-strip preload player, with image-load/completion generations, cleanup, baseline/scale preservation, and isolation from plugin overrides.
 - `pet-body-contract.ts` / `pet-body-state.ts`: Clone-safe semantic body snapshots and results, window-local raw context/event identity independent of bubble expiration, and validated playback commitment.
 - `pet-window-body-cleanup.ts`: Captured-WebContents teardown for the per-window body bridge, listener/state removal and unconditional snapshot release without destroyed-window getters.
+- `pet-wardrobe-types.ts` / `pet-wardrobe-render-state.ts`: Canonical clone-safe wardrobe snapshots and pure per-window requested/committed outfit projections with narrow change notifications.
+- `pet-window-document.ts` / `pet-motion-render.ts`: Shared pet document/CSP envelope and focused Motion appearance markup adapter; window-local presentation generations remain outside rendering composition.
 - `pet-motion-snapshot.ts`: Installed-revision validation and immutable clip copies under the existing install lock, per-window pending/current ownership, byte authorization, and cleanup.
 - `pet-body-coordinator.cjs`: Renderer body arbitration for direct manipulation, plugin overrides, events, activities and context; phase completion, event settlement and restrained idle variation.
 - `pet-motion-player.cjs`: Named animated WebP clip decoding and canvas playback with native durations and authored clip pace, first-frame commitment, current-frame alpha testing, pause, bounded encoded cache and decoder/frame cleanup.

@@ -27,10 +27,12 @@ import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from ".
 import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityScale, startPetActivitySpeech, updatePetActivityRender } from "./pet-activities.js";
 import { rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
 import { petBodyChannels } from "./pet-body-contract.js";
+import type { MotionAppearance } from "./pet-body-contract.js";
 import { petContentCommittedChannel, registerPetBodyWindowCleanup } from "./pet-window-body-cleanup.js";
 import { createPetBodyState, createPetBodyVisibility, isCurrentPetContentCommit, updateLoadedPetDocument } from "./pet-body-state.js";
 import { releaseSupersededWindowSnapshots, releaseWindowSnapshots, retainWindowSnapshot } from "./pet-motion-snapshot.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
+import { commitRenderedOutfit, failOutfitRequest, forgetOutfitWindow, getRenderedOutfits, noteOutfitRequest } from "./pet-wardrobe-render-state.js";
 
 export type { AgentPetWindowOptions, DefaultPetWindowOptions, PetContentRender, PetPluginBubbles, PetShowMediaOptions, PetStatusBadgeReaction, PetTransientDisplay, PetWindowAudioPayload, PetWindowInteractionHooks, PetWindowSpeechCompletion } from "./pet-window-types.js";
 export { createPetBodyMarkup, pluginBubblesCacheKey } from "./pet-window-render.js";
@@ -51,20 +53,32 @@ const petWindowX11MapLifecycles = new WeakMap<BrowserWindow, PetWindowX11MapLife
 const petWindowSpriteGeometry = new WeakMap<BrowserWindow, { width: number; height: number }>();
 const bodyStates = new WeakMap<BrowserWindow, ReturnType<typeof createPetBodyState>>();
 const bodyVisibility = new WeakMap<BrowserWindow, ReturnType<typeof createPetBodyVisibility>>();
+const defaultBodyWindows = new WeakSet<BrowserWindow>();
+const outfitRefresh = new WeakMap<BrowserWindow, { petId: string; reason: "manual" | "scheduled"; retry: boolean }>();
+const requestedMotionAssets = new WeakMap<BrowserWindow, string>();
 let systemPetBodiesSuspended = false;
 const resetBodyReady = new WeakMap<BrowserWindow, () => void>();
 const bodyReady = new WeakSet<BrowserWindow>();
-const pendingContentCommit = new WeakMap<BrowserWindow, { token: string; sequence: number; render: PetContentRender; commit: () => void }>();
+const pendingContentCommit = new WeakMap<BrowserWindow, { token: string; sequence: number; presentationId: string | null; outfitId: string | null; render: PetContentRender; commit: () => void }>();
 
 function installPetBodyState(window: BrowserWindow): void {
   const contents = window.webContents;
+  const windowId = window.id;
   let ready = false;
   const state = createPetBodyState((snapshot) => {
     if (ready && !window.isDestroyed() && !contents.isDestroyed()) contents.send(petBodyChannels.state, snapshot);
-  }, (snapshotId) => releaseSupersededWindowSnapshots(window, snapshotId));
+  }, (appearance, outcome) => {
+    const petId = appearance.assets.metadata.id;
+    if (outcome === "started") {
+      releaseSupersededWindowSnapshots(window, appearance.assets.snapshotId);
+      commitRenderedOutfit(windowId, petId, appearance.presentationId);
+    } else {
+      failOutfitRequest(windowId, petId, appearance.presentationId, outcome);
+    }
+  });
   bodyStates.set(window, state);
   const visibility = createPetBodyVisibility(systemPetBodiesSuspended, (suspended, details) => {
-    debug("pet.window", "body visibility changed", { windowId: window.id, ...details, suspended });
+    debug("pet.window", "body visibility changed", { windowId, ...details, suspended });
     state.setSuspended(suspended);
   });
   bodyVisibility.set(window, visibility);
@@ -92,12 +106,13 @@ function installPetBodyState(window: BrowserWindow): void {
   const onContentCommitted = (event: IpcMainEvent, payload: unknown) => {
     if (event.sender !== contents || !payload || typeof payload !== "object") return;
     const pending = pendingContentCommit.get(window);
-    if (!pending || !("token" in payload) || !isCurrentPetContentCommit(pending.token, pending.sequence, windowLoadSequences.get(window), payload.token)) return;
+    if (!pending || !isCurrentPetContentCommit(pending, windowLoadSequences.get(window), payload)) return;
     pendingContentCommit.delete(window);
     pending.commit();
     if (!pending.render.motion) {
       applyPetBodyRender(window, pending.render);
       releaseWindowSnapshots(window);
+      commitRenderedOutfit(windowId, pending.render.renderedPetId, classicPresentationId(pending.render));
     }
   };
   const onNavigation = () => {
@@ -123,6 +138,9 @@ function installPetBodyState(window: BrowserWindow): void {
       resetBodyReady.delete(window);
       pendingContentCommit.delete(window);
       bodyReady.delete(window);
+      outfitRefresh.delete(window);
+      requestedMotionAssets.delete(window);
+      forgetOutfitWindow(windowId);
     },
     releaseSnapshots: () => releaseWindowSnapshots(window),
   });
@@ -140,12 +158,50 @@ export function applyPetBodyReaction(window: BrowserWindow, reaction: OpenPetsRe
   bodyStates.get(window)?.react(reaction);
 }
 
-function applyPetBodyRender(window: BrowserWindow, render: PetContentRender): void {
+function applyPetBodyRender(window: BrowserWindow, render: PetContentRender, appearance?: MotionAppearance): void {
   const state = bodyStates.get(window);
   if (!state) return;
-  if (render.motion) retainWindowSnapshot(window, render.motion);
   state.setPaused(render.paused);
-  state.setMotion(render.motion ?? null);
+  if (appearance) state.publishMotionAppearance(appearance);
+  else if (!render.motion) state.clearMotion();
+}
+
+/** Mark one explicit wardrobe refresh for each matching live pet window. */
+export function markOutfitRefresh(petId: string, reason: "manual" | "scheduled", retry: boolean): void {
+  const ids = new Set(getRenderedOutfits(petId).map((entry) => entry.windowId));
+  for (const window of trackedPetWindows) {
+    if (!window.isDestroyed() && ids.has(window.id)) outfitRefresh.set(window, { petId, reason, retry });
+  }
+}
+
+function preparePetAppearance(window: BrowserWindow, render: PetContentRender): MotionAppearance | undefined {
+  if (!render.motion) return undefined;
+  const state = bodyStates.get(window);
+  if (!state) return undefined;
+  const marker = outfitRefresh.get(window);
+  const previous = requestedMotionAssets.get(window);
+  const reason = marker?.petId === render.renderedPetId
+    ? marker.reason
+    : previous === undefined ? "initial" : previous !== render.motion.snapshotId ? "replacement" : "manual";
+  const isMarked = marker?.petId === render.renderedPetId;
+  const appearance = state.prepareMotionAppearance(render.motion, render.renderedOutfitId, reason, isMarked && marker?.retry === true, isMarked && marker?.reason === "manual");
+  if (marker?.petId === render.renderedPetId) outfitRefresh.delete(window);
+  requestedMotionAssets.set(window, render.motion.snapshotId);
+  retainWindowSnapshot(window, appearance.assets);
+  noteOutfitRequest(window.id, render.renderedPetId, appearance.outfitId, appearance.presentationId, !window.isVisible(), defaultBodyWindows.has(window));
+  return appearance;
+}
+
+function classicPresentationId(render: PetContentRender): string {
+  return `classic:${render.renderedPetId}:${render.renderedOutfitId}`;
+}
+
+function noteClassicOutfit(window: BrowserWindow, render: PetContentRender): void {
+  if (!render.motion) {
+    outfitRefresh.delete(window);
+    requestedMotionAssets.delete(window);
+    noteOutfitRequest(window.id, render.renderedPetId, render.renderedOutfitId, classicPresentationId(render), !window.isVisible(), defaultBodyWindows.has(window));
+  }
 }
 
 function rememberPetRenderGeometry(window: BrowserWindow, render: PetContentRender): void {
@@ -251,6 +307,7 @@ export function createDefaultPetWindow(options: DefaultPetWindowOptions, dismiss
 }
 
 function installDefaultPetWindow(window: BrowserWindow, options: DefaultPetWindowOptions, dismissToken?: string): void {
+  defaultBodyWindows.add(window);
   installPetBodyState(window);
   registerPetActivityWindow(window, () => {
     if (isDefaultPetCarrierExpanded() || isDefaultPetChatCompactOpen()) {
@@ -603,17 +660,20 @@ export async function loadDefaultPetContent(window: BrowserWindow, paused: boole
     applyLinuxPetWindowShape(window, render.petScale, hasBubble, hasPinned, hasMediaBubble);
   };
   if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;
-  if (tryUpdateLoadedPetContent(window, render, "default", sequence, commit)) {
-    if (render.motion) applyPetBodyRender(window, render);
+  const appearance = preparePetAppearance(window, render);
+  noteClassicOutfit(window, render);
+  if (tryUpdateLoadedPetContent(window, render, "default", sequence, commit, appearance)) {
+    if (appearance) applyPetBodyRender(window, render, appearance);
     return;
   }
   resetBodyReady.get(window)?.();
-  applyPetBodyRender(window, render);
+  applyPetBodyRender(window, render, appearance);
   await loadPetHtmlFile(window, render.html, "default", sequence).then(() => {
     if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;
     if (!render.motion) releaseWindowSnapshots(window);
     petWindowRenderCache.set(window, render.cacheKey);
     commit();
+    if (!render.motion) commitRenderedOutfit(window.id, render.renderedPetId, classicPresentationId(render));
   }).catch((error: unknown) => {
     logError("pet.window", "default content load failed", error instanceof Error ? error : { error });
     console.error("Failed to load default pet URL.", error);
@@ -660,17 +720,20 @@ export async function loadExplicitPetContent(window: BrowserWindow, petId: strin
       applyLinuxPetWindowShape(window, scale, hasBubble, hasPinned, hasMediaBubble);
     };
     if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;
-    if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence, commit)) {
-      if (render.motion) applyPetBodyRender(window, render);
+    const appearance = preparePetAppearance(window, render);
+    noteClassicOutfit(window, render);
+    if (tryUpdateLoadedPetContent(window, render, `explicit-${pet.id}`, sequence, commit, appearance)) {
+      if (appearance) applyPetBodyRender(window, render, appearance);
       return;
     }
     resetBodyReady.get(window)?.();
-    applyPetBodyRender(window, render);
+    applyPetBodyRender(window, render, appearance);
     await loadPetHtmlFile(window, render.html, `explicit-${pet.id}`, sequence);
     if (windowLoadSequences.get(window) !== sequence || window.isDestroyed()) return;
     if (!render.motion) releaseWindowSnapshots(window);
     petWindowRenderCache.set(window, render.cacheKey);
     commit();
+    if (!render.motion) commitRenderedOutfit(window.id, render.renderedPetId, classicPresentationId(render));
   } catch (error: unknown) {
     logError("pet.window", "explicit content load failed", error instanceof Error ? error : { petId, error });
     console.error(`Failed to load explicit pet ${petId} URL.`, error);
@@ -751,7 +814,7 @@ export function stopPetWindowTts(window: BrowserWindow, requestId?: string): voi
   window.webContents.send("openpets:tts-stop", { requestId });
 }
 
-function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRender, name: string, sequence: number, commit: () => void): boolean {
+function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRender, name: string, sequence: number, commit: () => void, appearance?: MotionAppearance): boolean {
   if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
   if (!isLatestPetRenderSequence(windowLoadSequences.get(window), sequence)) {
     debug("pet.window", "content update skipped", { windowId: window.id, name, sequence, latestSequence: windowLoadSequences.get(window), reason: "superseded" });
@@ -759,15 +822,16 @@ function tryUpdateLoadedPetContent(window: BrowserWindow, render: PetContentRend
   }
   const url = window.webContents.getURL();
   return updateLoadedPetDocument(bodyReady.has(window), windowLoadSequences.get(window), sequence, url, () => {
-    if (render.motion) retainWindowSnapshot(window, render.motion);
     const contentCommitToken = `${window.id}:${sequence}`;
-    pendingContentCommit.set(window, { token: contentCommitToken, sequence, render, commit });
+    pendingContentCommit.set(window, { token: contentCommitToken, sequence, presentationId: appearance?.presentationId ?? null, outfitId: appearance?.outfitId ?? null, render, commit });
     debug("pet.window", "content update in place", { windowId: window.id, name, sequence, reactionState: render.reactionState, cacheChanged: petWindowRenderCache.get(window) !== render.cacheKey });
     window.webContents.send("openpets:pet-content-state", {
       bodyHtml: render.bodyHtml,
       documentHtml: render.html,
       contentCommitToken,
-      motionSnapshotId: render.motion?.snapshotId ?? null,
+      motionSnapshotId: appearance?.assets.snapshotId ?? null,
+      motionPresentationId: appearance?.presentationId ?? null,
+      motionOutfitId: appearance?.outfitId ?? null,
       displayName: render.displayName,
       assetName: render.assetName,
       reactionState: render.reactionState,

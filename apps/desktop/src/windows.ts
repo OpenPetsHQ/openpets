@@ -21,7 +21,8 @@ import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, s
 import { applyExternalPetSay, getDefaultPetPluginBubbles, recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
 import { readInstalledPetPackage, readInstalledPetPresentation, readInstalledPetPreview } from "./installed-pet-layout.js";
 import { defaultOutfitId, isSafeOutfitId } from "@open-pets/pet-format/wardrobe";
-import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
+import { getPetWardrobeSnapshot, retryPetOutfit, subscribePetWardrobeChanges, updatePetWardrobe } from "./pet-wardrobe.js";
+import { getRenderedOutfits, subscribeRenderedOutfits } from "./pet-wardrobe-render-state.js";
 import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
 import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
@@ -69,6 +70,12 @@ import { installPet, installPetFromFolder, installPetFromZipFile, installPetWard
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
 let controlCenterWindow: BrowserWindow | null = null;
+
+function broadcastWardrobeChanged(petId: string): void {
+  if (!controlCenterWindow || controlCenterWindow.isDestroyed()) return;
+  controlCenterWindow.webContents.send("openpets:pet-wardrobe-changed", petId);
+}
+
 let internalUiHandlersInstalled = false;
 let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingDockTimer: NodeJS.Timeout | null = null;
@@ -179,7 +186,7 @@ function getI18nSnapshot(): {
 }
 
 async function getDashboardSnapshot(): Promise<{
-  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number };
+  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number; readonly previewOutfitId?: string; readonly previewOutfitSource?: "committed" | "requested" };
   readonly installedPetCount: number;
   readonly catalog: { readonly source: string; readonly total?: number; readonly page?: number; readonly pageCount?: number; readonly error?: string };
   readonly plugins: { readonly installed: number; readonly enabled: number; readonly broken: number };
@@ -278,6 +285,7 @@ export function installInternalUiHandlers(): void {
     syncPinnedPets,
     getPetWardrobeSnapshot,
     updatePetWardrobe,
+    retryPetOutfit,
     installPetWardrobe,
     refreshPetWindowsForPetId,
     installPet,
@@ -708,7 +716,7 @@ export function installInternalUiProtocol(): void {
       let bytes: Buffer;
       let mimeType: string;
       if (preview.previewFormat === "image") {
-        ({ bytes, mimeType } = await readInstalledPetPreview(preview.petId, preview.source));
+        ({ bytes, mimeType } = await readInstalledPetPreview(preview.petId, preview.source, preview.outfitId));
       } else {
         bytes = await readBoundedRegularFile(preview.path, 100 * 1024 * 1024, "Pet preview spritesheet");
         mimeType = petSpritesheetMimeType(preview.path);
@@ -775,6 +783,8 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   });
 
   controlCenterWindow = window;
+  const unsubscribeWardrobe = subscribePetWardrobeChanges(broadcastWardrobeChanged);
+  const unsubscribeRendered = subscribeRenderedOutfits(broadcastWardrobeChanged);
   // Capture webContents.id now, before it can ever be destroyed -- the
   // "closed" handler below fires after window.webContents is already gone,
   // and reading .webContents.id at that point throws "Object has been
@@ -802,6 +812,8 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
     void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center renderer was lost.");
   });
   window.on("closed", () => {
+    unsubscribeWardrobe();
+    unsubscribeRendered();
     void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center window was closed.");
     controlCenterWindow = null;
     setPetWindowOverlaySuppressed(false);
@@ -974,11 +986,11 @@ async function getReactionAnimationSettingsSnapshot(): Promise<unknown> {
 
 type PetPreviewInfo =
   | { readonly previewFormat: "atlas"; readonly path: string; readonly spriteLayout: CodexPetSpriteLayout; readonly version: string }
-  | { readonly previewFormat: "image"; readonly petId: string; readonly source: "personal" | "team"; readonly previewWidth: number; readonly previewHeight: number; readonly version: string };
+  | { readonly previewFormat: "image"; readonly petId: string; readonly source: "personal" | "team"; readonly outfitId: string; readonly outfitSource: "committed" | "requested"; readonly previewWidth: number; readonly previewHeight: number; readonly version: string };
 
-function previewPresentation(preview: PetPreviewInfo): { readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number } {
+function previewPresentation(preview: PetPreviewInfo): { readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number; readonly previewOutfitId?: string; readonly previewOutfitSource?: "committed" | "requested" } {
   return preview.previewFormat === "image"
-    ? { format: "motion", previewFormat: "image", previewWidth: preview.previewWidth, previewHeight: preview.previewHeight }
+    ? { format: "motion", previewFormat: "image", previewWidth: preview.previewWidth, previewHeight: preview.previewHeight, previewOutfitId: preview.outfitId, previewOutfitSource: preview.outfitSource }
     : { format: "classic", previewFormat: "atlas", spriteLayout: preview.spriteLayout };
 }
 
@@ -1005,11 +1017,13 @@ async function getDefaultPetPreviewSpriteInfo(): Promise<PetPreviewInfo> {
     if (petPackage?.format === "motion" && selected) {
       motionSelected = true;
       const manifest = await stat(join(getPetDir(selected.id, source), "pet.json"));
+      const rendered = getRenderedOutfits(selected.id).find((entry) => entry.isDefault);
+      const outfitId = rendered?.outfitId ?? (await getPetWardrobeSnapshot(selected.id))?.requested ?? defaultOutfitId;
       return {
-        previewFormat: "image", petId: selected.id, source,
+        previewFormat: "image", petId: selected.id, source, outfitId, outfitSource: rendered?.outfitId ? "committed" : "requested",
         previewWidth: petPackage.metadata.geometry.width,
         previewHeight: petPackage.metadata.geometry.height,
-        version: `${selected.id}-${Math.round(manifest.mtimeMs)}-${manifest.size}`,
+        version: `${selected.id}-${outfitId}-${Math.round(manifest.mtimeMs)}-${manifest.size}`,
       };
     }
     const metadata = petPackage?.format === "classic" ? petPackage.metadata : undefined;

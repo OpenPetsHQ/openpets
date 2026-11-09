@@ -42,12 +42,18 @@ test("installed Motion preview uses the requested pet's idle loop first frame", 
       const clip = await sharp(pixels, { raw: { width: 8, height: 16, channels: 4, pageHeight: 8 } })
         .webp({ delay: [100, 120], loop: 0 }).toBuffer();
       await writeFile(join(directory, "clips", "idle.webp"), clip);
+      const outfitPixels = Buffer.from(pixels);
+      for (let index = 0; index < outfitPixels.length; index += 4) outfitPixels[index] = 70;
+      const outfitClip = await sharp(outfitPixels, { raw: { width: 8, height: 16, channels: 4, pageHeight: 8 } })
+        .webp({ delay: [100, 120], loop: 0 }).toBuffer();
+      await writeFile(join(directory, "clips", "coat.webp"), outfitClip);
       await writeFile(join(directory, "pet.json"), JSON.stringify({
         format: "motion", version: 1, id, displayName: id, description: "Pet",
         geometry: { width: 8, height: 8, pixelsPerUnit: 1, footAnchor: { x: 4, y: 8 } },
-        clips: { idle: { file: "clips/idle.webp", frames: 2 } },
-        animations: { idle: { play: "loop", loop: "idle" } },
+        clips: { idle: { file: "clips/idle.webp", frames: 2 }, coat: { file: "clips/coat.webp", frames: 2 } },
+        animations: { idle: { play: "loop", loop: "idle" }, coat: { play: "loop", loop: "coat" } },
         bindings: { idle: [{ animation: "idle" }], movement: { left: "idle", right: "idle" } },
+        wardrobe: { outfits: [{ id: "coat", displayName: "Coat", bindings: { idle: [{ animation: "coat" }], movement: { left: "coat", right: "coat" } } }], schedule: [] },
       }));
     }
     const { readInstalledPetPreview } = await import("../src/installed-pet-layout.js");
@@ -61,6 +67,9 @@ test("installed Motion preview uses the requested pet's idle loop first frame", 
     assert.equal(firstPixels.data[3], 0);
     assert.ok(firstPixels.data[4]! > 220);
     assert.ok(secondPixels.data[4]! < 30);
+    const coat = await readInstalledPetPreview("first", "personal", "coat");
+    const coatPixels = await sharp(coat.bytes).ensureAlpha().raw().toBuffer();
+    assert.ok(coatPixels[4]! > 40 && coatPixels[4]! < 100);
     await assert.rejects(() => readInstalledPetPreview("first", "personal", "other"));
   } finally {
     hooks?.deregister();

@@ -23,10 +23,12 @@ does not require a Classic spritesheet or the nine Classic visual slots.
 The shared contract and validation owners are
 `@open-pets/pet-format/package` and its Node `package-validation` subpath.
 
-The first implementation accepts the default appearance only; outfit, activity
-and gaze declarations are rejected rather than silently ignored. Classic pets
-retain their existing wardrobe, activity and gaze support. See
-[Motion pets](/motion-pets) for the delivery boundary and future capabilities.
+Motion wardrobes add complete per-outfit bindings through the existing
+preference and schedule owners. The wardrobe contract has passed integrated
+checks and live synthetic-fixture verification. Activity and gaze declarations
+remain rejected rather than silently ignored. Classic pets retain their existing
+wardrobe, activity and gaze support. See [Motion pets](/motion-pets) and
+[Wardrobe](/wardrobe#motion-wardrobes) for the current delivery boundary.
 
 Desktop imports use the existing folder/ZIP transaction. Immutable per-revision
 snapshots keep lazy clip reads consistent during replacement. Main-process body
