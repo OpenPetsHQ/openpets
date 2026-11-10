@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { getCodexPetSpriteLayout, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
 import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
 import { validatePetPackageMetadata } from "@open-pets/pet-format/package";
-import { motionMaxClipBytes } from "@open-pets/pet-format/node/package-validation";
+import { getMotionOutfitBindings, motionMaxClipBytes } from "@open-pets/pet-format/motion";
 import type { PetPackage } from "@open-pets/pet-format/package-types";
 import { decodeMotionPreviewFrame, validateCodexPetSpritesheet } from "./pet-atlas-validation.js";
 import { withAtlasFormat } from "@open-pets/pet-format/node/atlas-validation";
@@ -12,7 +12,6 @@ import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-
 import { petSpritesheetMimeType } from "install-pet/spritesheet";
 import { getPetDir } from "./pet-paths.js";
 import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
-import { getMotionOutfitBindings } from "@open-pets/pet-format/motion";
 
 export type InstalledPetPresentation =
   | {

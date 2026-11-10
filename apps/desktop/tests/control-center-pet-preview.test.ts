@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { defaultPetSprite } from "@open-pets/pet-format/animation";
-import { buildPetSpritePreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout, isAllowedPetActivityPreview } from "../src/renderer/src/pet-preview-state.js";
+import { buildPetSpritePreviewModel, buildReactionPreviewModel, defaultPetSpriteLayout, getCatalogPetSpriteLayout, isAllowedPetActivityPreview } from "../src/renderer/src/pet-preview-state.js";
 
 // The renderer must accept only the exact installed activity protocol shape;
 // rejecting it turns valid outfit artwork into a placeholder.
@@ -58,6 +58,20 @@ const v2Layout = {
   rows: 11,
   neutralPose: { row: 0, column: 6 },
 } as const;
+
+const reactionSettings = {
+  previewSpriteUrl: "openpets-installed://spritesheet/test",
+  sprite: { ...v2Layout, states: { idle: { row: 0, frames: 6, durationMs: 1650 }, waiting: { row: 7, frames: 4, durationMs: 2200 } } },
+};
+assert.deepEqual(buildReactionPreviewModel(reactionSettings, "waiting"), {
+  format: "atlas", src: reactionSettings.previewSpriteUrl,
+  frame: { width: 192, height: 208 }, x: -0, y: -1456,
+  xValues: "0;-192;-384;-576", atlasWidth: 1536, atlasHeight: 2288,
+  animated: true, durationMs: 2200,
+}, "configured non-idle reaction uses its selected row, timing and V2 atlas");
+assert.deepEqual(buildReactionPreviewModel({ ...reactionSettings, previewFormat: "image", previewWidth: 600, previewHeight: 641 }, "waiting"), {
+  format: "image", src: reactionSettings.previewSpriteUrl, width: 600, height: 641,
+}, "Motion reaction previews remain static images");
 
 assert.deepEqual(getCatalogPetSpriteLayout(2), v2Layout, "catalog V2 entries resolve to the shared 8x11 preview layout");
 assert.equal(getCatalogPetSpriteLayout(undefined), undefined, "legacy catalog entries retain implicit V1 layout behavior");

@@ -65,7 +65,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 
 - `main.tsx`: Existing route shell and management pages for Dashboard, Pets, Plugins, Integrations, Teams, and Settings; Pets catalog-search errors and action errors are displayed and cleared independently.
 - `teams/manager-check-ins/`: Control Center's read-only Manager Check-ins management lane. The private weekly action circle and five-feeling submission card live in the default pet renderer (`pet-preload.cjs`), outside this Control Center bundle.
-- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation, selects V2's neutral frame, and resolves catalog V2 sprite metadata.
+- `pet-preview-state.ts`: Pure 8×9/8×11 preview models that preserve V1 frame animation, select V2's neutral frame, resolve catalog V2 sprite metadata, and retain the configured Classic reaction state/atlas/timing while keeping Motion reaction previews static.
 - `catalog-search-state.ts`: Pure search state transition and failure recovery helpers for Control Center catalog search index loading.
 - `styles.css`: Tailwind base/components/utilities plus glass-card layout, navigation, galleries, modals, status pills, previews, and notifications.
 - `vite-env.d.ts`: Vite/TypeScript renderer environment declarations.

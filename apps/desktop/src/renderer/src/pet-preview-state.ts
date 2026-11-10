@@ -85,3 +85,38 @@ export function buildPetSpritePreviewModel(
     animated: !neutralPose && frameColumns.length > 1,
   };
 }
+
+/** Resolve Settings' configured reaction artwork without substituting generic card states. */
+export function buildReactionPreviewModel<State extends string>(
+  settings: {
+    readonly previewFormat?: "image" | "atlas";
+    readonly previewSpriteUrl: string;
+    readonly previewWidth?: number;
+    readonly previewHeight?: number;
+    readonly sprite: PetSpriteLayout & {
+      readonly states: Record<State, { readonly row: number; readonly frames: number; readonly durationMs: number }> & {
+        readonly idle: { readonly row: number; readonly frames: number; readonly durationMs: number };
+      };
+    };
+  },
+  state: State,
+) {
+  if (settings.previewFormat === "image") {
+    return { format: "image" as const, src: settings.previewSpriteUrl, width: settings.previewWidth, height: settings.previewHeight };
+  }
+  const frame = { width: settings.sprite.frameWidth, height: settings.sprite.frameHeight };
+  const sprite = settings.sprite.states[state] ?? settings.sprite.states.idle;
+  const preview = buildPetSpritePreviewModel(settings.sprite, sprite, state === "idle");
+  return {
+    format: "atlas" as const,
+    src: settings.previewSpriteUrl,
+    frame,
+    x: -(preview.frameColumns[0] ?? 0) * frame.width,
+    y: -preview.row * frame.height,
+    xValues: preview.frameColumns.map((column) => String(-column * frame.width)).join(";"),
+    atlasWidth: frame.width * preview.atlasColumns,
+    atlasHeight: frame.height * preview.atlasRows,
+    animated: preview.animated,
+    durationMs: sprite.durationMs,
+  };
+}

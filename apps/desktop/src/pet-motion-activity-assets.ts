@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { motionMaxClipBytes } from "@open-pets/pet-format/node/package-validation";
 import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
-import { calculateMotionActivityDurationMs, getMotionAnimationFirstClip, resolveMotionActivityAnimation } from "@open-pets/pet-format/motion";
+import { calculateMotionActivityDurationMs, getMotionAnimationFirstClip, motionMaxClipBytes, resolveMotionActivityAnimation } from "@open-pets/pet-format/motion";
 import type { MotionAnimation, MotionActivity } from "@open-pets/pet-format/motion";
 import type { AvailablePetActivity } from "./pet-activity-contract.js";
 import type { MotionAppearance } from "./pet-body-contract.js";

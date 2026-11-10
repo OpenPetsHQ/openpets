@@ -1,6 +1,9 @@
 import { defaultOutfitId, type PetOutfitIdentity, type WardrobeDefinition } from "./wardrobe.js";
 import type { PetActivityIdentity } from "./activities.js";
 
+/** Accepted encoded clip ceiling; runtime caches have independent budgets. */
+export const motionMaxClipBytes = 1024 * 1024 * 1024;
+
 export type MotionContextReaction =
   | "thinking"
   | "working"

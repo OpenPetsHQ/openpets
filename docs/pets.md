@@ -168,6 +168,12 @@ is recorded when the first activity frame is presented, not merely requested.
 Ordinary cancellation is distinct from artwork failure and must not quarantine
 an otherwise valid activity.
 
+Motion activity admission uses its persistent semantic context. Classic admission
+instead follows the host's current busy presentation and reservation: an expired
+Classic reaction must not remain blocked by stale Motion-context state. A fresh
+busy presentation still cancels the Classic activity, including a repeated
+reaction with the same context.
+
 Motion carriers resolve against the actual committed appearance and immutable
 asset snapshot, not a saved outfit preference or a pending render. A pending
 outfit switch cancels activity and blocks new admission; a failed switch leaves

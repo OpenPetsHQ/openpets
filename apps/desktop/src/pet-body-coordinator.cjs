@@ -354,7 +354,9 @@ function createPetBodyCoordinator(options) {
       && next.motion.presentationId !== candidate?.appearance.presentationId
       && !failedPresentations.has(next.motion.presentationId);
     const newEvent = next.input.event && !seenEvents.has(next.input.event.id);
-    if (newAppearance || newEvent || next.input.context !== 'idle' || next.input.paused || next.input.suspended || epochChanged) {
+    const busyContext = next.input.context !== 'idle'
+      && (next.motion || semanticContext !== next.input.context);
+    if (newAppearance || newEvent || busyContext || next.input.paused || next.input.suspended || epochChanged) {
       pendingVariation = null;
       if (activity) finishActivity(activity, 'cancelled', false);
     }
@@ -423,7 +425,7 @@ function createPetBodyCoordinator(options) {
   }
   function canAdmitActivity() {
     const input = snapshot?.input;
-    return Boolean(input && input.context === 'idle' && !input.paused && !input.suspended && !reducedMotion
+    return Boolean(input && (!snapshot.motion || input.context === 'idle') && !input.paused && !input.suspended && !reducedMotion
       && !drag && !movement && !plugin && active?.kind !== 'event' && !candidate);
   }
 

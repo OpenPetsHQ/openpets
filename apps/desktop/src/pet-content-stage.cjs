@@ -1,3 +1,5 @@
+const { calculateMotionLayout, motionLayoutCssVariables } = require('./pet-motion-layout.ts');
+
 /** Commits only a candidate whose artwork is usable, preserving the current presentation until then. */
 function createPetContentStageController(document, options = {}) {
   const parseDocument = options.parseDocument ?? ((html) => new DOMParser().parseFromString(html, 'text/html'));
@@ -11,17 +13,25 @@ function createPetContentStageController(document, options = {}) {
   let visibleMotion = null;
   let disposed = false;
 
-  function applyReceivedScaleOverride() {
-    if (receivedScaleOverride === null) return;
+  function applyCurrentLayout() {
     const sprite = document.querySelector('.sprite, .installed-sprite');
-    if (sprite) sprite.style.transform = `scale(${receivedScaleOverride})`;
+    if (!sprite) return;
+    if (sprite.hasAttribute('data-motion-body')) {
+      const input = JSON.parse(sprite.getAttribute('data-motion-layout'));
+      const layout = calculateMotionLayout({ ...input, requestedScale: receivedScaleOverride ?? input.requestedScale });
+      const stage = sprite.closest('.stage');
+      if (!stage) throw new Error('Motion stage is unavailable.');
+      for (const [name, value] of Object.entries(motionLayoutCssVariables(layout))) stage.style.setProperty(name, value);
+    } else if (receivedScaleOverride !== null) {
+      sprite.style.transform = `scale(${receivedScaleOverride})`;
+    }
   }
 
   function setScaleOverride(scale) {
     const value = Number(scale);
     if (!Number.isFinite(value) || value < 0.25 || value > 3) return;
     receivedScaleOverride = value;
-    applyReceivedScaleOverride();
+    applyCurrentLayout();
   }
 
   function artworkUrl(parsed, sprite) {
@@ -62,7 +72,7 @@ function createPetContentStageController(document, options = {}) {
       if (value === undefined) delete root.dataset[name];
       else root.dataset[name] = value;
     }
-    applyReceivedScaleOverride();
+    applyCurrentLayout();
     onApplied?.(state);
   }
 
@@ -155,7 +165,9 @@ function createPetContentStageController(document, options = {}) {
       return true;
     }
     // The initial document is already loaded before the first body snapshot.
-    return !visibleMotion && !pendingMotion && Boolean(document.querySelector('.pet-shell .sprite[data-motion-body]'));
+    const initial = !visibleMotion && !pendingMotion && Boolean(document.querySelector('.pet-shell .sprite[data-motion-body]'));
+    if (initial) applyCurrentLayout();
+    return initial;
   }
 
   function motionPresented(appearance) {

@@ -3,6 +3,8 @@ import {
   calculateChatPanelY,
   defaultPetChatPanelLayout,
 } from "./default-pet-chat-geometry.js";
+import type { MotionLayout } from "./pet-motion-layout.js";
+import { defaultPetSprite } from "@open-pets/pet-format/animation";
 
 export type PetShapeRectangle = {
   readonly x: number;
@@ -17,6 +19,9 @@ export type PetInteractiveShapeOptions = {
   readonly spriteWidth: number;
   readonly spriteHeight: number;
   readonly scale: number;
+  readonly motionLayout?: MotionLayout;
+  /** Scale used to generate the committed document's overlay CSS, not a live sprite override. */
+  readonly motionDocumentScale?: number;
   readonly hasBubble: boolean;
   readonly hasPinned?: boolean;
   readonly hudScale?: number;
@@ -62,7 +67,7 @@ export const compactComposerGeometry = Object.freeze({
   controlHeight: 30,
 });
 
-const petBottom = 22;
+export const petBottom = 22;
 export const petWindowHitPadding = 28;
 const petWindowPinnedLiftUnit = 28;
 const bubbleHeight = 156;
@@ -114,8 +119,11 @@ export function getPetWindowSpriteBottomInset(hasPinned: boolean, hudScale = 1):
  * shape encompasses both the pet at the bottom and the attached chat panel above it.
  */
 export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions): PetInteractiveShape {
-  const scaledWidth = Math.ceil(options.spriteWidth * options.scale);
-  const scaledHeight = Math.ceil(options.spriteHeight * options.scale);
+  const scaledWidth = Math.ceil(options.motionLayout?.bodyBounds.width ?? options.spriteWidth * options.scale);
+  const scaledHeight = Math.ceil(options.motionLayout?.bodyBounds.height ?? options.spriteHeight * options.scale);
+  const overlayHeight = options.motionLayout
+    ? Math.ceil(defaultPetSprite.frameHeight * (options.motionDocumentScale ?? options.scale))
+    : scaledHeight;
   const pinnedLift = getPetWindowPinnedLift(options.hasPinned ?? false, options.hudScale ?? 1);
 
   if (options.isSessionOpen) {
@@ -127,12 +135,20 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
     };
   }
 
-  const petHitbox: PetShapeRectangle = {
+  const classicHitbox: PetShapeRectangle = {
     x: Math.round((options.windowWidth - (scaledWidth + petWindowHitPadding * 2)) / 2),
     y: Math.round(options.windowHeight - Math.max(0, petBottom - petWindowHitPadding) - pinnedLift - (scaledHeight + petWindowHitPadding * 2)),
     width: scaledWidth + petWindowHitPadding * 2,
     height: scaledHeight + petWindowHitPadding * 2,
   };
+  const translateMotionRect = (rect: PetShapeRectangle, layout: MotionLayout): PetShapeRectangle => {
+    const x = rect.x + (options.windowWidth - layout.input.windowWidth) / 2;
+    const y = rect.y + options.windowHeight - layout.input.windowHeight;
+    const left = Math.floor(x);
+    const top = Math.floor(y);
+    return { x: left, y: top, width: Math.ceil(x + rect.width) - left, height: Math.ceil(y + rect.height) - top };
+  };
+  const petHitbox = options.motionLayout ? translateMotionRect(options.motionLayout.hitboxBounds, options.motionLayout) : classicHitbox;
   const companionLauncher: PetShapeRectangle = {
     x: petHitbox.x + petHitbox.width - companionLauncherInset - companionLauncherSize,
     y: petHitbox.y + petHitbox.height - companionLauncherInset - companionLauncherSize,
@@ -140,6 +156,7 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
     height: companionLauncherSize,
   };
   const shape: PetShapeRectangle[] = [petHitbox];
+  if (options.motionLayout) shape.push(translateMotionRect(options.motionLayout.bodyBounds, options.motionLayout));
 
   if (options.hasPinned && !options.isExpanded) {
     const rawHudWidth = 188;
@@ -160,7 +177,7 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   if (options.isExpanded) {
     const width = options.panelWidth ?? defaultPanelWidth;
     const height = options.panelHeight ?? defaultPanelHeight;
-    const panelBottom = options.panelBottom ?? calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap, pinnedLift);
+    const panelBottom = options.panelBottom ?? calculateChatPanelBottom(overlayHeight, petBottom, defaultPetChatPanelLayout.gap, pinnedLift);
     const y = options.panelTop !== undefined
       ? options.panelTop
       : calculateChatPanelY(options.windowHeight, height, panelBottom);
@@ -174,7 +191,7 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   } else if (options.isCompactOpen) {
     const width = Math.min(compactComposerGeometry.maxWidth, Math.max(0, options.windowWidth - compactComposerGeometry.horizontalInset * 2));
     const height = Math.min(compactComposerGeometry.maxHeight, options.windowHeight);
-    const compactComposerBottom = Math.ceil(petBottom + scaledHeight + compactComposerGeometry.bottomGap) + pinnedLift;
+    const compactComposerBottom = Math.ceil(petBottom + overlayHeight + compactComposerGeometry.bottomGap) + pinnedLift;
     compactComposer = {
       x: Math.round((options.windowWidth - width) / 2),
       y: options.windowHeight - compactComposerBottom - height,
@@ -185,7 +202,7 @@ export function calculatePetInteractiveShape(options: PetInteractiveShapeOptions
   }
 
   if (options.hasBubble && !options.isExpanded && !options.isCompactOpen) {
-    const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8) + pinnedLift;
+    const bubbleBottom = Math.ceil(petBottom + overlayHeight + 8) + pinnedLift;
     const hasMedia = options.bubbleHasMedia === true;
     const bubbleScale = getEffectiveBubbleScale(options.bubbleScale ?? 1, options.windowWidth, options.windowHeight, bubbleBottom, hasMedia);
     const scaledBubbleHeight = Math.ceil(getBubbleMaxHeight(hasMedia) * bubbleScale);

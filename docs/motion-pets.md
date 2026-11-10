@@ -33,6 +33,18 @@ that a 1 GiB pet will run smoothly, nor permission to allocate unbounded decoded
 frames. These are safety ceilings, not measured performance budgets; authors
 need not reduce artwork quality to meet the former small byte limits.
 
+The accepted encoded-clip ceiling lives in the browser-safe Motion contract and
+is shared by package validation, authorized snapshot byte delivery and renderer
+playback. The renderer's 48 MiB encoded LRU cache is a separate retention budget:
+larger valid clips play without entering that cache.
+
+Motion presentation fits the complete foot-anchored canvas and nominal hitbox
+inside the existing carrier, accounting for HUD lift and horizontal flipping.
+Initial presentation and later scale overrides share one pure layout calculation;
+native input geometry follows the same committed result. Fitting changes logical
+display scale, not source pixels or authored clip timing. Requested scales that
+would clip are capped without a minimum-scale floor or reference-art exception.
+
 `node/archive.ts` inspects a bounded root or single-wrapper manifest to choose
 the format, then applies format-specific extraction paths. Existing Classic
 callers keep their format-specific extraction behavior.

@@ -8,12 +8,40 @@ const { createPetBodyCoordinator: createCoordinator } = require(join(root, "src/
 const { createPetMotionPlayer } = require(join(root, "src/pet-motion-player.cjs"));
 const { getMotionOutfitBindings } = require(join(root, "../../packages/pet-format/dist/motion.js"));
 const createPetBodyCoordinator = (options: Record<string, unknown>) => createCoordinator({ ...options, getBindings: getMotionOutfitBindings });
+const { motionMaxClipBytes } = require(join(root, "../../packages/pet-format/dist/motion.js"));
 function descriptor(id = "one") {
   const clips = Object.fromEntries(["idle", "run", "intro", "wave", "outro", "work"].map((name) => [name, { file: name, frames: 1, playbackRate: name === "work" ? 2 : 1 }]));
   return { snapshotId: id, metadata: { geometry: { width: 10, height: 10, pixelsPerUnit: 1, footAnchor: { x: 5, y: 9 } }, clips, animations: { idle: { play: "loop", loop: "idle" }, run: { play: "loop", loop: "run" }, work: { play: "loop", loop: "work" }, wave: { play: "once", intro: "intro", clip: "wave", outro: "outro" } }, bindings: { idle: [{ animation: "idle" }], movement: { left: "run", right: "run" }, contexts: { working: [{ animation: "work" }] }, events: { waving: [{ animation: "wave" }] } } }, urls: Object.fromEntries(Object.keys(clips).map((name) => [name, `${id}-${name}`])), verifiedClips: Object.fromEntries(Object.keys(clips).map((name) => [name, { frameDurationsMs: [100], durationMs: 100 }])) };
 }
 function appearance(assets = descriptor(), outfitId = "default", presentationId = assets.snapshotId, reason = "initial") { return { assets, outfitId, presentationId, reason }; }
 function state(revision: number, extra: Record<string, unknown> = {}) { return { input: { epoch: "epoch", revision, context: "idle", paused: false, suspended: false, ...extra }, motion: appearance() }; }
+
+test("large valid clips reach the decoder without exceeding the encoded cache budget", async () => {
+  const large = new Uint8Array(33 * 1024 * 1024);
+  const overBudget = new Uint8Array(49 * 1024 * 1024);
+  const oversized = new Uint8Array(1);
+  Object.defineProperty(oversized, "byteLength", { value: motionMaxClipBytes + 1 });
+  const loads: string[] = [];
+  const decoded: number[] = [];
+  let failures = 0;
+  const base = { style: {}, appendChild(element: { parentNode: unknown }) { element.parentNode = this; } };
+  const player = createPetMotionPlayer({
+    document: { documentElement: { dataset: {} }, querySelector: () => base, createElement: () => ({ style: {}, parentNode: null, width: 0, height: 0, remove() {}, getContext: () => ({ clearRect() {}, drawImage() {} }) }) },
+    loadBytes: async (url: string) => { loads.push(url); return url.startsWith("large") ? large : url.startsWith("over-idle") ? overBudget : oversized; },
+    createDecoder: ({ data }: { data: Uint8Array }) => { decoded.push(data.byteLength); return { tracks: { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }, decode: async () => ({ image: { displayWidth: 10, displayHeight: 10, close() {} } }), close() {} }; },
+    now: () => 0, setTimeout, clearTimeout,
+  });
+  const callbacks = { still: true, onStarted() {}, onEnd() {}, onFailed() { failures++; } };
+  await player.play(appearance(descriptor("large")), "idle", callbacks);
+  await player.play(appearance(descriptor("over")), "idle", callbacks);
+  await player.play(appearance(descriptor("large")), "idle", callbacks);
+  await player.play(appearance(descriptor("over")), "idle", callbacks);
+  await player.play(appearance(descriptor("oversized")), "idle", callbacks);
+  assert.deepEqual(decoded, [large.byteLength, overBudget.byteLength, large.byteLength, overBudget.byteLength]);
+  assert.deepEqual(loads, ["large-idle", "over-idle", "over-idle", "oversized-idle"]);
+  assert.equal(failures, 1);
+  player.dispose();
+});
 test("event phases return to current context without HUD resetting playback", () => {
   const calls: string[] = [];
   const results: Array<{ outcome: string; intentId?: string }> = [];

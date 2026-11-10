@@ -147,6 +147,24 @@ test('classic uses same arbiter and ignores stale external callbacks', () => {
   assert.deepEqual(f.stops, [1, 2]); f.coordinator.dispose();
 });
 
+test('Classic admits activity after a stale working context and cancels on a new busy interruption', () => {
+  const f = fixture(true);
+  f.update(2, { context: 'working' });
+  // The host has since cleared the transient display and badge; body context
+  // remains persistent and does not represent Classic's current presentation.
+  assert.equal(f.coordinator.startActivity(f.strip(1)), true);
+  f.external[0].callback('started');
+  f.update(3, { context: 'working' });
+  assert.deepEqual(f.activityResults.map(x => x.outcome), ['started']);
+  // The host cancels its reservation when a new busy presentation arrives,
+  // including another reaction with the same persistent context.
+  f.coordinator.cancelActivity(1);
+  f.external[0].callback('completed');
+  assert.deepEqual(f.activityResults.map(x => x.outcome), ['started', 'cancelled']);
+  assert.deepEqual(f.stops, [1]);
+  f.coordinator.dispose();
+});
+
 test('reduced motion cancels Classic activity and rejects subsequent activities', () => {
   const f = fixture(true);
   assert.equal(f.coordinator.startActivity(f.strip(1)), true);

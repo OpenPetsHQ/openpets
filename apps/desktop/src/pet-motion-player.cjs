@@ -1,3 +1,6 @@
+const { motionMaxClipBytes } = require('@open-pets/pet-format/motion');
+const encodedCacheBudget = 48 * 1024 * 1024;
+
 /** Decodes one clip at a time, keeping the last presented canvas across replacements. */
 function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTimeout, clearTimeout, onError, onWillPresent, onPresented }) {
   let current = null;
@@ -26,11 +29,11 @@ function createPetMotionPlayer({ document, loadBytes, createDecoder, now, setTim
       return bytes;
     }
     const bytes = await loadBytes(url);
-    if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > 32 * 1024 * 1024) {
+    if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > motionMaxClipBytes) {
       throw new Error('Motion clip bytes are unavailable or oversized.');
     }
-    if (disposed) return bytes;
-    while (encodedBytes + bytes.byteLength > 48 * 1024 * 1024 && encoded.size) {
+    if (disposed || bytes.byteLength > encodedCacheBudget) return bytes;
+    while (encodedBytes + bytes.byteLength > encodedCacheBudget && encoded.size) {
       const oldest = encoded.keys().next().value;
       encodedBytes -= encoded.get(oldest).byteLength;
       encoded.delete(oldest);

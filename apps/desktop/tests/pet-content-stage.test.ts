@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { test } from "node:test";
+import { calculateMotionLayout, motionLayoutCssVariables } from "../src/pet-motion-layout.js";
 const require = createRequire(import.meta.url);
 const root = process.env.OPENPETS_DESKTOP_ROOT ?? process.cwd();
 const { createPetContentStageController } = require(join(root, "src/pet-content-stage.cjs"));
@@ -98,4 +99,31 @@ test("different outfits sharing one snapshot commit only their matching presenta
   assert.equal(f.getStage(), "motion-b");
   assert.deepEqual(f.commits, [{ token: "a-token", presentationId: "a", outfitId: "default" }, { token: "b-token", presentationId: "b", outfitId: "coat" }]);
   f.controller.dispose();
+});
+
+test("a remembered scale is fitted to candidate geometry before presentation", () => {
+  const layoutInput = { geometry: { width: 4096, height: 4096, pixelsPerUnit: 1, footAnchor: { x: 512, y: 4096 } }, requestedScale: 0.75, windowWidth: 340, windowHeight: 420, hitboxBottomInset: 0, hitPadding: 8, flipped: false };
+  const variables: Record<string, string> = {};
+  const stage = { style: { setProperty(name: string, value: string) { variables[name] = value; } }, querySelector: () => sprite, replaceWith() {} };
+  const sprite = { style: { transform: "" }, hasAttribute: () => true, getAttribute: () => JSON.stringify(layoutInput), closest: () => stage };
+  let current: typeof stage | null = null;
+  const document = {
+    documentElement: { dataset: {}, lang: "en" },
+    head: { querySelector: () => ({ textContent: "", setAttribute() {} }) },
+    body: { firstChild: null, insertBefore(next: typeof stage) { current = next; } },
+    querySelector(selector: string) { return selector === ".stage" ? current : current ? sprite : null; },
+    importNode: () => stage,
+  };
+  let applied = false;
+  const controller = createPetContentStageController(document, {
+    parseDocument: () => ({ documentElement: { dataset: {}, lang: "en" }, head: { querySelectorAll: () => [] }, querySelector: () => stage }),
+  });
+  controller.setScaleOverride(2);
+  controller.replaceStage({ documentHtml: "motion", contentCommitToken: "one", motionSnapshotId: "one", motionPresentationId: "one", motionOutfitId: "default" }, () => { applied = true; });
+  assert.equal(applied, false);
+  assert.equal(controller.prepareMotionPresentation({ assets: { snapshotId: "one" }, presentationId: "one", outfitId: "default" }), true);
+  assert.equal(applied, true);
+  assert.deepEqual(variables, motionLayoutCssVariables(calculateMotionLayout({ ...layoutInput, requestedScale: 2 })));
+  assert.equal(sprite.style.transform, "");
+  controller.dispose();
 });

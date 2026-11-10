@@ -25,7 +25,8 @@ import { installPetWindowInteraction } from "./pet-window-interaction.js";
 import { beginPetWindowX11MapLifecycle, type PetWindowX11MapLifecycle } from "./x11-pet-window-state.js";
 import { createPetWindowShowCoordinator, type PetWindowShowCoordinator } from "./pet-window-show-coordinator.js";
 import { finishPetActivitySpeech, movePetActivityWindow, preparePetActivityRender, registerPetActivityWindow, setPetActivityPluginOverride, setPetActivityReactionOverride, setPetActivityReducedMotion, setPetActivityScale, startPetActivitySpeech, updatePetActivityBody, updatePetActivityRender } from "./pet-activities.js";
-import { rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
+import { getPetWindowScaleOverride, rememberPetWindowScaleOverride, restorePetWindowScaleOverride } from "./pet-window-scale-override.js";
+import { calculateMotionLayout, type MotionLayout } from "./pet-motion-layout.js";
 import { petBodyChannels } from "./pet-body-contract.js";
 import type { MotionAppearance } from "./pet-body-contract.js";
 import { petContentCommittedChannel, registerPetBodyWindowCleanup } from "./pet-window-body-cleanup.js";
@@ -51,6 +52,8 @@ const petWindowShowCoordinators = new WeakMap<BrowserWindow, PetWindowShowCoordi
 const petWindowLayerShellBackends = new WeakMap<BrowserWindow, boolean>();
 const petWindowX11MapLifecycles = new WeakMap<BrowserWindow, PetWindowX11MapLifecycle>();
 const petWindowSpriteGeometry = new WeakMap<BrowserWindow, { width: number; height: number }>();
+const petWindowMotionLayout = new WeakMap<BrowserWindow, MotionLayout>();
+const petWindowShapeState = new WeakMap<BrowserWindow, { scale: PetScaleValue; hasBubble: boolean; hasPinned: boolean; hasMediaBubble: boolean }>();
 const bodyStates = new WeakMap<BrowserWindow, ReturnType<typeof createPetBodyState>>();
 const bodyVisibility = new WeakMap<BrowserWindow, ReturnType<typeof createPetBodyVisibility>>();
 const defaultBodyWindows = new WeakSet<BrowserWindow>();
@@ -214,6 +217,15 @@ function rememberPetRenderGeometry(window: BrowserWindow, render: PetContentRend
   const geometry = render.motion?.metadata.geometry;
   if (geometry) petWindowSpriteGeometry.set(window, { width: geometry.width / geometry.pixelsPerUnit, height: geometry.height / geometry.pixelsPerUnit });
   else petWindowSpriteGeometry.delete(window);
+  if (render.motionLayout) petWindowMotionLayout.set(window, render.motionLayout);
+  else petWindowMotionLayout.delete(window);
+}
+
+function currentMotionLayout(window: BrowserWindow): MotionLayout | undefined {
+  const committed = petWindowMotionLayout.get(window);
+  if (!committed) return undefined;
+  const requestedScale = getPetWindowScaleOverride(window) ?? committed.input.requestedScale;
+  return calculateMotionLayout({ ...committed.input, requestedScale });
 }
 
 /** All live pet windows participating in the shared always-on-top contract. */
@@ -792,6 +804,8 @@ function applyPetWindowScaleOverride(window: BrowserWindow): void {
     setPetActivityScale(window, scale);
     setPetGazeScale(window, scale);
     window.webContents.send("openpets:pet-scale-override", scale);
+    const shapeState = petWindowShapeState.get(window);
+    if (shapeState) applyLinuxPetWindowShape(window, shapeState.scale, shapeState.hasBubble, shapeState.hasPinned, shapeState.hasMediaBubble);
   });
 }
 
@@ -864,6 +878,7 @@ export function readWindowPosition(window: BrowserWindow): Point {
 }
 
 function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, hasBubble: boolean, hasPinned = false, hasMediaBubble = false): void {
+  petWindowShapeState.set(window, { scale, hasBubble, hasPinned, hasMediaBubble });
   if (process.platform !== "linux" || window.isDestroyed()) return;
 
   const isExpanded = isDefaultPetCarrierExpanded();
@@ -875,6 +890,8 @@ function applyLinuxPetWindowShape(window: BrowserWindow, scale: PetScaleValue, h
     spriteWidth: petWindowSpriteGeometry.get(window)?.width ?? defaultPetSprite.frameWidth,
     spriteHeight: petWindowSpriteGeometry.get(window)?.height ?? defaultPetSprite.frameHeight,
     scale,
+    motionLayout: currentMotionLayout(window),
+    motionDocumentScale: petWindowMotionLayout.get(window)?.input.requestedScale,
     hasBubble,
     hasPinned,
     hudScale,
@@ -926,6 +943,9 @@ export function applyLinuxPetWindowShapeWithExpansion(
     spriteWidth: petWindowSpriteGeometry.get(window)?.width ?? defaultPetSprite.frameWidth,
     spriteHeight: petWindowSpriteGeometry.get(window)?.height ?? defaultPetSprite.frameHeight,
     scale,
+    motionLayout: currentMotionLayout(window),
+    motionDocumentScale: petWindowMotionLayout.get(window)?.input.requestedScale,
+    hasPinned: petWindowShapeState.get(window)?.hasPinned ?? false,
     hasBubble: false,
     hudScale,
     isExpanded,

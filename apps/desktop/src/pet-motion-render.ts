@@ -4,6 +4,7 @@ import type { UniversalSpriteState } from "@open-pets/pet-format/animation";
 import type { PetContentRender } from "./pet-window-types.js";
 import { createPetWindowCss } from "./pet-window-styles.js";
 import { createPetWindowDocument } from "./pet-window-document.js";
+import { calculateMotionLayout, motionLayoutCssVariables, type MotionLayoutInput } from "./pet-motion-layout.js";
 
 export function createInstalledMotionRender(options: {
   readonly motion: MotionBodyDescriptor;
@@ -21,19 +22,22 @@ export function createInstalledMotionRender(options: {
   readonly language: string;
   readonly role: "default" | "agent";
   readonly dragRegion: "drag" | "no-drag";
+  readonly layoutInput: MotionLayoutInput;
 }): PetContentRender {
-  const { geometry } = options.motion.metadata;
-  const width = geometry.width / geometry.pixelsPerUnit;
-  const height = geometry.height / geometry.pixelsPerUnit;
   const { scale } = options;
+  const motionLayout = calculateMotionLayout(options.layoutInput);
+  const variables = Object.entries(motionLayoutCssVariables(motionLayout)).map(([name, value]) => `${name}: ${value};`).join(" ");
+
   const styles = `
     ${createPetWindowCss(options.paused, scale, options.hudScale, options.dragRegion)}
-    .pet-shell { width: ${width * scale}px; height: ${height * scale}px; left: ${(width / 2 - geometry.footAnchor.x / geometry.pixelsPerUnit) * scale}px; top: ${(height - geometry.footAnchor.y / geometry.pixelsPerUnit) * scale}px; }
-    .pet-hitbox { width: ${width * scale + 16}px; height: ${height * scale + 16}px; }
-    .sprite[data-motion-body] { position: relative; width: ${width}px; height: ${height}px; transform: scale(${scale}); transform-origin: top left; }
+    .stage { ${variables} }
+    .pet-shell { width: var(--motion-shell-width); height: var(--motion-shell-height); left: var(--motion-shell-left); top: var(--motion-shell-top); transform-origin: var(--motion-foot-origin-x) var(--motion-foot-origin-y); }
+    .pet-hitbox { width: var(--motion-hitbox-width); height: var(--motion-hitbox-height); }
+    .sprite[data-motion-body] { position: relative; width: var(--motion-logical-width); height: var(--motion-logical-height); transform: scale(var(--motion-fit-scale)); transform-origin: top left; }
   `;
   return {
     motion: options.motion,
+    motionLayout,
     renderedPetId: options.motion.metadata.id,
     renderedOutfitId: options.outfitId,
     activities: [],

@@ -3,13 +3,12 @@ import { join } from "node:path";
 import { maxCodexSpritesheetBytes } from "../metadata.js";
 import { maxPetActivityDurationMs, minPetActivityDurationMs } from "../activities.js";
 import { motionMaxDecodedPixels } from "../package.js";
-import { calculateMotionActivityDurationMs, enumerateMotionActivityAnimations, type VerifiedMotionClip } from "../motion.js";
+import { calculateMotionActivityDurationMs, enumerateMotionActivityAnimations, motionMaxClipBytes, type VerifiedMotionClip } from "../motion.js";
 import type { PetPackage, ValidatedPetPackage } from "../package-types.js";
 import { validatePetAtlases, type ImageDecoder } from "./atlas-validation.js";
 import { readBoundedRegularFile } from "./files.js";
 
 // Safety ceilings, not a distribution or runtime performance budget.
-export const motionMaxClipBytes = 1024 * 1024 * 1024;
 export const motionMaxTotalBytes = motionMaxClipBytes;
 
 export async function validatePetPackageAssets(

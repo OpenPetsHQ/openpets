@@ -26,7 +26,7 @@ import {
 } from "./settings/providers/index.js";
 import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
-import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
+import { buildReactionPreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 import {
   createCatalogSearchController,
@@ -1177,15 +1177,27 @@ function formatUpdateStatus(status: UpdateStatus | null, t: (key: string, vars?:
 
 function ReactionPreviewSprite({ settings, state }: { settings: ReactionAnimationSettings; state: UserSelectableAnimationState }) {
   const { t } = useI18n();
+  const preview = buildReactionPreviewModel(settings, state);
+  if (preview.format === "image") {
+    return (
+      <PetPreviewCard
+        src={preview.src}
+        label={t("settings.reactions.previewAria", { state })}
+        previewFormat="image"
+        previewWidth={preview.width}
+        previewHeight={preview.height}
+        size="mini"
+      />
+    );
+  }
   return (
-    <PetPreviewCard
-      src={settings.previewSpriteUrl}
-      label={t("settings.reactions.previewAria", { state })}
-      previewFormat={settings.previewFormat}
-      previewWidth={settings.previewWidth}
-      previewHeight={settings.previewHeight}
-      size="mini"
-    />
+    <div className="reaction-preview-sprite-shell">
+      <svg className="reaction-preview-sprite" width={preview.frame.width} height={preview.frame.height} viewBox={`0 0 ${preview.frame.width} ${preview.frame.height}`} role="img" aria-label={t("settings.reactions.previewAria", { state })}>
+        <image href={preview.src} x={preview.x} y={preview.y} width={preview.atlasWidth} height={preview.atlasHeight} preserveAspectRatio="none">
+          {preview.animated && <animate attributeName="x" values={preview.xValues} dur={`${preview.durationMs}ms`} repeatCount="indefinite" calcMode="discrete" />}
+        </image>
+      </svg>
+    </div>
   );
 }
 

@@ -18,6 +18,7 @@ import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
 import { readInstalledPetPackage } from "./installed-pet-layout.js";
 import { prepareInstalledMotionSnapshot } from "./pet-motion-snapshot.js";
 import { createInstalledMotionRender } from "./pet-motion-render.js";
+import { motionPetHitPadding } from "./pet-motion-layout.js";
 import { createPetWindowDocument } from "./pet-window-document.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
@@ -27,7 +28,8 @@ import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
 import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, resolveEffectiveSpriteState, resolveReactionSpriteState, type UniversalSpriteState } from "@open-pets/pet-format/animation";
 import { createPetWindowCss, createCodexV2GazeCss, createInstalledSpriteStateCss, createSpriteStateCss, escapeCssUrl } from "./pet-window-styles.js";
-import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
+import { getPetWindowPinnedLift, getPetWindowSpriteBottomInset, petBottom, petWindowHitPadding } from "./pet-window-shape.js";
+import { defaultPetWindowSize } from "./display.js";
 import type { PetContentRender, PetPluginBubbles, PetStatusBadgeReaction, PetTransientDisplay } from "./pet-window-types.js";
 
 export { escapeCssUrl } from "./pet-window-styles.js";
@@ -208,10 +210,19 @@ export async function createInstalledPetRender(
     const preferences = getAppStateSnapshot().preferences;
     const hudScale = preferences.hudScale as HudScaleValue;
     const voiceActive = petRole === "default" && display?.suppressReactionMessage === true;
-    const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" data-motion-body role="img" aria-label="${escapeHtml(displayName)}"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, voiceActive, voiceActive && display?.canSubmitRecording === true);
     const flipped = isPetFlippedHorizontally(petId);
+    const layoutInput = {
+      geometry,
+      requestedScale: scale,
+      windowWidth: defaultPetWindowSize.width,
+      windowHeight: defaultPetWindowSize.height,
+      hitboxBottomInset: Math.max(0, petBottom - petWindowHitPadding) + getPetWindowPinnedLift(hasPinned, hudScale),
+      hitPadding: motionPetHitPadding,
+      flipped,
+    };
+    const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" data-motion-body data-motion-layout="${escapeHtml(JSON.stringify(layoutInput))}" role="img" aria-label="${escapeHtml(displayName)}"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, voiceActive, voiceActive && display?.canSubmitRecording === true);
     return createInstalledMotionRender({
-      motion, outfitId, displayName, assetName: assetDisplayName, bodyHtml,
+      motion, outfitId, displayName, assetName: assetDisplayName, bodyHtml, layoutInput,
       reactionState: getEffectiveReactionSpriteState(display?.reaction, badge),
       paused, scale, hudScale, gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale), flipped,
       cacheKey: `${cachePrefix}:motion:${paused}:${scale}:${hudScale}:${preferences.bubbleScale}:${preferences.bubbleTheme}:${petButtonsCacheToken()}:${getActiveLocale()}:${flipped}:${geometry.width}:${geometry.height}:${geometry.pixelsPerUnit}:${geometry.footAnchor.x}:${geometry.footAnchor.y}`,

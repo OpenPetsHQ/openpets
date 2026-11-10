@@ -7,7 +7,8 @@ import { validatePetPackageMetadata } from "../dist/package.js";
 import { calculateMotionActivityDurationMs, getMotionAnimationFirstClip, getMotionOutfitBindings, resolveMotionActivityAnimation } from "../dist/motion.js";
 import { validatePetActivities } from "../dist/activities.js";
 import { resolveWornOutfitId, validatePetWardrobe } from "../dist/wardrobe.js";
-import { motionMaxClipBytes, validatePetPackageAssets } from "../dist/node/package-validation.js";
+import { motionMaxClipBytes } from "../dist/motion.js";
+import { validatePetPackageAssets } from "../dist/node/package-validation.js";
 import { validateZipEntryName } from "../dist/node/paths.js";
 
 function fixture() {

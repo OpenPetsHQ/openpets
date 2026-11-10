@@ -6,7 +6,8 @@ import { isValidZedNodeCommand } from "@open-pets/zed";
 import { validatePetSpritesheetPath } from "install-pet/spritesheet";
 import { maxCodexPetJsonBytes } from "@open-pets/pet-format/metadata";
 import { validatePetPackageMetadata } from "@open-pets/pet-format/package";
-import { motionMaxClipBytes, motionMaxTotalBytes } from "@open-pets/pet-format/node/package-validation";
+import { motionMaxClipBytes } from "@open-pets/pet-format/motion";
+import { motionMaxTotalBytes } from "@open-pets/pet-format/node/package-validation";
 
 import { bubbleDurationScaleOptions, bubbleScaleOptions, defaultBubbleDurationScale, defaultBubbleScale, defaultBubbleTheme, normalizeBubbleDurationScale, normalizeBubbleScale, normalizeBubbleTheme, type BubbleDurationScaleValue, type BubbleScaleValue, type BubbleTheme, defaultAppearanceTheme, defaultHudScale, defaultIdleCursorGazeEnabled, defaultPetButtonsPosition, defaultPetButtonsSize, defaultPetScale, defaultWaitingAnimationDurationMs, getHudScaleForPetScale, markOnboardingCompleted, normalizeAppearanceTheme, normalizeHudScale, normalizeIdleCursorGazeEnabled, normalizeOnboardingCompleted, normalizePetButtonsPosition, normalizePetButtonsSize, normalizePetConfinementEnabled, normalizePetCrossDisplayEnabled, normalizePetGravityEnabled, normalizePetHorizontalFlip, normalizePetPhysicsFraction, defaultPetBounciness, defaultPetFloorFriction, normalizePetScale, normalizeWaitingAnimationDurationMs, hudScaleOptions, petScaleOptions, togglePetHorizontalFlipMap, waitingAnimationDurationOptions, type AppearanceTheme, type HudScaleValue, type PetButtonsPosition, type PetButtonsSize, type PetScaleValue, type WaitingAnimationDurationMs } from "./app-state-core.js";
 import { builtInPet } from "./built-in-pet.js";
