@@ -78,8 +78,13 @@ pnpm capture stop
 Motion packages contain `pet.json` and their declared `clips/` assets. Shared
 metadata and Node asset validation check references, geometry, transparency,
 frame timing, full decoding and resource ceilings before installation. The
-50 MiB ZIP limit is unchanged; a larger reference can be evaluated through folder
-import without raising that limit. Keep generated artwork outside the repository.
+shared desktop ZIP download/local-import, extracted-total and individual-file
+limits are 1 GiB. Motion clip and aggregate byte limits are also 1 GiB, allowing
+larger authored outfits without lowering quality. The 64-clip and 40-million
+decoded-pixel-per-clip guards remain; these byte limits are not runtime budgets.
+The 97.61 MiB genuine two-outfit reference fits without re-encoding for size. The
+standalone Classic catalog installer has its own policy and is not changed by
+this desktop limit. Keep generated artwork outside the repository.
 The former `motion.json`/`OPENPETS_MOTION_PREVIEW_DIR` experiment is removed; see
 [Motion pets](/motion-pets) for the explicit migration and acceptance boundary.
 

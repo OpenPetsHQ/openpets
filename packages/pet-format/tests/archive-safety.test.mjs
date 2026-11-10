@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { WriteStream } from "node:fs";
-import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -60,16 +60,27 @@ test("archive extraction enforces entry paths, modes and metadata limits", async
   }
 });
 
-test("default limits retain the desktop archive bounds and extract wrapper layouts", async () => {
-  assert.equal(defaultPetZipLimits.maxZipDownloadBytes, 50 * 1024 * 1024);
-  assert.equal(defaultPetZipLimits.maxExtractedTotalBytes, 200 * 1024 * 1024);
-  assert.equal(defaultPetZipLimits.maxIndividualFileBytes, 100 * 1024 * 1024);
-  assert.equal(defaultPetZipLimits.maxFiles, 500);
-  assert.equal(defaultPetZipLimits.maxCodexPetJsonBytes, 128 * 1024);
+test("default extraction accepts wrapper layouts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "openpets-archive-"));
   try {
     assert.deepEqual(await extractPetZip(storedZip("wrapper/pet.json", "{}"), dir), ["pet.json"]);
     assert.equal(await readFile(join(dir, "pet.json"), "utf8"), "{}");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("local ZIP reads accept larger packages and reject files above the shared bound", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "openpets-zip-limit-"));
+  try {
+    const file = join(dir, "pet.zip");
+    await writeFile(file, "x");
+    const largerPackageBytes = 52 * 1024 * 1024;
+    await truncate(file, largerPackageBytes);
+    const bytes = await readBoundedRegularFile(file, defaultPetZipLimits.maxZipDownloadBytes, "pet zip");
+    assert.equal(bytes.length, largerPackageBytes);
+    await truncate(file, defaultPetZipLimits.maxZipDownloadBytes + 1);
+    await assert.rejects(readBoundedRegularFile(file, defaultPetZipLimits.maxZipDownloadBytes, "pet zip"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

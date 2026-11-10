@@ -9,8 +9,8 @@ import { validatePetAtlases, type ImageDecoder } from "./atlas-validation.js";
 import { readBoundedRegularFile } from "./files.js";
 
 // Safety ceilings, not a distribution or runtime performance budget.
-export const motionMaxClipBytes = 32 * 1024 * 1024;
-export const motionMaxTotalBytes = 160 * 1024 * 1024;
+export const motionMaxClipBytes = 1024 * 1024 * 1024;
+export const motionMaxTotalBytes = motionMaxClipBytes;
 
 export async function validatePetPackageAssets(
   directory: string,

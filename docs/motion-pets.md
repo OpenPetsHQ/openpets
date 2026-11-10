@@ -7,10 +7,12 @@ description: Motion pet format implementation direction, ownership boundaries, a
 ## Implementation status
 
 This document records the agreed direction and current implementation boundary.
-The default-appearance desktop slice has passed focused and integrated checks
-and live macOS import, playback, interaction, replacement, restart and removal
-verification. This is not release approval or a claim of established performance
-budgets, visual gait acceptance, or Windows/Linux verification. The former WebP
+The desktop slice has passed focused and integrated checks, including genuine
+Blue Hoodie / Amber Raincoat ZIP import, playback, switching, finite activity
+completion and cancellation, reduced motion and restart persistence on macOS.
+Earlier checks also covered replacement and removal. This is not release approval
+or a claim of established performance budgets, hitch-free visual gait acceptance,
+or Windows/Linux verification. The former WebP
 preview is replaced by normal package import, described in [Pets](/pets).
 
 ## Current contract owners
@@ -24,20 +26,24 @@ the current body unchanged without suppressing speech.
 `node/package-validation.ts` checks exact declared clip inventory, safe regular
 files, animated WebP geometry, alpha, native frame durations and full decoding.
 Verified timing comes from the image rather than duplicated author metadata.
-Hard ceilings are 32 MiB per clip, 160 MiB of clip assets per package and
-40 million decoded pixels per clip. These are safety ceilings, not measured
-shipping or runtime performance budgets. Existing ZIP limits remain unchanged.
+Byte ceilings are 1 GiB per clip and 1 GiB of clip assets per package. Shared ZIP,
+extracted-total and individual-file ceilings are also 1 GiB. The 64-clip and
+40-million decoded-pixel-per-clip guards remain: byte capacity is not a promise
+that a 1 GiB pet will run smoothly, nor permission to allocate unbounded decoded
+frames. These are safety ceilings, not measured performance budgets; authors
+need not reduce artwork quality to meet the former small byte limits.
 
 `node/archive.ts` inspects a bounded root or single-wrapper manifest to choose
 the format, then applies format-specific extraction paths. Existing Classic
-callers keep their default behavior.
+callers keep their format-specific extraction behavior.
 
 The accepted wardrobe slice adds optional complete per-outfit bindings. Shared
 validation, integrated desktop checks and live macOS synthetic-fixture checks
 cover switching, failure retention, explicit retry, independent windows sharing
 assets, scheduled-to-manual promotion, cleanup and preference persistence.
-This establishes contract behavior, not a second genuine outfit or artwork
-quality. Finite idle activities have passed integrated checks and live macOS
+That earlier synthetic evidence establishes contract behavior, not artwork
+quality. The genuine two-outfit reference is described under delivery below.
+Finite idle activities have passed integrated checks and live macOS
 synthetic-contract verification, including interruption, exact-outfit availability,
 automatic opportunities, first-frame history and restart/cleanup. This does not
 establish genuine activity artwork quality or production readiness. Gaze remains
@@ -87,6 +93,9 @@ preserving any snapshot still owned by another live renderer.
 The November 2026 macOS observations used an Apple M4 Mac mini (10 cores,
 16 GiB RAM), macOS 26.6.2 and Electron 42.0.0 with eleven enabled plugins.
 The measured runtime was commit `731066f`; Control Center remained open.
+It used the earlier single-outfit 534×615 reference, not the final two-outfit
+600×641 package described below; these measurements do not establish the new
+package's resource profile.
 Each resource scenario had a three-second warmup and eight samples two seconds
 apart. No repeated full-canvas pixel probes or paused debugger measurements ran
 during these resource windows. These are short observations, not sustained
@@ -126,8 +135,8 @@ budgets. Memory high-water behavior, sustained CPU/battery cost, native visible
 and input latency, and non-macOS measurements remain open before production
 readiness can be claimed. Any regression threshold should be agreed against this
 same workload rather than treating the package safety ceilings as performance
-budgets. Original and optimized assets retain one genuine authored outfit;
-additional outfits, idle/event variants and activities still require real art.
+budgets. The later two-outfit artwork is genuine, but it has not been through
+this resource-measurement workload.
 
 ## Product and format decisions
 
@@ -179,12 +188,50 @@ Semantic intent must remain independent of bubble lifetime and Classic atlas
 timing. Asset access must also remain coherent across replacement: a renderer
 must not combine clips from different package revisions.
 
-The local Hoodie Cat reference currently has one genuine outfit. Its current
+The original local Hoodie Cat prototype has one genuine outfit. Its
 `pack/motion.json` selects a 21-frame right-facing run; older processing reports
-describe an earlier eight-frame version. The directory occupies about 96 MiB.
-Neither that size nor a seam metric establishes shipping suitability or visual
-acceptance. A second outfit or additional variants require real authored assets;
-duplicate files must not be presented as new content.
+describe an earlier eight-frame version. That prototype directory occupies about
+96 MiB; it is not the current package manifest or a shipping-size budget.
+
+The two-outfit reference artwork now includes the original Blue Hoodie and a
+genuine Amber Raincoat, with two additional quiet idle choices, three event
+alternates and three finite activities per appearance. All 25 planned new videos
+were generated without retries for $2.760. Native frames and timing are retained;
+the selected raincoat directional gaits each use 19 frames at native pace.
+The final assembly uses a shared 600×641 canvas and foot anchor `[320,617]`.
+Original clips receive transparent padding, not resizing; their authored 1.5×
+pace remains, while new clips use 1×. Container-level remuxing retains the
+original compressed artwork without lossless re-encoding inflation; every base
+frame's translated alpha and visible RGB are checked after composited decoding.
+Each six-second activity is partitioned
+into contiguous finite phases to respect the per-clip decoded-pixel ceiling,
+without dropping or duplicating frames.
+
+The 50-clip package passed exact inventory and full asset decoding validation.
+Its ZIP is 102,347,197 bytes (97.61 MiB), above the former 50 MiB target; the shared
+desktop ZIP and extracted-total limits are now 1 GiB, including individual files,
+Motion clips and aggregate clip bytes. Decoded-pixel and clip-count guards remain.
+Independent extraction of the actual ZIP under the earlier 128 MiB shared limit,
+exact package validation and full decoding passed for all 50 clips; all six
+activity representations retain 144 frames and 6,000 ms.
+
+The same ZIP was imported once into the isolated macOS capture profile. Both
+genuine outfits rendered advancing frames; all six activity representations
+completed and cancelled with context restoration. CDP pointer input established
+drag/reversal/release behavior, including actual window movement, but is not
+native OS input or latency certification. Amber media-emulated reduced motion
+cancelled activity, kept a still frame, blocked optional activity admission and
+resumed animation afterward. A controlled restart retained the Amber choice and
+preferences, with no active activity and advancing frames after readiness.
+
+Two one-off verification races were retained as evidence: initial Control Center
+loading and post-restart pet-target loading. An animated-edge pointer sample was
+replaced with a measured stable opaque interior point before confirming drag.
+These are not claims that a failed gesture proved a product defect. The new quiet
+idle clips passed offline decoding, but every quiet variant has not been observed
+through the natural runtime cadence. Static contact-sheet review does not establish
+hitch-free playback, pixel-identical return poses or production resource budgets.
+Duplicate files must not be presented as new content.
 
 Acceptance needs focused behavior tests plus real Electron import, selection,
 playback, interruption, replacement, restart and cleanup evidence. Measure

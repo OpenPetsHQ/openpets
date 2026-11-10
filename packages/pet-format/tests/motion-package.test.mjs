@@ -221,6 +221,8 @@ test("Motion validation decodes and copies native timing, rejecting corrupt or u
     await writeFile(join(source, "clips/extra.webp"), "extra");
     await assert.rejects(validatePetPackageAssets(source, pet, decoder()));
     await rm(join(source, "clips/extra.webp"));
+    await truncate(clip, 33 * 1024 * 1024);
+    await validatePetPackageAssets(source, pet, decoder());
     await truncate(clip, motionMaxClipBytes + 1);
     await assert.rejects(validatePetPackageAssets(source, pet, decoder()));
     await rm(clip); await symlink(join(source, "pet.json"), clip);

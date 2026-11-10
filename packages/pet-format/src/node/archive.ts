@@ -17,11 +17,13 @@ export interface PetZipLimits {
   readonly maxCodexPetJsonBytes: number;
 }
 
+const maxPetArchiveBytes = 1024 * 1024 * 1024;
+
 export const defaultPetZipLimits: Readonly<PetZipLimits> = Object.freeze({
-  maxZipDownloadBytes: 50 * 1024 * 1024,
-  maxExtractedTotalBytes: 200 * 1024 * 1024,
+  maxZipDownloadBytes: maxPetArchiveBytes,
+  maxExtractedTotalBytes: maxPetArchiveBytes,
   maxFiles: 500,
-  maxIndividualFileBytes: 100 * 1024 * 1024,
+  maxIndividualFileBytes: maxPetArchiveBytes,
   maxCodexPetJsonBytes,
 });
 
