@@ -204,15 +204,17 @@ Ships both a config manager and a runtime plugin.
   registers `session.hook('prompt')` plus `tool.hook('execute.before'/'execute.after')`.
   Prompt starts thinking; before-tool classifies edit/write and test commands;
   failed foreign tools and `session.execution.failed` emit error; OpenPets' own
-  MCP tool failures are ignored; permission requests wait; and `session.idle`
-  emits success. Prompt and tool dispatches are serialized so they share one
+  MCP tool failures are ignored; permission requests wait; and
+  `session.execution.succeeded` emits success (`session.idle` is also accepted).
+  Prompt and tool dispatches are serialized so they share one
   lease acquisition. Unload aborts the event stream, disposes hook registrations,
   waits for an in-flight acquisition, and releases that lease. Work that was
   only queued does not acquire after unload. The lease is renewed with a 2s
-  buffer, and the same throttle windows as Claude apply. The optional
-  `excludeReactions` option is an array of reactions to suppress before IPC or
-  throttling. OpenCode 2.0 reads it from a native `plugins` entry, including
-  without a `pet` target:
+  buffer. The 20s speech and 3s permission cooldowns stay active; success and
+  error reactions bypass the 10s reaction cooldown, which still applies to
+  other reactions. The optional `excludeReactions` option is an array of
+  reactions to suppress before IPC or throttling. OpenCode 2.0 reads it from a
+  native `plugins` entry, including without a `pet` target:
 
   ```json
   {
@@ -225,6 +227,9 @@ Ships both a config manager and a runtime plugin.
   `openpets configure` still writes the tuple; the options object the plugin
   reads is the same either way. Invalid `pet` values fail setup instead of being
   dropped; unrecognized exclusion names are ignored.
+  Tool-hook failures and terminal execution failures are separate error
+  signals. If a failed tool also ends the execution, both can emit error
+  feedback; recoverable tool failures do not necessarily end the execution.
 - **Windows detection**: the desktop app checks user and global Scoop shim
   directories before falling back to `opencode` / `opencode.cmd` on `PATH`, so
   a Scoop installation is detectable even when Electron inherited an older

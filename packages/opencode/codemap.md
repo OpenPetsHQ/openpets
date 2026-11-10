@@ -19,7 +19,7 @@ Provides comprehensive OpenCode editor integration including: MCP server configu
 - Event classification: Maps V2 event envelopes (`type` + `data`) to reactions/speech
 - Tool classification: Edit → "editing", Bash test commands → "testing"
 - Lease management: serialized dispatch, one in-flight acquisition, 2s renewal buffer, previous lease released when the id changes
-- Throttling: 20s speech cooldown, 3s permission cooldown, 10s reaction cooldown
+- Throttling: 20s speech and 3s permission cooldowns; success/error reactions bypass the 10s reaction cooldown, which still applies to other reactions
 - Async scheduling via `queueMicrotask`; cleanup waits for in-flight acquisition and releases it; queued work after unload does not acquire again
 - Tool failures from OpenPets' own MCP tools are ignored so a pet reaction cannot loop on itself
 
