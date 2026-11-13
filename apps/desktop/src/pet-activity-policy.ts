@@ -1,11 +1,11 @@
-import type { PetActivity } from "@open-pets/pet-format/activities";
+import type { PetActivityIdentity } from "@open-pets/pet-format/activities";
 
 export const activityIdleDelayMs = 60_000;
 export const activityCooldownMs = 300_000;
 
 /** A full package replacement may remove ids that still exist in saved preferences. */
 export function updateEnabledPetActivityIds(
-  activities: readonly PetActivity[],
+  activities: readonly PetActivityIdentity[],
   savedIds: readonly string[],
   activityId: string,
   enabled: boolean,
@@ -22,14 +22,14 @@ export function nextActivityOpportunityMs(random: () => number): number {
   return activityIdleDelayMs + 60_000 + Math.floor(Math.max(0, Math.min(1, random())) * 120_000);
 }
 
-export function selectIdlePetActivity(
-  activities: readonly PetActivity[],
+export function selectIdlePetActivity<T extends PetActivityIdentity>(
+  activities: readonly T[],
   enabledIds: readonly string[],
   lastPlayedAt: ReadonlyMap<string, number>,
   lastActivityId: string | null,
   now: number,
   random: () => number,
-): PetActivity | null {
+): T | null {
   const enabled = activities.filter((activity) => enabledIds.includes(activity.id));
   const candidates = enabled.filter((activity) => {
     const previous = lastPlayedAt.get(activity.id);

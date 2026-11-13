@@ -1,9 +1,10 @@
 import { getAppStateSnapshot, getPetWardrobePreference, setPetWardrobePreference } from "./app-state.js";
 import { builtInPet, builtInPetWardrobe } from "./built-in-pet.js";
-import { readInstalledPetMetadata } from "./installed-pet-layout.js";
+import { readInstalledPetPackage } from "./installed-pet-layout.js";
 import { info } from "./logger.js";
 import { assertSafePetId } from "./pet-paths.js";
-import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
+import { getRenderedOutfits } from "./pet-wardrobe-render-state.js";
+import type { PetWardrobeSnapshot } from "./pet-wardrobe-types.js";
 import {
   automaticOutfitChoice,
   defaultOutfitId,
@@ -13,8 +14,7 @@ import {
   maxOutfitScheduleRules,
   parseOutfitScheduleRule,
   resolveWornOutfitId,
-  type OutfitScheduleRule,
-  type PetWardrobe,
+  type WardrobeDefinition,
   type PetWardrobePreference,
 } from "@open-pets/pet-format/wardrobe";
 
@@ -29,15 +29,30 @@ import {
  */
 
 interface WornOutfit {
-  readonly wardrobe: PetWardrobe;
+  readonly wardrobe: WardrobeDefinition;
   readonly outfitId: string;
 }
 
 const wornOutfits = new Map<string, WornOutfit>();
 let scheduleTimer: ReturnType<typeof setTimeout> | null = null;
+let wardrobeChangeHandler: ((petId: string, reason: "manual" | "scheduled", retry: boolean) => void) | null = null;
+const wardrobeListeners = new Set<(petId: string) => void>();
+
+export function setPetWardrobeChangeHandler(handler: typeof wardrobeChangeHandler): void {
+  wardrobeChangeHandler = handler;
+}
+
+export function subscribePetWardrobeChanges(listener: (petId: string) => void): () => void {
+  wardrobeListeners.add(listener);
+  return () => { wardrobeListeners.delete(listener); };
+}
+
+function notifyWardrobeChanged(petId: string): void {
+  for (const listener of wardrobeListeners) listener(petId);
+}
 
 /** Resolve the outfit a pet window renders now and keep it under schedule watch. */
-export function resolveRenderedPetOutfit(petId: string, wardrobe: PetWardrobe | undefined): string {
+export function resolveRenderedPetOutfit(petId: string, wardrobe: WardrobeDefinition | undefined): string {
   if (!wardrobe) {
     wornOutfits.delete(petId);
     return defaultOutfitId;
@@ -65,44 +80,38 @@ function checkScheduledOutfits(): void {
     info("pet.wardrobe", "scheduled outfit change", { petId, from: worn.outfitId, to: next });
     // The re-render records the pet again; a pet no longer on screen simply drops out.
     wornOutfits.delete(petId);
-    refreshPetWindowsForPetId(petId, "outfit-schedule");
+    wardrobeChangeHandler?.(petId, "scheduled", false);
+    notifyWardrobeChanged(petId);
   }
   if (wornOutfits.size > 0) armScheduleTimer();
 }
 
-export interface PetWardrobeSnapshot {
-  readonly petId: string;
-  readonly outfits: ReadonlyArray<{ readonly id: string; readonly displayName: string }>;
-  /** The creator schedule shipped in pet.json. */
-  readonly creatorSchedule: readonly OutfitScheduleRule[];
-  /** The schedule in effect: the user's copy when customized, else the creator's. */
-  readonly schedule: readonly OutfitScheduleRule[];
-  readonly scheduleCustomized: boolean;
-  /** "auto" follows the schedule; otherwise the outfit the user always wears. */
-  readonly choice: string;
-  readonly wearing: string;
-  /** What the schedule alone picks right now, regardless of an "always wear" choice. */
-  readonly scheduled: string;
-  /** Index into `schedule` of the rule that matches now, or -1 when the default applies. */
-  readonly activeRuleIndex: number;
-}
+export type { PetWardrobeSnapshot } from "./pet-wardrobe-types.js";
 
 /** Wardrobe view for one installed pet, or null when it has no outfits. */
 export async function getPetWardrobeSnapshot(petId: string): Promise<PetWardrobeSnapshot | null> {
-  const wardrobe = await readInstalledPetWardrobe(petId);
-  if (!wardrobe) return null;
+  const appearance = await readInstalledPetWardrobe(petId);
+  if (!appearance) return null;
+  const { wardrobe } = appearance;
   const preference = getPetWardrobePreference(petId);
   const schedule = getEffectiveOutfitSchedule(wardrobe, preference);
   const now = new Date();
   const activeRuleIndex = findActiveOutfitRuleIndex(wardrobe, schedule, now);
+  const rendered = getRenderedOutfits(petId);
+  const committed = new Set(rendered.flatMap((entry) => entry.outfitId === null ? [] : [entry.outfitId]));
   return {
     petId,
+    format: appearance.format,
+    previewFormat: appearance.format === "motion" ? "image" : "atlas",
+    ...(appearance.format === "motion" ? { previewWidth: appearance.width, previewHeight: appearance.height } : {}),
     outfits: wardrobe.outfits.map((outfit) => ({ id: outfit.id, displayName: outfit.displayName })),
     creatorSchedule: wardrobe.schedule,
     schedule,
     scheduleCustomized: preference?.schedule !== undefined,
     choice: isWardrobeOutfit(wardrobe, preference?.outfit) ? preference.outfit : automaticOutfitChoice,
-    wearing: resolveWornOutfitId(wardrobe, preference, now),
+    requested: resolveWornOutfitId(wardrobe, preference, now),
+    wearing: committed.size === 1 && rendered.every((entry) => entry.outfitId !== null) ? [...committed][0]! : null,
+    rendered,
     scheduled: schedule[activeRuleIndex]?.outfit ?? defaultOutfitId,
     activeRuleIndex,
   };
@@ -115,8 +124,9 @@ export async function getPetWardrobeSnapshot(petId: string): Promise<PetWardrobe
  */
 export async function updatePetWardrobe(petId: string, patch: unknown): Promise<PetWardrobeSnapshot | null> {
   if (typeof patch !== "object" || patch === null) throw new Error("Invalid wardrobe update.");
-  const wardrobe = await readInstalledPetWardrobe(petId);
-  if (!wardrobe) throw new Error("This pet has no wardrobe.");
+  const appearance = await readInstalledPetWardrobe(petId);
+  if (!appearance) throw new Error("This pet has no wardrobe.");
+  const { wardrobe } = appearance;
   const { outfit, schedule } = patch as { readonly outfit?: unknown; readonly schedule?: unknown };
   const known = (id: unknown): id is string => isWardrobeOutfit(wardrobe, id);
   const current = getPetWardrobePreference(petId);
@@ -148,14 +158,37 @@ export async function updatePetWardrobe(petId: string, patch: unknown): Promise<
   setPetWardrobePreference(petId, preference);
   info("pet.wardrobe", "wardrobe preference updated", { petId, outfit: nextOutfit ?? "auto", scheduleCustomized: nextSchedule !== undefined });
   wornOutfits.delete(petId);
-  refreshPetWindowsForPetId(petId, "outfit-preference");
+  wardrobeChangeHandler?.(petId, "manual", false);
+  notifyWardrobeChanged(petId);
   return getPetWardrobeSnapshot(petId);
 }
 
-async function readInstalledPetWardrobe(petId: string): Promise<PetWardrobe | undefined> {
+export async function retryPetOutfit(petId: string, outfitId: string): Promise<PetWardrobeSnapshot> {
+  const appearance = await readInstalledPetWardrobe(petId);
+  if (!appearance || !isWardrobeOutfit(appearance.wardrobe, outfitId)) throw new Error("Unknown outfit.");
+  const requested = resolveWornOutfitId(appearance.wardrobe, getPetWardrobePreference(petId), new Date());
+  if (requested !== outfitId) throw new Error("Only the currently requested outfit can be retried.");
+  wardrobeChangeHandler?.(petId, "manual", true);
+  notifyWardrobeChanged(petId);
+  const snapshot = await getPetWardrobeSnapshot(petId);
+  if (!snapshot) throw new Error("This pet has no wardrobe.");
+  return snapshot;
+}
+
+type InstalledWardrobe =
+  | { readonly format: "classic"; readonly wardrobe: WardrobeDefinition }
+  | { readonly format: "motion"; readonly wardrobe: WardrobeDefinition; readonly width: number; readonly height: number };
+
+async function readInstalledPetWardrobe(petId: string): Promise<InstalledWardrobe | undefined> {
   const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId);
   if (!pet) return undefined;
-  if (pet.id === builtInPet.id) return builtInPetWardrobe;
+  if (pet.id === builtInPet.id) return { format: "classic", wardrobe: builtInPetWardrobe };
   assertSafePetId(petId);
-  return (await readInstalledPetMetadata(petId, pet.source?.kind === "team" ? "team" : "personal")).wardrobe;
+  const petPackage = await readInstalledPetPackage(petId, pet.source?.kind === "team" ? "team" : "personal");
+  const wardrobe = petPackage.metadata.wardrobe;
+  if (!wardrobe) return undefined;
+  if (petPackage.format === "motion") {
+    return { format: "motion", wardrobe, width: petPackage.metadata.geometry.width, height: petPackage.metadata.geometry.height };
+  }
+  return { format: "classic", wardrobe };
 }

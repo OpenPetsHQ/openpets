@@ -1,21 +1,32 @@
-import { getPetActivityDurationMs, resolvePetActivityAnimation, type PetActivity } from "@open-pets/pet-format/activities";
+import type { AvailablePetActivity } from "./pet-activity-contract.js";
 import { nextActivityOpportunityMs, selectIdlePetActivity } from "./pet-activity-policy.js";
 
 export interface PetActivityCarrier {
   readonly id: number;
   readonly petId: string;
-  readonly activities: readonly PetActivity[];
   readonly outfitId: string;
+  /** Changes whenever the committed artwork or install revision changes. */
+  readonly revision: string;
+  readonly failureRevision: string;
+  readonly activities: readonly AvailablePetActivity[];
   readonly availabilityReason: () => string | null;
-  readonly play: (activity: PetActivity, generation: number) => void;
-  readonly stop: (generation: number) => void;
+  readonly play: (activity: AvailablePetActivity, generation: number) => void;
+  readonly stop: (activity: AvailablePetActivity, generation: number) => void;
+  readonly variation?: () => void;
+}
+
+interface ActiveActivity {
+  readonly activity: AvailablePetActivity;
+  readonly generation: number;
+  readonly deadline: number;
+  readonly carrier: PetActivityCarrier;
+  started: boolean;
 }
 
 interface CarrierEntry {
   carrier: PetActivityCarrier;
   opportunityAt: number | null;
-  generation: number;
-  active: { readonly activity: PetActivity; readonly generation: number; readonly deadline: number } | null;
+  active: ActiveActivity | null;
 }
 
 interface PetHistory {
@@ -23,7 +34,7 @@ interface PetHistory {
   lastId: string | null;
 }
 
-/** One owner per window, one active playback/history lane per pet. No Electron. */
+/** One scheduler and at most one reservation per pet, independent of artwork format. */
 export class PetActivityService {
   private readonly carriers = new Map<number, CarrierEntry>();
   private readonly history = new Map<string, PetHistory>();
@@ -33,13 +44,24 @@ export class PetActivityService {
     readonly now: () => number;
     readonly random: () => number;
     readonly enabledIds: (petId: string) => readonly string[];
-    readonly onFailure: (petId: string, activityId: string, outfitId: string) => void;
+    readonly onFailure: (petId: string, activityId: string, outfitId: string, revision: string) => void;
   }) {}
 
   register(carrier: PetActivityCarrier): void {
     const previous = this.carriers.get(carrier.id);
-    if (previous) this.cancel(carrier.id);
-    this.carriers.set(carrier.id, { carrier, generation: ++this.generation, active: null, opportunityAt: null });
+    if (
+      previous
+      && previous.carrier.petId === carrier.petId
+      && previous.carrier.outfitId === carrier.outfitId
+      && previous.carrier.revision === carrier.revision
+    ) {
+      previous.carrier = carrier;
+      return;
+    }
+    if (previous) {
+      this.cancel(carrier.id);
+    }
+    this.carriers.set(carrier.id, { carrier, active: null, opportunityAt: null });
   }
 
   remove(id: number): void {
@@ -49,23 +71,30 @@ export class PetActivityService {
 
   forgetPet(petId: string): void {
     for (const [id, entry] of this.carriers) {
-      if (entry.carrier.petId === petId) this.remove(id);
+      if (entry.carrier.petId === petId) {
+        this.remove(id);
+      }
     }
     this.history.delete(petId);
   }
 
   cancel(id: number): void {
     const entry = this.carriers.get(id);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
     const active = entry.active;
     entry.active = null;
     entry.opportunityAt = null;
-    entry.generation = ++this.generation;
-    if (active) entry.carrier.stop(active.generation);
+    if (active) {
+      active.carrier.stop(active.activity, active.generation);
+    }
   }
 
   cancelAll(): void {
-    for (const id of this.carriers.keys()) this.cancel(id);
+    for (const id of this.carriers.keys()) {
+      this.cancel(id);
+    }
   }
 
   stop(): void {
@@ -76,85 +105,109 @@ export class PetActivityService {
 
   getPlayingActivityId(petId: string): string | null {
     for (const entry of this.carriers.values()) {
-      if (entry.carrier.petId === petId && entry.active) return entry.active.activity.id;
+      if (entry.carrier.petId === petId && entry.active) {
+        return entry.active.activity.id;
+      }
     }
     return null;
   }
 
-  isCurrent(id: number, generation: number): boolean {
-    return this.carriers.get(id)?.active?.generation === generation;
+  isCurrent(id: number, generation: number, activityId?: string): boolean {
+    const active = this.carriers.get(id)?.active;
+    return active?.generation === generation && (activityId === undefined || active.activity.id === activityId);
   }
 
-  getAvailabilityReason(petId: string): string | null {
-    const entries = [...this.carriers.values()].filter((entry) => entry.carrier.petId === petId);
-    if (entries.length === 0) return "Show this pet on the desktop to play an activity.";
-    if (this.getPlayingActivityId(petId)) return "An activity is already playing.";
-    const reasons = entries.map((entry) => this.carrierReason(entry));
-    if (reasons.some((reason) => reason === null)) return null;
-    return reasons[0] ?? null;
-  }
-
-  play(petId: string, activityId: string, outfitId?: string): void {
-    const reason = this.getAvailabilityReason(petId);
-    if (reason) throw new Error(reason);
-    const entry = [...this.carriers.values()].find((candidate) => {
-      return candidate.carrier.petId === petId
-        && (outfitId === undefined || candidate.carrier.outfitId === outfitId)
-        && this.carrierReason(candidate) === null
-        && candidate.carrier.activities.some((activity) => activity.id === activityId && resolvePetActivityAnimation(activity, candidate.carrier.outfitId));
+  getAvailabilityReason(petId: string, windowId?: number): string | null {
+    const entries = [...this.carriers.values()].filter((entry) => {
+      return entry.carrier.petId === petId && (windowId === undefined || entry.carrier.id === windowId);
     });
+    if (entries.length === 0) {
+      return "Show this pet on the desktop to play an activity.";
+    }
+    if (this.getPlayingActivityId(petId)) {
+      return "An activity is already playing.";
+    }
+    const reasons = entries.map((entry) => entry.carrier.availabilityReason());
+    return reasons.some((reason) => reason === null) ? null : reasons[0] ?? null;
+  }
+
+  play(petId: string, activityId: string, windowId: number): void {
+    const reason = this.getAvailabilityReason(petId, windowId);
+    if (reason) {
+      throw new Error(reason);
+    }
+    const entry = this.carriers.get(windowId);
     const activity = entry?.carrier.activities.find((candidate) => candidate.id === activityId);
-    if (!entry || !activity) throw new Error("This activity is unavailable. Reinstall the pet to restore its activity asset.");
+    if (!entry || entry.carrier.petId !== petId || !activity) {
+      throw new Error("This activity is unavailable for the current outfit.");
+    }
     this.start(entry, activity);
   }
 
-  complete(id: number, generation: number, failed = false): void {
+  result(id: number, generation: number, activityId: string, outcome: "started" | "completed" | "cancelled" | "failed"): void {
     const entry = this.carriers.get(id);
-    if (!entry?.active || entry.active.generation !== generation) return;
-    const activityId = entry.active.activity.id;
-    this.cancel(id);
-    if (failed) {
-      for (const candidate of this.carriers.values()) {
-        if (candidate.carrier.petId !== entry.carrier.petId || candidate.carrier.outfitId !== entry.carrier.outfitId) continue;
-        candidate.carrier = {
-          ...candidate.carrier,
-          activities: candidate.carrier.activities.filter((activity) => activity.id !== activityId),
-        };
+    const active = entry?.active;
+    if (!entry || !active || active.generation !== generation || active.activity.id !== activityId) {
+      return;
+    }
+    if (outcome === "started") {
+      if (active.started) {
+        return;
       }
-      this.options.onFailure(entry.carrier.petId, activityId, entry.carrier.outfitId);
+      active.started = true;
+      const history = this.getHistory(active.carrier.petId);
+      history.lastId = activityId;
+      history.playedAt.set(activityId, this.options.now());
+      return;
+    }
+    entry.active = null;
+    entry.opportunityAt = null;
+    if (outcome === "failed") {
+      this.fail(active);
     }
   }
 
   tick(): void {
     const now = this.options.now();
     for (const entry of this.carriers.values()) {
-      if (this.carrierReason(entry)) {
+      if (entry.carrier.availabilityReason()) {
         this.cancel(entry.carrier.id);
         continue;
       }
       if (entry.active) {
-        if (now >= entry.active.deadline) this.complete(entry.carrier.id, entry.active.generation, true);
+        if (now >= entry.active.deadline) {
+          const active = entry.active;
+          this.cancel(entry.carrier.id);
+          this.fail(active);
+        }
         continue;
       }
       if (this.getPlayingActivityId(entry.carrier.petId)) {
         entry.opportunityAt = null;
         continue;
       }
-      if (entry.opportunityAt === null) entry.opportunityAt = now + nextActivityOpportunityMs(this.options.random);
-      if (now < entry.opportunityAt) continue;
+      if (entry.opportunityAt === null) {
+        entry.opportunityAt = now + nextActivityOpportunityMs(this.options.random);
+      }
+      if (now < entry.opportunityAt) {
+        continue;
+      }
       const history = this.getHistory(entry.carrier.petId);
-      const matching = entry.carrier.activities.filter((activity) => resolvePetActivityAnimation(activity, entry.carrier.outfitId));
-      const activity = selectIdlePetActivity(matching, this.options.enabledIds(entry.carrier.petId), history.playedAt, history.lastId, now, this.options.random);
+      const activity = selectIdlePetActivity(
+        entry.carrier.activities,
+        this.options.enabledIds(entry.carrier.petId),
+        history.playedAt,
+        history.lastId,
+        now,
+        this.options.random,
+      );
       if (activity) {
         this.start(entry, activity);
       } else {
         entry.opportunityAt = now + nextActivityOpportunityMs(this.options.random);
+        entry.carrier.variation?.();
       }
     }
-  }
-
-  private carrierReason(entry: CarrierEntry): string | null {
-    return entry.carrier.availabilityReason();
   }
 
   private getHistory(petId: string): PetHistory {
@@ -166,17 +219,32 @@ export class PetActivityService {
     return history;
   }
 
-  private start(entry: CarrierEntry, activity: PetActivity): void {
-    const animation = resolvePetActivityAnimation(activity, entry.carrier.outfitId);
-    if (!animation) throw new Error("This activity has no artwork for the current outfit.");
-    const selected = { ...activity, ...animation };
-    const now = this.options.now();
+  private fail(active: ActiveActivity): void {
+    for (const entry of this.carriers.values()) {
+      if (
+        entry.carrier.petId === active.carrier.petId
+        && entry.carrier.outfitId === active.carrier.outfitId
+        && entry.carrier.failureRevision === active.carrier.failureRevision
+      ) {
+        entry.carrier = {
+          ...entry.carrier,
+          activities: entry.carrier.activities.filter((activity) => activity.id !== active.activity.id),
+        };
+      }
+    }
+    this.options.onFailure(active.carrier.petId, active.activity.id, active.carrier.outfitId, active.carrier.failureRevision);
+  }
+
+  private start(entry: CarrierEntry, activity: AvailablePetActivity): void {
     const generation = ++this.generation;
-    entry.active = { activity: selected, generation, deadline: now + getPetActivityDurationMs(selected) + 5_000 };
+    entry.active = {
+      activity,
+      generation,
+      deadline: this.options.now() + activity.durationMs + 5_000,
+      carrier: entry.carrier,
+      started: false,
+    };
     entry.opportunityAt = null;
-    const history = this.getHistory(entry.carrier.petId);
-    history.lastId = activity.id;
-    history.playedAt.set(activity.id, now);
-    entry.carrier.play(selected, generation);
+    entry.carrier.play(activity, generation);
   }
 }

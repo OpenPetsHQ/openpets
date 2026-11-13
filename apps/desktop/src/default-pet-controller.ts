@@ -10,7 +10,7 @@ import { bindDefaultPetChatWindow, collapseDefaultPetChat, openDefaultPetCheckIn
 import { debug, info, warn } from "./logger.js";
 import { t } from "./i18n/index.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, hidePetWindow, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, showPetWindowInactive, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
+import { applyPetBodyReaction, clearTransientReaction, createDefaultPetWindow, getSafeDefaultPetPosition, getTransientDisplayDurationMs, getTransientReactionAnimationMs, hidePetWindow, isPetWindowDragging, loadDefaultPetContent, mergePetTransientDisplay, readWindowPosition, recoverPetMouseInterop, setPetReactionState, showPetWindowInactive, type PetPluginBubbles, type PetShowMediaOptions, type PetStatusBadgeReaction, type PetTransientDisplay } from "./pet-window.js";
 import { PetBubbleArbiter, type ActiveBubble, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { composeVoiceActivityBadge, composeVoiceActivityDisplay } from "./voice-activity-slot.js";
@@ -19,10 +19,21 @@ import type { ManagerCheckInOffer } from "./manager-check-in-service.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { setWindowPosition } from "./window-position.js";
 import { openExternalUrl } from "./external-url-opener.js";
+import { effectivePetBodyContext, petBodyContext } from "./pet-body-state.js";
+import type { MotionContextReaction } from "@open-pets/pet-format/motion";
 
 let defaultPetWindow: BrowserWindow | null = null;
 let paused = false;
 let voiceActivityReaction: OpenPetsReaction | null = null;
+let underlyingBodyContext: MotionContextReaction | "idle" = "idle";
+
+function applyDefaultBodyReaction(reaction: OpenPetsReaction): void {
+  const context = petBodyContext(reaction);
+  if (context) underlyingBodyContext = context;
+  if (!defaultPetWindow || defaultPetWindow.isDestroyed()) return;
+  if (context && voiceActivityReaction) return;
+  applyPetBodyReaction(defaultPetWindow, reaction);
+}
 let voiceTerminalReaction: OpenPetsReaction | null = null;
 let voiceTerminalReactionTimeout: NodeJS.Timeout | null = null;
 const maxPluginMoveDistance = 160;
@@ -174,6 +185,7 @@ export function setDefaultPetPaused(nextPaused: boolean): void {
     return;
   }
 
+  if (paused) applyPetBodyReaction(defaultPetWindow, underlyingBodyContext);
   void loadDefaultPetContent(defaultPetWindow, paused, getRenderedDisplay(), getRenderedBadge(), getCurrentDismissToken(), getDefaultPetPluginBubbles());
 }
 
@@ -212,6 +224,7 @@ export function applyExternalPetReaction(reaction: OpenPetsReaction, options: Pe
 
   setTransientDisplay({ reaction, ...(options.showMessage === false ? { suppressReactionMessage: true } : {}) });
   showDefaultPetForExternalEvent();
+  applyDefaultBodyReaction(reaction);
   return { shown: isDefaultPetVisible() };
 }
 
@@ -223,6 +236,7 @@ export function applyExternalPetSay(message: string, reaction?: OpenPetsReaction
   if (!reaction) clearStatusBadge();
   setTransientDisplay({ message, reaction });
   showDefaultPetForExternalEvent();
+  if (reaction) applyDefaultBodyReaction(reaction);
   return { shown: isDefaultPetVisible() };
 }
 
@@ -294,10 +308,12 @@ export function applyExternalPetShowMedia(options: PetShowMediaOptions): { reado
   if (!options.reaction) clearStatusBadge();
   setTransientDisplay({ message: options.message, reaction: options.reaction, mediaPath: options.mediaPath, displayDurationMs: options.durationMs, clickUrl: options.clickUrl });
   showDefaultPetForExternalEvent();
+  if (options.reaction) applyDefaultBodyReaction(options.reaction);
   return { shown: isDefaultPetVisible() };
 }
 
 export function applyExternalPetStatusReaction(reaction: OpenPetsReaction | null): void {
+  applyDefaultBodyReaction(reaction ?? "idle");
   if (reaction === null || reaction === "idle") clearStatusBadge();
   else setStatusBadge(reaction);
   refreshDefaultPetContent();
@@ -308,6 +324,7 @@ export function setDefaultPetVoiceActivity(reaction: OpenPetsReaction | null): v
   voiceActivityReaction = paused || reaction === "idle" ? null : reaction;
   debug("pet.default", "voice activity slot changed", { reaction: voiceActivityReaction });
   if (voiceActivityReaction) showDefaultPetForExternalEvent();
+  if (defaultPetWindow && !defaultPetWindow.isDestroyed()) applyPetBodyReaction(defaultPetWindow, effectivePetBodyContext(underlyingBodyContext, voiceActivityReaction));
   refreshDefaultPetContent();
 }
 
@@ -319,6 +336,7 @@ export function setDefaultPetVoiceTerminalFeedback(reaction: OpenPetsReaction | 
     return;
   }
   voiceTerminalReaction = reaction;
+  if (defaultPetWindow && !defaultPetWindow.isDestroyed()) applyPetBodyReaction(defaultPetWindow, reaction);
   voiceTerminalReactionTimeout = setTimeout(() => {
     clearVoiceTerminalFeedback();
     refreshDefaultPetContent();

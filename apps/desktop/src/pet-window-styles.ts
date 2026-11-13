@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { getAppStateSnapshot, type BubbleTheme, type HudScaleValue, type PetScaleValue } from "./app-state.js";
 import { getCodexPetSpritePosition, type CodexPetSpriteLayout } from "@open-pets/pet-format/sprite-layout";
 import { getCodexV2GazeSpritePosition } from "./codex-pets-core.js";
-import { compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, petWindowHitPadding } from "./pet-window-shape.js";
+import { compactComposerGeometry, getEffectiveBubbleScale, getPetWindowPinnedLift, petBottom, petWindowHitPadding } from "./pet-window-shape.js";
 import { defaultPetWindowSize } from "./display.js";
 import {
   calculateChatPanelBottom,
@@ -63,7 +63,6 @@ export function createPetWindowCss(paused: boolean, scale: PetScaleValue, hudSca
   const playState = paused ? "paused" : "running";
   const scaledWidth = Math.ceil(defaultPetSprite.frameWidth * scale);
   const scaledHeight = Math.ceil(defaultPetSprite.frameHeight * scale);
-  const petBottom = 22;
   const bubbleBottom = Math.ceil(petBottom + scaledHeight + 8);
   const compactComposerBottom = Math.ceil(petBottom + scaledHeight + compactComposerGeometry.bottomGap);
   const chatPanelBottom = calculateChatPanelBottom(scaledHeight, petBottom, defaultPetChatPanelLayout.gap);
@@ -1598,7 +1597,6 @@ function createSessionOverlayCss(scaledSpriteHeight: number): string {
   const orbRadius = calculateSessionOrbRadius(scaledSpriteHeight);
   // Card on top, orb below it around the pet's resting spot: the pet only
   // rises as far as the orb needs to keep its rim glow inside the window.
-  const petBottom = 22;
   const petRestCenterFromBottom = petBottom + scaledSpriteHeight / 2;
   const orbCenterFromBottom = Math.max(Math.round(petRestCenterFromBottom), sessionOrbGlowReach + orbRadius);
   const sessionPetLift = Math.max(0, Math.round(orbCenterFromBottom - petRestCenterFromBottom));

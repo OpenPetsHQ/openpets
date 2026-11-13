@@ -5,7 +5,7 @@ import { clampToVisibleWorkArea, defaultPetWindowSize, getDefaultPetInitialPosit
 import { debug, info, warn } from "./logger.js";
 import { planLanPetPresence, resolveRenderableLanPetId } from "./lan-pet-presence.js";
 import type { LanPetRecord, LanPoint } from "./lan-contract.js";
-import { createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, showPetWindowInactive, type PetTransientDisplay } from "./pet-window.js";
+import { applyPetBodyReaction, createAgentPetWindow, getTransientDisplayDurationMs, loadExplicitPetContent, readWindowPosition, showPetWindowInactive, type PetTransientDisplay } from "./pet-window.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { registerRoamingPet, unregisterRoamingPet } from "./pet-roaming-controller.js";
 import { setWindowPosition } from "./window-position.js";
@@ -57,6 +57,7 @@ export function applyLanVisitingPetSay(ownerHost: string, message: string, react
   const existingTimer = displayClearTimers.get(ownerHost);
   if (existingTimer) clearTimeout(existingTimer);
   const display = { message, reaction, suppressReactionMessage: true, dismissToken: `lan-work:${ownerHost}:${sequence}` };
+  applyPetBodyReaction(entry.window, reaction);
   activeDisplays.set(ownerHost, display);
   void loadExplicitPetContent(entry.window, entry.renderedPetId, display, null, display.dismissToken, getAppStateSnapshot().preferences.petScale as PetScaleValue);
   const timer = setTimeout(() => {

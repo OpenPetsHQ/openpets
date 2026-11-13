@@ -26,7 +26,7 @@ import {
 } from "./settings/providers/index.js";
 import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
-import { buildPetSpritePreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
+import { buildReactionPreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
 import {
   createCatalogSearchController,
@@ -47,7 +47,7 @@ import { MarketplaceBrowser } from "./components/MarketplaceBrowser.js";
 import { Button } from "./components/ui/Button.js";
 import { GlassCard } from "./components/ui/GlassCard.js";
 import { isPluginIconDataUrl } from "./plugin-icon.js";
-import { PetImage, SpriteFrame, imageDebug, installedPetSpritesheetUrl, logPetsEvent, safePetImage } from "./components/PetSprite.js";
+import { PetImage, SpriteFrame, PetPreviewCard, imageDebug, installedPetSpritesheetUrl, logPetsEvent, safePetImage } from "./components/PetSprite.js";
 import { StatusPill, statusPillToneClass, type StatusTone } from "./components/ui/StatusPill.js";
 import { WardrobePanel } from "./pets/WardrobePanel.js";
 import { ActivitiesPanel } from "./pets/ActivitiesPanel.js";
@@ -57,8 +57,8 @@ import { AnnouncementsHost, type AnnouncementsApi } from "./announcements/Announ
 import { hasCatalogPetExtrasUpdate, type PetWardrobeSnapshot, type PetWardrobeUpdate } from "./pets/wardrobe-state.js";
 
 type Filter = "all" | "installed" | "featured" | "originals" | "codex";
-type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string; zip?: string } | { kind: "codex"; path: string } };
-type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string; wardrobeZip?: string; requiresOpenPetsVersion?: string; installedZip?: string };
+type InstalledPet = { id: string; displayName: string; description?: string; builtIn: boolean; protected: boolean; installed: boolean; broken?: boolean; brokenReason?: string; format?: "classic" | "motion"; previewFormat?: "image" | "atlas"; previewWidth?: number; previewHeight?: number; capabilities?: { outfits: boolean; activities: boolean; gaze: boolean }; spriteLayout?: PetSpriteLayout; source?: { kind?: "catalog"; preview?: string; zip?: string } | { kind: "codex"; path: string } };
+type PetEntry = { id: string; displayName: string; description?: string; searchText?: string; preview?: string; thumbnail?: string; spritesheet?: string; spriteLayout?: PetSpriteLayout; spriteVersionNumber?: 2; format?: "classic" | "motion"; previewFormat?: "image" | "atlas"; previewWidth?: number; previewHeight?: number; capabilities?: { outfits: boolean; activities: boolean; gaze: boolean }; category?: "western" | "asian"; original?: boolean; featured?: boolean; catalogPage?: number; sourceKind?: "installed" | "catalog" | "codex"; installed?: boolean; builtIn?: boolean; protected?: boolean; broken?: boolean; brokenReason?: string; wardrobeZip?: string; requiresOpenPetsVersion?: string; installedZip?: string };
 type StateSnapshot = { preferences: { defaultPetId: string }; pets: { installed: InstalledPet[] } };
 type CatalogState = { pets: PetEntry[]; source: string; error?: string; page?: number; pageCount?: number; total?: number; categories?: { id: "western" | "asian"; label: string; count: number }[]; originalsCount?: number; featuredCount?: number };
 type CodexState = { pets: PetEntry[]; error?: string };
@@ -82,8 +82,8 @@ type LanTopologyIssue = { code: "self_reference" | "missing_reverse"; host: stri
 type LanStatusSnapshot = { mode: "off" | "server" | "client"; localHost: string; serverUrl: string; port: number; auth: "token" | "none"; authSource: "env" | "stored" | "generated" | "none"; authInsecure: boolean; tokenHint: string | null; topologyHosts: number; topologyLinks: number; topologyIssues: LanTopologyIssue[]; currentHost: string | null; clients: Array<{ host: string; lastSeen: number; position?: { x: number; y: number } }>; updatedAt: number; persistedCurrentHost: string | null; persistedUpdatedAt: number | null };
 type UpdateStatus = { state: "idle" | "checking" | "available" | "current" | "error"; currentVersion: string; latestVersion?: string; releaseUrl?: string; checkedAt?: number; error?: string };
 type DashboardActivity = { messagesSent: number; reactionsSent: number; reactionCounts: Record<string, number>; perPetActivityCounts: Record<string, number>; lastActivityAt?: number };
-type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; spriteLayout: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
-type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
+type DashboardSnapshot = { defaultPet: { id: string; displayName: string; assetName?: string; petName?: string; previewSpriteUrl: string; previewFormat?: "image" | "atlas"; previewWidth?: number; previewHeight?: number; spriteLayout?: PetSpriteLayout }; installedPetCount: number; catalog: { source: string; total?: number; page?: number; pageCount?: number; error?: string }; plugins: { installed: number; enabled: number; broken: number }; updateStatus: UpdateStatus; activity: DashboardActivity };
+type ReactionAnimationSettings = { reactions: { id: string; label: string; description: string; defaultAnimation: UserSelectableAnimationState }[]; animations: { id: UserSelectableAnimationState; label: string; description: string }[]; sprite: PetSpriteLayout & { states: Record<UserSelectableAnimationState, { row: number; frames: number; durationMs: number; iterations?: number | "infinite" }> }; overrides: ReactionAnimationOverrides; previewSpriteUrl: string; previewFormat?: "image" | "atlas"; previewWidth?: number; previewHeight?: number; waitingAnimationDurationMs: number; waitingAnimationDurationOptions: { value: number; label: string }[] };
 type PluginFilter = "all" | "local" | "broken";
 type PluginPermission =
   | "pet:speak" | "pet:reaction" | "pet:move" | "timer" | "schedule" | "storage" | "status" | "commands" | "network"
@@ -212,6 +212,8 @@ type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
   setPetPoolOrder(ids: string[]): Promise<SettingsState>;
   setPetPinned(petId: string, pinned: boolean): Promise<SettingsState>;
   getPetWardrobe(petId: string): Promise<PetWardrobeSnapshot | null>;
+  retryPetOutfit?: (petId: string, outfitId: string) => Promise<PetWardrobeSnapshot | null>;
+  onPetWardrobeChanged?: (listener: (petId: string) => void) => () => void;
   getPetActivities(petId: string): Promise<PetActivitiesSnapshot | null>;
   setPetActivityEnabled(petId: string, activityId: string, enabled: boolean): Promise<PetActivitiesSnapshot | null>;
   playPetActivity(petId: string, activityId: string): Promise<PetActivitiesSnapshot | null>;
@@ -730,7 +732,16 @@ function DashboardView({ onNavigate }: { onNavigate: (route: Route) => void }) {
           </div>
         </div>
         <div className="dashboard-hero-pet">
-          <SpriteFrame src={defaultPet.previewSpriteUrl} label={defaultPet.displayName} spriteLayout={defaultPet.spriteLayout} state="idle" size="detail" />
+          <PetPreviewCard
+            src={defaultPet.previewSpriteUrl}
+            label={defaultPet.displayName}
+            spriteLayout={defaultPet.spriteLayout}
+            previewFormat={defaultPet.previewFormat}
+            previewWidth={defaultPet.previewWidth}
+            previewHeight={defaultPet.previewHeight}
+            state="idle"
+            size="detail"
+          />
         </div>
       </section>
 
@@ -1166,18 +1177,24 @@ function formatUpdateStatus(status: UpdateStatus | null, t: (key: string, vars?:
 
 function ReactionPreviewSprite({ settings, state }: { settings: ReactionAnimationSettings; state: UserSelectableAnimationState }) {
   const { t } = useI18n();
-  const frame = { width: settings.sprite.frameWidth, height: settings.sprite.frameHeight };
-  const sprite = settings.sprite.states[state] ?? settings.sprite.states.idle;
-  const preview = buildPetSpritePreviewModel(settings.sprite, sprite, state === "idle");
-  const xValues = preview.frameColumns.map((column) => String(-column * frame.width)).join(";");
-  const x = -(preview.frameColumns[0] ?? 0) * frame.width;
-  const y = -preview.row * frame.height;
-
+  const preview = buildReactionPreviewModel(settings, state);
+  if (preview.format === "image") {
+    return (
+      <PetPreviewCard
+        src={preview.src}
+        label={t("settings.reactions.previewAria", { state })}
+        previewFormat="image"
+        previewWidth={preview.width}
+        previewHeight={preview.height}
+        size="mini"
+      />
+    );
+  }
   return (
     <div className="reaction-preview-sprite-shell">
-      <svg className="reaction-preview-sprite" width={frame.width} height={frame.height} viewBox={`0 0 ${frame.width} ${frame.height}`} role="img" aria-label={t("settings.reactions.previewAria", { state })}>
-        <image href={settings.previewSpriteUrl} x={x} y={y} width={frame.width * preview.atlasColumns} height={frame.height * preview.atlasRows} preserveAspectRatio="none">
-          {preview.animated && <animate attributeName="x" values={xValues} dur={`${sprite.durationMs}ms`} repeatCount="indefinite" calcMode="discrete" />}
+      <svg className="reaction-preview-sprite" width={preview.frame.width} height={preview.frame.height} viewBox={`0 0 ${preview.frame.width} ${preview.frame.height}`} role="img" aria-label={t("settings.reactions.previewAria", { state })}>
+        <image href={preview.src} x={preview.x} y={preview.y} width={preview.atlasWidth} height={preview.atlasHeight} preserveAspectRatio="none">
+          {preview.animated && <animate attributeName="x" values={preview.xValues} dur={`${preview.durationMs}ms`} repeatCount="indefinite" calcMode="discrete" />}
         </image>
       </svg>
     </div>
@@ -3930,6 +3947,11 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
       const category = catalogPet?.category;
       const original = catalogPet?.original;
       const featured = catalogPet?.featured;
+      const format = p.format ?? catalogPet?.format ?? codexPet?.format;
+      const previewFormat = p.previewFormat ?? catalogPet?.previewFormat ?? codexPet?.previewFormat;
+      const previewWidth = p.previewWidth ?? catalogPet?.previewWidth ?? codexPet?.previewWidth;
+      const previewHeight = p.previewHeight ?? catalogPet?.previewHeight ?? codexPet?.previewHeight;
+      const capabilities = p.capabilities ?? catalogPet?.capabilities ?? codexPet?.capabilities;
       const spriteVersionNumber = catalogPet?.spriteVersionNumber
         ?? codexPet?.spriteVersionNumber
         ?? (p.spriteLayout?.version === 2 ? 2 : undefined);
@@ -3941,6 +3963,11 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
         category,
         original,
         featured,
+        format,
+        previewFormat,
+        previewWidth,
+        previewHeight,
+        capabilities,
         spriteVersionNumber,
         wardrobeZip: catalogPet?.wardrobeZip,
         installedZip: p.source && "zip" in p.source ? p.source.zip : undefined,
@@ -3956,6 +3983,11 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           preview: safePetImage(p.preview) || safePetImage(p.thumbnail) || defaultThumbUrl,
           spritesheet: safePetImage(p.spritesheet),
           spriteLayout: getCatalogPetSpriteLayout(p.spriteVersionNumber),
+          format: p.format,
+          previewFormat: p.previewFormat,
+          previewWidth: p.previewWidth,
+          previewHeight: p.previewHeight,
+          capabilities: p.capabilities,
           sourceKind: "catalog",
           installed: false,
         });
@@ -3968,6 +4000,11 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
           ...p,
           preview: safePetImage(p.preview),
           spritesheet: safePetImage(p.spritesheet),
+          format: p.format,
+          previewFormat: p.previewFormat,
+          previewWidth: p.previewWidth,
+          previewHeight: p.previewHeight,
+          capabilities: p.capabilities,
           sourceKind: "codex",
           installed: false,
         });
@@ -4317,11 +4354,15 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   className={`pet-card group ${selected?.id === pet.id ? "selected" : ""}`}
                 >
                   <span className="thumb">
-                    {useSpritesheetFrame ? (
-                      <SpriteFrame src={pet.spritesheet} label={t("pets.spriteLabel.thumbnail", { name: pet.displayName })} spriteLayout={pet.spriteLayout} size="thumb" />
-                    ) : (
-                      <PetImage src={pet.preview} debugLabel={`${pet.id}:card`} />
-                    )}
+                    <PetPreviewCard
+                      src={pet.spritesheet || pet.preview}
+                      label={t("pets.spriteLabel.thumbnail", { name: pet.displayName })}
+                      spriteLayout={pet.spriteLayout}
+                      previewFormat={pet.previewFormat}
+                      previewWidth={pet.previewWidth}
+                      previewHeight={pet.previewHeight}
+                      size="thumb"
+                    />
                   </span>
                   <div className="card-content">
                     <span className="card-title-row">
@@ -4440,11 +4481,15 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
               <GlassCard className="plugin-inspector pet-detail-inspector">
                 <div className="plugin-inspector-head">
                   <span className="plugin-inspector-icon">
-                    {safePetImage(selected.spritesheet) ? (
-                      <SpriteFrame src={selected.spritesheet} label={t("pets.spriteLabel.thumb", { name: selected.displayName })} spriteLayout={selected.spriteLayout} size="thumb" />
-                    ) : (
-                      <PetImage src={selected.preview} debugLabel={`${selected.id}:thumb`} />
-                    )}
+                    <PetPreviewCard
+                      src={selected.spritesheet || selected.preview}
+                      label={t("pets.spriteLabel.thumb", { name: selected.displayName })}
+                      spriteLayout={selected.spriteLayout}
+                      previewFormat={selected.previewFormat}
+                      previewWidth={selected.previewWidth}
+                      previewHeight={selected.previewHeight}
+                      size="thumb"
+                    />
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="eyebrow">{t("pets.detail.eyebrow")}</p>
@@ -4457,13 +4502,19 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   <div className="pet-detail-main">
                     <p className="desc">{selected.description || selected.id}</p>
                     <div className="stage">
-                      {safePetImage(selected.spritesheet) ? (
-                        <SpriteFrame src={selected.spritesheet} label={t("pets.spriteLabel.animatedPreview", { name: selected.displayName })} spriteLayout={selected.spriteLayout} />
-                      ) : (
-                        <PetImage src={selected.preview} debugLabel={`${selected.id}:detail-fallback`} />
-                      )}
+                      <PetPreviewCard
+                        src={selected.spritesheet || selected.preview}
+                        label={t(selected.previewFormat === "image" ? "pets.spriteLabel.thumb" : "pets.spriteLabel.animatedPreview", { name: selected.displayName })}
+                        spriteLayout={selected.spriteLayout}
+                        previewFormat={selected.previewFormat}
+                        previewWidth={selected.previewWidth}
+                        previewHeight={selected.previewHeight}
+                        size="detail"
+                      />
                     </div>
                     <div className="meta">
+                      {defaultId === selected.id && <StatusPill tone="green">{t("pets.badge.default")}</StatusPill>}
+                      {selected.format === "motion" ? <StatusPill tone="purple">Motion</StatusPill> : <StatusPill tone="blue">Classic</StatusPill>}
                       {selected.broken && <StatusPill tone="red">{t("pets.badge.broken")}</StatusPill>}
                       {selected.installed && !selected.broken && <StatusPill tone="green">{t("pets.badge.ready")}</StatusPill>}
                       {selected.builtIn && <StatusPill tone="orange">{t("pets.badge.originals")}</StatusPill>}
@@ -4475,47 +4526,53 @@ function ControlCenter({ onAppearanceThemeChange }: { onAppearanceThemeChange: (
                   </div>
 
                   <aside className="pet-detail-reactions">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slatecopy mb-3">{t("pets.detail.previewAnimations")}</h3>
-                    <div className="pet-preview-grid">
-                      {[
-                        { label: t("pets.detail.preview.idle"), state: "idle" as const },
-                        { label: t("pets.detail.preview.thinking"), state: "thinking" as const },
-                        { label: t("pets.detail.preview.happy"), state: "happy" as const },
-                        { label: t("pets.detail.preview.wave"), state: "wave" as const },
-                      ].map((previewState) => (
-                        <article key={previewState.state} className="pet-preview-item">
-                          <SpriteFrame src={selected.spritesheet} label={t("pets.spriteLabel.statePreview", { name: selected.displayName, state: previewState.label })} spriteLayout={selected.spriteLayout} state={previewState.state} size="mini" />
-                          <span className="text-xs font-bold text-slatecopy">{previewState.label}</span>
-                        </article>
-                      ))}
-                    </div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slatecopy mb-3">{selected.format === "motion" ? t("pets.detail.previewStatic") : t("pets.detail.previewAnimations")}</h3>
+                    {selected.format === "motion" ? (
+                      <div className="text-xs text-slatecopy italic py-2">{t("pets.detail.motionStaticHint")}</div>
+                    ) : (
+                      <div className="pet-preview-grid">
+                        {[
+                          { label: t("pets.detail.preview.idle"), state: "idle" as const },
+                          { label: t("pets.detail.preview.thinking"), state: "thinking" as const },
+                          { label: t("pets.detail.preview.happy"), state: "happy" as const },
+                          { label: t("pets.detail.preview.wave"), state: "wave" as const },
+                        ].map((previewState) => (
+                          <article key={previewState.state} className="pet-preview-item">
+                            <SpriteFrame src={selected.spritesheet} label={t("pets.spriteLabel.statePreview", { name: selected.displayName, state: previewState.label })} spriteLayout={selected.spriteLayout} state={previewState.state} size="mini" />
+                            <span className="text-xs font-bold text-slatecopy">{previewState.label}</span>
+                          </article>
+                        ))}
+                      </div>
+                    )}
                   </aside>
                 </div>
 
-                {selected.installed && !selected.broken && (
-                  <>
-                    <WardrobePanel
-                      key={selected.id}
-                      petId={selected.id}
-                      spriteLayout={selected.spriteLayout}
-                      load={api.getPetWardrobe}
-                      update={api.updatePetWardrobe}
-                      installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
-                        ? async () => {
-                          await api.installPetWardrobe(selected.id);
-                          // The installed source changes, which retires the offer.
-                          await loadPetsData();
-                        }
-                        : undefined}
-                    />
-                    <ActivitiesPanel
-                      key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
-                      petId={selected.id}
-                      load={api.getPetActivities}
-                      setPetActivityEnabled={api.setPetActivityEnabled}
-                      playPetActivity={api.playPetActivity}
-                    />
-                  </>
+                {selected.installed && !selected.broken && (selected.format !== "motion" || selected.capabilities?.outfits) && (
+                  <WardrobePanel
+                    key={selected.id}
+                    petId={selected.id}
+                    spriteLayout={selected.spriteLayout}
+                    load={api.getPetWardrobe}
+                    update={api.updatePetWardrobe}
+                    retryOutfit={api.retryPetOutfit!}
+                    onWardrobeChanged={api.onPetWardrobeChanged!}
+                    installCatalogOutfits={hasCatalogPetExtrasUpdate(selected.installedZip, selected.wardrobeZip)
+                      ? async () => {
+                        await api.installPetWardrobe(selected.id);
+                        await loadPetsData();
+                      }
+                      : undefined}
+                  />
+                )}
+
+                {selected.installed && !selected.broken && (selected.format !== "motion" || selected.capabilities?.activities) && (
+                  <ActivitiesPanel
+                    key={`activities-${selected.id}-${selected.installedZip ?? "local"}`}
+                    petId={selected.id}
+                    load={api.getPetActivities}
+                    setPetActivityEnabled={api.setPetActivityEnabled}
+                    playPetActivity={api.playPetActivity}
+                  />
                 )}
 
                 <div className="actions-container mt-6 flex flex-col gap-3 pet-detail-actions">

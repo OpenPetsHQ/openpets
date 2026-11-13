@@ -2,19 +2,20 @@ import { lstat, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 import { assertPetPackageFiles } from "install-pet/spritesheet";
-
 import { getAppStateSnapshot, installPetState, removePetState, setDefaultPet, upsertPetState, type OpenPetsStateV1 } from "./app-state.js";
 import { getCatalogPet } from "./catalog.js";
-import { maxCodexPetJsonBytes, maxCodexSpritesheetBytes, validateCodexPetMetadata, type CodexPetMetadata } from "@open-pets/pet-format/metadata";
+import { maxCodexPetJsonBytes } from "@open-pets/pet-format/metadata";
+import { validatePetPackageMetadata } from "@open-pets/pet-format/package";
+import type { PetPackage } from "@open-pets/pet-format/package-types";
 import { builtInPet } from "./built-in-pet.js";
-import { defaultPetZipLimits, extractPetZip as extractPetArchive } from "@open-pets/pet-format/node/archive";
+import { defaultPetZipLimits, detectPetZipFormat, extractPetZip as extractPetArchive } from "@open-pets/pet-format/node/archive";
 import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { assertOutputPathInside, hasSupportedZipMagic } from "@open-pets/pet-format/node/paths";
-import { validatePetAtlases } from "./pet-atlas-validation.js";
+import { validateDesktopPetPackageAssets } from "./pet-atlas-validation.js";
 import { assertInsideRoot, assertSafePetId, getPetsRoot } from "./pet-paths.js";
 import { assertNoUnresolvedPetInstallTransaction, createPetInstallCandidate, createPetInstallStagingCandidate, getCanonicalInstalledPetDir, runPetInstallTransaction, withPetInstallLock } from "./pet-install-transaction.js";
 
-const { maxZipDownloadBytes, maxIndividualFileBytes } = defaultPetZipLimits;
+const { maxZipDownloadBytes } = defaultPetZipLimits;
 const downloadTimeoutMs = 30_000;
 
 let installationChangeHandler: ((petId: string, removed: boolean) => void) | null = null;
@@ -57,7 +58,7 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
     const candidate = await createPetInstallCandidate(petsRoot, petId);
     try {
       await extractPetZip(zip, candidate);
-      const metadata = await validateExtractedPet(candidate);
+      const { metadata } = await validateExtractedPet(candidate);
       if (metadata.id !== petId || metadata.id !== catalogPet.id) {
         throw new Error("Catalog pet package id does not match the requested pet.");
       }
@@ -67,7 +68,7 @@ export async function installPet(petId: string): Promise<OpenPetsStateV1> {
         candidateDir: candidate,
         lockAlreadyHeld: true,
         validateCandidate: async (directory) => {
-          const validated = await validateExtractedPet(directory);
+          const { metadata: validated } = await validateExtractedPet(directory);
           if (validated.id !== catalogPet.id) throw new Error("Catalog pet package id does not match the requested pet.");
         },
         mutateState: () => installPetState({
@@ -114,7 +115,9 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
     const candidate = await createPetInstallCandidate(petsRoot, petId);
     try {
       await extractPetZip(zip, candidate);
-      const metadata = await validateExtractedPet(candidate);
+      const petPackage = await validateExtractedPet(candidate);
+      if (petPackage.format !== "classic") throw new Error("Catalog full package does not contain pet extras.");
+      const { metadata } = petPackage;
       if (metadata.id !== petId) throw new Error("Catalog wardrobe package id does not match the installed pet.");
       if (!metadata.wardrobe && !metadata.activities?.length) throw new Error("Catalog full package does not contain pet extras.");
       const state = await runPetInstallTransaction({
@@ -124,7 +127,7 @@ export async function installPetWardrobe(petId: string): Promise<OpenPetsStateV1
         lockAlreadyHeld: true,
         validateCandidate: async (directory) => {
           const validated = await validateExtractedPet(directory);
-          if (validated.id !== petId || (!validated.wardrobe && !validated.activities?.length)) throw new Error("Catalog full package changed during installation.");
+          if (validated.format !== "classic" || validated.metadata.id !== petId || (!validated.metadata.wardrobe && !validated.metadata.activities?.length)) throw new Error("Catalog full package changed during installation.");
         },
         mutateState: () => upsertPetState({
           id: petId,
@@ -181,12 +184,15 @@ async function installPetFromZipBufferWithResult(zip: Buffer): Promise<LocalPetI
   const candidate = await createPetInstallStagingCandidate(petsRoot);
   try {
     await extractPetZip(zip, candidate);
-    const metadata = await validateExtractedPet(candidate);
+    const { metadata } = await validateExtractedPet(candidate);
     const state = await runPetInstallTransaction({
       petsRoot,
       petId: metadata.id,
       candidateDir: candidate,
-      validateCandidate: async (directory) => { await validateExtractedPet(directory); },
+      validateCandidate: async (directory) => {
+        const candidatePackage = await validateExtractedPet(directory);
+        if (candidatePackage.metadata.id !== metadata.id) throw new Error("Pet package id changed during installation.");
+      },
       mutateState: () => upsertPetState({ id: metadata.id, displayName: metadata.displayName, description: metadata.description }),
     });
     notifyPetInstallationChanged(metadata.id);
@@ -209,19 +215,23 @@ export async function installPetFromFolderWithResult(folderPath: string): Promis
   if (await realpath(sourceDir) !== sourceDir) throw new Error("Pet folder path is not canonical.");
   const parsed = JSON.parse((await readBoundedRegularFile(join(sourceDir, "pet.json"), maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(sourceDir);
-  const metadata = validateCodexPetMetadata(parsed, parsedId);
+  const petPackage = validatePetPackageMetadata(parsed, parsedId);
+  const { metadata } = petPackage;
   assertSafePetId(metadata.id);
   const petsRoot = getPetsRoot();
   const candidate = await createPetInstallCandidate(petsRoot, metadata.id);
   try {
     assertInsideRoot(petsRoot, candidate);
-    await validatePetAtlases(sourceDir, metadata, maxCodexSpritesheetBytes, { copyTo: candidate });
+    await validateDesktopPetPackageAssets(sourceDir, petPackage, { copyTo: candidate });
     await writeFile(join(candidate, "pet.json"), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const state = await runPetInstallTransaction({
       petsRoot,
       petId: metadata.id,
       candidateDir: candidate,
-      validateCandidate: async (directory) => { await validateExtractedPet(directory); },
+      validateCandidate: async (directory) => {
+        const candidatePackage = await validateExtractedPet(directory);
+        if (candidatePackage.metadata.id !== metadata.id) throw new Error("Pet package id changed during installation.");
+      },
       mutateState: () => upsertPetState({ id: metadata.id, displayName: metadata.displayName, description: metadata.description }),
     });
     notifyPetInstallationChanged(metadata.id);
@@ -340,20 +350,21 @@ function validateZipMagic(buffer: Buffer): void {
 }
 
 async function extractPetZip(zip: Buffer, tempDir: string): Promise<void> {
-  const files = await extractPetArchive(zip, tempDir);
-  assertPetPackageFiles(files);
+  const format = await detectPetZipFormat(zip);
+  const files = await extractPetArchive(zip, tempDir, { format });
+  if (format === "classic") assertPetPackageFiles(files);
 }
 
-async function validateExtractedPet(tempDir: string): Promise<CodexPetMetadata> {
+async function validateExtractedPet(tempDir: string): Promise<PetPackage> {
   const petJsonPath = join(tempDir, "pet.json");
   assertOutputPathInside(tempDir, petJsonPath);
 
   const parsed = JSON.parse((await readBoundedRegularFile(petJsonPath, maxCodexPetJsonBytes, "pet.json")).toString("utf8")) as unknown;
   const parsedId = isRecord(parsed) && typeof parsed.id === "string" ? parsed.id : basename(tempDir);
-  const metadata = validateCodexPetMetadata(parsed, parsedId);
-  assertSafePetId(metadata.id);
-  await validatePetAtlases(tempDir, metadata, maxIndividualFileBytes, { exactPackage: true });
-  return metadata;
+  const petPackage = validatePetPackageMetadata(parsed, parsedId);
+  assertSafePetId(petPackage.metadata.id);
+  await validateDesktopPetPackageAssets(tempDir, petPackage, { exactPackage: true });
+  return petPackage;
 }
 
 

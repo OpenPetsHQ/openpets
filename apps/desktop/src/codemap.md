@@ -348,14 +348,25 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `renderer/`: Vite React/Tailwind Control Center shell for Dashboard, Pets, Integrations, Plugins, and Settings.
 
 **Pets**:
+- `local-ipc-transport.ts`: Single-request socket framing with separate bounded read-idle and in-flight processing deadlines and close-time timer cleanup.
 - `pet-window.ts`: Public pet-window lifecycle facade: transparent frameless window creation, HTML/CSS composition, sprite and transient presentation updates, gaze configuration, and plugin scale override updates; companion launcher, attached chat styling, bubble suppression, status badges, validated atlas layout selection, context-menu installation delegation, and Linux X11 show/hide gating
 - `pet-activities.ts`: Native activity runtime adapter: exact rendered-outfit carrier registration, raw busy/interruption signals, outfit-specific validated assets and previews, saved logical opt-ins, Control Center snapshots, and dedicated generation-guarded playback IPC.
-- `pet-activity-service.ts` / `pet-activity-policy.ts`: Electron-free logical-activity scheduling and exact-outfit selection, continuous idle opportunities, cooldown/repeat history, cancellation/completion ownership, and preference normalization with injectable time/random.
+- `pet-activity-service.ts` / `pet-activity-policy.ts`: Artwork-neutral logical activity reservations and the single timed quiet-opportunity owner; first-frame history, per-pet cooldowns, cancellation/watchdog policy and injectable time/random. Unused opportunities may request a neutral variation through the carrier.
+- `pet-activity-contract.ts`: Format-discriminated play/cancel/variation commands and activity-only results; Motion targets include epoch, immutable snapshot, presentation and outfit identities.
+- `pet-motion-activity-assets.ts`: Exact committed-outfit activity options, verified finite duration and static first-phase previews from retained immutable Motion snapshots.
 - `pet-activity-asset-cache.ts`: Snapshot-only outfit-specific asset validation cache, keyed by activity and outfit with filesystem freshness checks and bounded installed-pet ownership.
 - `pet-activity-player.cjs`: Dedicated finite rectangular-strip preload player, with image-load/completion generations, cleanup, baseline/scale preservation, and isolation from plugin overrides.
+- `pet-body-contract.ts` / `pet-body-state.ts`: Clone-safe semantic body snapshots and results, window-local raw context/event identity independent of bubble expiration, and validated playback commitment.
+- `pet-window-body-cleanup.ts`: Captured-WebContents teardown for the per-window body bridge, listener/state removal and unconditional snapshot release without destroyed-window getters.
+- `pet-wardrobe-types.ts` / `pet-wardrobe-render-state.ts`: Canonical clone-safe wardrobe snapshots and pure per-window requested/committed outfit projections with narrow change notifications.
+- `pet-window-document.ts` / `pet-motion-render.ts`: Shared pet document/CSP envelope and focused Motion appearance markup adapter; window-local presentation generations remain outside rendering composition.
+- `pet-motion-layout.ts`: Pure foot-anchored containment and CSS variables shared by initial Motion presentation, remembered scale overrides and committed native input geometry; fits logical display bounds without resizing source artwork.
+- `pet-motion-snapshot.ts`: Installed-revision validation and immutable clip copies under the existing install lock, per-window pending/current ownership, byte authorization, and cleanup.
+- `pet-body-coordinator.cjs`: Renderer body arbitration for direct manipulation, plugin overrides, events, activities and context; phase completion, event settlement and restrained idle variation.
+- `pet-motion-player.cjs`: Named animated WebP clip decoding and canvas playback with native durations and authored clip pace, first-frame commitment, current-frame alpha testing, pause, the shared accepted clip-byte ceiling, a separate bounded encoded cache and decoder/frame cleanup.
 - `pet-activities-types.ts` / `control-center-pet-activities-ipc.ts`: Clone-safe activity UI snapshot and authorized narrow get/enable/play IPC contracts.
 - `pet-window-styles.ts`: Pet-window CSS generation for reaction/movement sprite states and V2 cursor-glance atlas overrides; V2 idle keeps its animated row-zero loop outside an active glance, and paused V2 idle holds the static neutral cell
-- `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override to the currently rendered sprite
+- `pet-content-stage.cjs`: Pet-preload DOM stage replacement and renderer-side retention/application of the host-owned scale override; Motion stages use their own serialized layout input and shared fitted CSS variables rather than a raw sprite transform.
 - `x11-pet-window-state.ts`: X11 client adapter that subscribes to StructureNotify before show, waits for matching MapNotify, sends post-map EWMH state additions, and observes `_NET_WM_STATE` until standard exclusion atoms and the KDE switcher atom when advertised by root `_NET_SUPPORTED` are present
 - `x11-pet-window-state-core.ts`: Electron-free EWMH atom/property helpers for merging existing state and checking required atoms
 - `pet-window-x11-map-core.ts`: Electron-free matching/cancellation state for the target window's MapNotify transition

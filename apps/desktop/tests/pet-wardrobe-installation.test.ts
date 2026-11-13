@@ -58,10 +58,10 @@ const petPathsMock = `data:text/javascript,${encodeURIComponent(`
 register(`data:text/javascript,${encodeURIComponent(`
   export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: ${JSON.stringify(electronMock)}, shortCircuit: true };
-    if (specifier === "./pet-paths.js" && context.parentURL.includes("/apps/desktop/.test-dist/src/")) {
+    if (specifier === "./pet-paths.js" && (context.parentURL.includes("/apps/desktop/.test-dist/src/") || context.parentURL.includes("/apps/desktop/src/"))) {
       return { url: ${JSON.stringify(petPathsMock)}, shortCircuit: true };
     }
-    if (specifier === "./catalog.js" && context.parentURL.endsWith("/pet-installation.js")) {
+    if (specifier === "./catalog.js" && (context.parentURL.endsWith("/pet-installation.js") || context.parentURL.endsWith("/pet-installation.ts"))) {
       return { url: ${JSON.stringify(catalogModule)}, shortCircuit: true };
     }
     return nextResolve(specifier, context);
@@ -130,7 +130,7 @@ try {
   releaseStartupInstallLock = appState.releaseStartupInstallLock;
   const { installPetFromFolderWithResult, installPetFromZipFileWithResult, installPet } = await import("../src/pet-installation.js");
   const { importCodexPet } = await import("../src/codex-pets.js");
-  const { readInstalledPetMetadata, readInstalledPetSpritesheet } = await import("../src/installed-pet-layout.js");
+  const { readInstalledPetMetadata, readInstalledPetPackage, readInstalledPetPresentation, readInstalledPetPreview, readInstalledPetSpritesheet } = await import("../src/installed-pet-layout.js");
 
   appState.initializeAppState();
   const atlas = async (red: number): Promise<Buffer> => sharp({
@@ -174,6 +174,54 @@ try {
   writePetFolder(folder, "folder-wardrobe");
   await installPetFromFolderWithResult(folder);
   await assertInstalledWardrobe("folder-wardrobe");
+
+  // Motion imports use the same transaction: an invalid replacement must not
+  // destroy the prior working package or the user's saved preferences.
+  const motionFolder = join(testRoot, "motion-pet");
+  mkdirSync(join(motionFolder, "clips"), { recursive: true });
+  const motionPixels = Buffer.alloc(16 * 32 * 4, 255);
+  motionPixels[3] = 0;
+  motionPixels[16 * 16 * 4 + 3] = 0;
+  for (let offset = 16 * 16 * 4; offset < motionPixels.length; offset += 4) motionPixels[offset] = 0;
+  const motionBytes = await sharp(motionPixels, {
+    raw: { width: 16, height: 32, channels: 4, pageHeight: 16 },
+  }).webp({ loop: 0, delay: [100, 120] }).toBuffer();
+  const motionMetadata = {
+    format: "motion", version: 1, id: "motion-pet", displayName: "Motion Pet", description: "Motion test pet",
+    geometry: { width: 16, height: 16, pixelsPerUnit: 1, footAnchor: { x: 8, y: 16 } },
+    clips: { idle: { file: "clips/idle.webp", frames: 2 } },
+    animations: { idle: { play: "loop", loop: "idle" } },
+    bindings: { idle: [{ animation: "idle" }], movement: { left: "idle", right: "idle" } },
+  };
+  writeFileSync(join(motionFolder, "pet.json"), JSON.stringify(motionMetadata));
+  writeFileSync(join(motionFolder, "clips", "idle.webp"), motionBytes);
+  await installPetFromFolderWithResult(motionFolder);
+  assert.equal((await readInstalledPetPackage("motion-pet")).format, "motion");
+  assert.deepEqual(await readInstalledPetPresentation("motion-pet"), {
+    format: "motion", previewFormat: "image", previewWidth: 16, previewHeight: 16,
+    capabilities: { outfits: false, activities: false, gaze: false },
+  });
+  const motionPreview = await readInstalledPetPreview("motion-pet");
+  assert.equal(motionPreview.mimeType, "image/png");
+  const previewFacts = await sharp(motionPreview.bytes).metadata();
+  assert.equal(previewFacts.width, 16);
+  assert.equal(previewFacts.height, 16);
+  assert.deepEqual((await readInstalledPetPreview("folder-wardrobe")).bytes, base);
+  await assert.rejects(() => readInstalledPetPreview("missing-pet"));
+  appState.setPetWardrobePreference("motion-pet", { outfit: "pajamas" });
+  writeFileSync(join(motionFolder, "clips", "idle.webp"), Buffer.from("invalid"));
+  await assert.rejects(() => installPetFromFolderWithResult(motionFolder));
+  assert.deepEqual(readFileSync(join(petsRoot, "motion-pet", "clips", "idle.webp")), motionBytes);
+  assert.equal(appState.getPetWardrobePreference("motion-pet")?.outfit, "pajamas");
+
+  // A bounded wrapper ZIP uses the same validated Motion install path.
+  const motionZipPath = join(testRoot, "motion.zip");
+  writeFileSync(motionZipPath, createStoredZip([
+    { name: "wrapper/pet.json", contents: Buffer.from(JSON.stringify(motionMetadata)) },
+    { name: "wrapper/clips/idle.webp", contents: motionBytes },
+  ]));
+  await installPetFromZipFileWithResult(motionZipPath);
+  assert.equal((await readInstalledPetPackage("motion-pet")).format, "motion");
 
   writePetFolder(join(fakeHome, ".codex", "pets", "codex-wardrobe"), "codex-wardrobe");
   await importCodexPet("codex-wardrobe");

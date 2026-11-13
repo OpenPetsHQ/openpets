@@ -53,6 +53,41 @@ All from the repo root unless noted (full list in root `package.json`):
 | `pnpm marketplace:migrate …` | Plan, check, explicitly import and verify the complete existing inventory |
 | `pnpm marketplace:release:check …` | Check audited cutover inventory, public artifact integrity and release compatibility |
 
+### Evaluating Motion packages
+
+Build the desktop, then start an isolated capture profile:
+
+```sh
+pnpm --filter @open-pets/desktop build
+pnpm capture start --no-build --plugins ''
+pnpm capture control-center pets
+```
+
+Import the Motion folder or bounded ZIP through Pets, then select it normally.
+Once installed, the capture controls can select its stable package ID and send
+semantic reactions:
+
+```sh
+pnpm capture pet select <pet-id>
+pnpm capture react waving
+pnpm capture react success
+pnpm capture react thinking
+pnpm capture stop
+```
+
+Motion packages contain `pet.json` and their declared `clips/` assets. Shared
+metadata and Node asset validation check references, geometry, transparency,
+frame timing, full decoding and resource ceilings before installation. The
+shared desktop ZIP download/local-import, extracted-total and individual-file
+limits are 1 GiB. Motion clip and aggregate byte limits are also 1 GiB, allowing
+larger authored outfits without lowering quality. The 64-clip and 40-million
+decoded-pixel-per-clip guards remain; these byte limits are not runtime budgets.
+The 97.61 MiB genuine two-outfit reference fits without re-encoding for size. The
+standalone Classic catalog installer has its own policy and is not changed by
+this desktop limit. Keep generated artwork outside the repository.
+The former `motion.json`/`OPENPETS_MOTION_PREVIEW_DIR` experiment is removed; see
+[Motion pets](/motion-pets) for the explicit migration and acceptance boundary.
+
 ### Plugin DX commands
 
 For new publication, use the [marketplace](/marketplace). The `plugins:publish`,

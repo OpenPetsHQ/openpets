@@ -54,6 +54,13 @@ alert, a scheduled job, a stored value), and the host validates and renders it.
 This is the "companion-first" stance: plugins never inject UI into pet windows
 directly; they hand the host descriptors and the host owns layout and lifecycle.
 
+Motion pets use the same semantic reaction and movement operations; plugins do
+not select clip files or implement a second renderer. The Motion body coordinator
+arbitrates plugin sprite overrides with other body playback. Direct dragging
+temporarily takes precedence, and release restores an override only while it
+remains active. Speech lifetime is independent of finite Motion completion.
+The default-appearance slice adds no new SDK operations or plugin permissions.
+
 ```
 openpets.plugin.json ──validate──▶ plugin-service ──▶ plugin-runtime
                                                           │

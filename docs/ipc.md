@@ -22,6 +22,12 @@ leave the machine. A local socket gives low latency, no network exposure, and a
 natural place to enforce trust (a token + a private endpoint). The protocol is a
 **line-delimited JSON** request/response over a single connection per call.
 
+The socket has a three-second read-idle limit while receiving its request.
+After dispatch, a separate 150-second processing deadline bounds the connection,
+so full package validation is not interrupted by the framing timeout. A closed
+connection does not cancel an already dispatched installation; clients must
+inspect installed state before retrying an ambiguous result.
+
 ## Transports
 
 The client and server pick a transport per platform:

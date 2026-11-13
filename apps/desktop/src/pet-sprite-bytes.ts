@@ -3,8 +3,10 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { motionMaxClipBytes } from "@open-pets/pet-format/motion";
 
 import { warn } from "./logger.js";
+import { isMotionSnapshotPath, isWindowMotionSnapshotUrlAuthorized } from "./pet-motion-snapshot.js";
 
 /**
  * Serves sprite sheet bytes to pet-window renderers for pixel-accurate hit
@@ -83,6 +85,8 @@ function ensureHandler(): void {
       warn("pet.window", "sprite bytes request outside allowed roots", { filePath });
       return null;
     }
+    const isMotionSnapshot = await isMotionSnapshotPath(canonical);
+    if (isMotionSnapshot && !isWindowMotionSnapshotUrlAuthorized(event.sender, url)) return null;
     if (!allowedSpriteExtensions.has(extname(canonical).toLowerCase())) return null;
 
     // O_NOFOLLOW keeps the canonical containment decision honest: the final
@@ -91,8 +95,18 @@ function ensureHandler(): void {
       const handle = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const info = await handle.stat();
-        if (!info.isFile() || info.size <= 0 || info.size > MAX_SPRITE_BYTES) return null;
-        return await handle.readFile();
+        const maxBytes = isMotionSnapshot ? motionMaxClipBytes : MAX_SPRITE_BYTES;
+        if (!info.isFile() || info.size <= 0 || info.size > maxBytes) return null;
+        const bytes = Buffer.allocUnsafe(info.size);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+          if (bytesRead === 0) return null;
+          offset += bytesRead;
+        }
+        const extra = Buffer.allocUnsafe(1);
+        if ((await handle.read(extra, 0, 1, offset)).bytesRead !== 0) return null;
+        return bytes;
       } finally {
         await handle.close();
       }

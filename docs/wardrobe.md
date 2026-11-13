@@ -19,8 +19,8 @@ These terms are deliberate; use them in code, UI, and docs.
 |------|---------|
 | **Pet** | The installable unit. Unchanged — there is no separate "bundle" or "pack" format (Team Packs already use "pack"). |
 | **Wardrobe** | A pet's optional set of outfits plus its schedule. A pet *has* a wardrobe. |
-| **Outfit** | A complete alternate atlas for the same pet. Same layout, so every animation still works. |
-| **Default outfit** | The pet's base `spritesheetPath`. Id `default`, always present, never declared. |
+| **Outfit** | A coherent alternate appearance for the same pet: a complete Classic atlas or a Motion outfit's own animation bindings. |
+| **Default outfit** | The base artwork. Id `default`, always present, never declared as an extra outfit. |
 | **Schedule** | Ordered rules saying when to wear which outfit. The first matching rule wins. |
 | **Creator schedule** | The schedule shipped in `pet.json`. |
 | **User schedule** | The user's edited copy; replaces the creator schedule for that pet. |
@@ -33,7 +33,7 @@ These terms are deliberate; use them in code, UI, and docs.
   *Default*, each outfit (checkmark on the active choice), and *Edit
   Wardrobe…*, which opens the pet's Control Center detail.
 - **Control Center → Pets → pet detail → Wardrobe**:
-  - outfit cards with animated previews; *Now* marks what the pet wears,
+  - outfit cards with animated Classic previews or static Motion previews; *Now* marks committed artwork,
     *Always* marks a fixed choice; clicking a card toggles "always wear";
   - a status line (following the schedule vs. always wearing X) with
     *Follow schedule*;
@@ -43,9 +43,18 @@ These terms are deliberate; use them in code, UI, and docs.
     package than the installed copy (see [Upgrading installed pets](#upgrading-installed-pets)).
 - Pets without a wardrobe show none of this and behave exactly as before.
 
+Motion keeps the same manual choices, schedule rules and preference ownership.
+Its loading, deferred and failure states distinguish a saved request from the
+outfit actually committed in each pet window. No rendered window means no
+current wear; different committed outfits are reported per window rather than
+choosing one arbitrary result. A failed switch keeps the previous outfit, and
+an explicit retry creates a new presentation attempt without changing the
+saved preference.
+
 ## The `pet.json` contract
 
-`wardrobe` is an optional top-level field:
+The following example describes a **Classic** wardrobe. `wardrobe` is an optional
+top-level field:
 
 ```json
 {
@@ -116,6 +125,35 @@ Order is the priority model on purpose: creators put holidays first, then
 time-of-day, then broad rules, and users reorder by dragging rows. "Most
 specific wins" was rejected as harder to explain.
 
+### Motion wardrobes
+
+Motion v1 uses the same outfit identities and schedule contract, but an outfit
+contains complete semantic `bindings` rather than a `spritesheetPath`.
+`@open-pets/pet-format/motion` and `package` own these types and validation.
+Geometry, named clips and animations remain at the package root; all asset
+limits apply to the whole package, not separately to each outfit.
+
+Every outfit supplies its own neutral and both directional movement bindings.
+Optional contexts fall back to that outfit's neutral artwork. Optional events
+do not borrow the default outfit's clothes. The implicit `default` appearance
+uses the root bindings. Clothing is initially baked into clips, not composited
+as independently generated layers.
+
+Assets have one immutable snapshot identity; each window's appearance request
+has a separate presentation identity. Switching outfits within the same package
+does not copy its assets again. The renderer retains the committed canvas until
+the requested outfit's first usable frame is presented. Manual changes start
+promptly; scheduled changes prefer a suitable boundary with a bounded eligible
+wait. Dragging, plugin overrides and suspension defer the clothing commitment.
+Paused manual selection can show the new first frame without resuming playback.
+
+The main process owns requested/committed projections in
+`pet-wardrobe-render-state.ts`. The renderer body coordinator owns when the
+appearance may play; content-stage owns its DOM commitment and the player owns
+decoding. Hidden selection saves preferences immediately rather than awaiting
+an invisible renderer. Motion outfit cards decode the explicitly named outfit's
+neutral frame; they never fabricate a Classic atlas.
+
 ## Which outfit a pet wears
 
 Highest precedence first:
@@ -185,6 +223,10 @@ Control Center and the context menu both call `updatePetWardrobe(petId,
 patch)`: `outfit: "auto" | id` and/or `schedule: rules | null`. It validates
 against the installed wardrobe (unknown outfit or malformed rule → error),
 persists, re-renders the pet's windows, and returns the fresh snapshot.
+The Control Center panel coalesces change notifications while a wardrobe update,
+retry, or catalog installation is in flight, then refreshes after it settles.
+Earlier reads and callbacks from a replaced pet panel cannot overwrite the
+current panel or close its editor.
 
 ## Packaging and installation
 

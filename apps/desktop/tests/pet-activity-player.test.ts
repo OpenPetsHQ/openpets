@@ -10,10 +10,12 @@ interface ImageProbe {
   onerror: (() => void) | null;
 }
 
-interface Completion { readonly generation: number; readonly failed: boolean }
+type Outcome = "started" | "completed" | "cancelled" | "failed";
+interface Completion { readonly generation: number; readonly outcome: Outcome }
 interface Player {
-  play(payload: unknown): void;
-  cancel(generation?: number): void;
+  play(payload: unknown, onOutcome: (outcome: Outcome) => void): void;
+  cancel(generation: number): void;
+  dispose(): void;
   refreshStage(): void;
 }
 const require = createRequire(import.meta.url);
@@ -62,7 +64,6 @@ function fixture() {
       return id;
     },
     clearTimeout(id: number) { timers.delete(id); },
-    onComplete(completion: Completion) { completed.push(completion); },
   });
   return {
     player, probes, elements, completed, timers,
@@ -87,61 +88,69 @@ function fixture() {
   };
 }
 
-const payload = (generation: number) => ({ generation, frameCount: 8, fps: 4, scale: 1.5, imageUrl: "data:image/webp;base64,YQ==" });
+const payload = (generation: number) => ({ kind: "play", format: "classic", activityId: "nap", generation, frameCount: 8, fps: 4, scale: 1.5, imageUrl: "data:image/webp;base64,YQ==" });
+const play = (f: ReturnType<typeof fixture>, generation: number) => {
+  f.player.play(payload(generation), (outcome) => f.completed.push({ generation, outcome }));
+};
 
-// A strip uses rectangular frames and finishes once, restoring the normal pet and releasing every timer.
+// Started follows attachment of the first frame; the final frame must finish its duration.
 {
   const f = fixture();
-  f.player.play(payload(1));
+  play(f, 1);
+  assert.deepEqual(f.completed, []);
   f.probes[0]!.onload!();
-  assert.equal(f.base.style.visibility, "hidden");
+  assert.equal(f.shell.attached[0], f.elements[0]);
   assert.equal(f.elements[0]!.style.backgroundPosition, "0px 0px");
-  f.advance(250);
-  assert.equal(f.elements[0]!.style.backgroundPosition, "-192px 0px");
+  assert.deepEqual(f.completed, [{ generation: 1, outcome: "started" }]);
   f.advance(1_750);
-  assert.deepEqual(f.completed, [{ generation: 1, failed: false }]);
-  assert.equal(f.base.style.visibility, "");
+  assert.equal(f.elements[0]!.style.backgroundPosition, "-1344px 0px");
+  assert.equal(f.completed.length, 1);
+  f.advance(250);
+  assert.deepEqual(f.completed[1], { generation: 1, outcome: "completed" });
   assert.equal(f.timers.size, 0);
   assert.equal(f.elements[0]!.removed, true);
 }
 
-// Canceled image loads and stale completion/cancel messages cannot attach or stop a later strip.
+// Late loads cannot attach after cancellation; stale cancellation cannot stop a new strip.
 {
   const f = fixture();
-  f.player.play(payload(1));
+  play(f, 1);
   const lateLoad = f.probes[0]!.onload!;
-  f.player.cancel();
-  f.player.play(payload(2));
+  f.player.cancel(1);
+  play(f, 2);
   lateLoad();
   assert.equal(f.elements.length, 0);
   f.probes[1]!.onload!();
-  f.player.play({ generation: 1, cancel: true });
-  assert.equal(f.base.style.visibility, "hidden");
-  f.setPlugin();
-  f.player.cancel();
-  assert.equal(f.base.style.visibility, "hidden", "native cleanup must not reveal the base underneath a plugin");
+  f.player.cancel(1);
+  assert.equal(f.elements[0]!.removed, false);
+  f.advance(2_000);
+  assert.deepEqual(f.completed, [
+    { generation: 1, outcome: "cancelled" },
+    { generation: 2, outcome: "started" },
+    { generation: 2, outcome: "completed" },
+  ]);
   assert.equal(f.timers.size, 0);
-  assert.deepEqual(f.completed, []);
 }
 
-// Invalid artwork and image timeouts fail closed for this activity, without leaving the base hidden.
+// Invalid artwork and timeouts fail without leaking timers.
 {
   const f = fixture();
-  f.player.play(payload(1));
+  play(f, 1);
   f.probes[0]!.naturalHeight = 192;
   f.probes[0]!.onload!();
-  assert.deepEqual(f.completed, [{ generation: 1, failed: true }]);
-  f.player.play(payload(2));
+  play(f, 2);
   f.advance(3_000);
-  assert.deepEqual(f.completed[1], { generation: 2, failed: true });
-  assert.equal(f.base.style.visibility, "");
+  assert.deepEqual(f.completed, [
+    { generation: 1, outcome: "failed" },
+    { generation: 2, outcome: "failed" },
+  ]);
   assert.equal(f.timers.size, 0);
 }
 
-// Body-only HUD stage replacement keeps the same frame, element, completion generation and finish time.
+// HUD stage replacement retains the same frame and completion time.
 {
   const f = fixture();
-  f.player.play(payload(1));
+  play(f, 1);
   f.probes[0]!.onload!();
   f.advance(750);
   const element = f.elements[0]!;
@@ -149,25 +158,20 @@ const payload = (generation: number) => ({ generation, frameCount: 8, fps: 4, sc
   f.replaceStage();
   f.player.refreshStage();
   assert.equal(f.shell.attached[0], element);
-  assert.equal(f.elements.length, 1);
   assert.equal(element.style.backgroundPosition, frame);
-  assert.equal(f.base.style.visibility, "hidden");
   f.advance(1_250);
-  assert.deepEqual(f.completed, [{ generation: 1, failed: false }]);
-  assert.equal(f.base.style.visibility, "");
+  assert.deepEqual(f.completed[1], { generation: 1, outcome: "completed" });
   assert.equal(f.timers.size, 0);
 }
 
-// A HUD update while the strip image is loading attaches playback to the current, not detached, shell.
+// Disposing during image load cannot subsequently report a decode failure.
 {
   const f = fixture();
-  f.player.play(payload(1));
-  f.replaceStage();
-  f.player.refreshStage();
-  f.probes[0]!.onload!();
-  assert.equal(f.shell.attached[0], f.elements[0]);
-  assert.equal(f.base.style.visibility, "hidden");
-  f.advance(2_000);
-  assert.deepEqual(f.completed, [{ generation: 1, failed: false }]);
+  play(f, 1);
+  const lateError = f.probes[0]!.onerror!;
+  f.player.dispose();
+  lateError();
+  assert.deepEqual(f.completed, [{ generation: 1, outcome: "cancelled" }]);
+  assert.equal(f.timers.size, 0);
 }
-console.log("Native activity player finite playback, stale-load guards and cleanup passed.");
+console.log("Native activity player playback, interruption and cleanup passed.");

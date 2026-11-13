@@ -27,6 +27,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
   - `teams/manager-check-ins/manager-check-ins-state.ts`: Pure renderer helpers for fixed feelings, bounded display state, labels, dates, and history presentation.
 - **Dashboard**: Reads a narrowed dashboard snapshot for default pet preview, install/catalog counts, plugin health, update status, and activity totals.
 - **Pets**: Combines installed pets, catalog v3 pages/search, Codex imports, filters, detail panes, set-default/install/import/remove actions, version-aware V1/V2 sprite previews (including the static V2 neutral cell), the wardrobe section for installed pets with outfits (`pets/WardrobePanel.tsx`: outfit picker, always-wear vs follow-schedule, ordered schedule editor; `pets/wardrobe-state.ts`: snapshot shapes, rule drafts, localized rule summaries), and the Idle Activities section (`pets/ActivitiesPanel.tsx`: outfit-aware playback and preview rendering, current-outfit context, intuitive "Play automatically while idle" toggle, missing-artwork friendly fallback, and robust error/retry recovery). A `pets` route target may carry `petId` to open that pet's detail.
+- `pets/wardrobe-requests.ts`: Per-panel read and mutation ownership, including coalesced refreshes and invalidation on panel replacement.
 - **Integrations**: Modularized under `integrations/` for card-first setup UI for Claude Code, OpenCode, Cursor, Zed, Devin, Pi guidance, and OpenClaw native-plugin setup, including command mode/path controls and preview/action flows:
   - `integrations/IntegrationsView.tsx`: Top-level orchestrator rendering agent cards, status pills, action buttons, command mode switching, error/toast handling, and guided configuration dialogs for Claude Code, OpenCode, Cursor, OpenClaw, Zed, Devin, and Pi.
   - `integrations/IntegrationIcon.tsx`: Brand and tool iconography supporting Claude, OpenCode, Cursor, Devin, Pi, VS Code, and Zed, with a consistent SVG fallback glyph.
@@ -64,7 +65,7 @@ React/Tailwind source for the Control Center management UI. This renderer presen
 
 - `main.tsx`: Existing route shell and management pages for Dashboard, Pets, Plugins, Integrations, Teams, and Settings; Pets catalog-search errors and action errors are displayed and cleared independently.
 - `teams/manager-check-ins/`: Control Center's read-only Manager Check-ins management lane. The private weekly action circle and five-feeling submission card live in the default pet renderer (`pet-preload.cjs`), outside this Control Center bundle.
-- `pet-preview-state.ts`: Pure 8×9/8×11 preview model that preserves V1 frame animation, selects V2's neutral frame, and resolves catalog V2 sprite metadata.
+- `pet-preview-state.ts`: Pure 8×9/8×11 preview models that preserve V1 frame animation, select V2's neutral frame, resolve catalog V2 sprite metadata, and retain the configured Classic reaction state/atlas/timing while keeping Motion reaction previews static.
 - `catalog-search-state.ts`: Pure search state transition and failure recovery helpers for Control Center catalog search index loading.
 - `styles.css`: Tailwind base/components/utilities plus glass-card layout, navigation, galleries, modals, status pills, previews, and notifications.
 - `vite-env.d.ts`: Vite/TypeScript renderer environment declarations.

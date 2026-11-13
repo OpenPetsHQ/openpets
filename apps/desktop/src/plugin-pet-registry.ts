@@ -7,13 +7,14 @@ import { builtInPet } from "./built-in-pet.js";
 import { debug, error as logError, info } from "./logger.js";
 import type { OpenPetsReaction } from "./local-ipc-protocol.js";
 import { motionCancelMove, motionClearAutomaticMovementForOwner, motionMoveTo, motionSetAutomaticMovement, motionSetFollowCursor, motionSetPhysics, motionStop, unregisterPet, type WindowAccessor } from "./pet-motion-engine.js";
-import { createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
+import { applyPetBodyReaction, createAgentPetWindow, hidePetWindow, isPetWindowDragging, loadExplicitPetContent, readWindowPosition, setPetReactionState, setPetSpriteOverride, setPetWindowScale, showPetWindowInactive, type PetPluginBubbles, type PetStatusBadgeReaction } from "./pet-window.js";
 import { PetBubbleArbiter, type PetBubbleSink } from "./plugin-bubble-arbiter.js";
 import { publishPluginPetEvent } from "./plugin-events-source.js";
 import { resolveReactionSpriteState } from "@open-pets/pet-format/animation";
 import type { PluginAnimationSpec, PluginPetInfo, PluginPetState } from "./plugin-sdk-bridge.js";
 import type { DisplayChangeReason } from "./pet-display-coordinator.js";
 import { setWindowPosition } from "./window-position.js";
+import { replacePluginSpriteWithReaction } from "./pet-body-state.js";
 
 /**
  * Multi-pet registry (§4): addressable pet handles for plugins. "default" is
@@ -243,7 +244,17 @@ export function hidePluginPet(petHandleId: string): void {
 }
 
 export function reactPluginPet(petHandleId: string, reaction: OpenPetsReaction, options: { readonly showMessage?: boolean } = {}): void {
-  if (petHandleId === "default") { applyExternalPetReaction(reaction, options); defaultAnimation = String(reaction); return; }
+  if (petHandleId === "default") {
+    replacePluginSpriteWithReaction(
+      () => {
+        const window = getDefaultPetWindowForPlugins();
+        if (window) setPetSpriteOverride(window, null);
+      },
+      () => { applyExternalPetReaction(reaction, options); },
+    );
+    defaultAnimation = String(reaction);
+    return;
+  }
   const pet = spawnedPets.get(petHandleId);
   if (!pet) throw new Error(`Pet is not available: ${petHandleId}`);
   applySpawnedPetAnimation(pet, { kind: "reaction", reaction });
@@ -253,8 +264,10 @@ export function setPluginPetAnimation(petHandleId: string, spec: PluginAnimation
   if (petHandleId === "default") {
     const window = requireWindow("default");
     if (spec.kind === "reaction") {
-      applyExternalPetReaction(spec.reaction);
-      setPetSpriteOverride(window, null);
+      replacePluginSpriteWithReaction(
+        () => setPetSpriteOverride(window, null),
+        () => { applyExternalPetReaction(spec.reaction); },
+      );
       defaultAnimation = String(spec.reaction);
     } else {
       setPetSpriteOverride(window, { filePath: spec.spritePath, fps: spec.fps, loop: spec.loop });
@@ -269,10 +282,14 @@ export function setPluginPetAnimation(petHandleId: string, spec: PluginAnimation
 
 function applySpawnedPetAnimation(pet: SpawnedPet, spec: PluginAnimationSpec): void {
   if (!pet.window || pet.window.isDestroyed()) throw new Error(`Pet is not available: ${pet.handleId}`);
+  const window = pet.window;
   if (pet.reactionRevert) { clearTimeout(pet.reactionRevert); pet.reactionRevert = null; }
   if (spec.kind === "reaction") {
     pet.spriteOverride = null;
-    setPetSpriteOverride(pet.window, null);
+    replacePluginSpriteWithReaction(
+      () => setPetSpriteOverride(window, null),
+      () => applyPetBodyReaction(window, spec.reaction),
+    );
     const spriteState = resolveReactionSpriteState(spec.reaction, getAppStateSnapshot().preferences.reactionAnimationOverrides);
     setPetReactionState(pet.window, spriteState);
     pet.currentAnimation = String(spec.reaction);
@@ -303,6 +320,7 @@ export function setPluginPetStatusReaction(petHandleId: string, reaction: OpenPe
   const pet = spawnedPets.get(petHandleId);
   if (!pet) throw new Error(`Pet is not available: ${petHandleId}`);
   pet.statusReaction = reaction === null || reaction === "idle" ? null : reaction as PetStatusBadgeReaction;
+  if (pet.window && !pet.window.isDestroyed()) applyPetBodyReaction(pet.window, reaction ?? "idle");
   refreshSpawnedPet(pet);
 }
 

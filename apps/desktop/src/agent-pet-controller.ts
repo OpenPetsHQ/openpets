@@ -7,7 +7,7 @@ import { clampToTerminalBounds, getConfinementState, getEffectiveConfinementBoun
 import { defaultPetWindowSize, clampToVisibleWorkArea, getDefaultPetInitialPosition } from "./display.js";
 import { debug, info } from "./logger.js";
 import { transientDisplayMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
-import { clearTransientReaction, createAgentPetWindow, getTransientDisplayDurationMs, getTransientReactionAnimationMs, loadExplicitPetContent, mergePetTransientDisplay, readWindowPosition, setPetReactionState, showPetWindowInactive, type PetShowMediaOptions, type PetTransientDisplay } from "./pet-window.js";
+import { applyPetBodyReaction, clearTransientReaction, createAgentPetWindow, getTransientDisplayDurationMs, getTransientReactionAnimationMs, loadExplicitPetContent, mergePetTransientDisplay, readWindowPosition, setPetReactionState, showPetWindowInactive, type PetShowMediaOptions, type PetTransientDisplay } from "./pet-window.js";
 import { focusTerminalWindow } from "./terminal-focus.js";
 import { createPetTransientPresentation, type PetTransientPresentation } from "./pet-transient-presentation.js";
 import { setWindowPosition } from "./window-position.js";
@@ -89,6 +89,8 @@ export function applyAgentPetReaction(petId: string, reaction: OpenPetsReaction)
   debug("pet.agent", "reaction apply", { petId, reaction });
   setAgentDisplay(petId, { reaction });
   const shown = showAgentPet(petId);
+  const window = agentPetWindows.get(petId);
+  if (shown && window) applyPetBodyReaction(window, reaction);
   return shown ? { shown } : { shown, reason: "dismissed" };
 }
 
@@ -97,6 +99,8 @@ export function applyAgentPetSay(petId: string, message: string, reaction?: Open
   if (!reaction) transientPresentations.get(petId)?.clearStatusBadge();
   setAgentDisplay(petId, { message, reaction });
   const shown = showAgentPet(petId);
+  const window = agentPetWindows.get(petId);
+  if (shown && window && reaction) applyPetBodyReaction(window, reaction);
   return shown ? { shown } : { shown, reason: "dismissed" };
 }
 
@@ -105,6 +109,8 @@ export function applyAgentPetShowMedia(petId: string, options: PetShowMediaOptio
   if (!options.reaction) transientPresentations.get(petId)?.clearStatusBadge();
   setAgentDisplay(petId, { message: options.message, reaction: options.reaction, mediaPath: options.mediaPath, displayDurationMs: options.durationMs, clickUrl: options.clickUrl });
   const shown = showAgentPet(petId);
+  const window = agentPetWindows.get(petId);
+  if (shown && window && options.reaction) applyPetBodyReaction(window, options.reaction);
   return shown ? { shown } : { shown, reason: "dismissed" };
 }
 

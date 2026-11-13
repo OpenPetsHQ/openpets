@@ -15,6 +15,37 @@ installation), `packages/install-pet/codemap.md` (standalone installer).
 
 ## What a pet is
 
+### Motion packages
+
+Motion artwork uses an explicit `format: "motion"`, `version: 1` manifest with
+named animated WebP clips, semantic bindings and shared logical geometry. It
+does not require a Classic spritesheet or the nine Classic visual slots.
+The shared contract and validation owners are
+`@open-pets/pet-format/package` and its Node `package-validation` subpath.
+
+Motion wardrobes add complete per-outfit bindings through the existing
+preference and schedule owners. The wardrobe contract has passed integrated
+checks and live synthetic-fixture verification. Motion activities also have
+integrated and live synthetic-contract coverage as described below; gaze remains
+unsupported. Classic pets retain their existing
+wardrobe, activity and gaze support. See [Motion pets](/motion-pets) and
+[Wardrobe](/wardrobe#motion-wardrobes) for the current delivery boundary.
+
+Desktop imports use the existing folder/ZIP transaction. Immutable per-revision
+snapshots keep lazy clip reads consistent during replacement. Main-process body
+intent remains separate from speech-bubble expiration; the renderer body
+coordinator chooses the artwork and reports finite completion or cancellation.
+Dragging interrupts immediately, while HUD updates retain the current canvas.
+Native frame timing and any authored per-clip pace replace the old global speed
+multiplier. Control Center uses a static neutral-frame image, not an atlas crop.
+
+The development-only `motion.json` replacement and
+`OPENPETS_MOTION_PREVIEW_DIR` path have been removed. Existing local experiments
+must be explicitly converted into a normal `pet.json` package; they are not
+silently treated as production packages. The bundled fallback remains Classic.
+
+### Published pet packages
+
 A pet package is small and asset-driven:
 
 - **`pet.json`** - metadata: `id`, `displayName`, `description`,
@@ -84,7 +115,7 @@ activity uses artwork matching the pet's rendered outfit; without a matching
 representation, it is skipped rather than switching the pet's clothes. Automatic
 play preferences and cooldowns belong to the activity and are shared across outfits.
 
-A full pet package may optionally declare `pet.json.activities`: at most 16
+A Classic pet package may optionally declare `pet.json.activities`: at most 16
 logical one-shot animations separate from its reaction atlas. Each entry
 has a unique lowercase `id` matching `^[a-z0-9][a-z0-9_-]{0,31}$`, a trimmed
 `displayName` of 1–40 characters, a primary `outfitId` of `default` or a declared
@@ -117,6 +148,41 @@ the existing install transaction. Packages without activities retain their
 existing installation behavior. Runtime reads of optional activity assets stay
 separate from base-atlas validation, so a damaged optional strip need not make
 the base pet unusable.
+
+### Motion activity contract
+
+Motion packages use the same logical activity IDs, outfit availability and
+preferences, but each representation names a finite root `animation` instead of
+declaring a Classic strip. The primary representation is not a fallback for
+another outfit. Playback runs introduction, main clip and ending once. Node
+package validation sums verified native durations divided by each clip's
+authored pace and enforces the same 1–12 second bounds across all phases.
+Motion activities use the package's existing clips and aggregate asset limits;
+there is no additional `activities/` artwork directory.
+
+The desktop integration has passed focused/integrated checks and live macOS
+synthetic-contract verification. Its host activity service owns
+the single quiet-opportunity cadence, logical cooldown history and reservations.
+The body coordinator owns admission and interruption for both formats. History
+is recorded when the first activity frame is presented, not merely requested.
+Ordinary cancellation is distinct from artwork failure and must not quarantine
+an otherwise valid activity.
+
+Motion activity admission uses its persistent semantic context. Classic admission
+instead follows the host's current busy presentation and reservation: an expired
+Classic reaction must not remain blocked by stale Motion-context state. A fresh
+busy presentation still cancels the Classic activity, including a repeated
+reaction with the same context.
+
+Motion carriers resolve against the actual committed appearance and immutable
+asset snapshot, not a saved outfit preference or a pending render. A pending
+outfit switch cancels activity and blocks new admission; a failed switch leaves
+the retained outfit's matching representations available. Activity results have
+their own generation and appearance target and cannot commit clothes or settle
+semantic reactions. The activity panel identifies its selected window/outfit;
+Motion previews show the first frame of the activity's introduction, or main
+clip when no introduction exists. Missing carriers disable playback without
+preventing preference changes.
 
 ## Teams-owned pets
 

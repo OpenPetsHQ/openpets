@@ -4,7 +4,7 @@ export interface SafeZipEntryPath {
   readonly originalName: string;
   readonly normalizedName: string;
   readonly topLevelDirectory: string;
-  readonly relativeOutputPath: "pet.json" | "spritesheet.webp" | "spritesheet.svg" | `outfits/${string}` | `activities/${string}` | null;
+  readonly relativeOutputPath: "pet.json" | "spritesheet.webp" | "spritesheet.svg" | `outfits/${string}` | `activities/${string}` | `clips/${string}` | null;
   readonly isDirectory: boolean;
   /** A wardrobe atlas under `outfits/`; the manifest decides later whether it is expected. */
   readonly isOutfitAtlas: boolean;
@@ -18,8 +18,10 @@ export class ZipEntryPathTracker {
   readonly #caseFoldedPaths = new Set<string>();
   #topLevelDirectory: string | null = null;
 
+  constructor(private readonly format: "classic" | "motion" = "classic") {}
+
   accept(fileName: string): SafeZipEntryPath {
-    const entry = validateZipEntryName(fileName);
+    const entry = validateZipEntryName(fileName, this.format);
 
     if (this.#topLevelDirectory !== null && entry.topLevelDirectory !== this.#topLevelDirectory) {
       throw new Error("Zip contains mixed or multiple top-level layouts.");
@@ -42,7 +44,7 @@ export class ZipEntryPathTracker {
   }
 }
 
-export function validateZipEntryName(fileName: string): SafeZipEntryPath {
+export function validateZipEntryName(fileName: string, format: "classic" | "motion" = "classic"): SafeZipEntryPath {
   if (fileName.includes("\0")) throw new Error("Zip entry contains NUL byte.");
   if (fileName.includes("\\")) throw new Error("Zip entry contains backslash separator.");
   if (fileName.startsWith("/") || fileName.startsWith("//")) throw new Error("Zip entry is absolute.");
@@ -55,12 +57,13 @@ export function validateZipEntryName(fileName: string): SafeZipEntryPath {
 
   const isDirectory = fileName.endsWith("/");
   if (isDirectory) {
-    if (parts.length !== 1 && !(parts.length === 2 && (parts[1] === "outfits" || parts[1] === "activities"))) throw new Error("Zip directory layout is unsupported.");
+    const assetDirectories = format === "motion" ? ["clips"] : ["outfits", "activities"];
+    if (parts.length !== 1 && !(parts.length === 2 && assetDirectories.includes(parts[1] ?? ""))) throw new Error("Zip directory layout is unsupported.");
     return {
       originalName: fileName,
       normalizedName: parts.join("/"),
       // Bare asset folders belong to the root layout, not a wrapper pet folder.
-      topLevelDirectory: parts.length === 1 && (parts[0] === "outfits" || parts[0] === "activities") ? "" : parts[0] ?? "",
+      topLevelDirectory: parts.length === 1 && assetDirectories.includes(parts[0] ?? "") ? "" : parts[0] ?? "",
       relativeOutputPath: null,
       isDirectory: true,
       isOutfitAtlas: false,
@@ -68,6 +71,12 @@ export function validateZipEntryName(fileName: string): SafeZipEntryPath {
   }
 
   const leaf = parts.at(-1) ?? "";
+  if (format === "motion") {
+    if ((parts.length === 2 || parts.length === 3) && parts.at(-2) === "clips" && /^[a-z0-9][a-z0-9_-]{0,79}\.webp$/.test(leaf)) {
+      return { originalName: fileName, normalizedName: parts.join("/"), topLevelDirectory: parts.length === 3 ? parts[0] ?? "" : "", relativeOutputPath: `clips/${leaf}`, isDirectory: false, isOutfitAtlas: false };
+    }
+    if (leaf !== "pet.json") throw new Error(`Unexpected Motion zip file: ${leaf}`);
+  }
   if ((parts.length === 2 || parts.length === 3)
     && parts.at(-2) === "activities"
     && activityAtlasFileName.test(leaf)) {

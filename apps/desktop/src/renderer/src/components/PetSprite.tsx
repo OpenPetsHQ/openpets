@@ -103,6 +103,44 @@ export function SpriteFrame({ src, label, spriteLayout, state = "idle", size = "
   </svg>;
 }
 
+export function PetPreviewCard({
+  src,
+  label,
+  spriteLayout,
+  previewFormat = "atlas",
+  previewWidth,
+  previewHeight,
+  state = "idle",
+  size = "detail",
+}: {
+  src?: string;
+  label: string;
+  spriteLayout?: PetSpriteLayout;
+  previewFormat?: "image" | "atlas";
+  previewWidth?: number;
+  previewHeight?: number;
+  state?: "idle" | "thinking" | "happy" | "wave";
+  size?: "thumb" | "detail" | "mini";
+}) {
+  const safeSrc = safePetImage(src);
+  if (!safeSrc) return <img src={defaultThumbUrl} alt="" />;
+  if (previewFormat === "image") {
+    const frame = spriteFrameSizes[size];
+    const aspect = previewWidth && previewHeight ? `${previewWidth} / ${previewHeight}` : "1 / 1";
+    return (
+      <div className={`pet-preview-image-shell sprite-${size}`} style={{ width: frame.width, height: frame.height, aspectRatio: aspect, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }} role="img" aria-label={label}>
+        <img
+          src={safeSrc}
+          alt={label}
+          style={{ width: "100%", height: "100%", objectFit: "contain", imageRendering: "auto" }}
+          onError={() => logPetsError("preview-image-failed", { label, size, src: imageDebug(safeSrc) })}
+        />
+      </div>
+    );
+  }
+  return <SpriteFrame src={src} label={label} spriteLayout={spriteLayout} state={state} size={size} />;
+}
+
 export function PetImage({ src, alt = "", debugLabel }: { src?: string; alt?: string; debugLabel: string }) {
   const safeSrc = safePetImage(src) || defaultThumbUrl;
   return <img src={safeSrc} alt={alt} draggable="false" onError={() => logPetsError("image-failed", { label: debugLabel, src: imageDebug(safeSrc) })} />;

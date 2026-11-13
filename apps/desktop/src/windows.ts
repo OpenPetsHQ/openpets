@@ -19,10 +19,11 @@ import { setConfinementEnabled } from "./confinement-manager.js";
 import { setCrossDisplayRoamingEnabled } from "./display.js";
 import { getActiveLocale, getActiveMessages, LOCALE_LABELS, SUPPORTED_LOCALES, setLocaleFromPreference, t, type Locale, type LocalePreference } from "./i18n/index.js";
 import { applyExternalPetSay, getDefaultPetPluginBubbles, recoverDefaultPetMouseInterop, refreshDefaultPetContent, resetDefaultPetToInitialPosition } from "./default-pet-controller.js";
-import { readInstalledPetMetadata, readInstalledPetSpriteLayout, readInstalledPetSpritesheet } from "./installed-pet-layout.js";
+import { readInstalledPetPackage, readInstalledPetPresentation, readInstalledPetPreview } from "./installed-pet-layout.js";
 import { defaultOutfitId, isSafeOutfitId } from "@open-pets/pet-format/wardrobe";
-import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
-import { getPetActivities, playPetActivity, readInstalledActivityAsset, setPetActivityEnabled } from "./pet-activities.js";
+import { getPetWardrobeSnapshot, retryPetOutfit, subscribePetWardrobeChanges, updatePetWardrobe } from "./pet-wardrobe.js";
+import { getRenderedOutfits, subscribeRenderedOutfits } from "./pet-wardrobe-render-state.js";
+import { getPetActivities, playPetActivity, readPetActivityPreview, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
 import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference, setPetWindowOverlaySuppressed } from "./pet-window.js";
@@ -69,6 +70,12 @@ import { installPet, installPetFromFolder, installPetFromZipFile, installPetWard
 type InternalUiWindowKind = "control-center";
 export type { ControlCenterRoute } from "./control-center-route.js";
 let controlCenterWindow: BrowserWindow | null = null;
+
+function broadcastWardrobeChanged(petId: string): void {
+  if (!controlCenterWindow || controlCenterWindow.isDestroyed()) return;
+  controlCenterWindow.webContents.send("openpets:pet-wardrobe-changed", petId);
+}
+
 let internalUiHandlersInstalled = false;
 let pendingControlCenterRouteTarget: ControlCenterRouteTarget | null = null;
 let pendingDockTimer: NodeJS.Timeout | null = null;
@@ -179,7 +186,7 @@ function getI18nSnapshot(): {
 }
 
 async function getDashboardSnapshot(): Promise<{
-  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly spriteLayout: CodexPetSpriteLayout };
+  readonly defaultPet: { readonly id: string; readonly displayName: string; readonly assetName: string; readonly petName?: string; readonly previewSpriteUrl: string; readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number; readonly previewOutfitId?: string; readonly previewOutfitSource?: "committed" | "requested" };
   readonly installedPetCount: number;
   readonly catalog: { readonly source: string; readonly total?: number; readonly page?: number; readonly pageCount?: number; readonly error?: string };
   readonly plugins: { readonly installed: number; readonly enabled: number; readonly broken: number };
@@ -208,7 +215,7 @@ async function getDashboardSnapshot(): Promise<{
       assetName,
       petName: personalName,
       previewSpriteUrl: `openpets-pet-preview://spritesheet/default?v=${encodeURIComponent(preview.version)}`,
-      spriteLayout: preview.spriteLayout,
+      ...previewPresentation(preview),
     },
     installedPetCount: state.pets.installed.length,
     catalog: {
@@ -263,7 +270,7 @@ export function installInternalUiHandlers(): void {
     setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
     getAppStateSnapshot,
     getSettingsStateSnapshot,
-    readInstalledPetSpriteLayout,
+    readInstalledPetPresentation,
     getCatalogUiState,
     getCatalogPageUiState,
     getCatalogSearchUiState,
@@ -278,6 +285,7 @@ export function installInternalUiHandlers(): void {
     syncPinnedPets,
     getPetWardrobeSnapshot,
     updatePetWardrobe,
+    retryPetOutfit,
     installPetWardrobe,
     refreshPetWindowsForPetId,
     installPet,
@@ -655,16 +663,29 @@ export function installInternalUiProtocol(): void {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
       const url = new URL(request.url);
-      if (url.search || url.hash) return new Response(null, { status: 404 });
+      if (url.hash) return new Response(null, { status: 404 });
       if (url.hostname === "activity") {
         const parts = url.pathname.replace(/^\//, "").split("/").map(decodeURIComponent);
         if (parts.length !== 3) return new Response(null, { status: 404 });
         const [petId = "", activityId = "", outfitId = ""] = parts;
         if (!isSafeOutfitId(outfitId)) return new Response(null, { status: 404 });
-        return new Response(await readInstalledActivityAsset(petId, activityId, outfitId), {
-          headers: { "Content-Type": "image/webp", "Cache-Control": "no-store" },
+        const keys = [...url.searchParams.keys()];
+        const allowed = ["windowId", "snapshotId", "presentationId"];
+        if (keys.some((key) => !allowed.includes(key)) || new Set(keys).size !== keys.length || (keys.length !== 0 && keys.length !== allowed.length)) return new Response(null, { status: 404 });
+        let target: { windowId: number; snapshotId: string; presentationId: string } | undefined;
+        if (keys.length) {
+          const windowId = Number(url.searchParams.get("windowId"));
+          const snapshotId = url.searchParams.get("snapshotId");
+          const presentationId = url.searchParams.get("presentationId");
+          if (!Number.isSafeInteger(windowId) || windowId <= 0 || !snapshotId || !presentationId) return new Response(null, { status: 404 });
+          target = { windowId, snapshotId, presentationId };
+        }
+        const preview = await readPetActivityPreview(petId, activityId, outfitId, target);
+        return new Response(preview.bytes, {
+          headers: { "Content-Type": preview.mimeType, "Cache-Control": "no-store" },
         });
       }
+      if (url.search) return new Response(null, { status: 404 });
       if (url.hostname !== "spritesheet") return new Response(null, { status: 404 });
       // `/{petId}` serves the base atlas; `/{petId}/{outfitId}` one wardrobe outfit.
       const [petId = "", outfitId, ...rest] = url.pathname.replace(/^\//, "").split("/").map((part) => decodeURIComponent(part));
@@ -681,7 +702,7 @@ export function installInternalUiProtocol(): void {
       assertSafePetId(petId);
       const pet = getAppStateSnapshot().pets.installed.find((candidate) => candidate.id === petId && !candidate.broken);
       if (!pet) return new Response(null, { status: 404 });
-      const spritesheet = await readInstalledPetSpritesheet(petId, pet.source?.kind === "team" ? "team" : "personal", outfitId);
+      const spritesheet = await readInstalledPetPreview(petId, pet.source?.kind === "team" ? "team" : "personal", outfitId);
       return new Response(spritesheet.bytes, {
         headers: {
           "Content-Type": spritesheet.mimeType,
@@ -702,13 +723,19 @@ export function installInternalUiProtocol(): void {
       if (url.hostname !== "spritesheet" || (url.pathname !== "/default" && !isBuiltInRequest) || url.hash) return new Response(null, { status: 404 });
       const version = url.searchParams.get("v");
       if ([...url.searchParams.keys()].some((key) => key !== "v") || (version !== null && !/^[a-z0-9_-]+-\d+-\d+$/.test(version))) return new Response(null, { status: 404 });
-      const { path, spriteLayout } = isBuiltInRequest
+      const preview = isBuiltInRequest
         ? getBuiltInPetPreviewSpriteInfo()
         : await getDefaultPetPreviewSpriteInfo();
-      const bytes = await readBoundedRegularFile(path, 100 * 1024 * 1024, "Pet preview spritesheet");
-      const mimeType = petSpritesheetMimeType(path);
-      if (mimeType === "image/svg+xml") {
-        validateSvgSpritesheet(bytes, spriteLayout.frameWidth * spriteLayout.columns, spriteLayout.frameHeight * spriteLayout.rows);
+      let bytes: Buffer;
+      let mimeType: string;
+      if (preview.previewFormat === "image") {
+        ({ bytes, mimeType } = await readInstalledPetPreview(preview.petId, preview.source, preview.outfitId));
+      } else {
+        bytes = await readBoundedRegularFile(preview.path, 100 * 1024 * 1024, "Pet preview spritesheet");
+        mimeType = petSpritesheetMimeType(preview.path);
+        if (mimeType === "image/svg+xml") {
+          validateSvgSpritesheet(bytes, preview.spriteLayout.frameWidth * preview.spriteLayout.columns, preview.spriteLayout.frameHeight * preview.spriteLayout.rows);
+        }
       }
       return new Response(bytes, {
         headers: {
@@ -769,6 +796,8 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
   });
 
   controlCenterWindow = window;
+  const unsubscribeWardrobe = subscribePetWardrobeChanges(broadcastWardrobeChanged);
+  const unsubscribeRendered = subscribeRenderedOutfits(broadcastWardrobeChanged);
   // Capture webContents.id now, before it can ever be destroyed -- the
   // "closed" handler below fires after window.webContents is already gone,
   // and reading .webContents.id at that point throws "Object has been
@@ -796,6 +825,8 @@ export function openControlCenterWindowTarget(target: ControlCenterRouteTarget):
     void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center renderer was lost.");
   });
   window.on("closed", () => {
+    unsubscribeWardrobe();
+    unsubscribeRendered();
     void controlCenterProviderIpc?.cancelForSender(webContentsId, "Control Center window was closed.");
     controlCenterWindow = null;
     setPetWindowOverlaySuppressed(false);
@@ -952,7 +983,8 @@ async function getReactionAnimationSettingsSnapshot(): Promise<unknown> {
       label: t(`settings.animation.${animation.id}.label`),
       description: t(`settings.animation.${animation.id}.description`),
     })),
-    sprite: { ...defaultPetSprite, ...preview.spriteLayout, states: getConfiguredSpriteStates(state.preferences.waitingAnimationDurationMs) },
+    sprite: { ...defaultPetSprite, ...(preview.previewFormat === "atlas" ? preview.spriteLayout : {}), states: getConfiguredSpriteStates(state.preferences.waitingAnimationDurationMs) },
+    ...previewPresentation(preview),
     waitingAnimationDurationMs: state.preferences.waitingAnimationDurationMs,
     waitingAnimationDurationOptions: waitingAnimationDurationOptions.map((option) => ({
       value: option.value,
@@ -965,35 +997,63 @@ async function getReactionAnimationSettingsSnapshot(): Promise<unknown> {
   };
 }
 
-function getBuiltInPetPreviewSpriteInfo(): { readonly path: string; readonly spriteLayout: CodexPetSpriteLayout } {
+type PetPreviewInfo =
+  | { readonly previewFormat: "atlas"; readonly path: string; readonly spriteLayout: CodexPetSpriteLayout; readonly version: string }
+  | { readonly previewFormat: "image"; readonly petId: string; readonly source: "personal" | "team"; readonly outfitId: string; readonly outfitSource: "committed" | "requested"; readonly previewWidth: number; readonly previewHeight: number; readonly version: string };
+
+function previewPresentation(preview: PetPreviewInfo): { readonly format: "classic" | "motion"; readonly previewFormat: "atlas" | "image"; readonly spriteLayout?: CodexPetSpriteLayout; readonly previewWidth?: number; readonly previewHeight?: number; readonly previewOutfitId?: string; readonly previewOutfitSource?: "committed" | "requested" } {
+  return preview.previewFormat === "image"
+    ? { format: "motion", previewFormat: "image", previewWidth: preview.previewWidth, previewHeight: preview.previewHeight, previewOutfitId: preview.outfitId, previewOutfitSource: preview.outfitSource }
+    : { format: "classic", previewFormat: "atlas", spriteLayout: preview.spriteLayout };
+}
+
+function getBuiltInPetPreviewSpriteInfo(): Extract<PetPreviewInfo, { previewFormat: "atlas" }> {
   return {
+    previewFormat: "atlas",
     path: join(app.getAppPath(), "assets", defaultPetSprite.fileName),
     spriteLayout: codexV2SpriteLayout,
+    version: "builtin-0-0",
   };
 }
 
-async function getDefaultPetPreviewSpriteInfo(): Promise<{ readonly path: string; readonly version: string; readonly spriteLayout: CodexPetSpriteLayout }> {
+async function getDefaultPetPreviewSpriteInfo(): Promise<PetPreviewInfo> {
   const state = getAppStateSnapshot();
   const selected = state.pets.installed.find((pet) => pet.id === state.preferences.defaultPetId);
   const builtInPath = getBuiltInPetPreviewSpriteInfo().path;
   const usesInstalledCandidate = Boolean(selected && !selected.broken && !selected.builtIn);
+  let motionSelected = false;
   try {
-    const metadata = usesInstalledCandidate && selected
-      ? await readInstalledPetMetadata(selected.id, selected.source?.kind === "team" ? "team" : "personal")
+    const source = selected?.source?.kind === "team" ? "team" : "personal";
+    const petPackage = usesInstalledCandidate && selected
+      ? await readInstalledPetPackage(selected.id, source)
       : undefined;
+    if (petPackage?.format === "motion" && selected) {
+      motionSelected = true;
+      const manifest = await stat(join(getPetDir(selected.id, source), "pet.json"));
+      const rendered = getRenderedOutfits(selected.id).find((entry) => entry.isDefault);
+      const outfitId = rendered?.outfitId ?? (await getPetWardrobeSnapshot(selected.id))?.requested ?? defaultOutfitId;
+      return {
+        previewFormat: "image", petId: selected.id, source, outfitId, outfitSource: rendered?.outfitId ? "committed" : "requested",
+        previewWidth: petPackage.metadata.geometry.width,
+        previewHeight: petPackage.metadata.geometry.height,
+        version: `${selected.id}-${outfitId}-${Math.round(manifest.mtimeMs)}-${manifest.size}`,
+      };
+    }
+    const metadata = petPackage?.format === "classic" ? petPackage.metadata : undefined;
     const candidatePath = metadata && selected
       ? join(getPetDir(selected.id, selected.source?.kind === "team" ? "team" : "personal"), metadata.spritesheetPath)
       : builtInPath;
     const spritesheet = await stat(candidatePath);
     if (spritesheet.isFile() && spritesheet.size > 0 && spritesheet.size <= 100 * 1024 * 1024) {
       const spriteLayout = metadata ? getCodexPetSpriteLayout(metadata) : codexV2SpriteLayout;
-      return { path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
+      return { previewFormat: "atlas", path: candidatePath, version: `${usesInstalledCandidate && selected ? selected.id : "builtin"}-${Math.round(spritesheet.mtimeMs)}-${spritesheet.size}`, spriteLayout };
     }
-  } catch {
+  } catch (error) {
+    if (motionSelected) throw error;
     // Fall back to the bundled pet if an installed default disappears while Settings is open.
   }
   const fallback = await stat(builtInPath);
-  return { path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV2SpriteLayout };
+  return { previewFormat: "atlas", path: builtInPath, version: `builtin-${Math.round(fallback.mtimeMs)}-${fallback.size}`, spriteLayout: codexV2SpriteLayout };
 }
 
 function getLaunchAtLoginState(): { supported: boolean; enabled: boolean } {

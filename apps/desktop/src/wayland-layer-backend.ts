@@ -657,7 +657,7 @@ function spawnHelper(
  * existing pet controllers keep working unchanged. Throws when the helper
  * cannot be started (caller should fall back to a normal window).
  */
-export function adoptPetWindowForLayerShell(window: BrowserWindow, position: Point): LayerShellSurface {
+export function adoptPetWindowForLayerShell(window: BrowserWindow, position: Point, onVisibilityChange?: (visible: boolean) => void): LayerShellSurface {
   const helperPath = resolveHelperBinaryPath();
   if (!helperPath) {
     throw new Error("openpets-wayland-helper binary not found");
@@ -678,7 +678,7 @@ export function adoptPetWindowForLayerShell(window: BrowserWindow, position: Poi
   // the real (hidden/offscreen) window. This is deliberately narrow: content
   // loading, webContents messaging and lifecycle events keep using the real
   // window underneath.
-  patchWindowSurface(window, surface);
+  patchWindowSurface(window, surface, onVisibilityChange);
 
   debug("pet.wayland", "layer-shell surface adopted", {
     windowId: window.id,
@@ -694,16 +694,16 @@ function resolveRuntimeDir(): string {
   return tmpdir();
 }
 
-function patchWindowSurface(window: BrowserWindow, surface: LayerShellSurface): void {
+function patchWindowSurface(window: BrowserWindow, surface: LayerShellSurface, onVisibilityChange?: (visible: boolean) => void): void {
   // Capture the original destroy so we can also tear down the helper.
   const originalDestroy = window.destroy.bind(window);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
 
-  w.show = () => surface.show();
-  w.showInactive = () => surface.show();
-  w.hide = () => surface.hide();
+  w.show = () => { surface.show(); onVisibilityChange?.(true); };
+  w.showInactive = () => { surface.show(); onVisibilityChange?.(true); };
+  w.hide = () => { surface.hide(); onVisibilityChange?.(false); };
   w.isVisible = () => surface.isVisible();
   w.isMinimized = () => false;
   w.restore = () => {};

@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../i18n.js";
-import { SpriteFrame, installedPetSpritesheetUrl } from "../components/PetSprite.js";
+import { PetPreviewCard, installedPetSpritesheetUrl } from "../components/PetSprite.js";
 import { Button } from "../components/ui/Button.js";
 import { StatusPill } from "../components/ui/StatusPill.js";
 import type { PetSpriteLayout } from "../pet-preview-state.js";
+import { WardrobeRequests } from "./wardrobe-requests.js";
 import {
   defaultOutfitId,
   describeOutfitRule,
@@ -26,53 +27,108 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
  * without a wardrobe. All persistence goes through the main-process wardrobe
  * service; this view only holds unsaved rule-editor drafts.
  */
-export function WardrobePanel({ petId, spriteLayout, load, update, installCatalogOutfits }: {
+export function WardrobePanel({ petId, spriteLayout, load, update, retryOutfit, onWardrobeChanged, installCatalogOutfits }: {
   readonly petId: string;
   readonly spriteLayout?: PetSpriteLayout;
   readonly load: (petId: string) => Promise<PetWardrobeSnapshot | null>;
   readonly update: (petId: string, patch: PetWardrobeUpdate) => Promise<PetWardrobeSnapshot | null>;
-  /** Set when the catalog offers a first or newer full package than the installed copy. */
+  readonly retryOutfit: (petId: string, outfitId: string) => Promise<PetWardrobeSnapshot | null>;
+  readonly onWardrobeChanged: (listener: (petId: string) => void) => () => void;
   readonly installCatalogOutfits?: () => Promise<unknown>;
 }) {
   const { t, locale } = useI18n();
   const [wardrobe, setWardrobe] = useState<PetWardrobeSnapshot | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // Index of the rule being edited; schedule.length means a new rule.
   const [editing, setEditing] = useState<{ readonly index: number; readonly draft: OutfitRuleDraft } | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
+  const requestsRef = React.useRef<WardrobeRequests | null>(null);
+  const petIdRef = React.useRef(petId);
+  petIdRef.current = petId;
+  const refreshRef = React.useRef<() => void>(() => {});
 
   useEffect(() => {
-    let cancelled = false;
+    const requests = new WardrobeRequests();
+    requestsRef.current = requests;
     setWardrobe(undefined);
     setEditing(null);
-    const refresh = (): void => {
-      load(petId)
-        .then((next) => { if (!cancelled) setWardrobe(next); })
-        .catch((err: unknown) => { if (!cancelled) { setWardrobe(null); setError(errorMessage(err)); } });
-    };
-    refresh();
-    // "Now wearing" follows the clock; the schedule has minute resolution.
-    const timer = window.setInterval(refresh, 60_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [petId, load, reloadToken]);
+    setSaving(false);
+    setError("");
 
-  const outfitName = useMemo(() => {
+    const refresh = (): void => {
+      const gen = requests.beginRead();
+      if (gen === null) return;
+      load(petId)
+        .then((next) => {
+          if (petIdRef.current === petId && requests.ownsRead(gen)) setWardrobe(next);
+        })
+        .catch((err: unknown) => {
+          if (petIdRef.current === petId && requests.ownsRead(gen)) {
+            setWardrobe(null);
+            setError(errorMessage(err));
+          }
+        });
+    };
+
+    refreshRef.current = refresh;
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+
+    const unsubscribe = onWardrobeChanged((changedPetId) => {
+      if (changedPetId === petId && petIdRef.current === petId) {
+        refresh();
+      }
+    });
+
+    return () => {
+      requests.invalidate();
+      if (requestsRef.current === requests) requestsRef.current = null;
+      window.clearInterval(timer);
+      unsubscribe();
+    };
+  }, [petId, load, onWardrobeChanged]);
+
+  function beginMutation(): { requests: WardrobeRequests; token: object } | null {
+    const requests = requestsRef.current;
+    if (!requests || petIdRef.current !== petId) return null;
+    const token = requests.beginMutation();
+    if (!token) return null;
+    setSaving(true);
+    setError("");
+    return { requests, token };
+  }
+
+  function ownsMutation(requests: WardrobeRequests, token: object): boolean {
+    return petIdRef.current === petId && requests.ownsMutation(token);
+  }
+
+  function finishMutation(requests: WardrobeRequests, token: object): void {
+    if (!ownsMutation(requests, token)) return;
+    const refresh = requests.finishMutation(token);
+    setSaving(false);
+    if (refresh) refreshRef.current();
+  }
+
+  const outfitName = (id: string): string => {
     const names = new Map((wardrobe?.outfits ?? []).map((outfit) => [outfit.id, outfit.displayName]));
-    return (id: string): string => names.get(id) ?? t("pets.wardrobe.defaultOutfit");
-  }, [wardrobe, t]);
+    return names.get(id) ?? t("pets.wardrobe.defaultOutfit");
+  };
 
   async function getCatalogOutfits(): Promise<void> {
     if (!installCatalogOutfits) return;
-    setSaving(true);
-    setError("");
+    const mutation = beginMutation();
+    if (!mutation) return;
+    const { requests, token } = mutation;
     try {
       await installCatalogOutfits();
-      setReloadToken((token) => token + 1);
+      if (ownsMutation(requests, token)) {
+        refreshRef.current();
+      }
     } catch (err) {
-      setError(errorMessage(err));
+      if (ownsMutation(requests, token)) {
+        setError(errorMessage(err));
+      }
     } finally {
-      setSaving(false);
+      finishMutation(requests, token);
     }
   }
 
@@ -94,17 +150,40 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
   }
 
   async function apply(patch: PetWardrobeUpdate): Promise<boolean> {
-    setSaving(true);
-    setError("");
+    const mutation = beginMutation();
+    if (!mutation) return false;
+    const { requests, token } = mutation;
     try {
       const next = await update(petId, patch);
+      if (!ownsMutation(requests, token)) return false;
       setWardrobe(next);
       return true;
     } catch (err) {
-      setError(errorMessage(err));
+      if (ownsMutation(requests, token)) {
+        setError(errorMessage(err));
+      }
       return false;
     } finally {
-      setSaving(false);
+      finishMutation(requests, token);
+    }
+  }
+
+  async function handleRetry(): Promise<void> {
+    if (!wardrobe) return;
+    const mutation = beginMutation();
+    if (!mutation) return;
+    const { requests, token } = mutation;
+    try {
+      const next = await retryOutfit(petId, wardrobe.requested);
+      if (next && ownsMutation(requests, token)) {
+        setWardrobe(next);
+      }
+    } catch (err) {
+      if (ownsMutation(requests, token)) {
+        setError(errorMessage(err));
+      }
+    } finally {
+      finishMutation(requests, token);
     }
   }
 
@@ -113,9 +192,12 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
   }
 
   const outfitIds = [defaultOutfitId, ...wardrobe.outfits.map((outfit) => outfit.id)];
-  // A draft is tied to its rule index, so other rows stay locked while one is open.
   const rowsLocked = saving || editing !== null;
   const schedule = wardrobe.schedule;
+
+  const wearingLabel = wardrobe.wearing !== null ? outfitName(wardrobe.wearing) : null;
+  const renderedStates = wardrobe.rendered;
+  const hasFailedWindow = renderedStates.some((r) => r.status === "failed" && r.requestedOutfitId === wardrobe.requested);
 
   return (
     <section className="wardrobe" aria-label={t("pets.wardrobe.title")}>
@@ -128,27 +210,53 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
           {installCatalogOutfits && (
             <Button variant="secondary" size="compact" disabled={saving} onClick={() => void getCatalogOutfits()}>{t("pets.wardrobe.updateOutfits")}</Button>
           )}
-          <StatusPill tone="green">{t("pets.wardrobe.nowWearing", { outfit: outfitName(wardrobe.wearing) })}</StatusPill>
+          {wearingLabel !== null ? (
+            <StatusPill tone="green">{t("pets.wardrobe.nowWearing", { outfit: wearingLabel })}</StatusPill>
+          ) : renderedStates.length === 0 ? (
+            <StatusPill tone="slate">{t("pets.wardrobe.notRendered")}</StatusPill>
+          ) : renderedStates.every((r) => r.outfitId === renderedStates[0]?.outfitId) ? (
+            <StatusPill tone="slate">{renderedStates[0]?.outfitId ? outfitName(renderedStates[0].outfitId) : t("pets.wardrobe.notRendered")}</StatusPill>
+          ) : (
+            <StatusPill tone="purple">{t("pets.wardrobe.mixedWindows")}</StatusPill>
+          )}
         </div>
       </header>
+
+      {hasFailedWindow && (
+        <div className="wardrobe-error-banner" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", gap: "0.75rem" }}>
+          <span className="text-xs text-red-400">{t("pets.wardrobe.requestedOutfit", { outfit: outfitName(wardrobe.requested) })}</span>
+          <Button variant="secondary" size="compact" disabled={saving} onClick={() => void handleRetry()}>
+            {t("pets.wardrobe.retryOutfit")}
+          </Button>
+        </div>
+      )}
 
       <div className="wardrobe-outfits" role="radiogroup" aria-label={t("pets.wardrobe.alwaysWearLabel")}>
         {outfitIds.map((id) => {
           const chosen = wardrobe.choice === id;
+          const isWearing = wardrobe.wearing === id;
           return (
             <button
               key={id}
               type="button"
               role="radio"
               aria-checked={chosen}
-              className={`wardrobe-outfit ${chosen ? "chosen" : ""} ${wardrobe.wearing === id ? "wearing" : ""}`}
+              className={`wardrobe-outfit ${chosen ? "chosen" : ""} ${isWearing ? "wearing" : ""}`}
               disabled={saving}
               title={chosen ? t("pets.wardrobe.followScheduleHint") : t("pets.wardrobe.alwaysWearHint", { outfit: outfitName(id) })}
               onClick={() => void apply({ outfit: chosen ? "auto" : id })}
             >
-              <SpriteFrame src={installedPetSpritesheetUrl(petId, id)} label={outfitName(id)} spriteLayout={spriteLayout} size="mini" />
+              <PetPreviewCard
+                src={installedPetSpritesheetUrl(petId, id)}
+                label={outfitName(id)}
+                spriteLayout={spriteLayout}
+                previewFormat={wardrobe.previewFormat}
+                previewWidth={wardrobe.previewWidth}
+                previewHeight={wardrobe.previewHeight}
+                size="mini"
+              />
               <span className="wardrobe-outfit-name">{outfitName(id)}</span>
-              {chosen ? <span className="wardrobe-outfit-tag">{t("pets.wardrobe.always")}</span> : wardrobe.wearing === id ? <span className="wardrobe-outfit-tag">{t("pets.wardrobe.wearing")}</span> : null}
+              {chosen ? <span className="wardrobe-outfit-tag">{t("pets.wardrobe.always")}</span> : isWearing ? <span className="wardrobe-outfit-tag">{t("pets.wardrobe.wearing")}</span> : null}
             </button>
           );
         })}
@@ -163,6 +271,15 @@ export function WardrobePanel({ petId, spriteLayout, load, update, installCatalo
             <Button variant="secondary" size="compact" disabled={saving} onClick={() => void apply({ outfit: "auto" })}>{t("pets.wardrobe.followSchedule")}</Button>
           </>
         )}
+      </div>
+
+      <div className="wardrobe-window-statuses" style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        {renderedStates.map((rw) => (
+          <div key={rw.windowId} className="text-xs text-slate-400" style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+            <span>{t("pets.wardrobe.windowStatus", { id: rw.windowId, status: rw.status, outfit: rw.outfitId ? outfitName(rw.outfitId) : t("pets.wardrobe.notRendered") })}</span>
+            {rw.error && <span className="text-red-400">({rw.error})</span>}
+          </div>
+        ))}
       </div>
 
       <div className="wardrobe-schedule">

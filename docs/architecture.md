@@ -138,6 +138,13 @@ Sharp adapter in `apps/desktop/src/pet-atlas-validation.ts`. The VS Code UI-host
 foundation and desktop remain independent consumers, with their own lifecycle,
 storage and presentation.
 
+Motion is an explicit versioned artwork contract, not a second pet lifecycle.
+The shared `package` and Node `package-validation` subpaths dispatch before
+Classic atlas validation. Desktop owns raw semantic body intent and immutable
+installed-revision snapshots; renderer body arbitration and decoding remain
+separate from speech-bubble lifetime. See [Motion pets](/motion-pets) for the
+current implementation and acceptance boundary.
+
 ## End-to-end flows
 
 ### Host Pet Assistant loop (#138)

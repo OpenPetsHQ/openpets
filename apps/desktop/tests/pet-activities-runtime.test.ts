@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { register } from "node:module";
+import * as moduleApi from "node:module";
 import { mock } from "node:test";
 import type { PetActivity } from "@open-pets/pet-format/activities";
 import { normalizePetActivityPreferences } from "../src/pet-activity-policy.js";
@@ -27,16 +27,24 @@ const modules: Record<string, string> = {
     export const setEnabledPetActivityIds = (_petId, ids) => state.save(ids);
   `,
   "./built-in-pet.js": "export const builtInPet = { id: 'builtin' };",
-  "./installed-pet-layout.js": "export const readInstalledPetMetadata = async () => ({ activities: globalThis.__petActivitiesRuntimeTest.activities });",
+  "./installed-pet-layout.js": "export const readInstalledPetPackage = async () => ({ format: 'classic', metadata: { spritesheetPath:'spritesheet.webp', activities: globalThis.__petActivitiesRuntimeTest.activities } });",
   "./logger.js": "export const info = () => {}; export const warn = () => {};",
   "./pet-atlas-validation.js": "export const readPetActivitySpritesheet = async () => globalThis.__petActivitiesRuntimeTest.readAsset();",
   "./pet-paths.js": "export const assertSafePetId = () => {}; export const getPetDir = () => '/pets/cat';",
   "./pet-window-gaze.js": "export const setPetGazeActivityOverride = () => {};",
   "./pet-window-render.js": "export const resolveRenderableAtlas = async () => ({ outfitId: 'default' });",
   "./pet-activity-asset-cache.js": "export class PetActivityAssetCache { retainPets() {} forgetPet() {} clear() {} async getUnavailableIds() { return new Set(); } }",
+  "./pet-motion-activity-assets.js": "export function getMotionActivityOptions(){return []} export async function readMotionActivityPreview(){throw new Error('unused')}",
+  "./pet-wardrobe-render-state.js": "export function getRenderedOutfits(){return []}",
 };
 const mocks = Object.fromEntries(Object.entries(modules).map(([name, source]) => [name, `data:text/javascript,${encodeURIComponent(source)}`]));
-register(`data:text/javascript,${encodeURIComponent(`
+const hooks = typeof moduleApi.registerHooks === "function" ? moduleApi.registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (context.parentURL?.includes('/pet-activities.') && mocks[specifier]) return { url: mocks[specifier], shortCircuit: true };
+    return nextResolve(specifier, context);
+  },
+}) : undefined;
+if (!hooks) moduleApi.register(`data:text/javascript,${encodeURIComponent(`
   const mocks = ${JSON.stringify(mocks)};
   export async function resolve(specifier, context, nextResolve) {
     if (context.parentURL?.endsWith('/pet-activities.js') && mocks[specifier]) {
@@ -73,6 +81,7 @@ interface Runtime {
   preparePetActivityRender(window: Window, busy: boolean): void;
   updatePetActivityRender(window: Window, render: Render): void;
   setPetActivityScale(window: Window, scale: number): void;
+  setPetActivityReducedMotion(window: Window, reduced: boolean | null): void;
   playPetActivity(petId: string, activityId: string): Promise<unknown>;
   setPetActivityEnabled(petId: string, activityId: string, enabled: boolean): Promise<unknown>;
   startPetActivities(): void;
@@ -92,11 +101,12 @@ const render: Render = {
 const settle = async () => {
   for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
 };
-const plays = () => window.webContents.sent.filter((message) => message.channel === "openpets:pet-activity" && message.payload.cancel !== true);
-const cancels = () => window.webContents.sent.filter((message) => message.channel === "openpets:pet-activity" && message.payload.cancel === true);
+const plays = () => window.webContents.sent.filter((message) => message.channel === "openpets:pet-activity" && message.payload.kind === "play");
+const cancels = () => window.webContents.sent.filter((message) => message.channel === "openpets:pet-activity" && message.payload.kind === "cancel");
 
 try {
   runtime.registerPetActivityWindow(window);
+  runtime.setPetActivityReducedMotion(window, false);
   runtime.updatePetActivityRender(window, render);
   window.webContents.emit("did-finish-load");
   runtime.startPetActivities();
@@ -130,6 +140,7 @@ try {
   runtime.setPetActivityScale(window, 1.75);
   window.webContents.emit("did-start-loading");
   window.webContents.emit("did-finish-load");
+  runtime.setPetActivityReducedMotion(window, false);
   runtime.updatePetActivityRender(window, { ...render });
   mock.timers.tick(1_000);
   await runtime.playPetActivity("cat", "read");
@@ -173,5 +184,6 @@ try {
   mock.timers.reset();
   Math.random = originalRandom;
   delete (globalThis as typeof globalThis & { __petActivitiesRuntimeTest?: typeof state }).__petActivitiesRuntimeTest;
+  hooks?.deregister();
 }
 console.log("Native activity HUD continuity, reload scaling, and full-package preference replacement passed.");

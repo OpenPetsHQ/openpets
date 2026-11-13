@@ -11,7 +11,6 @@ import { LeaseManager } from "./lease-manager.js";
 import { debug, error as logError, info } from "./logger.js";
 import { cleanupUnixSocket, getDiscoveryFilePath, getIpcEndpointConfig, parseIpcEndpoint, protectUnixSocket, removeDiscoveryFile, writeDiscoveryFile, type IpcEndpoint, type IpcEndpointConfig, type OpenPetsDiscoveryFile } from "./local-ipc-paths.js";
 import { stat } from "node:fs/promises";
-import { errorResponse, IpcProtocolError, maxIpcMessageBytes } from "./local-ipc-protocol.js";
 import { installPet, installPetFromFolderWithResult, installPetFromZipFileWithResult } from "./pet-installation.js";
 import { clearConfinementState, setConfinementState } from "./confinement-manager.js";
 import { isConfinementSupported } from "./capabilities.js";
@@ -21,6 +20,7 @@ import { getEligiblePoolPetIds, resolvePoolAssignment } from "./pet-pool.js";
 import { t } from "./i18n/index.js";
 import { broadcastLanPetActivity } from "./lan-controller.js";
 import { createLocalIpcRequestHandler } from "./local-ipc-request-handler.js";
+import { handleLocalIpcSocket } from "./local-ipc-transport.js";
 import { createLocalIpcConfinementCoordinator, type LocalIpcConfinementCoordinator } from "./local-ipc-confinement.js";
 
 let ipcServer: net.Server | null = null;
@@ -221,29 +221,8 @@ function handleSocket(socket: net.Socket, token: string, endpointConfig: IpcEndp
 
   debug("ipc", "socket accepted", { endpointKind: bindEndpoint.kind, remoteAddress: socket.remoteAddress });
 
-  socket.setEncoding("utf8");
-  socket.setTimeout(3_000, () => socket.destroy());
-
-  let buffer = "";
-  let handled = false;
-
-  socket.on("data", (chunk) => {
-    if (handled) return;
-    buffer += chunk;
-
-    if (Buffer.byteLength(buffer, "utf8") > maxIpcMessageBytes) {
-      handled = true;
-      info("ipc", "request rejected", { reason: "too-large", bytes: Buffer.byteLength(buffer, "utf8") });
-      writeResponse(socket, errorResponse(null, new IpcProtocolError("invalid_request", "IPC request is too large.")));
-      return;
-    }
-
-    const newline = buffer.indexOf("\n");
-    if (newline === -1) return;
-
-    handled = true;
-    const raw = buffer.slice(0, newline);
-    void handleRawRequest(raw, token).then((response) => writeResponse(socket, response));
+  handleLocalIpcSocket(socket, token, handleRawRequest, (bytes) => {
+    info("ipc", "request rejected", { reason: "too-large", bytes });
   });
 
   socket.on("error", (error) => {
@@ -343,11 +322,6 @@ function handleLastExplicitLease(petId: string): void {
   } finally {
     confinementCoordinator.clearPetConfinement(petId);
   }
-}
-
-function writeResponse(socket: net.Socket, response: unknown): void {
-  if (socket.destroyed || !socket.writable) return;
-  socket.end(`${JSON.stringify(response)}\n`);
 }
 
 function isBenignSocketCloseError(error: NodeJS.ErrnoException): boolean {

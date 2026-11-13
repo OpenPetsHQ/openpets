@@ -15,7 +15,11 @@ import { assertPetSpritesheetFiles, getOutfitAtlasFormat } from "@open-pets/pet-
 import { readBoundedRegularFile } from "@open-pets/pet-format/node/files";
 import { warn } from "./logger.js";
 import { resolveRenderedPetOutfit } from "./pet-wardrobe.js";
-import { readInstalledPetMetadata } from "./installed-pet-layout.js";
+import { readInstalledPetPackage } from "./installed-pet-layout.js";
+import { prepareInstalledMotionSnapshot } from "./pet-motion-snapshot.js";
+import { createInstalledMotionRender } from "./pet-motion-render.js";
+import { motionPetHitPadding } from "./pet-motion-layout.js";
+import { createPetWindowDocument } from "./pet-window-document.js";
 import { getPetDir } from "./pet-paths.js";
 import { getActiveLocale, getActiveLocaleLang, t } from "./i18n/index.js";
 import { defaultMediaDurationMs, type OpenPetsReaction } from "./local-ipc-protocol.js";
@@ -24,7 +28,8 @@ import type { ActiveBubble } from "./plugin-bubble-arbiter.js";
 import type { PluginBubbleIndicator, PluginCommandForm, PluginBubbleHud, PluginBubbleHudItem } from "./plugin-sdk-bridge.js";
 import { defaultPetSprite, getConfiguredSpriteCacheKey, getConfiguredSpriteStates, resolveEffectiveSpriteState, resolveReactionSpriteState, type UniversalSpriteState } from "@open-pets/pet-format/animation";
 import { createPetWindowCss, createCodexV2GazeCss, createInstalledSpriteStateCss, createSpriteStateCss, escapeCssUrl } from "./pet-window-styles.js";
-import { getPetWindowSpriteBottomInset } from "./pet-window-shape.js";
+import { getPetWindowPinnedLift, getPetWindowSpriteBottomInset, petBottom, petWindowHitPadding } from "./pet-window-shape.js";
+import { defaultPetWindowSize } from "./display.js";
 import type { PetContentRender, PetPluginBubbles, PetStatusBadgeReaction, PetTransientDisplay } from "./pet-window-types.js";
 
 export { escapeCssUrl } from "./pet-window-styles.js";
@@ -56,7 +61,7 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
   const hasPinned = Boolean(pluginBubbles?.pinned);
   const isVoiceActive = petRole === "default" && display?.suppressReactionMessage === true;
   const canSubmitRecording = isVoiceActive && display?.canSubmitRecording === true;
-  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Claude animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
+  const bodyHtml = createPetBodyMarkup("OpenPets default pet", createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" role="img" aria-label="Animated default pet"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, isVoiceActive, canSubmitRecording);
   const reactionState = getEffectiveReactionSpriteState(display?.reaction, badge);
   const waitingAnimationDurationMs = getAppStateSnapshot().preferences.waitingAnimationDurationMs;
   const hudScale = getAppStateSnapshot().preferences.hudScale as HudScaleValue;
@@ -76,14 +81,11 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
     gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale),
     paused,
     flipped: isPetFlippedHorizontally(petId),
-    html: `<!doctype html>
-    <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${defaultPetSprite.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
-      <head>
-        <meta charset="utf-8" />
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>OpenPets Default Pet</title>
-        <style>
+    html: createPetWindowDocument({
+      language: getActiveLocaleLang(), role: petRole, displayName, assetName: assetDisplayName,
+      reactionState, dragRegion: petDragRegion, flipped: isPetFlippedHorizontally(petId),
+      spriteVersion: defaultPetSprite.version, paused, title: "OpenPets Default Pet", bodyHtml,
+      styles: `
           ${createPetWindowCss(paused, scale, hudScale, petDragRegion)}
           .sprite {
             width: ${defaultPetSprite.frameWidth}px;
@@ -109,12 +111,8 @@ export function createBuiltInPetRender(paused: boolean, display: PetTransientDis
             from { background-position: var(--sprite-offset-x) var(--sprite-row-y); }
             to { background-position: var(--sprite-end-offset-x) var(--sprite-row-y); }
           }
-        </style>
-      </head>
-      <body>
-        ${bodyHtml}
-      </body>
-    </html>`,
+      `,
+    }),
   };
 }
 
@@ -143,6 +141,8 @@ async function tryCreateInstalledPetRender(paused: boolean, display: PetTransien
        petDragRegion,
     );
   } catch (error) {
+    const petPackage = await readInstalledPetPackage(selected.id, selected.source?.kind === "team" ? "team" : "personal").catch(() => null);
+    if (petPackage?.format === "motion") throw error;
     console.error(`Failed to render installed default pet ${selected.id}; falling back to built-in pet.`, error);
     try {
       markPetBroken(selected.id, error instanceof Error ? error.message : "Installed pet rendering failed.");
@@ -201,7 +201,35 @@ export async function createInstalledPetRender(
   const displayName = petRole === "default"
     ? resolveCompanionDisplayName(personalityPetName ?? getAppStateSnapshot().preferences.personality?.petName, assetDisplayName)
     : assetDisplayName;
-  const metadata = await readInstalledPetMetadata(petId, source);
+  const petPackage = await readInstalledPetPackage(petId, source);
+  if (petPackage.format === "motion") {
+    const motion = await prepareInstalledMotionSnapshot(petId, source);
+    const outfitId = resolveRenderedPetOutfit(petId, motion.metadata.wardrobe);
+    const { geometry } = motion.metadata;
+    const hasPinned = Boolean(pluginBubbles?.pinned);
+    const preferences = getAppStateSnapshot().preferences;
+    const hudScale = preferences.hudScale as HudScaleValue;
+    const voiceActive = petRole === "default" && display?.suppressReactionMessage === true;
+    const flipped = isPetFlippedHorizontally(petId);
+    const layoutInput = {
+      geometry,
+      requestedScale: scale,
+      windowWidth: defaultPetWindowSize.width,
+      windowHeight: defaultPetWindowSize.height,
+      hitboxBottomInset: Math.max(0, petBottom - petWindowHitPadding) + getPetWindowPinnedLift(hasPinned, hudScale),
+      hitPadding: motionPetHitPadding,
+      flipped,
+    };
+    const bodyHtml = createPetBodyMarkup(escapeHtml(displayName), createBubbleMarkup(display, paused, badge, dismissToken, pluginBubbles), `<div class="sprite" data-motion-body data-motion-layout="${escapeHtml(JSON.stringify(layoutInput))}" role="img" aria-label="${escapeHtml(displayName)}"></div>`, createPinnedBubbleMarkup(pluginBubbles), hasPinned, petRole, voiceActive, voiceActive && display?.canSubmitRecording === true);
+    return createInstalledMotionRender({
+      motion, outfitId, displayName, assetName: assetDisplayName, bodyHtml, layoutInput,
+      reactionState: getEffectiveReactionSpriteState(display?.reaction, badge),
+      paused, scale, hudScale, gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale), flipped,
+      cacheKey: `${cachePrefix}:motion:${paused}:${scale}:${hudScale}:${preferences.bubbleScale}:${preferences.bubbleTheme}:${petButtonsCacheToken()}:${getActiveLocale()}:${flipped}:${geometry.width}:${geometry.height}:${geometry.pixelsPerUnit}:${geometry.footAnchor.x}:${geometry.footAnchor.y}`,
+      language: getActiveLocaleLang(), role: petRole, dragRegion: petDragRegion,
+    });
+  }
+  const metadata = petPackage.metadata;
   const petDirectory = getPetDir(petId, source);
   await assertPetSpritesheetFiles(petDirectory, metadata);
   const { outfitId, atlasRelativePath, spritesheetPath, spritesheet } = await resolveRenderableAtlas(petId, petDirectory, metadata);
@@ -232,14 +260,11 @@ export async function createInstalledPetRender(
     gazeSpriteBottomInset: getPetWindowSpriteBottomInset(hasPinned, hudScale),
     paused,
     flipped: isPetFlippedHorizontally(petId),
-    html: `<!doctype html>
-      <html lang="${getActiveLocaleLang()}" data-pet-role="${petRole}" data-pet-display-name="${escapeHtml(displayName)}" data-pet-asset-name="${escapeHtml(assetDisplayName)}" data-reaction-state="${reactionState}" data-motion-state="idle" data-native-pet-drag="${petDragRegion === "drag" ? "wayland" : "manual"}" data-flip-x="${isPetFlippedHorizontally(petId) ? "true" : "false"}" data-codex-sprite-version="${spriteLayout.version}" data-paused="${paused ? "true" : "false"}" data-codex-gaze-index="neutral">
-        <head>
-          <meta charset="utf-8" />
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: blob:; media-src data: openpets-session-media:; connect-src openpets-session-media:; font-src file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>OpenPets Default Pet</title>
-          <style>
+    html: createPetWindowDocument({
+      language: getActiveLocaleLang(), role: petRole, displayName, assetName: assetDisplayName,
+      reactionState, dragRegion: petDragRegion, flipped: isPetFlippedHorizontally(petId),
+      spriteVersion: spriteLayout.version, paused, title: "OpenPets Default Pet", bodyHtml,
+      styles: `
             ${createPetWindowCss(paused, scale, hudScale, petDragRegion)}
             .installed-card { width: ${Math.ceil(spriteLayout.frameWidth * scale)}px; height: ${Math.ceil(spriteLayout.frameHeight * scale)}px; overflow: visible; position: relative; }
             .installed-sprite {
@@ -268,12 +293,8 @@ export async function createInstalledPetRender(
               from { background-position: var(--sprite-offset-x) var(--sprite-row-y); }
               to { background-position: var(--sprite-end-offset-x) var(--sprite-row-y); }
             }
-          </style>
-        </head>
-        <body>
-          ${bodyHtml}
-        </body>
-      </html>`,
+      `,
+    }),
   };
 }
 

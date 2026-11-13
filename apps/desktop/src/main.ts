@@ -52,6 +52,8 @@ import { PetDisplayCoordinator } from "./pet-display-coordinator.js";
 import { prepareCaptureSessionBeforeReady, resolveCaptureSessionDir, startCaptureSession } from "./capture-session.js";
 import { readOzonePlatformSwitch } from "./startup-backend-policy.js";
 import { removePetActivitiesForPet, resetPetActivitiesForPet, startPetActivities, stopPetActivities, suspendPetActivities } from "./pet-activities.js";
+import { markOutfitRefresh, suspendPetBodies } from "./pet-window.js";
+import { setPetWardrobeChangeHandler } from "./pet-wardrobe.js";
 import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 
 let teamService: TeamService | null = null;
@@ -124,6 +126,15 @@ if (captureSessionDir) {
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
+const onPetSystemSuspend = () => {
+  suspendPetActivities(true);
+  suspendPetBodies(true);
+};
+const onPetSystemResume = () => {
+  suspendPetActivities(false);
+  suspendPetBodies(false);
+};
+
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
@@ -150,9 +161,12 @@ if (!gotSingleInstanceLock) {
       return managerCheckInService?.stop() ?? Promise.resolve();
     },
     stopPetDisplayCoordinator: () => {
+      powerMonitor.off("suspend", onPetSystemSuspend);
+      powerMonitor.off("resume", onPetSystemResume);
       petDisplayCoordinator?.stop();
       stopPetActivities();
       setPetInstallationChangeHandler(null);
+      setPetWardrobeChangeHandler(null);
     },
   });
 
@@ -193,13 +207,17 @@ if (!gotSingleInstanceLock) {
 
     initializeAppState();
     startPetActivities();
+    setPetWardrobeChangeHandler((petId, reason, retry) => {
+      markOutfitRefresh(petId, reason, retry);
+      refreshPetWindowsForPetId(petId, `outfit-${reason}`);
+    });
     setPetInstallationChangeHandler((petId, removed) => {
       if (removed) removePetActivitiesForPet(petId);
       else resetPetActivitiesForPet(petId, true);
       refreshPetWindowsForPetId(petId, removed ? "pet-remove" : "pet-install");
     });
-    powerMonitor.on("suspend", () => suspendPetActivities(true));
-    powerMonitor.on("resume", () => suspendPetActivities(false));
+    powerMonitor.on("suspend", onPetSystemSuspend);
+    powerMonitor.on("resume", onPetSystemResume);
     getSharedVoiceDeviceService({
       enumerate: enumerateTrustedVoiceDevices,
       probeOutputSelection: probeTrustedVoiceOutput,

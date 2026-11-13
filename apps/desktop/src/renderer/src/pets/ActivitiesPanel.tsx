@@ -14,25 +14,24 @@ interface ActivityRequestOwner {
   hasOperationError: boolean;
 }
 
+type ActivityPreviewItem = PetActivitiesSnapshot["activities"][number]["preview"];
+
 function ActivityPreview({
-  src,
+  preview,
   label,
-  frameCount,
-  fps,
 }: {
-  readonly src: string | null;
+  readonly preview: ActivityPreviewItem;
   readonly label: string;
-  readonly frameCount: number;
-  readonly fps: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const src = preview?.url ?? null;
   const safeSrc = src ? safePetImage(src) : undefined;
 
   useEffect(() => {
     setFailed(false);
   }, [src]);
 
-  if (!safeSrc || failed) {
+  if (!preview || !safeSrc || failed) {
     return (
       <div className="w-[56px] h-[61px] rounded-xl bg-blue-100/40 dark:bg-slate-800/60 border border-blue-200/60 dark:border-slate-700/60 flex items-center justify-center shrink-0">
         <svg className="w-5 h-5 text-brand/60 dark:text-blue-400/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -42,6 +41,20 @@ function ActivityPreview({
     );
   }
 
+  if (preview.format === "motion") {
+    return (
+      <div className="w-[56px] h-[61px] rounded-xl bg-blue-50/60 dark:bg-slate-800/60 border border-blue-200/60 dark:border-slate-700/60 overflow-hidden flex items-center justify-center shrink-0 relative">
+        <img
+          src={safeSrc}
+          alt={label}
+          className="w-full h-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  const { frameCount, fps } = preview;
   const frameWidth = 192;
   const frameHeight = 208;
   const durationSec = Math.max(0.5, frameCount / Math.max(1, fps));
@@ -236,9 +249,15 @@ export function ActivitiesPanel({
         <div>
           <p className="eyebrow">{t("pets.activities.eyebrow")}</p>
           <h3>{t("pets.activities.title")}</h3>
-          {snapshot.outfitDisplayName && (
+          {snapshot.windowId !== null ? (
             <p className="text-xs text-slatecopy dark:text-slate-400 mt-0.5">
-              {t("pets.activities.outfitContext", { outfit: snapshot.outfitDisplayName })}
+              {snapshot.outfitDisplayName
+                ? t("pets.activities.targetContext", { windowId: snapshot.windowId, outfit: snapshot.outfitDisplayName })
+                : t("pets.activities.targetContextNoOutfit", { windowId: snapshot.windowId })}
+            </p>
+          ) : (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+              {t("pets.activities.windowUnavailable")}
             </p>
           )}
         </div>
@@ -260,8 +279,9 @@ export function ActivitiesPanel({
         {snapshot.activities.map((activity) => {
           const isPlaying = snapshot.playingActivityId === activity.id || playingId === activity.id;
           const isBusy = savingId !== null || playingId !== null;
-          const cardUnavailable = globalAvailability || activity.availabilityReason || (!activity.availableForCurrentOutfit ? (activity.availabilityReason || t("pets.activities.noOutfitAnimation")) : undefined);
-          const previewSrc = activity.availableForCurrentOutfit ? activity.previewUrl : null;
+          const noWindow = snapshot.windowId === null;
+          const cardUnavailable = noWindow ? t("pets.activities.windowUnavailable") : (globalAvailability || activity.availabilityReason || (!activity.availableForCurrentOutfit ? (activity.availabilityReason || t("pets.activities.noOutfitAnimation")) : undefined));
+          const preview = activity.availableForCurrentOutfit ? activity.preview : null;
 
           return (
             <div
@@ -272,16 +292,16 @@ export function ActivitiesPanel({
             >
               <div className="flex items-start gap-3 mb-3">
                 <ActivityPreview
-                  src={previewSrc}
+                  preview={preview}
                   label={activity.displayName}
-                  frameCount={activity.frameCount}
-                  fps={activity.fps}
                 />
                 <div className="flex-1 min-w-0">
                   <h4 className="text-sm font-bold text-navy dark:text-slate-100 truncate">{activity.displayName}</h4>
                   <p className="text-xs text-slatecopy dark:text-slate-400 mt-1 line-clamp-2">
-                    {activity.availableForCurrentOutfit
-                      ? t("pets.activities.cardSubtitle", { frames: activity.frameCount, fps: activity.fps })
+                    {preview?.format === "classic"
+                      ? t("pets.activities.cardSubtitle", { frames: preview.frameCount, fps: preview.fps })
+                      : preview?.format === "motion"
+                      ? t("pets.activities.motionStaticHint")
                       : t("pets.activities.noOutfitAnimation")}
                   </p>
                 </div>
