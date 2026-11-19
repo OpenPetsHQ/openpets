@@ -1098,7 +1098,11 @@ export class PluginSdkBridge {
     state.bubbles.clear();
     state.deliveries.clear();
     this.#capabilities.delivery.teardown(id);
-    for (const panel of state.panels.values()) { void panel.close().catch(() => undefined); }
+    for (const panel of state.panels.values()) {
+      panel.messages.closed = true;
+      panel.messages.pendingMessages.length = 0;
+      void panel.host.close().catch(() => undefined);
+    }
     state.panels.clear();
     for (const slot of state.sessions.values()) { void slot.host.close().catch(() => undefined); }
     state.sessions.clear();

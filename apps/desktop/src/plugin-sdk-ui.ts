@@ -1,6 +1,6 @@
 import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermission } from "./plugin-manifest.js";
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
-import type { BubbleSlot, DeliverySlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
+import type { BubbleSlot, DeliverySlot, PluginPanelMessageState, PluginPanelSlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
 import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
 import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionAssetRef, type SessionBreathPattern, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
@@ -28,6 +28,31 @@ export function createPluginUiApi(options: {
   readonly quotas: { petActionsPerMinute: number; activeBubbles: number; notifyPerMinute: number; toastPerMinute: number; activePanels: number; deliveriesPerMinute: number; busPayloadBytes: number };
 }) {
   const { pluginId, manifest, state, capabilities, audio, requirePermission, guardCallback, validateBubbleSpec, validatePetHandleId, resolveAssetRef, allowedNetworkHosts, resolvePanelPath, normalizeJson, validateMenuItems, validateSayMessage, safeError, logger, onError, quotas } = options;
+
+  const maxEarlyPanelMessages = 16;
+
+  const deliverPanelMessage = (messages: PluginPanelMessageState, message: unknown): void => {
+    if (messages.closed) return;
+    if (!messages.onMessage) {
+      if (messages.pendingMessages.length < maxEarlyPanelMessages) {
+        messages.pendingMessages.push(message);
+      }
+      return;
+    }
+    try {
+      messages.onMessage(message);
+    } catch (error) {
+      onError(safeError(error));
+    }
+  };
+
+  const closePanelSlot = (panelId: string, messages: PluginPanelMessageState): void => {
+    messages.closed = true;
+    messages.pendingMessages.length = 0;
+    if (state.panels.get(panelId)?.messages === messages) {
+      state.panels.delete(panelId);
+    }
+  };
 
   const showBubble = async (petHandleId: string, spec: unknown): Promise<{ bubbleId: string }> => {
     requirePermission("pet:speak");
@@ -314,16 +339,45 @@ export function createPluginUiApi(options: {
         const height = spec.height === undefined ? 480 : clampNumber(Number(spec.height), 160, 900);
         const title = spec.title === undefined ? manifest.name : String(spec.title).slice(0, 80);
         const panelId = opaqueId("panel");
-        const holder: { onMessage?: (msg: unknown) => void } = {};
-        const host = await capabilities.panels.open({ pluginId, installPath: options.installPath, panelPath: resolvePanelPath(String(spec.panel)), title, width, height, onMessage: (msg) => { try { holder.onMessage?.(msg); } catch (error) { onError(safeError(error)); } }, onClosed: () => { state.panels.delete(panelId); } });
-        state.panels.set(panelId, Object.assign(host, holder));
+        const messages: PluginPanelMessageState = { pendingMessages: [], closed: false };
+        try {
+          const host = await capabilities.panels.open({
+            pluginId,
+            installPath: options.installPath,
+            panelPath: resolvePanelPath(String(spec.panel)),
+            title,
+            width,
+            height,
+            onMessage: (message) => deliverPanelMessage(messages, message),
+            onClosed: () => closePanelSlot(panelId, messages),
+          });
+          if (messages.closed) {
+            throw new Error("Plugin panel closed before it could be opened.");
+          }
+          state.panels.set(panelId, { host, messages });
+        } catch (error) {
+          closePanelSlot(panelId, messages);
+          throw error;
+        }
         return { panelId };
       },
-      panelShow: async (panelId: unknown) => { await requirePanel(state, panelId).show(); },
-      panelHide: async (panelId: unknown) => { await requirePanel(state, panelId).hide(); },
-      panelPost: async (panelId: unknown, msg: unknown) => { await requirePanel(state, panelId).postMessage(normalizeJson(msg, quotas.busPayloadBytes, "panel message")); },
-      panelClose: async (panelId: unknown) => { const panel = state.panels.get(String(panelId)); if (panel) { await panel.close(); state.panels.delete(String(panelId)); } },
-      panelOnMessage: (panelId: unknown, handler: (msg: unknown) => void) => { requirePanel(state, panelId).onMessage = guardCallback(handler); },
+      panelShow: async (panelId: unknown) => { await requirePanel(state, panelId).host.show(); },
+      panelHide: async (panelId: unknown) => { await requirePanel(state, panelId).host.hide(); },
+      panelPost: async (panelId: unknown, msg: unknown) => { await requirePanel(state, panelId).host.postMessage(normalizeJson(msg, quotas.busPayloadBytes, "panel message")); },
+      panelClose: async (panelId: unknown) => {
+        const id = String(panelId);
+        const slot = state.panels.get(id);
+        if (!slot) return;
+        await requirePanel(state, id).host.close();
+        closePanelSlot(id, slot.messages);
+      },
+      panelOnMessage: (panelId: unknown, handler: (msg: unknown) => void) => {
+        const messages = requirePanel(state, panelId).messages;
+        messages.onMessage = guardCallback(handler);
+        for (const message of messages.pendingMessages.splice(0)) {
+          deliverPanelMessage(messages, message);
+        }
+      },
       session: openSession,
       sessionUpdate: async (sessionId: unknown, patch: unknown) => {
         const slot = requireSession(sessionId);
@@ -385,9 +439,9 @@ export function createPluginUiApi(options: {
   };
 }
 
-function requirePanel(state: PluginRuntimeState, panelId: unknown) {
+function requirePanel(state: PluginRuntimeState, panelId: unknown): PluginPanelSlot {
   const panel = state.panels.get(String(panelId));
-  if (!panel) throw new Error("Plugin panel is no longer open.");
+  if (!panel || panel.messages.closed) throw new Error("Plugin panel is no longer open.");
   return panel;
 }
 

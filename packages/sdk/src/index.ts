@@ -275,7 +275,7 @@ export interface OpenPetsPanelHandle {
   hide(): Promise<void>;
   /** Host -> panel. Payload must be clone-safe data. */
   postMessage(msg: unknown): Promise<void>;
-  /** Panel -> plugin, clone-safe. */
+  /** Panel -> plugin, clone-safe. Messages received before registration are buffered in order. */
   onMessage(handler: (msg: unknown) => void): void;
   close(): Promise<void>;
 }

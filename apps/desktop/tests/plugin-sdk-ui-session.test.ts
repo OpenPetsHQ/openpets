@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PluginSdkBridge, type PluginHostCapabilities } from "../src/plugin-sdk-bridge.js";
+import { PluginSdkBridge, type PluginHostCapabilities, type PluginPanelHostHandle } from "../src/plugin-sdk-bridge.js";
 import { PluginStateStore, type PluginStateRecord } from "../src/plugin-state.js";
 import type { OpenPetsJavascriptPluginManifest } from "../src/plugin-manifest.js";
 import type { PluginSessionEvent, SessionStopReason } from "../src/plugin-session-descriptor.js";
@@ -152,6 +152,16 @@ function createTestCapabilities(): PluginHostCapabilities {
   };
 }
 
+function createPanelHandle(close: () => Promise<void> = async () => undefined): PluginPanelHostHandle {
+  return {
+    id: "panel",
+    show: async () => undefined,
+    hide: async () => undefined,
+    postMessage: async () => undefined,
+    close,
+  };
+}
+
 function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>, access: { permissions?: string[]; networkHosts?: string[] } = {}) {
   const permissions = (access.permissions ?? ["ui:session", "commands"]) as PluginStateRecord["approvedPermissions"];
   const root = mkdtempSync(join(tmpdir(), "openpets-session-test-"));
@@ -182,7 +192,8 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>,
     runtime: "javascript",
     sdkVersion: "3.0.0",
     entry: "index.js",
-    permissions,
+    permissions: [...permissions],
+    panels: { main: "panel.html" },
     ...(access.networkHosts ? { network: { hosts: access.networkHosts } } : {}),
   } as OpenPetsJavascriptPluginManifest;
 
@@ -213,6 +224,7 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>,
 
   return {
     api,
+    bridge,
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -339,7 +351,117 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>,
   }
 }
 
-console.log("plugin-sdk-ui-session tests passed successfully.");
+// Panel messages delivered before `onMessage` is registered are replayed in order.
+{
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  const { api, cleanup } = createTestHarness({
+    panels: {
+      open: async (options) => {
+        onPanelMessage = options.onMessage;
+        options.onMessage({ type: "ready" });
+        return createPanelHandle();
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    const { panelId } = await api.ui.panel({ panel: "main" });
+    onPanelMessage?.({ type: "loaded" });
+
+    const received: unknown[] = [];
+    api.ui.panelOnMessage(panelId, (message) => received.push(message));
+    onPanelMessage?.({ type: "ready-for-host" });
+    await Promise.resolve();
+
+    assert.deepEqual(received, [
+      { type: "ready" },
+      { type: "loaded" },
+      { type: "ready-for-host" },
+    ]);
+  } finally {
+    cleanup();
+  }
+}
+
+// Registering a callback enables normal delivery and a later registration replaces it.
+{
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  const { api, cleanup } = createTestHarness({
+    panels: {
+      open: async (options) => {
+        onPanelMessage = options.onMessage;
+        return createPanelHandle();
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    const { panelId } = await api.ui.panel({ panel: "main" });
+    const firstReceived: unknown[] = [];
+    const replacementReceived: unknown[] = [];
+
+    api.ui.panelOnMessage(panelId, (message) => firstReceived.push(message));
+    onPanelMessage?.({ type: "first" });
+    api.ui.panelOnMessage(panelId, (message) => replacementReceived.push(message));
+    onPanelMessage?.({ type: "second" });
+    await Promise.resolve();
+
+    assert.deepEqual(firstReceived, [{ type: "first" }]);
+    assert.deepEqual(replacementReceived, [{ type: "second" }]);
+  } finally {
+    cleanup();
+  }
+}
+
+// Closing a panel clears its delivery path and rejects later callback registration.
+{
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  let onPanelClosed: (() => void) | undefined;
+  const { api, cleanup } = createTestHarness({
+    panels: {
+      open: async (options) => {
+        onPanelMessage = options.onMessage;
+        onPanelClosed = options.onClosed;
+        return createPanelHandle(async () => { onPanelClosed?.(); });
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    const { panelId } = await api.ui.panel({ panel: "main" });
+    onPanelMessage?.({ type: "before-close" });
+    await api.ui.panelClose(panelId);
+
+    const received: unknown[] = [];
+    assert.throws(() => api.ui.panelOnMessage(panelId, (message) => received.push(message)), /no longer open/);
+    onPanelMessage?.({ type: "after-close" });
+    assert.deepEqual(received, []);
+  } finally {
+    cleanup();
+  }
+}
+
+// A panel that closes while opening is not registered as an active panel.
+{
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  const { api, bridge, cleanup } = createTestHarness({
+    panels: {
+      open: async (options) => {
+        onPanelMessage = options.onMessage;
+        options.onClosed();
+        return createPanelHandle();
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    await assert.rejects(api.ui.panel({ panel: "main" }));
+    onPanelMessage?.({ type: "after-close" });
+    assert.equal(bridge.getInspectorState("test.session-plugin").activePanels, 0);
+  } finally {
+    cleanup();
+  }
+}
 
 // Player media is downloaded on the plugin's behalf, so every segment must be
 // on a host the user approved, and those hosts travel with the session open.
@@ -369,3 +491,5 @@ console.log("plugin-sdk-ui-session tests passed successfully.");
     cleanup();
   }
 }
+
+console.log("plugin-sdk-ui-session tests passed successfully.");
