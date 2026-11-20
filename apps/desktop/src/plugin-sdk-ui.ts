@@ -1,7 +1,7 @@
 import type { OpenPetsJavascriptPluginManifest, PluginAssetKind, PluginPermission } from "./plugin-manifest.js";
 import type { PluginAudioApi } from "./plugin-sdk-audio.js";
 import type { BubbleSlot, DeliverySlot, PluginPanelMessageState, PluginPanelSlot, PluginRuntimeState, SessionSlot } from "./plugin-sdk-state.js";
-import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
+import type { PluginBubbleDescriptor, PluginBubbleDismissReason, PluginBubbleHostHandle, PluginDeliveryDescriptor, PluginDeliveryDismissReason, PluginHostCapabilities, PluginLogLevel, PluginMenuItem, PluginPanelHostHandle, PluginSessionHostHandle, PluginStatus } from "./plugin-sdk-bridge.js";
 import { validateSessionDescriptor, validateSessionUpdate, type PluginSessionDescriptor, type PluginSessionEvent, type SessionAudio as PluginSessionAudio, type SessionAssetRef, type SessionBreathPattern, type SessionInfo as PluginSessionInfo } from "./plugin-session-descriptor.js";
 
 export function createPluginUiApi(options: {
@@ -340,8 +340,9 @@ export function createPluginUiApi(options: {
         const title = spec.title === undefined ? manifest.name : String(spec.title).slice(0, 80);
         const panelId = opaqueId("panel");
         const messages: PluginPanelMessageState = { pendingMessages: [], closed: false };
+        let host: PluginPanelHostHandle | undefined;
         try {
-          const host = await capabilities.panels.open({
+          host = await capabilities.panels.open({
             pluginId,
             installPath: options.installPath,
             panelPath: resolvePanelPath(String(spec.panel)),
@@ -351,12 +352,14 @@ export function createPluginUiApi(options: {
             onMessage: (message) => deliverPanelMessage(messages, message),
             onClosed: () => closePanelSlot(panelId, messages),
           });
+          requirePermission("ui:panel");
           if (messages.closed) {
             throw new Error("Plugin panel closed before it could be opened.");
           }
           state.panels.set(panelId, { host, messages });
         } catch (error) {
           closePanelSlot(panelId, messages);
+          if (host) await host.close().catch(() => undefined);
           throw error;
         }
         return { panelId };

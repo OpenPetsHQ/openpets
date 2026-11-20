@@ -383,6 +383,34 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>,
   }
 }
 
+// Early-message overflow keeps the first 16 messages and drops later arrivals.
+{
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  const { api, cleanup } = createTestHarness({
+    panels: {
+      open: async (options) => {
+        onPanelMessage = options.onMessage;
+        return createPanelHandle();
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    const { panelId } = await api.ui.panel({ panel: "main" });
+    for (let index = 0; index < 20; index += 1) {
+      onPanelMessage?.({ index });
+    }
+
+    const received: unknown[] = [];
+    api.ui.panelOnMessage(panelId, (message) => received.push(message));
+    await Promise.resolve();
+
+    assert.deepEqual(received, Array.from({ length: 16 }, (_, index) => ({ index })));
+  } finally {
+    cleanup();
+  }
+}
+
 // Registering a callback enables normal delivery and a later registration replaces it.
 {
   let onPanelMessage: ((msg: unknown) => void) | undefined;
@@ -457,6 +485,45 @@ function createTestHarness(customCapabilities?: Partial<PluginHostCapabilities>,
   try {
     await assert.rejects(api.ui.panel({ panel: "main" }));
     onPanelMessage?.({ type: "after-close" });
+    assert.equal(bridge.getInspectorState("test.session-plugin").activePanels, 0);
+  } finally {
+    cleanup();
+  }
+}
+
+// A deferred panel open that resolves after plugin shutdown is closed and rejected.
+{
+  let completeOpen: ((host: PluginPanelHostHandle) => void) | undefined;
+  let onPanelMessage: ((msg: unknown) => void) | undefined;
+  let onPanelClosed: (() => void) | undefined;
+  let closeCalls = 0;
+  const { api, bridge, cleanup } = createTestHarness({
+    panels: {
+      open: (options) => {
+        onPanelMessage = options.onMessage;
+        onPanelClosed = options.onClosed;
+        options.onMessage({ type: "before-shutdown" });
+        return new Promise<PluginPanelHostHandle>((resolve) => {
+          completeOpen = resolve;
+        });
+      },
+    },
+  }, { permissions: ["ui:panel"] });
+
+  try {
+    const opening = api.ui.panel({ panel: "main" });
+    const resolveOpen = completeOpen;
+    assert.ok(resolveOpen);
+
+    await bridge.clearPlugin("test.session-plugin");
+    resolveOpen(createPanelHandle(async () => {
+      closeCalls += 1;
+      onPanelClosed?.();
+    }));
+
+    await assert.rejects(opening);
+    onPanelMessage?.({ type: "after-shutdown" });
+    assert.equal(closeCalls, 1);
     assert.equal(bridge.getInspectorState("test.session-plugin").activePanels, 0);
   } finally {
     cleanup();
