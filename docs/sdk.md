@@ -67,6 +67,13 @@ each gated by a permission ([Plugin platform](/plugins)):
 
 The exact signatures live in `packages/sdk/src/index.ts` - that file is the
 contract, so program against it rather than any list copied into a doc.
+Sandboxed panel pages can send clone-safe data through
+`window.openPetsPanel.postMessage()`, and plugins receive it through the
+panel handle's `onMessage()` callback. Messages received before callback
+registration are kept in a bounded FIFO and delivered when the callback is
+registered. Closing the panel or stopping the plugin discards messages that
+have not yet been delivered; excess early messages can be dropped when the
+buffer is full.
 `ctx.pets.list()` and `ctx.pets.onChange()` include pinned pets as
 `kind: "pinned"`, with stable IDs in the `pinned:<petId>` form. Each handle
 uses its own motion state and remains bounded by the same per-pet monitor and
