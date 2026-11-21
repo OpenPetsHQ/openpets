@@ -101,7 +101,7 @@ Whisper-compatible transcription retain their distinct wire contracts.
 |---------|------|-----|
 | `@open-pets/client` | The IPC client used by runtime integrations to talk to the app | [IPC and remote control](/ipc) |
 | `@open-pets/cli` | User-facing CLI: configure agents, manage pets, run MCP, scaffold/validate plugins | [Agent integrations](/agent-integrations), [Development](/development) |
-| `@open-pets/mcp` | Stdio MCP server exposing `openpets_status` / `react` / `say` to MCP agents | [Agent integrations](/agent-integrations) |
+| `@open-pets/mcp` | Stdio MCP server by default, with optional shared loopback Streamable HTTP transport for `openpets_status` / `react` / `say` | [Agent integrations](/agent-integrations) |
 | `@open-pets/claude` | Claude Code hooks + MCP/settings/memory management | [Agent integrations](/agent-integrations) |
 | `@open-pets/opencode` | OpenCode plugin runtime + config management | [Agent integrations](/agent-integrations) |
 | `@open-pets/cursor` | Cursor MCP config + project rules management | [Agent integrations](/agent-integrations) |

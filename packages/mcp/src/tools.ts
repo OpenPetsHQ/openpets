@@ -40,6 +40,8 @@ export interface LeaseContext {
 
 export interface ToolContext {
   readonly configuredPetId?: string;
+  /** Internal lease target; HTTP uses `builtin` while status remains an unconfigured default-pet session. */
+  readonly leaseRequestedPetId?: string;
   readonly client?: OpenPetsClient;
   readonly lease?: LeaseContext;
   readonly leaseReady?: Promise<void>;
@@ -135,7 +137,7 @@ async function ensureLease(context: ToolContext): Promise<boolean> {
   if (!lease || lease.closing) return false;
   if (lease.lease) return true;
   try {
-    await recoverLease(context.client ?? createOpenPetsClient(), lease, context.configuredPetId);
+    await recoverLease(context.client ?? createOpenPetsClient(), lease, context.leaseRequestedPetId ?? context.configuredPetId);
   } catch {
     return false;
   }

@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { OpenPetsClient, OpenPetsLeaseResult } from "@open-pets/client";
 
-import { createHelpText, parseMcpArgs } from "./args.js";
+import { createHelpText, getMcpLeaseRequestedPetId, parseMcpArgs } from "./args.js";
+import { createMcpHttpBearerToken, resolveMcpHttpBearerToken, startSharedMcpHttpServer } from "./http-server.js";
 import { createOpenPetsMcpServer } from "./server.js";
 import { createToolContext, recoverLease, type LeaseContext } from "./tools.js";
 
@@ -30,6 +31,8 @@ export interface TransportLifecycleOptions {
   /** Test/runtime timing overrides; production defaults remain five seconds. */
   readonly heartbeatIntervalMs?: number;
   readonly retryDelayMs?: number;
+  /** Stop accepting requests and drain active HTTP work before releasing a shared lease. */
+  readonly beforeClose?: () => Promise<void>;
   /**
    * Called after teardown when the transport closes. Defaults to `() => process.exit(0)`.
    * Override in tests to prevent the process from actually exiting.
@@ -121,6 +124,7 @@ export function wireTransportLifecycle(opts: TransportLifecycleOptions): { close
     retainLeaseId(lease.staleLeaseId);
     retainLeaseId(lease.staleLease?.leaseId);
     closePromise = (async () => {
+      try { await opts.beforeClose?.(); } catch { /* continue releasing the shared lease */ }
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
       if (retryTimer) clearTimeout(retryTimer);
@@ -164,11 +168,88 @@ async function main(): Promise<void> {
   if (context.client.transport === "remote" && options.petId !== undefined) {
     throw new Error("Remote mode does not support --pet; remote control uses the default pet.");
   }
-  const leaseReady = acquireStartupLease(context.client, lease, options.petId);
+  const httpToken = options.transport === "http"
+    ? resolveMcpHttpBearerToken(process.env.OPENPETS_MCP_HTTP_TOKEN) ?? createMcpHttpBearerToken()
+    : undefined;
+  const requestedPetId = getMcpLeaseRequestedPetId(options);
+  const leaseReady = acquireStartupLease(context.client, lease, requestedPetId);
+
+  if (options.transport === "http") {
+    if (!httpToken) throw new Error("HTTP bearer token could not be initialized.");
+    const token = httpToken;
+    let httpServer: Awaited<ReturnType<typeof startSharedMcpHttpServer>> | undefined;
+    let httpServerStart: Promise<Awaited<ReturnType<typeof startSharedMcpHttpServer>>> | undefined;
+    const closeHttpServer = async (): Promise<void> => {
+      if (httpServer) {
+        await httpServer.close();
+        return;
+      }
+      if (!httpServerStart) return;
+      try {
+        const started = await httpServerStart;
+        httpServer = started;
+        await started.close();
+      } catch {
+        // Startup failure is handled by main after lease teardown.
+      }
+    };
+    const { close } = wireTransportLifecycle({
+      transport: {},
+      server: { close: closeHttpServer },
+      client: context.client,
+      lease,
+      leaseReady,
+      requestedPetId,
+      beforeClose: closeHttpServer,
+    });
+    let shutdownStarted = false;
+    const requestShutdown = (): void => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
+      void close().then(() => process.exit(0), () => process.exit(1));
+    };
+    process.on("SIGINT", requestShutdown);
+    process.on("SIGTERM", requestShutdown);
+    if (process.env.OPENPETS_MCP_WRAPPER_SHUTDOWN === "stdin-eof" && !process.stdin.isTTY) {
+      process.stdin.once("end", requestShutdown);
+      process.stdin.resume();
+    }
+
+    await leaseReady;
+    if (lease.closing) {
+      await close();
+      return;
+    }
+    try {
+      httpServerStart = startSharedMcpHttpServer({
+        context: { ...context, lease, leaseReady, leaseRequestedPetId: requestedPetId },
+        port: options.port,
+        token,
+      });
+      httpServer = await httpServerStart;
+    } catch (error) {
+      await close();
+      throw error;
+    }
+    if (lease.closing) {
+      await closeHttpServer();
+      await close();
+      return;
+    }
+    process.stderr.write(`OpenPets MCP HTTP listening at ${httpServer.endpoint}\n`);
+    if (process.env.OPENPETS_MCP_HTTP_TOKEN) {
+      process.stderr.write("Authorization: Bearer token is configured via OPENPETS_MCP_HTTP_TOKEN.\n");
+    } else {
+      process.stderr.write(`Authorization: Bearer ${token}\n`);
+      process.stderr.write("This bearer token is temporary. Set OPENPETS_MCP_HTTP_TOKEN to reuse it after restart.\n");
+    }
+    return;
+  }
+
   const server = createOpenPetsMcpServer({ ...context, lease, leaseReady });
   const transport = new StdioServerTransport();
 
-  const { close } = wireTransportLifecycle({ transport, server, client: context.client, lease, leaseReady, requestedPetId: options.petId });
+  const { close } = wireTransportLifecycle({ transport, server, client: context.client, lease, leaseReady, requestedPetId });
 
   process.on("SIGINT", () => { void close().finally(() => process.exit(0)); });
   process.on("SIGTERM", () => { void close().finally(() => process.exit(0)); });
