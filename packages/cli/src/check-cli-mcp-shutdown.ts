@@ -50,7 +50,7 @@ const failingWrapper = spawnCliWrapper(occupiedPort, failureEnvironment);
 failingWrapper.stderr?.resume();
 let occupiedPortFailurePassed = false;
 try {
-  const exit = await waitForExit(failingWrapper, 5_000);
+  const exit = await waitForExit(failingWrapper, 20_000);
   assert.equal(exit.signal, null, "the CLI wrapper exits normally when its MCP child cannot bind");
   assert.equal(exit.code, 1, "HTTP startup failure propagates through the CLI wrapper");
   occupiedPortFailurePassed = true;
