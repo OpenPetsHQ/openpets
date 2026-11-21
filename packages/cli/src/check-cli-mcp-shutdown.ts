@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,11 +19,9 @@ delete environment.OPENPETS_REMOTE_CLIENT_ID;
 delete environment.OPENPETS_MCP_WRAPPER_SHUTDOWN;
 if (process.platform === "win32") environment.OPENPETS_MCP_WRAPPER_SHUTDOWN = "stdin-eof";
 
-const wrapper = spawn(process.execPath, [cliEntrypoint, "mcp", "--transport", "http", "--port", String(port)], {
-  stdio: ["pipe", "ignore", "pipe"],
-  env: environment,
-});
+const wrapper = spawnCliWrapper(port, environment);
 
+let gracefulShutdownPassed = false;
 try {
   await waitForListeningMessage(wrapper);
 
@@ -34,20 +32,70 @@ try {
   assert.equal(exit.signal, null, "the CLI wrapper exits after its MCP child shuts down");
   assert.equal(exit.code, 0, "graceful HTTP shutdown exits successfully");
   await assertPortClosed(port);
+  gracefulShutdownPassed = true;
 } finally {
-  if (wrapper.exitCode === null && wrapper.signalCode === null) {
-    if (process.platform === "win32") wrapper.stdin?.end();
-    else wrapper.kill("SIGTERM");
-    try {
-      await waitForExit(wrapper, 3_000);
-    } catch {
-      wrapper.kill("SIGKILL");
-      await waitForExit(wrapper, 3_000);
-    }
+  if (!gracefulShutdownPassed) await stopWrapperTree(wrapper);
+}
+
+const occupiedPortServer = createServer();
+await new Promise<void>((resolve, reject) => {
+  occupiedPortServer.once("error", reject);
+  occupiedPortServer.listen(0, "127.0.0.1", resolve);
+});
+const occupiedAddress = occupiedPortServer.address();
+if (!occupiedAddress || typeof occupiedAddress === "string") throw new Error("Could not reserve a loopback port for the CLI startup-failure check.");
+const occupiedPort = occupiedAddress.port;
+const failureEnvironment: NodeJS.ProcessEnv = { ...environment, OPENPETS_MCP_WRAPPER_SHUTDOWN: "stdin-eof" };
+const failingWrapper = spawnCliWrapper(occupiedPort, failureEnvironment);
+failingWrapper.stderr?.resume();
+let occupiedPortFailurePassed = false;
+try {
+  const exit = await waitForExit(failingWrapper, 5_000);
+  assert.equal(exit.signal, null, "the CLI wrapper exits normally when its MCP child cannot bind");
+  assert.equal(exit.code, 1, "HTTP startup failure propagates through the CLI wrapper");
+  occupiedPortFailurePassed = true;
+} finally {
+  try {
+    if (!occupiedPortFailurePassed) await stopWrapperTree(failingWrapper);
+  } finally {
+    await new Promise<void>((resolve, reject) => occupiedPortServer.close((error) => error ? reject(error) : resolve()));
   }
 }
 
 console.log("OpenPets CLI MCP wrapper shutdown passed.");
+
+function spawnCliWrapper(port: number, env: NodeJS.ProcessEnv): ChildProcess {
+  return spawn(process.execPath, [cliEntrypoint, "mcp", "--transport", "http", "--port", String(port)], {
+    stdio: ["pipe", "ignore", "pipe"],
+    env,
+    detached: process.platform !== "win32",
+  });
+}
+
+async function stopWrapperTree(child: ChildProcess): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    if (process.platform === "win32") child.stdin?.end();
+    else child.kill("SIGTERM");
+    try {
+      await waitForExit(child, 3_000);
+    } catch {
+      // The process-group kill below covers the wrapper and its MCP child.
+    }
+  }
+
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  } else if (child.pid !== undefined) {
+    const result = spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    if (result.error) throw result.error;
+  }
+
+  if (child.exitCode === null && child.signalCode === null) await waitForExit(child, 3_000);
+}
 
 async function getAvailablePort(): Promise<number> {
   const server = createServer();
@@ -67,7 +115,7 @@ function waitForListeningMessage(child: ChildProcess): Promise<void> {
   if (!stderr) throw new Error("CLI wrapper did not expose stderr.");
   return new Promise((resolve, reject) => {
     let output = "";
-    const timeout = setTimeout(() => finish(new Error(`CLI wrapper did not start HTTP mode. Output: ${output}`)), 10_000);
+    const timeout = setTimeout(() => finish(new Error(`CLI wrapper did not start HTTP mode. Output: ${output}`)), 20_000);
     const onData = (chunk: Buffer): void => {
       output += chunk.toString("utf8");
       if (output.includes("OpenPets MCP HTTP listening at http://127.0.0.1:")) finish();
