@@ -14,6 +14,12 @@ export type ScheduleSpec =
 export type ScheduleSlot = { spec: ScheduleSpec; callback: () => unknown; handle: PluginTimerHandle; nextRunMs: number };
 export type BubbleSlot = { host: PluginBubbleHostHandle; onAction?: (actionId: string) => void; onSubmit?: (values: Record<string, string | number>) => void; onDismiss?: (reason: PluginBubbleDismissReason) => void; dismissed: boolean };
 export type DeliverySlot = { key: string; host?: PluginDeliveryHostHandle; onDismiss?: (reason: PluginDeliveryDismissReason) => void; dismissed: boolean };
+export type PluginPanelMessageState = {
+  onMessage?: (msg: unknown) => void;
+  pendingMessages: unknown[];
+  closed: boolean;
+};
+export type PluginPanelSlot = { host: PluginPanelHostHandle; messages: PluginPanelMessageState };
 export type SessionSlot = { host: PluginSessionHostHandle; onEvent?: (event: PluginSessionEvent) => void; closed: boolean };
 
 export class WindowCounter {
@@ -37,7 +43,7 @@ export type PluginRuntimeState = {
   tickSubscriptions: Map<string, () => void>;
   bubbles: Map<string, BubbleSlot>;
   deliveries: Map<string, DeliverySlot>;
-  panels: Map<string, PluginPanelHostHandle & { onMessage?: (msg: unknown) => void }>;
+  panels: Map<string, PluginPanelSlot>;
   sessions: Map<string, SessionSlot>;
   spawnedPets: Set<string>;
   pickedFiles: Set<string>;
