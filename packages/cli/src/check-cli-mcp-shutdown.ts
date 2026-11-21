@@ -36,7 +36,8 @@ try {
   await assertPortClosed(port);
 } finally {
   if (wrapper.exitCode === null && wrapper.signalCode === null) {
-    wrapper.stdin?.end();
+    if (process.platform === "win32") wrapper.stdin?.end();
+    else wrapper.kill("SIGTERM");
     try {
       await waitForExit(wrapper, 3_000);
     } catch {
