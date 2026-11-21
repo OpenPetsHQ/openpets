@@ -149,11 +149,12 @@ are what the Control Center Integrations page and the CLI call.
 
 ## MCP server - `@open-pets/mcp`
 
-A standalone stdio MCP server (`open-pets-mcp`) for any MCP-capable agent. It
-registers exactly three tools - `openpets_status`, `openpets_react`,
+A standalone MCP server (`open-pets-mcp`) for any MCP-capable agent. Stdio is
+the default and registers exactly three tools - `openpets_status`, `openpets_react`,
 `openpets_say` - with Zod-validated input and read-only/idempotent annotations.
-On startup it acquires a lease, heartbeats every ~5s, and releases on transport
-close or SIGINT/SIGTERM. Shutdown marks the shared lease context as closing,
+Stdio starts one process and lease per agent session; `--pet <id>` keeps its
+existing per-session targeting behavior. On startup it acquires a lease,
+heartbeats every ~5s, and releases on transport close or SIGINT/SIGTERM. Shutdown marks the shared lease context as closing,
 stops timers, waits for in-flight startup and single-flight recovery from either
 the heartbeat timer or a reaction/say tool, then best-effort releases every
 retained lease ID exactly once before closing the server and exiting. A heartbeat
@@ -163,7 +164,17 @@ eventual recovery lease. No new recovery acquisition starts after teardown
 begins, so an agent that replaces an MCP process cannot leave a temporary second
 pool pet behind. Errors are sanitized so IPC paths/tokens/sockets never leak
 into tool output. It is spawned by the CLI (`runMcp()`) which forwards stdio and
-signals. `--pet <id>` targets a specific pet.
+signals.
+
+For multiple MCP clients that should share one process and the desktop's
+default-pet lease, run `openpets mcp --transport http --port 7901` once and
+configure each client with `http://127.0.0.1:7901/mcp` plus the bearer token
+printed to stderr when generated. If `OPENPETS_MCP_HTTP_TOKEN` is set, use that
+value instead; configured tokens are not printed. The server binds only to loopback, requires bearer auth,
+checks `Host` and `Origin`, and sends no CORS headers. Set
+`OPENPETS_MCP_HTTP_TOKEN` to reuse a token after restarting the server. HTTP
+mode is stateless and targets the default pet; use stdio with `--pet <id>` when
+you need isolated pet leases.
 
 > **Window confinement requires an installed pet.** Passing `--pet <id>` only
 > activates window confinement when the requested pet is actually installed. If
@@ -536,7 +547,7 @@ discovery-based behavior unchanged.
 | Agent | Config home | Runtime mechanism |
 |-------|-------------|-------------------|
 | Claude Code | `~/.claude/` (settings, MCP, `openpets.md`) | lifecycle hooks |
-| MCP (generic) | agent's MCP config | stdio MCP tools |
+| MCP (generic) | agent's MCP config | stdio or shared loopback Streamable HTTP tools |
 | OpenCode | `.opencode/` or `~/.config/opencode/` | plugin event hooks |
 | Cursor | `.cursor/mcp.json` + rules | MCP tools |
 | Zed | `~/.config/zed/settings.json` (platform-specific) | MCP tools |

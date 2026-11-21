@@ -15,9 +15,15 @@ parseMcpArgs(["--pet", "snoopy"]);
 parseMcpArgs(["--pet=snoopy"]);
 parseMcpArgs(["--pet", "Bad Pet"]);
 parseMcpArgs(["--help"]);
+const httpArgs = parseMcpArgs(["--transport", "http", "--port", "7902"]);
+if (httpArgs.transport !== "http" || httpArgs.port !== 7902) throw new Error("MCP HTTP arguments were not parsed.");
 assertRejects(() => parseMcpArgs(["--pet", "bad/pet"]));
 assertRejects(() => parseMcpArgs(["--agent", "claude"]));
+assertRejects(() => parseMcpArgs(["--transport", "http", "--pet", "snoopy"]));
+assertRejects(() => parseMcpArgs(["--port", "7902"]));
+assertRejects(() => parseMcpArgs(["--transport", "http", "--port", "65536"]));
 if (!createHelpText().includes("remote mode rejects --pet")) throw new Error("MCP help does not define remote --pet behavior.");
+if (!createHelpText().includes("OPENPETS_MCP_HTTP_TOKEN")) throw new Error("MCP help does not document HTTP authentication.");
 
 const unavailableStatus = createMcpStatus({ ok: false, appRunning: false, unavailableReason: "/Users/alvin/.config/OpenPets/runtime/ipc.json ENOENT" }, "snoopy");
 if (unavailableStatus.routingImplemented !== true || unavailableStatus.configuredPetId !== "snoopy") {
@@ -216,7 +222,7 @@ async function checkT6TransportOnclose(): Promise<void> {
 
   // Minimal stubs — we only need onclose to be wirable
   const fakeTransport: { onclose?: (() => void) | undefined } = {};
-  const fakeServer = { close: async () => {} };
+  const fakeServer = { close: async () => { calls.push("server.close"); } };
 
   let exitCalls = 0;
   const fakeExit = () => { exitCalls++; };
@@ -227,6 +233,7 @@ async function checkT6TransportOnclose(): Promise<void> {
     client: fakeClient,
     lease,
     leaseReady: Promise.resolve(),
+    beforeClose: async () => { calls.push("stop-accepting"); },
     exit: fakeExit,
   });
 
@@ -242,6 +249,10 @@ async function checkT6TransportOnclose(): Promise<void> {
 
   if (!calls.includes(`releaseLease:${activeLeaseId}`)) {
     throw new Error(`T6: releaseLease(${activeLeaseId}) was not called. Calls: ${calls.join(",")}`);
+  }
+  if (!(calls.indexOf("stop-accepting") < calls.indexOf(`releaseLease:${activeLeaseId}`)
+    && calls.indexOf(`releaseLease:${activeLeaseId}`) < calls.indexOf("server.close"))) {
+    throw new Error(`T6: shutdown ordering changed. Calls: ${calls.join(",")}`);
   }
   if (exitCalls !== 1) {
     throw new Error(`T6: exit seam was called ${exitCalls} times (expected 1).`);

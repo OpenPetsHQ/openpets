@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "test": "node dist/check-mcp-contract.js",
+    "test": "node dist/check-mcp-contract.js && node dist/check-mcp-http.js",
     "check": "pnpm --filter @open-pets/client build && pnpm typecheck && pnpm build && pnpm test",
     "typecheck": "tsc --noEmit",
     "build": "tsc && node dist/ensure-executable.js"

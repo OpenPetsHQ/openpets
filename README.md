@@ -163,7 +163,7 @@ When you configure an agent, OpenPets exposes standard MCP tools. The agent can 
 1. **Claude Code**: Installs OpenPets MCP, memory instructions in `~/.claude/CLAUDE.md`, and hooks in `~/.claude/settings.json`.
 2. **OpenCode**: Installs OpenPets MCP, custom project instruction files, and the `@open-pets/opencode` automatic hook plugin.
 3. **Devin Desktop + Devin CLI**: Adds OpenPets MCP to the shared `~/.config/devin/mcp_config.json` plus lifecycle hooks for both (`openpets configure --agent devin`).
-4. **Cursor / Other MCP Clients**: Register OpenPets as a standard stdio or TCP MCP server.
+4. **Cursor / Other MCP Clients**: Register OpenPets as a stdio or Streamable HTTP MCP server.
 
 <p align="center">
   <img src="assets/claude.png" alt="Claude Code integration with OpenPets" width="100%" />
@@ -190,6 +190,17 @@ To run OpenPets as an MCP tool, add the server to your agent's configuration:
 }
 ```
 *Tip: To target a specific pet, pass the `--pet <petId>` argument.*
+
+For several local MCP clients that should share one process and the desktop's
+default-pet lease, start one shared server with
+`npx @open-pets/mcp@latest --transport http --port 7901`. Configure each client
+to use `http://127.0.0.1:7901/mcp` and the bearer token printed to stderr. If
+you set `OPENPETS_MCP_HTTP_TOKEN`, provide that value to clients; the server
+does not print configured tokens.
+HTTP mode binds only to loopback, checks `Host` and `Origin`, sends no CORS
+headers, and shares the default pet. Use stdio with `--pet <petId>` for
+per-session targeting. Set `OPENPETS_MCP_HTTP_TOKEN` to reuse a bearer token
+after restarting the shared server.
 
 ### Available MCP Tools
 - `openpets_status`: Retrieve target pet ID and check runtime connectivity.

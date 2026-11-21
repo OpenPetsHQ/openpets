@@ -1000,21 +1000,57 @@ function runClaudeMcpRemove(projectDir: string): void {
 
 async function runMcp(args: readonly string[]): Promise<void> {
   const entry = require.resolve("@open-pets/mcp");
+  const httpTransport = usesMcpHttpTransport(args);
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [entry, ...args], { stdio: "inherit" });
-    const forwardSigint = (): void => { child.kill("SIGINT"); };
-    const forwardSigterm = (): void => { child.kill("SIGTERM"); };
-    process.once("SIGINT", forwardSigint);
-    process.once("SIGTERM", forwardSigterm);
-    child.on("error", rejectPromise);
-    child.on("exit", (code, signal) => {
+    const child = spawn(process.execPath, [entry, ...args], {
+      stdio: httpTransport ? ["pipe", "inherit", "inherit"] : "inherit",
+      env: httpTransport
+        ? { ...process.env, OPENPETS_MCP_WRAPPER_SHUTDOWN: "stdin-eof" }
+        : process.env,
+    });
+    const removeSignalHandlers = (): void => {
       process.off("SIGINT", forwardSigint);
       process.off("SIGTERM", forwardSigterm);
+    };
+    const requestShutdown = (signal: NodeJS.Signals): void => {
+      removeSignalHandlers();
+      if (httpTransport && child.stdin) {
+        child.stdin.end();
+        return;
+      }
+      child.kill(signal);
+    };
+    const forwardSigint = (): void => { requestShutdown("SIGINT"); };
+    const forwardSigterm = (): void => { requestShutdown("SIGTERM"); };
+    process.once("SIGINT", forwardSigint);
+    process.once("SIGTERM", forwardSigterm);
+    child.on("error", (error) => {
+      removeSignalHandlers();
+      rejectPromise(error);
+    });
+    child.on("exit", (code, signal) => {
+      removeSignalHandlers();
       if (signal) { process.kill(process.pid, signal); return; }
       process.exitCode = code ?? 1;
       resolvePromise();
     });
   });
+}
+
+function usesMcpHttpTransport(args: readonly string[]): boolean {
+  let transport = "stdio";
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--transport") {
+      const next = args[index + 1];
+      if (next === "stdio" || next === "http") transport = next;
+      index += 1;
+    } else if (arg?.startsWith("--transport=")) {
+      const next = arg.slice("--transport=".length);
+      if (next === "stdio" || next === "http") transport = next;
+    }
+  }
+  return transport === "http";
 }
 
 async function getInstalledPets(client: Pick<ReturnType<typeof createOpenPetsClient>, "listPets">) {
@@ -1166,7 +1202,7 @@ function getWorkspacePackageVersion(packageName: string): string {
 }
 
 function printUsage(): void {
-  process.stdout.write("Usage:\n  openpets status\n  openpets doctor [--cwd <path>] [--json]\n  openpets pets\n  openpets react <reaction>\n  openpets say <message> [--reaction <reaction>]\n  openpets install <pet-id> | --from-zip <path> | --from-folder <path>\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed|devin] [--pet <id>] [--cwd <path>] [--global] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n  openpets plugin new <name> [--id <id>] [--dir <path>] [--author <name>]\n  openpets mcp [--pet <id>]\n  openpets hook --openpets-managed [--pet <id>]\n\nRun `openpets <command> --help` for command options.\n");
+  process.stdout.write("Usage:\n  openpets status\n  openpets doctor [--cwd <path>] [--json]\n  openpets pets\n  openpets react <reaction>\n  openpets say <message> [--reaction <reaction>]\n  openpets install <pet-id> | --from-zip <path> | --from-folder <path>\n  openpets configure [--agent claude|opencode|cursor|openclaw|zed|devin] [--pet <id>] [--cwd <path>] [--global] [--yes] [--force] [--with-rules|--rules-only|--remove-rules]\n  openpets plugin new <name> [--id <id>] [--dir <path>] [--author <name>]\n  openpets mcp [--pet <id>]\n  openpets mcp --transport http [--port <port>]\n  openpets hook --openpets-managed [--pet <id>]\n\nRun `openpets <command> --help` for command options.\n");
 }
 
 function printPluginUsage(): void {
@@ -1216,7 +1252,7 @@ function printConfigureUsage(): void {
 }
 
 function printMcpUsage(): void {
-  process.stdout.write("Usage:\n  openpets mcp [--pet <id>]\n\nStarts the OpenPets MCP server wrapper. This command is written into Claude MCP config by `openpets configure`.\n");
+  process.stdout.write("Usage:\n  openpets mcp [--pet <id>]\n  openpets mcp --transport http [--port <port>]\n\nStarts the OpenPets MCP server wrapper. Stdio is the default. HTTP mode starts one authenticated loopback server that shares the default pet across clients. Set OPENPETS_MCP_HTTP_TOKEN to reuse its bearer token.\n");
 }
 
 function printHookUsage(): void {
