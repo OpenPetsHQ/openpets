@@ -1008,9 +1008,11 @@ async function runMcp(args: readonly string[]): Promise<void> {
         ? { ...process.env, OPENPETS_MCP_WRAPPER_SHUTDOWN: "stdin-eof" }
         : process.env,
     });
+    const shutdownOnStdinEof = httpTransport && process.env.OPENPETS_MCP_WRAPPER_SHUTDOWN === "stdin-eof";
     const removeSignalHandlers = (): void => {
       process.off("SIGINT", forwardSigint);
       process.off("SIGTERM", forwardSigterm);
+      process.stdin.off("end", forwardStdinEof);
     };
     const requestShutdown = (signal: NodeJS.Signals): void => {
       removeSignalHandlers();
@@ -1022,8 +1024,13 @@ async function runMcp(args: readonly string[]): Promise<void> {
     };
     const forwardSigint = (): void => { requestShutdown("SIGINT"); };
     const forwardSigterm = (): void => { requestShutdown("SIGTERM"); };
+    const forwardStdinEof = (): void => { requestShutdown("SIGTERM"); };
     process.once("SIGINT", forwardSigint);
     process.once("SIGTERM", forwardSigterm);
+    if (shutdownOnStdinEof) {
+      process.stdin.once("end", forwardStdinEof);
+      process.stdin.resume();
+    }
     child.on("error", (error) => {
       removeSignalHandlers();
       rejectPromise(error);
