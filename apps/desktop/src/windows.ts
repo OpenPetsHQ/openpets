@@ -25,6 +25,8 @@ import { getPetWardrobeSnapshot, retryPetOutfit, subscribePetWardrobeChanges, up
 import { getRenderedOutfits, subscribeRenderedOutfits } from "./pet-wardrobe-render-state.js";
 import { getPetActivities, playPetActivity, readPetActivityPreview, setPetActivityEnabled } from "./pet-activities.js";
 import { installControlCenterPetActivitiesIpcHandlers } from "./control-center-pet-activities-ipc.js";
+import { installControlCenterAppLauncherIpcHandlers } from "./control-center-app-launcher-ipc.js";
+import { getAppLauncherService, pickAppLauncherTarget } from "./app-launcher-runtime.js";
 import { refreshAllPetWindows, refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { refreshPetGazePreference, setPetWindowOverlaySuppressed } from "./pet-window.js";
 import { getLanStatusSnapshot, isDefaultPetAwayForLan } from "./lan-controller.js";
@@ -306,6 +308,13 @@ export function installInternalUiHandlers(): void {
     getPetActivities,
     setPetActivityEnabled,
     playPetActivity,
+  });
+
+  installControlCenterAppLauncherIpcHandlers({
+    registerHandle: (channel, handler) => ipcMain.handle(channel, handler),
+    authorizeSender: (event) => assertAllowedSender(event, ["control-center"]),
+    service: getAppLauncherService(),
+    pickTarget: (event) => pickAppLauncherTarget(event.sender as WebContents, t("settings.launchers.pickerTitle")),
   });
 
   ipcMain.handle("openpets:get-settings-state", (event) => {

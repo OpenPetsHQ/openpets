@@ -1,4 +1,5 @@
 const { ipcRenderer } = require("electron");
+const { dispatchTrustedLayerShellMenuClick } = require("./layer-shell-menu-click.cjs");
 const { escapeHtml, renderMarkdown } = require("./src/pet-chat-markdown.ts");
 const {
   assistantDisplayName,
@@ -2392,7 +2393,7 @@ const installLayerShellContextMenu = () => {
     overlay = null;
   };
 
-  const appendItems = (items, container, depth = 0) => {
+  const appendItems = (items, container, menuId, depth = 0) => {
     for (const item of items || []) {
       if (item.type === "separator") {
         const separator = document.createElement("div");
@@ -2409,7 +2410,7 @@ const installLayerShellContextMenu = () => {
         group.appendChild(summary);
         const children = document.createElement("div");
         children.className = "openpets-context-children";
-        appendItems(item.submenu, children, depth + 1);
+        appendItems(item.submenu, children, menuId, depth + 1);
         group.appendChild(children);
         container.appendChild(group);
         continue;
@@ -2419,12 +2420,11 @@ const installLayerShellContextMenu = () => {
       row.className = "openpets-context-item";
       row.textContent = item.label || "";
       row.style.paddingLeft = `${12 + depth * 12}px`;
-      row.disabled = typeof item.clickIndex !== "number";
+      row.disabled = item.enabled === false || typeof item.clickIndex !== "number";
       if (!row.disabled) row.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const index = item.clickIndex;
-        close();
-        ipcRenderer.send("openpets:pet-menu-select", index);
+        dispatchTrustedLayerShellMenuClick(event, menuId, item.clickIndex, close, (selection) => {
+          ipcRenderer.send("openpets:pet-menu-select", selection);
+        });
       });
       container.appendChild(row);
     }
@@ -2436,7 +2436,7 @@ const installLayerShellContextMenu = () => {
     root.className = "openpets-context-menu";
     root.addEventListener("mousedown", (event) => event.stopPropagation());
     root.addEventListener("contextmenu", (event) => event.preventDefault());
-    appendItems(menu?.items, root);
+    appendItems(menu?.items, root, menu?.menuId);
     document.body.appendChild(root);
 
     const width = 232;

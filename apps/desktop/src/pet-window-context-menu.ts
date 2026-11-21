@@ -31,6 +31,9 @@ import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
 import { setWindowPosition } from "./window-position.js";
+import { getAppLauncherService } from "./app-launcher-runtime.js";
+import type { AppLauncherMenuEntry } from "./app-launcher-service.js";
+import { isCurrentLayerShellMenuSelection } from "./layer-shell-menu-selection.js";
 
 export function installPetContextMenu(
   window: BrowserWindow,
@@ -44,16 +47,19 @@ export function installPetContextMenu(
   shouldUseLayerShellBackend: () => boolean,
 ): void {
   const webContents = window.webContents;
-  let layerShellClicks: Array<() => void> = [];
+  let layerShellClicks: Array<{ readonly click: () => void; readonly enabled: boolean }> = [];
+  let layerShellMenuId = 0;
 
   const handleContextMenu = (event: Electron.Event, params: Electron.ContextMenuParams): void => {
     event.preventDefault();
     if (window.isDestroyed()) return;
+    const menuId = ++layerShellMenuId;
+    layerShellClicks = [];
     if (shouldUseLayerShellBackend()) {
       void buildPetContextMenuTemplate(action).then((template) => {
+        if (menuId !== layerShellMenuId || window.isDestroyed()) return;
         let nextClickIndex = 0;
-        layerShellClicks = [];
-        const flatten = (items: readonly Electron.MenuItemConstructorOptions[]): unknown[] => items.map((item) => {
+        const flatten = (items: readonly Electron.MenuItemConstructorOptions[], parentEnabled = true): unknown[] => items.map((item) => {
           if (item.type === "separator") {
             return { type: "separator" };
           }
@@ -61,27 +67,31 @@ export function installPetContextMenu(
           const label = item.type === "checkbox"
             ? `${item.checked ? "✓ " : "  "}${item.label ?? ""}`
             : item.label;
+          const enabled = parentEnabled && item.enabled !== false;
           const out: {
             label?: string;
             submenu?: unknown[];
             clickIndex?: number;
             type?: string;
             checked?: boolean;
+            enabled?: boolean;
           } = {
             label,
             ...(item.type ? { type: item.type } : {}),
             ...(item.checked !== undefined ? { checked: item.checked } : {}),
+            enabled,
           };
           if (item.submenu) {
-            out.submenu = flatten(item.submenu as readonly Electron.MenuItemConstructorOptions[]);
+            out.submenu = flatten(item.submenu as readonly Electron.MenuItemConstructorOptions[], enabled);
           }
           if (typeof item.click === "function") {
             out.clickIndex = nextClickIndex++;
-            layerShellClicks.push(item.click as unknown as () => void);
+            layerShellClicks.push({ click: item.click as unknown as () => void, enabled });
           }
           return out;
         });
         webContents.send("openpets:pet-menu-data", {
+          menuId,
           x: params.x,
           y: params.y,
           items: flatten(template),
@@ -105,14 +115,15 @@ export function installPetContextMenu(
       });
   };
 
-  const handleLayerShellSelect = (event: IpcMainEvent, index: unknown): void => {
+  const handleLayerShellSelect = (event: IpcMainEvent, selection: unknown): void => {
     if (event.sender !== webContents || !shouldUseLayerShellBackend()) {
       return;
     }
-    const click = layerShellClicks[Number(index)];
+    if (!isCurrentLayerShellMenuSelection(selection, layerShellMenuId)) return;
+    const click = layerShellClicks[selection.index];
     layerShellClicks = [];
-    if (click) {
-      click();
+    if (click?.enabled) {
+      click.click();
     }
   };
 
@@ -325,13 +336,14 @@ export async function buildPetContextMenuTemplate(
     plugins.set(item.pluginId, group);
   }
   const template: Electron.MenuItemConstructorOptions[] = [];
-  const openControlCenter = (route: "dashboard" | "plugins"): void => {
+  const openControlCenter = (route: "dashboard" | "plugins" | "settings"): void => {
     import("./windows.js")
       .then(({ openControlCenterWindow }) => openControlCenterWindow(route))
       .catch((error) => {
         logError("pet.window", "open control center failed", error);
       });
   };
+  template.push(await buildAppLauncherMenuItem(openControlCenter));
   for (const pluginTopLevel of topLevel.values()) {
     template.push(...pluginTopLevel, { type: "separator" });
   }
@@ -362,6 +374,48 @@ export async function buildPetContextMenuTemplate(
     { label: action.label, click: action.click },
   );
   return template;
+}
+
+async function buildAppLauncherMenuItem(
+  openControlCenter: (route: "dashboard" | "plugins" | "settings") => void,
+): Promise<Electron.MenuItemConstructorOptions> {
+  let launchers: readonly AppLauncherMenuEntry[] = [];
+  try {
+    launchers = await getAppLauncherService().listForMenu();
+  } catch {
+    logError("pet.window", "app launcher settings could not be loaded");
+  }
+
+  const entries: Electron.MenuItemConstructorOptions[] = launchers.length > 0
+    ? launchers.map((launcher) => ({
+      label: launcher.available
+        ? escapeAppLauncherMenuLabel(launcher.name)
+        : `${escapeAppLauncherMenuLabel(launcher.name)} — ${t("pet.menu.appLauncherUnavailable")}`,
+      enabled: launcher.available,
+      click: () => {
+        void getAppLauncherService().launch(launcher.id, launcher.targetRevision).catch(() => {
+          logError("pet.window", "selected app launcher could not start", { launcherId: launcher.id });
+        });
+      },
+    }))
+    : [{ label: t("pet.menu.appLauncherEmpty"), enabled: false }];
+
+  entries.push(
+    { type: "separator" },
+    {
+      label: t("pet.menu.appLauncherManage"),
+      click: () => openControlCenter("settings"),
+    },
+  );
+
+  return {
+    label: t("pet.menu.appLauncher"),
+    submenu: entries,
+  };
+}
+
+function escapeAppLauncherMenuLabel(name: string): string {
+  return process.platform === "win32" ? name.replace(/&/g, "&&") : name;
 }
 
 async function openPluginCommandForm(

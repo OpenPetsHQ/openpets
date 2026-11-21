@@ -361,6 +361,24 @@ create/update/delete a profile; select a profile independently for each role;
    player shutdown is reserved for application voice shutdown, so later Talk,
    preview, and plugin-generated speech remain usable.
 
+#### Local app launchers
+
+Settings → General can add, rename, reorder, replace, and remove local
+applications shown in the default pet's **App launcher** context-menu submenu.
+Each launch requires a local menu click. The main process opens the native file
+picker and stores the selected target in `userData/openpets-app-launchers.json`;
+the Control Center receives only an opaque ID, display name, availability state,
+and optional OS-provided icon. Target paths are not sent to the renderer or
+included in app-launcher logs.
+
+The first version accepts Windows `.exe` files, macOS `.app` bundles, and
+executable Linux ELF files. Linux `.desktop` entries and scripts are not
+accepted. Launching uses the selected target directly with no shell, command
+arguments, environment overrides, or agent/plugin/MCP/remote-control route.
+When a saved target is missing or no longer valid, it is disabled in the pet
+menu and Settings offers a new file-picker selection without displaying the
+stored path.
+
 ### Pet Assistant In-Pet Attached Chat & Compact Composer
 
 The default pet carrier contains an in-place compact text composer and an attached expandable

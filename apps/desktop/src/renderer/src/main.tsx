@@ -24,7 +24,7 @@ import {
   type ProviderConfigurationSaveInput,
   type ProviderConfigurationTestResult,
 } from "./settings/providers/index.js";
-import { VoiceDevicesSection, type VoiceDevicesSnapshot } from "./settings/general/index.js";
+import { AppLaunchersSection, VoiceDevicesSection, type AppLauncherControlCenterApi, type VoiceDevicesSnapshot } from "./settings/general/index.js";
 import { ConversationArchiveSection, type PetAssistantArchivedMessage } from "./settings/history/index.js";
 import { buildReactionPreviewModel, getCatalogPetSpriteLayout, type PetSpriteLayout } from "./pet-preview-state.js";
 import { acceleratorDisplayParts, acceleratorFromKeyboardEvent, isModifierOnlyKeyEvent, resolveShortcutSaveOutcome } from "./settings-shortcut-state.js";
@@ -180,7 +180,7 @@ function limitUtf8Bytes(value: string, maxBytes: number): string {
   return result;
 }
 
-type ControlCenterApi = WhatsNewApi & AnnouncementsApi & {
+type ControlCenterApi = WhatsNewApi & AnnouncementsApi & AppLauncherControlCenterApi & {
   getPetsState(): Promise<StateSnapshot>;
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
   getTeamsSnapshot(): Promise<TeamsSnapshot>;
@@ -1574,6 +1574,8 @@ function SettingsView({ onAppearanceThemeChange, onTokenHandoff }: { onAppearanc
                 onRefresh={() => void handleRefreshVoiceDevices()}
               />
             </div>
+
+            <AppLaunchersSection api={api} />
 
             <div className="settings-section">
               <h2 className="settings-section-title">{t("settings.petBehavior.title")}</h2>
