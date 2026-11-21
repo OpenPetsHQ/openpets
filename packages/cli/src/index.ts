@@ -1013,6 +1013,7 @@ async function runMcp(args: readonly string[]): Promise<void> {
       process.off("SIGINT", forwardSigint);
       process.off("SIGTERM", forwardSigterm);
       process.stdin.off("end", forwardStdinEof);
+      if (shutdownOnStdinEof) process.stdin.pause();
     };
     const requestShutdown = (signal: NodeJS.Signals): void => {
       removeSignalHandlers();

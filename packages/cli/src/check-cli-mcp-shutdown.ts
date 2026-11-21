@@ -41,7 +41,7 @@ try {
     try {
       await waitForExit(wrapper, 3_000);
     } catch {
-      wrapper.kill();
+      wrapper.kill("SIGKILL");
       await waitForExit(wrapper, 3_000);
     }
   }
