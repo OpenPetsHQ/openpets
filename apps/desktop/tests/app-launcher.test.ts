@@ -52,8 +52,18 @@ assert.deepEqual(launches, [], "unavailable targets are never launched");
 
 const updated = await service.replaceTarget(calendarId, "/applications/editor-v2");
 assert.equal(updated[0]?.available, true);
-await service.launch(calendarId);
-assert.deepEqual(launches, ["/applications/editor-v2"]);
+const staleMenuEntry = (await service.listForMenu()).find((entry) => entry.id === calendarId);
+assert.ok(staleMenuEntry);
+await service.replaceTarget(calendarId, "/applications/editor");
+await assert.rejects(
+  () => service.launch(calendarId, staleMenuEntry.targetRevision),
+  { message: "Application selection is stale. Open the menu again." },
+);
+assert.deepEqual(launches, [], "a stale menu cannot launch a newly selected target");
+const currentMenuEntry = (await service.listForMenu()).find((entry) => entry.id === calendarId);
+assert.ok(currentMenuEntry);
+await service.launch(calendarId, currentMenuEntry.targetRevision);
+assert.deepEqual(launches, ["/applications/editor"]);
 
 const removed = await service.remove(calendarId);
 assert.deepEqual(removed.map((entry) => entry.name), ["Editor"]);

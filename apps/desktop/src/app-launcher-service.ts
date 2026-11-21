@@ -5,6 +5,16 @@ import type { AppLauncherSnapshotEntry } from "./app-launcher-types.js";
 export const maxAppLaunchers = 20;
 const maxAppLauncherNameLength = 80;
 const appLauncherIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const appLauncherTargetRevisionBrand: unique symbol = Symbol("AppLauncherTargetRevision");
+
+export type AppLauncherTargetRevision = { readonly [appLauncherTargetRevisionBrand]: true };
+
+export interface AppLauncherMenuEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly available: boolean;
+  readonly targetRevision: AppLauncherTargetRevision;
+}
 
 export interface AppLauncherStoredEntry {
   readonly id: string;
@@ -27,12 +37,13 @@ export interface AppLauncherServiceOptions {
 
 export interface AppLauncherService {
   list(): Promise<readonly AppLauncherSnapshotEntry[]>;
+  listForMenu(): Promise<readonly AppLauncherMenuEntry[]>;
   add(name: unknown, targetPath: unknown): Promise<readonly AppLauncherSnapshotEntry[]>;
   rename(id: unknown, name: unknown): Promise<readonly AppLauncherSnapshotEntry[]>;
   replaceTarget(id: unknown, targetPath: unknown): Promise<readonly AppLauncherSnapshotEntry[]>;
   move(id: unknown, direction: unknown): Promise<readonly AppLauncherSnapshotEntry[]>;
   remove(id: unknown): Promise<readonly AppLauncherSnapshotEntry[]>;
-  launch(id: unknown): Promise<void>;
+  launch(id: unknown, expectedTargetRevision?: AppLauncherTargetRevision): Promise<void>;
 }
 
 export function normalizeAppLauncherName(value: unknown): string {
@@ -51,6 +62,7 @@ export function normalizeAppLauncherName(value: unknown): string {
 export function createAppLauncherService(options: AppLauncherServiceOptions): AppLauncherService {
   let loaded = false;
   let entries: AppLauncherStoredEntry[] = [];
+  const targetRevisions = new Map<string, AppLauncherTargetRevision>();
   let operationTail: Promise<void> = Promise.resolve();
 
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -70,6 +82,8 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
     }
 
     entries = normalizeStoredEntries(stored);
+    targetRevisions.clear();
+    for (const entry of entries) targetRevisions.set(entry.id, createTargetRevision());
     loaded = true;
   }
 
@@ -107,16 +121,19 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
 
   async function mutate(
     change: (current: readonly AppLauncherStoredEntry[]) => AppLauncherStoredEntry[],
+    afterCommit?: (previous: readonly AppLauncherStoredEntry[], next: readonly AppLauncherStoredEntry[]) => void,
   ): Promise<readonly AppLauncherSnapshotEntry[]> {
     return serialize(async () => {
       await ensureLoaded();
-      const next = change(entries);
+      const previous = entries;
+      const next = change(previous);
       try {
         await options.storage.save(next);
       } catch {
         throw new Error("Application launcher settings could not be saved.");
       }
       entries = next;
+      afterCommit?.(previous, next);
       return snapshot(entries);
     });
   }
@@ -132,6 +149,16 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
     list: () => serialize(async () => {
       await ensureLoaded();
       return snapshot(entries);
+    }),
+
+    listForMenu: () => serialize(async () => {
+      await ensureLoaded();
+      return Promise.all(entries.map(async (entry) => ({
+        id: entry.id,
+        name: entry.name,
+        available: await isAvailable(entry.targetPath),
+        targetRevision: ensureTargetRevision(entry.id),
+      })));
     }),
 
     add: async (rawName, rawTargetPath) => {
@@ -164,6 +191,10 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
       return mutate((current) => {
         findEntry(current, id);
         return current.map((entry) => entry.id === id ? { ...entry, targetPath } : entry);
+      }, (previous) => {
+        if (findEntry(previous, id).targetPath !== targetPath) {
+          targetRevisions.set(id, createTargetRevision());
+        }
       });
     },
 
@@ -188,12 +219,17 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
       return mutate((current) => {
         findEntry(current, id);
         return current.filter((entry) => entry.id !== id);
+      }, () => {
+        targetRevisions.delete(id);
       });
     },
 
-    launch: (rawId) => serialize(async () => {
+    launch: (rawId, expectedTargetRevision) => serialize(async () => {
       await ensureLoaded();
       const entry = findEntry(entries, rawId);
+      if (expectedTargetRevision !== undefined && ensureTargetRevision(entry.id) !== expectedTargetRevision) {
+        throw new Error("Application selection is stale. Open the menu again.");
+      }
       if (!(await isAvailable(entry.targetPath))) throw new Error("Application is unavailable.");
       try {
         await options.launchTarget(entry.targetPath);
@@ -202,6 +238,19 @@ export function createAppLauncherService(options: AppLauncherServiceOptions): Ap
       }
     }),
   };
+
+  function ensureTargetRevision(id: string): AppLauncherTargetRevision {
+    const revision = targetRevisions.get(id);
+    if (revision) return revision;
+    const next = createTargetRevision();
+    targetRevisions.set(id, next);
+    return next;
+  }
+}
+
+function createTargetRevision(): AppLauncherTargetRevision {
+  const revision: AppLauncherTargetRevision = { [appLauncherTargetRevisionBrand]: true };
+  return Object.freeze(revision);
 }
 
 export function normalizeAppLauncherId(value: unknown): string {
