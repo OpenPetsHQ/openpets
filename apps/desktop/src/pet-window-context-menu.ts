@@ -31,6 +31,8 @@ import { refreshPetWindowsForPetId } from "./pet-window-refresh.js";
 import { getPetWardrobeSnapshot, updatePetWardrobe } from "./pet-wardrobe.js";
 import { defaultOutfitId } from "@open-pets/pet-format/wardrobe";
 import { setWindowPosition } from "./window-position.js";
+import { getAppLauncherService } from "./app-launcher-runtime.js";
+import type { AppLauncherSnapshotEntry } from "./app-launcher-types.js";
 
 export function installPetContextMenu(
   window: BrowserWindow,
@@ -67,10 +69,12 @@ export function installPetContextMenu(
             clickIndex?: number;
             type?: string;
             checked?: boolean;
+            enabled?: boolean;
           } = {
             label,
             ...(item.type ? { type: item.type } : {}),
             ...(item.checked !== undefined ? { checked: item.checked } : {}),
+            ...(item.enabled !== undefined ? { enabled: item.enabled } : {}),
           };
           if (item.submenu) {
             out.submenu = flatten(item.submenu as readonly Electron.MenuItemConstructorOptions[]);
@@ -325,13 +329,14 @@ export async function buildPetContextMenuTemplate(
     plugins.set(item.pluginId, group);
   }
   const template: Electron.MenuItemConstructorOptions[] = [];
-  const openControlCenter = (route: "dashboard" | "plugins"): void => {
+  const openControlCenter = (route: "dashboard" | "plugins" | "settings"): void => {
     import("./windows.js")
       .then(({ openControlCenterWindow }) => openControlCenterWindow(route))
       .catch((error) => {
         logError("pet.window", "open control center failed", error);
       });
   };
+  template.push(await buildAppLauncherMenuItem(openControlCenter));
   for (const pluginTopLevel of topLevel.values()) {
     template.push(...pluginTopLevel, { type: "separator" });
   }
@@ -362,6 +367,48 @@ export async function buildPetContextMenuTemplate(
     { label: action.label, click: action.click },
   );
   return template;
+}
+
+async function buildAppLauncherMenuItem(
+  openControlCenter: (route: "dashboard" | "plugins" | "settings") => void,
+): Promise<Electron.MenuItemConstructorOptions> {
+  let launchers: readonly AppLauncherSnapshotEntry[] = [];
+  try {
+    launchers = await getAppLauncherService().list();
+  } catch {
+    logError("pet.window", "app launcher settings could not be loaded");
+  }
+
+  const entries: Electron.MenuItemConstructorOptions[] = launchers.length > 0
+    ? launchers.map((launcher) => ({
+      label: launcher.available
+        ? escapeAppLauncherMenuLabel(launcher.name)
+        : `${escapeAppLauncherMenuLabel(launcher.name)} — ${t("pet.menu.appLauncherUnavailable")}`,
+      enabled: launcher.available,
+      click: () => {
+        void getAppLauncherService().launch(launcher.id).catch(() => {
+          logError("pet.window", "selected app launcher could not start", { launcherId: launcher.id });
+        });
+      },
+    }))
+    : [{ label: t("pet.menu.appLauncherEmpty"), enabled: false }];
+
+  entries.push(
+    { type: "separator" },
+    {
+      label: t("pet.menu.appLauncherManage"),
+      click: () => openControlCenter("settings"),
+    },
+  );
+
+  return {
+    label: t("pet.menu.appLauncher"),
+    submenu: entries,
+  };
+}
+
+function escapeAppLauncherMenuLabel(name: string): string {
+  return process.platform === "win32" ? name.replace(/&/g, "&&") : name;
 }
 
 async function openPluginCommandForm(

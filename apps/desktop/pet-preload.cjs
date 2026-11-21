@@ -2419,7 +2419,7 @@ const installLayerShellContextMenu = () => {
       row.className = "openpets-context-item";
       row.textContent = item.label || "";
       row.style.paddingLeft = `${12 + depth * 12}px`;
-      row.disabled = typeof item.clickIndex !== "number";
+      row.disabled = item.enabled === false || typeof item.clickIndex !== "number";
       if (!row.disabled) row.addEventListener("click", (event) => {
         event.stopPropagation();
         const index = item.clickIndex;

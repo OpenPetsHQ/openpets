@@ -321,7 +321,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `tray.ts`: Tray icon (nativeImage), context menu builder, update status integration, route-targeted Control Center entries, logs folder
 - `external-url-opener.ts`: Shared ordinary external-browser opener; uses Linux `xdg-open` with `GDK_BACKEND` removed from a copied environment, force-terminates only the owned launcher after a 10-second timeout, and preserves caller URL policy
 - `external-url-opener-core.ts`: Electron-free platform/environment policy for external-browser opening; bounds launcher wait, avoids ambiguous-success fallback on timeout, and retains shell fallback for ordinary launcher errors
-  - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
+  - `windows.ts`: Control Center BrowserWindow factory, Dashboard snapshot, IPC handler registration, route targeting, reaction animation settings, plugin/integration/pet/settings/app-launcher UI IPC endpoints, atomic provider configuration saves, and scoped internal protocols
   - `control-center-route.ts`: Canonical `ControlCenterRoute` and typed startup-target validation shared by window routing and the unpackaged development startup route
 - `control-center-plugin-ipc.ts`: Injected fixed Control Center plugin IPC registrations, sender authorization, boundary validation, PluginService delegation, catalog refresh normalization, inspector access, and picker diagnostics
 - `control-center-agent-setup-ipc.ts`: Injected fixed Control Center agent-setup IPC registrations, sender authorization, action validation, and agent-setup delegation
@@ -333,6 +333,10 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `announcements-service.ts`: Bounded main-process feed retrieval/cache and dedicated persistent campaign dismissal state; development-only preview.
 - `control-center-announcements-ipc.ts`: Authorized Control Center campaign snapshots, dismissal by ID, and host-owned CTA opening.
 - `control-center-pet-management-ipc.ts`: Injected Electron-free Control Center pet/catalog management IPC registrations, state/layout snapshots, installation/import mutations, pool ordering, and position reset
+- `app-launcher-service.ts` / `app-launcher-platform.ts`: Main-process-owned local launcher records, availability, safe platform target validation, and shell-free process-start policy
+- `app-launcher-runtime.ts`: Local launcher persistence, native file-picker adapter, OS icon lookup, and detached process startup; target paths remain main-process-only
+- `control-center-app-launcher-ipc.ts`: Sender-authorized Control Center launcher list/name/order/removal operations; target selection always comes from the main-process native picker and no renderer launch operation is registered
+- `app-launcher-types.ts`: Path-free launcher snapshot contract exposed to the Control Center renderer
 - `preference-patch.ts`: Pure validation of Control Center preference patches (`validatePreferencePatch`/`PreferencePatch`) for the `update-preferences` IPC path, including waiting animation duration, idle cursor gaze, `petCrossDisplayEnabled`, and Pet Assistant personality fields; consumed by `windows.ts`
 - `assets.ts`: Tray icon loading with generated fallback
 - `display.ts`: Screen geometry helpers, pet window positioning
@@ -374,7 +378,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-window-interaction.ts`: Per-window interaction controller owning mouse passthrough, drag and renderer lifecycle IPC, recovery/watchdog timers, dragging state, and process-wide speech-completion subscriptions
 - `wayland-layer-backend.ts`: Electron adapter that owns the native helper process/socket, reconnect generations, timers, frame scheduling, `NativeImage` conversion, renderer pointer replay, drag/menu behavior, and patched pet-window methods
 - `wayland-layer-protocol.ts`: Electron-free layer-shell wire encoders, incremental helper-message decoder, transparent BGRA cropping, and pointer button/coordinate mapping
-- `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, scale/flip actions, Outfit submenu (always-wear/automatic choice plus "Edit Wardrobe…" deep link) for pets with a wardrobe, plugin command layout (root commands grouped per plugin above the plugin submenus), and plugin command form handling
+- `pet-window-context-menu.ts`: Native/layer-shell pet context-menu lifecycle, explicit-click app launcher submenu on the default pet, scale/flip actions, Outfit submenu (always-wear/automatic choice plus "Edit Wardrobe…" deep link) for pets with a wardrobe, plugin command layout (root commands grouped per plugin above the plugin submenus), and plugin command form handling
 - `pet-window-gaze.ts`: Shared preference-gated, movement-driven V2 idle cursor-glance controller; active glances select static gaze cells while expiration, dead-zone, and disable reset the sprite to animated idle, including custom manifest gaze-anchor geometry and flipped gaze IPC updates
 - `default-pet-chat.ts`: Host-side in-pet chat and Manager Check-in coordinator managing expanded/collapsed carrier states, IPC authorization, conversation transcript streams, Talk subscriptions, and the private check-in card lifecycle
 - `pet-transient-duration.ts`: Pure display duration for transient bubbles/reactions: reading time from message length, scaled by the speech bubble duration preference; explicit caller and media durations unchanged

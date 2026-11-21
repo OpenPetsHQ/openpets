@@ -33,6 +33,12 @@ const api = {
     return ipcRenderer.invoke("openpets:manager-check-ins-set-device-paused", paused);
   },
   getSettingsState: () => ipcRenderer.invoke("openpets:get-settings-state"),
+  getAppLaunchers: () => ipcRenderer.invoke("openpets:app-launchers-get"),
+  addAppLauncher: (name) => ipcRenderer.invoke("openpets:app-launcher-add", name),
+  renameAppLauncher: (id, name) => ipcRenderer.invoke("openpets:app-launcher-rename", id, name),
+  changeAppLauncherTarget: (id) => ipcRenderer.invoke("openpets:app-launcher-change-target", id),
+  moveAppLauncher: (id, direction) => ipcRenderer.invoke("openpets:app-launcher-move", id, direction),
+  removeAppLauncher: (id) => ipcRenderer.invoke("openpets:app-launcher-remove", id),
   getVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-get"),
   refreshVoiceDevices: () => ipcRenderer.invoke("openpets:voice-devices-refresh"),
   saveVoiceDevicePreferences: (preferences) => ipcRenderer.invoke("openpets:voice-devices-save-preferences", preferences),

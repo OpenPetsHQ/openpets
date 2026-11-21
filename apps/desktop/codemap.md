@@ -21,6 +21,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
   - Pinned pets (user-owned windows, persistent across launches, independent of leases and plugins)
   - Built-in fallback pet (bundled spritesheet)
   - Speech bubbles with reaction messages and status badges
+  - Main-process-owned local app launchers with native pickers, per-click startup, and no renderer path or agent-control capability
   - User-configurable reaction-to-animation mapping
 - **Lease Manager**: 15s TTL leases for agent pet routing with heartbeat renewal
 - **Logging**: Structured logging with scopes, including `voice` and `provider`, log rotation (2MB max), and sensitive data redaction
@@ -37,7 +38,7 @@ OpenPets desktop companion application. Tray-first Electron app providing animat
 
 **Agent Setup**: UI → `agent-setup.ts` → Claude/OpenCode/Cursor/Zed/Devin setup or OpenClaw version/list/inspect discovery → MCP/config/hooks changes or native OpenClaw install/update/enable/remove → post-action status refresh
 
-**Control Center**: Tray route → `openControlCenterWindow(route)` → `windows.ts` loads Vite renderer and sends route events → `control-center-preload.cjs` exposes narrow page APIs → React Dashboard/Pets/Integrations/Plugins/Settings/Teams routes render snapshots and invoke actions, including host-owned personality preferences, conversation archive management (list, single-delete, clear), atomic provider configuration saves, and Manager Check-ins sync/history/pause controls. Manager Check-in submission is owned by the private pet card, not Control Center.
+**Control Center**: Tray route → `openControlCenterWindow(route)` → `windows.ts` loads Vite renderer and sends route events → `control-center-preload.cjs` exposes narrow page APIs → React Dashboard/Pets/Integrations/Plugins/Settings/Teams routes render snapshots and invoke actions, including host-owned personality preferences, conversation archive management (list, single-delete, clear), atomic provider configuration saves, local app launcher management, and Manager Check-ins sync/history/pause controls. Launcher targets stay in the main process; the renderer can open the native picker, rename/reorder/remove entries, but cannot select an arbitrary path or request a launch. Manager Check-in submission is owned by the private pet card, not Control Center.
 
 **Plugins**: Control Center plugins route → `plugin-service.ts` → catalog or local manifest/entry loader → permission approval/state update → `plugin-runtime.ts` schedules declarative timers or starts `plugin-js-host.ts` → `plugin-sdk-bridge.ts` applies approved SDK calls to pet/schedule/storage/command/status/network APIs
 
