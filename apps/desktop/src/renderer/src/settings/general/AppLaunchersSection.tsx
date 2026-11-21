@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 
+import { reconcileAppLauncherDraftNames } from "../../../../app-launcher-draft-names.js";
 import type { AppLauncherSnapshotEntry } from "../../../../app-launcher-types.js";
 import { useI18n } from "../../i18n.js";
 import { Button } from "../../components/ui/Button.js";
@@ -31,13 +32,16 @@ export function AppLaunchersSection({ api }: { readonly api: AppLauncherControlC
     return () => { active = false; };
   }, [api, t]);
 
-  async function run(operation: () => Promise<readonly AppLauncherSnapshotEntry[]>): Promise<readonly AppLauncherSnapshotEntry[] | undefined> {
+  async function run(
+    operation: () => Promise<readonly AppLauncherSnapshotEntry[]>,
+    savedEntryId?: string,
+  ): Promise<readonly AppLauncherSnapshotEntry[] | undefined> {
     setBusy(true);
     setError("");
     try {
       const next = await operation();
       setEntries(next);
-      setDraftNames(Object.fromEntries(next.map((entry) => [entry.id, entry.name])));
+      setDraftNames((current) => reconcileAppLauncherDraftNames(current, next, savedEntryId));
       return next;
     } catch {
       setError(t("settings.launchers.error"));
@@ -140,7 +144,7 @@ export function AppLaunchersSection({ api }: { readonly api: AppLauncherControlC
                   variant="secondary"
                   size="compact"
                   disabled={busy || !nameChanged || !draftName.trim()}
-                  onClick={() => void run(() => api.renameAppLauncher(entry.id, draftName))}
+                  onClick={() => void run(() => api.renameAppLauncher(entry.id, draftName), entry.id)}
                 >
                   {t("settings.launchers.save")}
                 </Button>
