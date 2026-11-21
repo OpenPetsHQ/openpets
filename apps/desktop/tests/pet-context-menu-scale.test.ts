@@ -206,8 +206,9 @@ try {
     click: () => {},
     defaultPet: true,
   });
+  assert.equal(liveMenu[0]?.label, "App launcher", "the configurable launcher leads the default-pet menu");
   assert.deepEqual(
-    liveMenu.slice(0, 5).map((item) => item.type === "separator" ? "---" : item.label),
+    liveMenu.slice(1, 6).map((item) => item.type === "separator" ? "---" : item.label),
     ["Pause timer", "Cancel timer", "---", "End focus session", "---"],
     "root actions are grouped per plugin and separated from the rest of the menu",
   );
