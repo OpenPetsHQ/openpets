@@ -27,7 +27,7 @@
     }
   },
   "scripts": {
-    "test": "node dist/check-cli-contract.js",
+    "test": "node dist/check-cli-contract.js && node dist/check-cli-mcp-shutdown.js",
     "check": "pnpm typecheck && pnpm build && pnpm test",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
